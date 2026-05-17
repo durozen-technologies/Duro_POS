@@ -83,6 +83,19 @@ type BottomNavProps = {
   bottomOffset: number;
 };
 
+type TopAppBarProps = {
+  shopName: string;
+  onShopPress: () => void;
+  periodLabel: string;
+  onPeriodPress: () => void;
+  palette: ThemePalette;
+  topInset: number;
+  isOffline?: boolean;
+  onThemeToggle?: () => void;
+  isDark?: boolean;
+  onRefresh?: () => void;
+};
+
 function CountUpText({
   value,
   formatter,
@@ -548,11 +561,11 @@ export const BottomNav = memo(function BottomNav({
     <View
       style={[
         styles.bottomNavWrap,
-        adminShadow(palette.shadow, 0.12, 14, 20),
+        adminShadow(palette.shadow, 0.14, 20, 28),
         {
           backgroundColor: palette.navBackdrop,
-          borderColor: palette.border,
-          bottom: bottomOffset,
+          borderColor: palette.glassBorder,
+          bottom: bottomOffset + 8,
         },
       ]}
     >
@@ -564,20 +577,86 @@ export const BottomNav = memo(function BottomNav({
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={item.label}
-            onPress={() => onSelect(item.key)}
+            onPress={() => {
+              triggerHaptic(Haptics.ImpactFeedbackStyle.Light);
+              onSelect(item.key);
+            }}
             style={styles.bottomNavItem}
           >
             {active ? <View style={[styles.activeNavIndicator, { backgroundColor: palette.emeraldSoft }]} /> : null}
-            <MaterialCommunityIcons name={item.icon} size={20} color={active ? palette.emerald : palette.textMuted} />
-            <Text
-              numberOfLines={1}
-              style={[styles.bottomNavLabel, { color: active ? palette.emerald : palette.textMuted }]}
-            >
-              {item.label}
-            </Text>
+            <MaterialCommunityIcons
+              name={item.icon}
+              size={22}
+              color={active ? palette.emerald : palette.textMuted}
+            />
+            {active ? (
+              <Text style={[styles.bottomNavLabel, { color: palette.emerald }]}>{item.label}</Text>
+            ) : null}
           </Pressable>
         );
       })}
+    </View>
+  );
+});
+
+// ─── TOP APP BAR ────────────────────────────────────────────────────
+export const TopAppBar = memo(function TopAppBar({
+  shopName,
+  onShopPress,
+  periodLabel,
+  onPeriodPress,
+  palette,
+  topInset,
+  isOffline = false,
+  onThemeToggle,
+  isDark = false,
+  onRefresh,
+}: TopAppBarProps) {
+  return (
+    <View
+      style={[
+        styles.topAppBar,
+        adminShadow(palette.shadow, 0.04, 6, 10),
+        { paddingTop: topInset + 10, backgroundColor: palette.background, borderBottomColor: palette.border },
+      ]}
+    >
+      {/* LEFT: Shop + Period stacked */}
+      <View style={styles.topAppLeft}>
+        <Pressable onPress={onShopPress} style={styles.topAppShopRow} accessibilityRole="button" accessibilityLabel="Switch branch">
+          <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.emerald} />
+          <Text style={[styles.topAppShopName, { color: palette.textPrimary }]} numberOfLines={1}>{shopName}</Text>
+          <MaterialCommunityIcons name="chevron-down" size={18} color={palette.textMuted} />
+        </Pressable>
+        <Pressable onPress={onPeriodPress} style={styles.topAppPeriodRow} accessibilityRole="button" accessibilityLabel="Change analytics period">
+          <View style={[styles.liveDot, { backgroundColor: isOffline ? palette.gold : palette.success }]} />
+          <Text style={[styles.topAppPeriodText, { color: palette.textMuted }]}>{periodLabel}</Text>
+          <MaterialCommunityIcons name="chevron-down" size={14} color={palette.textMuted} />
+        </Pressable>
+      </View>
+
+      {/* RIGHT: Action icons */}
+      <View style={styles.topAppActions}>
+        <Pressable
+          onPress={onRefresh}
+          style={[styles.topAppIconBtn, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
+        >
+          <MaterialCommunityIcons name="refresh" size={19} color={palette.textPrimary} />
+        </Pressable>
+        <Pressable
+          onPress={onThemeToggle}
+          style={[styles.topAppIconBtn, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
+          accessibilityRole="button"
+          accessibilityLabel={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          <MaterialCommunityIcons
+            name={isDark ? "white-balance-sunny" : "weather-night"}
+            size={19}
+            color={palette.textPrimary}
+          />
+        </Pressable>
+      </View>
     </View>
   );
 });
@@ -828,11 +907,11 @@ const styles = StyleSheet.create({
   },
   bottomNavWrap: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    borderRadius: 18,
+    left: 20,
+    right: 20,
+    borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 6,
     flexDirection: "row",
     justifyContent: "space-between",
@@ -843,21 +922,76 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
-    minHeight: 44,
+    gap: 3,
+    minHeight: 56,
     paddingHorizontal: 4,
+    borderRadius: 999,
   },
   activeNavIndicator: {
     position: "absolute",
-    top: 3,
-    width: 40,
-    height: 30,
-    borderRadius: 10,
+    top: 4,
+    bottom: 4,
+    left: 6,
+    right: 6,
+    borderRadius: 999,
   },
   bottomNavLabel: {
     fontSize: 10,
-    fontWeight: "600",
+    fontWeight: "700",
     textAlign: "center",
     letterSpacing: 0.2,
+  },
+  // Top App Bar
+  topAppBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    zIndex: 20,
+  },
+  topAppLeft: {
+    flex: 1,
+    gap: 4,
+    marginRight: 12,
+  },
+  topAppShopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  topAppShopName: {
+    fontSize: 19,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    flexShrink: 1,
+  },
+  topAppPeriodRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  topAppPeriodText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  topAppActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  topAppIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
   },
 });

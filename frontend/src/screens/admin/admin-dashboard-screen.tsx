@@ -45,6 +45,7 @@ import {
   SearchField,
   SectionCard,
   ToastBanner,
+  TopAppBar,
 } from "./components/admin-dashboard-primitives";
 import {
   PriceUpdateSheet,
@@ -908,8 +909,8 @@ export function AdminDashboardScreen() {
   }
 
   const bottomNavOffset = 12 + insets.bottom;
-  const fabOffset = 92 + insets.bottom;
-  const bottomSpacer = 126 + insets.bottom;
+  const fabOffset = 100 + insets.bottom;
+  const bottomSpacer = 160 + insets.bottom;
 
   if (loading && shops.length === 0) {
     return <DashboardSkeleton palette={palette} />;
@@ -934,17 +935,118 @@ export function AdminDashboardScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["left", "right"]}>
       <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+
+      <TopAppBar
+        shopName={selectedShopName}
+        onShopPress={toggleShopSelector}
+        periodLabel={analyticsReferenceLabel}
+        onPeriodPress={toggleReferencePicker}
+        palette={palette}
+        topInset={insets.top}
+        isOffline={isOfflineSnapshot}
+        isDark={colorScheme === "dark"}
+        onThemeToggle={handleToggleTheme}
+        onRefresh={handleQuickRefresh}
+      />
 
       <ToastBanner toast={toast} palette={palette} animatedValue={toastAnimation} />
 
+      {/* Shop selector dropdown */}
+      {shopSelectorOpen ? (
+        <View
+          style={[
+            styles.floatingDropdown,
+            adminShadow(palette.shadow, 0.08, 12, 18),
+            { backgroundColor: palette.card, borderColor: palette.border, top: insets.top + 82 },
+          ]}
+        >
+          <Pressable onPress={() => handleSelectShop(null)} style={styles.selectorOption}>
+            <View style={styles.selectorOptionContent}>
+              <View style={[styles.selectorOptionIcon, { backgroundColor: palette.surfaceMuted }]}>
+                <MaterialCommunityIcons name="domain" size={16} color={palette.emerald} />
+              </View>
+              <View style={styles.selectorOptionText}>
+                <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>All Branches</Text>
+                <Text style={[styles.selectorOptionSubtitle, { color: palette.textMuted }]}>Network-wide analytics</Text>
+              </View>
+            </View>
+            {!selectedShopId ? <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} /> : null}
+          </Pressable>
+          {shops.map((shop) => (
+            <Pressable key={shop.id} onPress={() => handleSelectShop(shop.id)} style={styles.selectorOption}>
+              <View style={styles.selectorOptionContent}>
+                <View style={[styles.selectorOptionIcon, { backgroundColor: palette.surfaceMuted }]}>
+                  <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.emerald} />
+                </View>
+                <View style={styles.selectorOptionText}>
+                  <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>{shop.name}</Text>
+                  <Text style={[styles.selectorOptionSubtitle, { color: palette.textMuted }]}>
+                    {shop.code} · {shop.is_active ? "Active" : "Disabled"}
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.selectorOptionStatusChip, { backgroundColor: shop.is_active ? palette.successSoft : palette.dangerSoft }]}>
+                <Text style={[styles.selectorOptionStatusText, { color: shop.is_active ? palette.success : palette.danger }]}>
+                  {shop.is_active ? "Active" : "Off"}
+                </Text>
+              </View>
+              {selectedShopId === shop.id ? <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {/* Reference period picker dropdown */}
+      {referencePickerOpen ? (
+        <View
+          style={[
+            styles.floatingDropdown,
+            adminShadow(palette.shadow, 0.08, 12, 18),
+            { backgroundColor: palette.card, borderColor: palette.border, top: insets.top + 82 },
+          ]}
+        >
+          <View style={[styles.segmentRow, { padding: 12 }]}>
+            {PERIOD_OPTIONS.map((option) => {
+              const active = analyticsPeriod === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => handleSelectPeriod(option.key)}
+                  style={[
+                    styles.segmentButton,
+                    { backgroundColor: active ? palette.emerald : palette.surfaceMuted, borderColor: active ? palette.emerald : palette.border },
+                  ]}
+                >
+                  <Text style={[styles.segmentText, { color: active ? "#FFFFFF" : palette.textSecondary }]}>{option.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {analyticsReferenceOptions.map((option) => (
+            <Pressable
+              key={option.value}
+              onPress={() => handleSelectReferenceDate(option.value)}
+              style={[
+                styles.referenceOption,
+                option.value === analyticsReferenceDate && { backgroundColor: palette.emeraldSoft },
+              ]}
+            >
+              <Text style={[styles.referenceOptionText, { color: palette.textPrimary }]}>{option.label}</Text>
+              {option.value === analyticsReferenceDate ? (
+                <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} />
+              ) : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: bottomSpacer }}
-        stickyHeaderIndices={[2]}
-        onScroll={(event) => handleScrollNavigation(event.nativeEvent.contentOffset.y)}
-        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomSpacer }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -955,479 +1057,83 @@ export function AdminDashboardScreen() {
           />
         }
       >
-        <View onLayout={(event) => updateSectionOffset("dashboard", event.nativeEvent.layout.y)}>
-          <View
-            style={[
-              styles.heroCard,
-              adminShadow(palette.shadow, 0.08, 12, 18),
-              { backgroundColor: palette.card, borderColor: palette.border },
-            ]}
-          >
-            <View style={[styles.heroAccentBar, { backgroundColor: palette.emerald }]} />
-
-            <View style={styles.heroTopRow}>
-              <View style={[styles.heroBadge, { backgroundColor: palette.emeraldSoft, borderColor: palette.emerald }]}>
-                <Text style={[styles.heroBadgeText, { color: palette.emeraldDark }]}>Admin Dashboard</Text>
-              </View>
-              <View style={styles.heroActions}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={colorScheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                  onPress={handleToggleTheme}
-                  style={[styles.iconButton, styles.heroIconButton, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
-                >
-                  <MaterialCommunityIcons
-                    name={colorScheme === "dark" ? "white-balance-sunny" : "weather-night"}
-                    size={18}
-                    color={palette.textPrimary}
-                  />
-                </Pressable>
-                {/* <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Show notifications"
-                  onPress={() => showToast("success", severeLogsCount > 0 ? `${severeLogsCount} alerts need review.` : "No new critical notifications.")}
-                  style={[styles.iconButton, styles.heroIconButton, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
-                >
-                  <MaterialCommunityIcons name="bell-outline" size={18} color={palette.textPrimary} />
-                </Pressable> */}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Refresh dashboard"
-                  onPress={handleQuickRefresh}
-                  style={[styles.iconButton, styles.heroIconButton, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
-                >
-                  <MaterialCommunityIcons name="refresh" size={18} color={palette.textPrimary} />
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Logout"
-                  onPress={handleLogout}
-                  style={[styles.iconButton, styles.heroIconButton, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
-                >
-                  <MaterialCommunityIcons name="logout" size={18} color={palette.textPrimary} />
-                </Pressable>
-              </View>
-            </View>
-
-            <Text style={[styles.heroTitle, { color: heroPrimaryTextColor }]}>Billing Operations Overview</Text>
-            <Text style={[styles.heroSubtitle, { color: heroSecondaryTextColor }]}>
-              Calm, real-time control for branches, pricing, and daily business performance.
-            </Text>
-
-            <View style={styles.heroFooter}>
-              <View style={styles.heroChipRow}>
-                <View style={[styles.liveChip, styles.heroIconButton, { backgroundColor: palette.goldSoft, borderColor: palette.border }]}>
-                  <View style={[styles.liveDot, { backgroundColor: isOfflineSnapshot ? palette.gold : "#86EFAC" }]} />
-                  <Text style={[styles.liveChipText, { color: heroPrimaryTextColor }]}>
-                    {isOfflineSnapshot ? "Offline snapshot" : "Live sync"} {lastSyncAt ? formatRelativeTime(lastSyncAt) : ""}
-                  </Text>
-                </View>
-                <View style={[styles.focusChip, styles.heroIconButton, { backgroundColor: palette.emeraldSoft, borderColor: palette.border }]}>
-                  <Text style={[styles.focusChipLabel, { color: heroLabelTextColor }]}>Current scope</Text>
-                  <Text style={[styles.focusChipValue, { color: heroPrimaryTextColor }]}>{selectedShopName}</Text>
-                </View>
-              </View>
-              <View style={styles.heroHighlightRow}>
-                <View style={[styles.heroHighlightCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                  <Text style={[styles.heroHighlightLabel, { color: palette.textMuted }]}>Top Branch</Text>
-                  <Text style={[styles.heroHighlightValue, { color: palette.textPrimary }]}>
-                    {topShop ? topShop.shop.name : "No sales yet"}
-                  </Text>
-                </View>
-                <View style={[styles.heroHighlightCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                  <Text style={[styles.heroHighlightLabel, { color: palette.textMuted }]}>Analytics range</Text>
-                  <Text style={[styles.heroHighlightValue, { color: palette.textPrimary }]}>{analyticsReferenceLabel}</Text>
-                </View>
-              </View>
-            </View>
+        {dashboardError && shops.length > 0 ? (
+          <View style={[styles.inlineBanner, { backgroundColor: palette.goldSoft, borderColor: palette.gold, marginBottom: 12 }]}>
+            <MaterialCommunityIcons name="wifi-alert" size={18} color={palette.cash} />
+            <Text style={[styles.inlineBannerText, { color: palette.textPrimary }]}>{dashboardError}</Text>
           </View>
-        </View>
+        ) : null}
 
-        <View style={styles.selectorStack}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Choose shop focus"
-            onPress={toggleShopSelector}
-            style={[
-              styles.selectorCard,
-              adminShadow(palette.shadow, 0.05, 8, 16),
-              { backgroundColor: palette.card, borderColor: palette.border },
-            ]}
-          >
-            <View style={styles.selectorHeader}>
-              <View style={styles.selectorHeaderText}>
-                <Text style={[styles.selectorLabel, { color: palette.textMuted }]}>Current Branch</Text>
-                <View style={[styles.selectorModeChip, { backgroundColor: palette.emeraldSoft }]}>
-                  <Text style={[styles.selectorModeChipText, { color: palette.emeraldDark }]}>
-                    {selectedShopId ? "Focused" : "All Branches"}
+        {/* â”€â”€ DASHBOARD TAB â”€â”€ */}
+        {activeNav === "dashboard" ? (
+          <View style={{ gap: 14 }}>
+            <View style={[styles.sectionCard, adminShadow(palette.shadow, 0.05, 8, 16), { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <View style={[styles.sectionHeader, { paddingHorizontal: 0, paddingTop: 0 }]}>
+                <View style={styles.sectionHeaderText}>
+                  <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Performance Snapshot</Text>
+                  <Text style={[styles.sectionSubtitle, { color: palette.textMuted }]}>
+                    {selectedShopId ? `${selectedShopName} · ${analyticsReferenceLabel}` : `All branches · ${analyticsReferenceLabel}`}
+                  </Text>
+                </View>
+                <View style={styles.sectionBadge}>
+                  <Text style={[styles.sectionBadgeText, { color: palette.emeraldDark, backgroundColor: palette.emeraldSoft }]}>
+                    {visibleBills.length} bills
                   </Text>
                 </View>
               </View>
-              <View style={[styles.selectorChevronWrap, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                <MaterialCommunityIcons
-                  name={shopSelectorOpen ? "chevron-up" : "chevron-down"}
-                  size={18}
-                  color={palette.textPrimary}
-                />
-              </View>
-            </View>
-            <View style={styles.selectorBody}>
-              <View style={[styles.selectorIconWrap, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                <MaterialCommunityIcons
-                  name={selectedShopId ? "store-marker-outline" : "domain"}
-                  size={18}
-                  color={palette.emerald}
-                />
-              </View>
-              <View style={styles.selectorBodyText}>
-                <Text style={[styles.selectorValue, { color: palette.textPrimary }]}>{selectedShopName}</Text>
-                <Text style={[styles.selectorHint, { color: palette.textSecondary }]}>
-                  Switch between one branch view and the full network without losing context.
-                </Text>
-              </View>
-            </View>
-          </Pressable>
 
-          {shopSelectorOpen ? (
-            <View
-              style={[
-                styles.selectorDropdown,
-                adminShadow(palette.shadow, 0.05, 8, 14),
-                { backgroundColor: palette.card, borderColor: palette.border },
-              ]}
-            >
-              <Pressable onPress={() => handleSelectShop(null)} style={styles.selectorOption}>
-                <View style={styles.selectorOptionContent}>
-                  <View style={[styles.selectorOptionIcon, { backgroundColor: palette.surfaceMuted }]}>
-                    <MaterialCommunityIcons name="domain" size={16} color={palette.emerald} />
-                  </View>
-                  <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>All Branches</Text>
-                  <Text style={[styles.selectorOptionSubtitle, { color: palette.textMuted }]}>Network-wide analytics</Text>
-                </View>
-                {!selectedShopId ? <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} /> : null}
-              </Pressable>
-
-              {shops.map((shop) => (
-                <Pressable key={shop.id} onPress={() => handleSelectShop(shop.id)} style={styles.selectorOption}>
-                  <View style={styles.selectorOptionContent}>
-                    <View style={[styles.selectorOptionIcon, { backgroundColor: palette.surfaceMuted }]}>
-                      <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.emerald} />
-                    </View>
-                    <View style={styles.selectorOptionText}>
-                      <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>{shop.name}</Text>
-                      <Text style={[styles.selectorOptionSubtitle, { color: palette.textMuted }]}>
-                        {shop.code} · {shop.is_active ? "Active" : "Disabled"}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.selectorOptionState}>
+              <View style={styles.sectionBody}>
+                <View style={styles.metricContextRow}>
+                  {metricContextItems.map((item) => (
                     <View
-                      style={[
-                        styles.selectorOptionStatusChip,
-                        { backgroundColor: shop.is_active ? palette.successSoft : palette.dangerSoft },
-                      ]}
+                      key={item.key}
+                      style={[styles.metricContextPill, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
                     >
-                      <Text
-                        style={[
-                          styles.selectorOptionStatusText,
-                          { color: shop.is_active ? palette.success : palette.danger },
-                        ]}
-                      >
-                        {shop.is_active ? "Active" : "Disabled"}
-                      </Text>
+                      <MaterialCommunityIcons
+                        name={item.icon as React.ComponentProps<typeof MaterialCommunityIcons>["name"]}
+                        size={14}
+                        color={palette.emerald}
+                      />
+                      <Text style={[styles.metricContextLabel, { color: palette.textMuted }]}>{item.label}</Text>
+                      <Text numberOfLines={1} style={[styles.metricContextValue, { color: palette.textPrimary }]}>{item.value}</Text>
                     </View>
-                    {selectedShopId === shop.id ? <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} /> : null}
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-
-          {dashboardError && shops.length > 0 ? (
-            <View style={[styles.inlineBanner, { backgroundColor: palette.goldSoft, borderColor: palette.gold }]}>
-              <MaterialCommunityIcons name="wifi-alert" size={18} color={palette.cash} />
-              <Text style={[styles.inlineBannerText, { color: palette.textPrimary }]}>{dashboardError}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={[styles.toolbarWrap, { backgroundColor: palette.background }]}>
-          <View
-            style={[
-              styles.toolbarCard,
-              adminShadow(palette.shadow, 0.05, 8, 16),
-              { backgroundColor: palette.card, borderColor: palette.border },
-            ]}
-          >
-            <View style={styles.toolbarHeader}>
-              <Text style={[styles.toolbarTitle, { color: palette.textPrimary }]}>Analytics Range</Text>
-            </View>
-
-            <View style={styles.segmentRow}>
-              {PERIOD_OPTIONS.map((option) => {
-                const active = analyticsPeriod === option.key;
-                return (
-                  <Pressable
-                    key={option.key}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    accessibilityLabel={`View ${option.label.toLowerCase()} analytics`}
-                    onPress={() => handleSelectPeriod(option.key)}
-                    style={[
-                      styles.segmentButton,
-                      {
-                        backgroundColor: active ? palette.emerald : palette.surfaceMuted,
-                        borderColor: active ? palette.emerald : palette.border,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.segmentText, { color: active ? "#FFFFFF" : palette.textSecondary }]}>{option.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Choose ${analyticsPeriod} data`}
-              onPress={toggleReferencePicker}
-              style={[
-                styles.referenceSelector,
-                {
-                  backgroundColor: palette.surfaceMuted,
-                  borderColor: palette.border,
-                },
-              ]}
-            >
-              <View style={styles.referenceSelectorText}>
-                <Text style={[styles.referenceSelectorLabel, { color: palette.textMuted }]}>
-                  Selected {analyticsPeriod}
-                </Text>
-                <Text style={[styles.referenceSelectorValue, { color: palette.textPrimary }]}>
-                  {analyticsReferenceLabel}
-                </Text>
-              </View>
-              <MaterialCommunityIcons
-                name={referencePickerOpen ? "chevron-up" : "chevron-down"}
-                size={18}
-                color={palette.textSecondary}
-              />
-            </Pressable>
-
-            {referencePickerOpen ? (
-              <View
-                style={[
-                  styles.referenceDropdown,
-                  {
-                    backgroundColor: palette.card,
-                    borderColor: palette.border,
-                  },
-                ]}
-              >
-                {analyticsReferenceOptions.map((option) => (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => handleSelectReferenceDate(option.value)}
-                    style={[
-                      styles.referenceOption,
-                      option.value === analyticsReferenceDate && {
-                        backgroundColor: palette.emeraldSoft,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.referenceOptionText, { color: palette.textPrimary }]}>
-                      {option.label}
-                    </Text>
-                    {option.value === analyticsReferenceDate ? (
-                      <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} />
-                    ) : null}
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        </View>
-
-        <SectionCard
-          title="Performance Snapshot"
-          subtitle={
-            selectedShopId
-              ? `${selectedShopName} performance for ${analyticsReferenceLabel}.`
-              : `Network-wide performance for ${analyticsReferenceLabel}.`
-          }
-          action={
-            <View style={styles.sectionBadge}>
-              <Text style={[styles.sectionBadgeText, { color: palette.emeraldDark, backgroundColor: palette.emeraldSoft }]}>
-                {visibleBills.length} bills
-              </Text>
-            </View>
-          }
-          palette={palette}
-        >
-          <View style={styles.sectionBody}>
-            <View style={styles.metricContextRow}>
-              {metricContextItems.map((item) => (
-                <View
-                  key={item.key}
-                  style={[styles.metricContextPill, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
-                >
-                  <MaterialCommunityIcons
-                    name={item.icon as React.ComponentProps<typeof MaterialCommunityIcons>["name"]}
-                    size={14}
-                    color={palette.emerald}
-                  />
-                  <Text style={[styles.metricContextLabel, { color: palette.textMuted }]}>{item.label}</Text>
-                  <Text numberOfLines={1} style={[styles.metricContextValue, { color: palette.textPrimary }]}>
-                    {item.value}
-                  </Text>
+                  ))}
                 </View>
-              ))}
-            </View>
 
-            {visibleBills.length === 0 ? (
-              <View style={[styles.metricEmptyState, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                <MaterialCommunityIcons name="chart-timeline-variant" size={16} color={palette.textMuted} />
-                <Text style={[styles.metricEmptyStateText, { color: palette.textSecondary }]}>
-                  No billing activity is available for this filter yet. The cards stay visible so you can confirm the scope quickly.
-                </Text>
-              </View>
-            ) : null}
-
-            <View style={[styles.metricGrid, useCompactMetricCards && styles.metricGridCompact]}>
-              {metricCards.map((metric) => (
-                <MetricCard
-                  key={metric.key}
-                  label={metric.label}
-                  value={metric.value}
-                  formatter={metric.formatter}
-                  note={metric.note}
-                  noteIcon={metric.noteIcon}
-                  icon={metric.icon}
-                  accent={metric.accent}
-                  accentSoft={metric.accentSoft}
-                  sparklineLabel={metric.sparklineLabel}
-                  sparklineValues={metric.sparklineValues}
-                  fullWidth={useCompactMetricCards}
-                  palette={palette}
-                />
-              ))}
-            </View>
-          </View>
-        </SectionCard>
-
-        <View onLayout={(event) => updateSectionOffset("inventory", event.nativeEvent.layout.y)}>
-          <SectionCard
-            title="Items Sold"
-            subtitle="Fast-moving items first, cleaner search, and compact sales visibility."
-            collapsed={collapsedSections.inventory}
-            onToggle={() => toggleSection("inventory")}
-            action={
-              <View style={styles.sectionBadge}>
-                <Text style={[styles.sectionBadgeText, { color: palette.emeraldDark, backgroundColor: palette.emeraldSoft }]}>
-                  {filteredItemSales.length} items
-                </Text>
-              </View>
-            }
-            palette={palette}
-          >
-            <View style={styles.sectionBody}>
-              <SearchField
-                value={itemSearch}
-                onChangeText={setItemSearch}
-                placeholder="Search items"
-                accessibilityLabel="Search sold items"
-                palette={palette}
-              />
-              {filteredItemSales.length === 0 ? (
-                <EmptyStateCard
-                  title="No item movement found"
-                  subtitle="Try a different branch or search term to find item sales."
-                  actionLabel="Clear Search"
-                  onAction={() => setItemSearch("")}
-                  icon="food-off-outline"
-                  palette={palette}
-                />
-              ) : (
-                <View style={styles.cardStack}>
-                  {filteredItemSales.slice(0, collapsedSections.inventory ? 0 : 8).map((item, index) => {
-                    const itemTotal = money(item.total_amount).toNumber();
-                    const isHot = itemTotal >= itemRevenueAverage;
-                    return (
-                      <Pressable
-                        key={item.item_id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${item.item_name} sold ${getUnitLabel(item.base_unit, item.quantity_sold)} for ${formatCurrency(item.total_amount)}`}
-                        onPress={() => triggerHaptic()}
-                        style={({ pressed }) => [
-                          styles.itemCard,
-                          adminShadow(palette.shadow, 0.04, 8, 14),
-                          {
-                            backgroundColor: palette.surfaceMuted,
-                            borderColor: palette.border,
-                            transform: [{ scale: pressed ? 0.995 : 1 }],
-                          },
-                        ]}
-                      >
-                        <View style={[styles.itemIconWrap, { backgroundColor: palette.card }]}>
-                          <MaterialCommunityIcons name="food-drumstick-outline" size={18} color={palette.emerald} />
-                        </View>
-                        <View style={styles.itemContent}>
-                          <View style={styles.itemHeader}>
-                            <View style={styles.itemTextWrap}>
-                              <Text style={[styles.itemTitle, { color: palette.textPrimary }]}>{item.item_name}</Text>
-                              <Text style={[styles.itemSubtitle, { color: palette.textMuted }]}>
-                                {getUnitLabel(item.base_unit, item.quantity_sold)} · {item.bill_count} bills
-                              </Text>
-                            </View>
-                            <View
-                              style={[
-                                styles.stateChip,
-                                {
-                                  backgroundColor: isHot ? palette.successSoft : palette.goldSoft,
-                                },
-                              ]}
-                            >
-                              <MaterialCommunityIcons
-                                name={isHot ? "trending-up" : "trending-neutral"}
-                                size={14}
-                                color={isHot ? palette.success : palette.cash}
-                              />
-                              <Text style={[styles.stateChipText, { color: isHot ? palette.success : palette.cash }]}>
-                                {isHot ? "Hot" : "Steady"}
-                              </Text>
-                            </View>
-                          </View>
-                          <Text style={[styles.itemAmount, { color: palette.textPrimary }]}>{formatCurrency(item.total_amount)}</Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
+                <View style={[styles.metricGrid, useCompactMetricCards && styles.metricGridCompact]}>
+                  {metricCards.map((metric) => (
+                    <MetricCard
+                      key={metric.key}
+                      label={metric.label}
+                      value={metric.value}
+                      formatter={metric.formatter}
+                      note={metric.note}
+                      noteIcon={metric.noteIcon}
+                      icon={metric.icon}
+                      accent={metric.accent}
+                      accentSoft={metric.accentSoft}
+                      sparklineLabel={metric.sparklineLabel}
+                      sparklineValues={metric.sparklineValues}
+                      fullWidth={useCompactMetricCards}
+                      palette={palette}
+                    />
+                  ))}
                 </View>
-              )}
+              </View>
             </View>
-          </SectionCard>
-        </View>
 
-        <View onLayout={(event) => updateSectionOffset("reports", event.nativeEvent.layout.y)}>
-          <SectionCard
-            title="Performance Snapshot"
-            subtitle="Cleaner business signals with less visual clutter and faster scanning."
-            collapsed={collapsedSections.reports}
-            onToggle={() => toggleSection("reports")}
-            palette={palette}
-          >
+            {/* Reports mini-cards */}
             <View style={styles.reportGrid}>
-              <View style={[styles.reportCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+              <View style={[styles.reportCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
                 <Text style={[styles.reportLabel, { color: palette.textMuted }]}>Top Branch</Text>
                 <Text style={[styles.reportValue, { color: palette.textPrimary }]}>{topShop ? topShop.shop.name : "No sales yet"}</Text>
                 <Text style={[styles.reportHint, { color: palette.textSecondary }]}>
-                  {topShop ? formatCurrency(topShop.totalSales) : "Revenue ranking appears once billing starts."}
+                  {topShop ? formatCompactCurrency(topShop.totalSales) : "Ranking appears once billing starts."}
                 </Text>
               </View>
-
-              <View style={[styles.reportCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+              <View style={[styles.reportCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
                 <Text style={[styles.reportLabel, { color: palette.textMuted }]}>Payment Mix</Text>
-                <View style={[styles.progressTrack, { backgroundColor: palette.card }]}>
+                <View style={[styles.progressTrack, { backgroundColor: palette.surfaceMuted }]}>
                   <View style={[styles.progressFill, { width: `${cashShare}%`, backgroundColor: palette.cash }]} />
                 </View>
                 <View style={styles.reportMetaRow}>
@@ -1435,400 +1141,283 @@ export function AdminDashboardScreen() {
                   <Text style={[styles.reportHint, { color: palette.textSecondary }]}>UPI {Math.max(0, 100 - cashShare).toFixed(0)}%</Text>
                 </View>
               </View>
-              <View style={[styles.reportCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                <Text style={[styles.reportLabel, { color: palette.textMuted }]}>Branch Availability</Text>
-                <Text style={[styles.reportValue, { color: palette.textPrimary }]}>
-                  {activeBranchCount}/{visibleShopRows.length}
-                </Text>
-                <Text style={[styles.reportHint, { color: palette.textSecondary }]}>
-                  Branches currently enabled for shop access.
-                </Text>
+              <View style={[styles.reportCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+                <Text style={[styles.reportLabel, { color: palette.textMuted }]}>Branch Status</Text>
+                <Text style={[styles.reportValue, { color: palette.textPrimary }]}>{activeBranchCount}/{visibleShopRows.length}</Text>
+                <Text style={[styles.reportHint, { color: palette.textSecondary }]}>Active branches</Text>
               </View>
-              <View style={[styles.reportCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                <Text style={[styles.reportLabel, { color: palette.textMuted }]}>Attention Needed</Text>
-                <Text style={[styles.reportValue, { color: palette.textPrimary }]}>{severeLogsCount}</Text>
-                <Text style={[styles.reportHint, { color: palette.textSecondary }]}>
-                  Error or critical audit signals waiting for review.
+              <View style={[styles.reportCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+                <Text style={[styles.reportLabel, { color: palette.textMuted }]}>Alerts</Text>
+                <Text style={[styles.reportValue, { color: severeLogsCount > 0 ? palette.danger : palette.textPrimary }]}>{severeLogsCount}</Text>
+                <Text style={[styles.reportHint, { color: palette.textSecondary }]}>Audit events needing review</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {/* â”€â”€ INVENTORY TAB â”€â”€ */}
+        {activeNav === "inventory" ? (
+          <View style={{ gap: 12 }}>
+            <View style={styles.tabSectionHeader}>
+              <Text style={[styles.tabSectionTitle, { color: palette.textPrimary }]}>Items Sold</Text>
+              <View style={styles.sectionBadge}>
+                <Text style={[styles.sectionBadgeText, { color: palette.emeraldDark, backgroundColor: palette.emeraldSoft }]}>
+                  {filteredItemSales.length} items
                 </Text>
               </View>
             </View>
-          </SectionCard>
-        </View>
-
-        <View onLayout={(event) => updateSectionOffset("billing", event.nativeEvent.layout.y)}>
-          <SectionCard
-            title="Billing & Audit Feed"
-            subtitle="Grouped transactions, compact filters, and severity-aware audit visibility."
-            collapsed={collapsedSections.billing}
-            onToggle={() => toggleSection("billing")}
-            palette={palette}
-          >
-            <View style={styles.sectionBody}>
-              <View style={styles.feedColumns}>
-                <View style={[styles.feedColumn, styles.feedPanel, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                  <View style={styles.feedPanelHeader}>
-                    <Text style={[styles.feedPanelTitle, { color: palette.textPrimary }]}>Billing Feed</Text>
-                    <Text style={[styles.feedPanelSubtitle, { color: palette.textMuted }]}>Grouped transactions for quick review.</Text>
-                  </View>
-                  <SearchField
-                    value={billSearch}
-                    onChangeText={setBillSearch}
-                    placeholder="Search bills"
-                    accessibilityLabel="Search bills"
-                    palette={palette}
-                  />
-
-                  {groupedBills.length === 0 ? (
-                    <EmptyStateCard
-                      title="No bills found"
-                      subtitle="Try another search or branch focus to view receipts."
-                      actionLabel="Clear Filters"
-                      onAction={() => {
-                        setBillSearch("");
-                      }}
-                      icon="receipt-text-remove-outline"
-                      palette={palette}
-                    />
-                  ) : (
-                    groupedBills.map((group) => (
-                      <View key={group.label} style={styles.billGroup}>
-                        <Text style={[styles.billGroupTitle, { color: palette.textMuted }]}>{group.label}</Text>
-                        {group.entries.map((bill) => (
-                          <View key={bill.bill_id} style={[styles.feedCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                            <View style={styles.feedHeader}>
-                              <View style={styles.feedTextWrap}>
-                                <Text style={[styles.feedTitle, { color: palette.textPrimary }]}>{bill.bill_no}</Text>
-                                <Text style={[styles.feedSubtitle, { color: palette.textMuted }]}>{bill.shop_name}</Text>
-                              </View>
-                              <Text style={[styles.feedAmount, { color: palette.textPrimary }]}>{formatCurrency(bill.total_amount)}</Text>
-                            </View>
-                            <View style={styles.feedMetaRow}>
-                              <Text style={[styles.feedMeta, { color: palette.textSecondary }]}>{formatDateTime(bill.created_at)}</Text>
-                              <View style={[styles.stateChip, { backgroundColor: palette.successSoft }]}>
-                                <Text style={[styles.stateChipText, { color: palette.success }]}>{bill.status}</Text>
-                              </View>
-                            </View>
-                          </View>
-                        ))}
+            <SearchField value={itemSearch} onChangeText={setItemSearch} placeholder="Search items" accessibilityLabel="Search sold items" palette={palette} />
+            {filteredItemSales.length === 0 ? (
+              <EmptyStateCard title="No item movement found" subtitle="Try a different branch or search term." actionLabel="Clear Search" onAction={() => setItemSearch("")} icon="food-off-outline" palette={palette} />
+            ) : (
+              <View style={styles.cardStack}>
+                {filteredItemSales.map((item) => {
+                  const itemTotal = money(item.total_amount).toNumber();
+                  const isHot = itemTotal >= itemRevenueAverage;
+                  return (
+                    <View key={item.item_id} style={[styles.itemCard, adminShadow(palette.shadow, 0.04, 6, 10), { backgroundColor: palette.card, borderColor: palette.border }]}>
+                      <View style={[styles.itemIconWrap, { backgroundColor: palette.emeraldSoft }]}>
+                        <MaterialCommunityIcons name="food-drumstick-outline" size={18} color={palette.emerald} />
                       </View>
-                    ))
-                  )}
-                </View>
-
-                <View style={[styles.feedColumn, styles.feedPanel, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                  <View style={styles.feedPanelHeader}>
-                    <Text style={[styles.feedPanelTitle, { color: palette.textPrimary }]}>Audit Feed</Text>
-                    <Text style={[styles.feedPanelSubtitle, { color: palette.textMuted }]}>Severity-aware activity and admin actions.</Text>
-                  </View>
-                  <SearchField
-                    value={auditSearch}
-                    onChangeText={setAuditSearch}
-                    placeholder="Search audit events"
-                    accessibilityLabel="Search audit events"
-                    palette={palette}
-                  />
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.chipRow}>
-                      {AUDIT_FILTER_OPTIONS.map((chip) => (
-                        <ChipButton
-                          key={chip.key}
-                          label={chip.label}
-                          active={auditFilter === chip.key}
-                          onPress={() => setAuditFilter(chip.key)}
-                          palette={palette}
-                        />
-                      ))}
-                    </View>
-                  </ScrollView>
-
-                  {filteredAuditLogs.length === 0 ? (
-                    <EmptyStateCard
-                      title="No audit events found"
-                      subtitle="Adjust the query or severity chips to surface more activity."
-                      actionLabel="Reset Filters"
-                      onAction={() => {
-                        setAuditSearch("");
-                        setAuditFilter("all");
-                      }}
-                      icon="clipboard-text-search-outline"
-                      palette={palette}
-                    />
-                  ) : (
-                    filteredAuditLogs.slice(0, 6).map((log) => {
-                      const severity = getSeverityMeta(log, palette);
-                      return (
-                        <View key={log.id} style={[styles.auditCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                          <View style={[styles.auditIconWrap, { backgroundColor: severity.chipBackground }]}>
-                            <MaterialCommunityIcons name={severity.icon as never} size={16} color={severity.chipText} />
-                          </View>
-                          <View style={styles.auditContent}>
-                            <View style={styles.auditHeader}>
-                              <Text style={[styles.auditTitle, { color: palette.textPrimary }]}>{log.action}</Text>
-                              <View style={[styles.stateChip, { backgroundColor: severity.chipBackground }]}>
-                                <Text style={[styles.stateChipText, { color: severity.chipText }]}>{severity.label}</Text>
-                              </View>
-                            </View>
-                            <Text style={[styles.auditDescription, { color: palette.textSecondary }]}>{log.details}</Text>
-                            <Text style={[styles.auditMeta, { color: palette.textMuted }]}>{formatDateTime(log.created_at)}</Text>
-                          </View>
-                        </View>
-                      );
-                    })
-                  )}
-                </View>
-              </View>
-            </View>
-          </SectionCard>
-        </View>
-
-        <View onLayout={(event) => updateSectionOffset("settings", event.nativeEvent.layout.y)}>
-          <SectionCard
-            title="Branch Control"
-            subtitle="Safer branch controls, ranking, and clearer online/offline status."
-            collapsed={collapsedSections.settings}
-            onToggle={() => toggleSection("settings")}
-            palette={palette}
-          >
-            <View style={styles.sectionBody}>
-              <View style={{ alignSelf: "flex-start" }}>
-                <PrimaryButton
-                  label="Create Shop"
-                  onPress={openCreateShopSheet}
-                  icon="store-plus-outline"
-                  variant="accent"
-                  palette={palette}
-                />
-              </View>
-              {visibleShopRows.length === 0 ? (
-                <EmptyStateCard
-                  title="No branches available"
-                  subtitle="Create a branch to start tracking sales and operations."
-                  actionLabel="Create Branch"
-                  onAction={openCreateShopSheet}
-                  icon="store-off-outline"
-                  palette={palette}
-                />
-              ) : (
-                <View style={styles.cardStack}>
-                  <View
-                    style={[
-                      styles.branchOverviewCard,
-                      adminShadow(palette.shadow, 0.04, 8, 14),
-                      { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
-                    ]}
-                  >
-                    <View style={styles.branchOverviewHeader}>
-                      <View style={styles.branchOverviewText}>
-                        <Text style={[styles.branchOverviewLabel, { color: palette.emeraldDark }]}>Branch Workspace</Text>
-                        <Text style={[styles.branchOverviewTitle, { color: palette.textPrimary }]}>
-                          {selectedShopId ? selectedShopName : "All branches in view"}
-                        </Text>
-                        <Text style={[styles.branchOverviewSubtitle, { color: palette.textSecondary }]}>
-                          Review branch health, update credentials, and control shop access without leaving this section.
-                        </Text>
-                      </View>
-                      <View style={[styles.branchOverviewChip, { backgroundColor: palette.emeraldSoft }]}>
-                        <MaterialCommunityIcons name="store-cog-outline" size={16} color={palette.emeraldDark} />
-                        <Text style={[styles.branchOverviewChipText, { color: palette.emeraldDark }]}>
-                          {visibleShopRows.length} branch{visibleShopRows.length === 1 ? "" : "es"}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.branchOverviewMetrics}>
-                      <View style={[styles.branchOverviewMetric, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                        <Text style={[styles.branchOverviewMetricLabel, { color: palette.textMuted }]}>Active access</Text>
-                        <Text style={[styles.branchOverviewMetricValue, { color: palette.textPrimary }]}>
-                          {activeBranchCount}/{visibleShopRows.length}
-                        </Text>
-                      </View>
-                      <View style={[styles.branchOverviewMetric, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                        <Text style={[styles.branchOverviewMetricLabel, { color: palette.textMuted }]}>Top branch</Text>
-                        <Text style={[styles.branchOverviewMetricValue, { color: palette.textPrimary }]}>
-                          {topShop?.shop.name ?? "Not available"}
-                        </Text>
-                      </View>
-                      <View style={[styles.branchOverviewMetric, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                        <Text style={[styles.branchOverviewMetricLabel, { color: palette.textMuted }]}>Revenue in scope</Text>
-                        <Text style={[styles.branchOverviewMetricValue, { color: palette.textPrimary }]}>
-                          {formatCompactCurrency(totalRevenue.toNumber())}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {visibleShopRows.map((row, index) => {
-                    const statusColor =
-                      row.status === "ACTIVE"
-                        ? palette.success
-                        : row.status === "IDLE"
-                          ? palette.cash
-                          : row.status === "DISABLED"
-                            ? palette.danger
-                            : palette.textMuted;
-                    const rank = branchRanking.get(row.shop.id) ?? index + 1;
-                    const statusMeta =
-                      row.status === "ACTIVE"
-                        ? {
-                          label: "Live now",
-                          note: "Recent billing activity is flowing normally.",
-                          icon: "lightning-bolt-circle",
-                        }
-                        : row.status === "IDLE"
-                          ? {
-                            label: "Standby",
-                            note: "No recent bill, but the branch still looks healthy.",
-                            icon: "clock-outline",
-                          }
-                          : row.status === "DISABLED"
-                            ? {
-                              label: "Access paused",
-                              note: "This shop cannot log in until you enable it again.",
-                              icon: "close-octagon-outline",
-                            }
-                            : {
-                              label: "Offline",
-                              note: "No recent activity was detected for this branch.",
-                              icon: "wifi-off",
-                            };
-
-                    return (
-                      <View
-                        key={row.shop.id}
-                        style={[
-                          styles.branchCard,
-                          adminShadow(palette.shadow, 0.04, 8, 14),
-                          { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
-                        ]}
-                      >
-                        <View style={styles.branchHeader}>
-                          <View style={styles.branchIdentity}>
-                            <View style={[styles.branchIconWrap, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                              <MaterialCommunityIcons name="storefront-outline" size={20} color={palette.emerald} />
-                            </View>
-                            <View style={styles.branchTextWrap}>
-                              <View style={styles.branchTitleRow}>
-                                <View style={[styles.rankBadge, { backgroundColor: palette.emeraldSoft }]}>
-                                  <Text style={[styles.rankBadgeText, { color: palette.emeraldDark }]}>#{rank}</Text>
-                                </View>
-                                <Text style={[styles.branchName, { color: palette.textPrimary }]}>{row.shop.name}</Text>
-                              </View>
-                              <Text style={[styles.branchStatusNote, { color: palette.textSecondary }]}>{statusMeta.note}</Text>
-                            </View>
-                          </View>
-
-                          <View style={[styles.branchStatusPanel, { backgroundColor: `${statusColor}14`, borderColor: `${statusColor}26` }]}>
-                            <View style={[styles.stateChip, { backgroundColor: `${statusColor}18` }]}>
-                              <View style={[styles.onlineDot, { backgroundColor: statusColor }]} />
-                              <Text style={[styles.stateChipText, { color: statusColor }]}>{statusMeta.label}</Text>
-                            </View>
-                            <MaterialCommunityIcons name={statusMeta.icon as never} size={18} color={statusColor} />
-                          </View>
-                        </View>
-
-                        <View style={styles.branchMetaRow}>
-                          <View style={[styles.branchMetaPill, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                            <MaterialCommunityIcons name="barcode" size={14} color={palette.textMuted} />
-                            <Text style={[styles.branchMetaPillText, { color: palette.textSecondary }]}>{row.shop.code}</Text>
-                          </View>
-                          <View style={[styles.branchMetaPill, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                            <MaterialCommunityIcons name="account-outline" size={14} color={palette.textMuted} />
-                            <Text style={[styles.branchMetaPillText, { color: palette.textSecondary }]}>{row.shop.username}</Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.branchMetricsRow}>
-                          <View style={[styles.branchMetric, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                            <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Revenue</Text>
-                            <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>{formatCompactCurrency(row.totalSales)}</Text>
-                          </View>
-                          <View style={[styles.branchMetric, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                            <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Bills</Text>
-                            <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>{row.billCount}</Text>
-                          </View>
-                          <View style={[styles.branchMetric, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                            <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Last Active</Text>
-                            <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>{formatRelativeTime(row.lastActivityAt)}</Text>
-                          </View>
-                        </View>
-
-                        <View style={[styles.branchFooter, { borderTopColor: palette.border }]}>
-                          <View style={styles.branchFooterText}>
-                            <Text style={[styles.branchFooterTitle, { color: palette.textPrimary }]}>Admin Controls</Text>
-                            <Text style={[styles.branchFooterSubtitle, { color: palette.textMuted }]}>
-                              Update branch details, reset credentials, or pause shop access in one quick flow.
+                      <View style={styles.itemContent}>
+                        <View style={styles.itemHeader}>
+                          <View style={styles.itemTextWrap}>
+                            <Text style={[styles.itemTitle, { color: palette.textPrimary }]}>{item.item_name}</Text>
+                            <Text style={[styles.itemSubtitle, { color: palette.textMuted }]}>
+                              {getUnitLabel(item.base_unit, item.quantity_sold)} · {item.bill_count} bills
                             </Text>
                           </View>
-                          <View style={styles.branchActionRow}>
-                            <View style={styles.branchActionButton}>
-                              <PrimaryButton
-                                label="Manage Shop"
-                                onPress={() => openManageShopSheet(row.shop)}
-                                variant="accent"
-                                icon="pencil-box-outline"
-                                accessibilityLabel={`Manage ${row.shop.name}`}
-                                fullWidth
-                                palette={palette}
-                              />
+                          <View style={[styles.stateChip, { backgroundColor: isHot ? palette.successSoft : palette.goldSoft }]}>
+                            <MaterialCommunityIcons name={isHot ? "trending-up" : "trending-neutral"} size={14} color={isHot ? palette.success : palette.cash} />
+                            <Text style={[styles.stateChipText, { color: isHot ? palette.success : palette.cash }]}>{isHot ? "Hot" : "Steady"}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.itemAmount, { color: palette.emerald }]}>{formatCurrency(item.total_amount)}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {/* â”€â”€ BILLING TAB â”€â”€ */}
+        {activeNav === "billing" ? (
+          <View style={{ gap: 12 }}>
+            <Text style={[styles.tabSectionTitle, { color: palette.textPrimary }]}>Billing Feed</Text>
+            <SearchField value={billSearch} onChangeText={setBillSearch} placeholder="Search bills" palette={palette} />
+            {groupedBills.length === 0 ? (
+              <EmptyStateCard title="No bills found" subtitle="Try another search or branch focus." actionLabel="Clear" onAction={() => setBillSearch("")} icon="receipt-text-remove-outline" palette={palette} />
+            ) : (
+              groupedBills.map((group) => (
+                <View key={group.label} style={styles.billGroup}>
+                  <Text style={[styles.billGroupTitle, { color: palette.textMuted }]}>{group.label}</Text>
+                  {group.entries.map((bill) => (
+                    <View key={bill.bill_id} style={[styles.feedCard, adminShadow(palette.shadow, 0.03, 6, 10), { backgroundColor: palette.card, borderColor: palette.border }]}>
+                      <View style={styles.feedHeader}>
+                        <View style={styles.feedTextWrap}>
+                          <Text style={[styles.feedTitle, { color: palette.textPrimary }]}>{bill.bill_no}</Text>
+                          <Text style={[styles.feedSubtitle, { color: palette.textMuted }]}>{bill.shop_name}</Text>
+                        </View>
+                        <Text style={[styles.feedAmount, { color: palette.emerald }]}>{formatCurrency(bill.total_amount)}</Text>
+                      </View>
+                      <View style={styles.feedMetaRow}>
+                        <Text style={[styles.feedMeta, { color: palette.textSecondary }]}>{formatDateTime(bill.created_at)}</Text>
+                        <View style={[styles.stateChip, { backgroundColor: palette.successSoft }]}>
+                          <Text style={[styles.stateChipText, { color: palette.success }]}>{bill.status}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ))
+            )}
+          </View>
+        ) : null}
+
+        {/* â”€â”€ REPORTS (AUDIT) TAB â”€â”€ */}
+        {activeNav === "reports" ? (
+          <View style={{ gap: 12 }}>
+            <Text style={[styles.tabSectionTitle, { color: palette.textPrimary }]}>Audit Log</Text>
+            <SearchField value={auditSearch} onChangeText={setAuditSearch} placeholder="Search audit events" palette={palette} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.chipRow}>
+                {AUDIT_FILTER_OPTIONS.map((chip) => (
+                  <ChipButton key={chip.key} label={chip.label} active={auditFilter === chip.key} onPress={() => setAuditFilter(chip.key)} palette={palette} />
+                ))}
+              </View>
+            </ScrollView>
+            {filteredAuditLogs.length === 0 ? (
+              <EmptyStateCard title="No audit events found" subtitle="Adjust filters to surface more activity." actionLabel="Reset" onAction={() => { setAuditSearch(""); setAuditFilter("all"); }} icon="clipboard-text-search-outline" palette={palette} />
+            ) : (
+              <View style={styles.cardStack}>
+                {filteredAuditLogs.map((log) => {
+                  const severity = getSeverityMeta(log, palette);
+                  return (
+                    <View key={log.id} style={[styles.auditCard, adminShadow(palette.shadow, 0.03, 6, 10), { backgroundColor: palette.card, borderColor: palette.border }]}>
+                      <View style={[styles.auditIconWrap, { backgroundColor: severity.chipBackground }]}>
+                        <MaterialCommunityIcons name={severity.icon as never} size={16} color={severity.chipText} />
+                      </View>
+                      <View style={styles.auditContent}>
+                        <View style={styles.auditHeader}>
+                          <Text style={[styles.auditTitle, { color: palette.textPrimary }]}>{log.action}</Text>
+                          <View style={[styles.stateChip, { backgroundColor: severity.chipBackground }]}>
+                            <Text style={[styles.stateChipText, { color: severity.chipText }]}>{severity.label}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.auditDescription, { color: palette.textSecondary }]}>{log.details}</Text>
+                        <Text style={[styles.auditMeta, { color: palette.textMuted }]}>{formatDateTime(log.created_at)}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {/* â”€â”€ SETTINGS (BRANCH CONTROL) TAB â”€â”€ */}
+        {activeNav === "settings" ? (
+          <View style={{ gap: 14 }}>
+            {/* Settings Tab: Title Row */}
+            <View style={styles.tabSectionHeader}>
+              <Text style={[styles.tabSectionTitle, { color: palette.textPrimary }]}>Branch Control</Text>
+            </View>
+
+            {/* Create Shop — full-width prominent button */}
+            <Pressable
+              onPress={openCreateShopSheet}
+              style={[styles.createShopBtn, adminShadow(palette.shadow, 0.06, 8, 14), { backgroundColor: palette.emerald }]}
+            >
+              <MaterialCommunityIcons name="store-plus-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.createShopBtnText}>+ Create New Branch</Text>
+            </Pressable>
+
+            {visibleShopRows.length === 0 ? (
+              <EmptyStateCard title="No branches available" subtitle="Create a branch to start tracking sales." actionLabel="Create Branch" onAction={openCreateShopSheet} icon="store-off-outline" palette={palette} />
+            ) : (
+              <View style={styles.cardStack}>
+                {visibleShopRows.map((row, index) => {
+                  const statusColor = row.status === "ACTIVE" ? palette.success : row.status === "IDLE" ? palette.cash : row.status === "DISABLED" ? palette.danger : palette.textMuted;
+                  const rank = branchRanking.get(row.shop.id) ?? index + 1;
+                  return (
+                    <View key={row.shop.id} style={[styles.branchCard, adminShadow(palette.shadow, 0.04, 8, 14), { backgroundColor: palette.card, borderColor: palette.border }]}>
+                      <View style={styles.branchHeader}>
+                        <View style={styles.branchIdentity}>
+                          <View style={[styles.branchIconWrap, { backgroundColor: palette.emeraldSoft, borderColor: palette.border }]}>
+                            <MaterialCommunityIcons name="storefront-outline" size={20} color={palette.emerald} />
+                          </View>
+                          <View style={styles.branchTextWrap}>
+                            <View style={styles.branchTitleRow}>
+                              <View style={[styles.rankBadge, { backgroundColor: palette.emeraldSoft }]}>
+                                <Text style={[styles.rankBadgeText, { color: palette.emeraldDark }]}>#{rank}</Text>
+                              </View>
+                              <Text style={[styles.branchName, { color: palette.textPrimary }]}>{row.shop.name}</Text>
                             </View>
-                            <View style={styles.branchActionButton}>
-                              <PrimaryButton
-                                label={row.shop.is_active ? "Pause Access" : "Activate Shop"}
-                                onPress={() => void handleToggleShop(row.shop.id, !row.shop.is_active)}
-                                loading={statusUpdatingShopId === row.shop.id}
-                                variant={row.shop.is_active ? "warning" : "primary"}
-                                icon={row.shop.is_active ? "pause-circle-outline" : "check-circle-outline"}
-                                accessibilityLabel={`${row.shop.is_active ? "Pause" : "Activate"} access for ${row.shop.name}`}
-                                fullWidth
-                                palette={palette}
-                              />
-                            </View>
-                            <View style={styles.branchActionButton}>
-                              <PrimaryButton
-                                label="Delete Shop"
-                                onPress={() => confirmDeleteShop(row.shop)}
-                                loading={deletingShopId === row.shop.id}
-                                disabled={statusUpdatingShopId === row.shop.id}
-                                variant="danger"
-                                icon="trash-can-outline"
-                                accessibilityLabel={`Delete ${row.shop.name}`}
-                                fullWidth
-                                palette={palette}
-                              />
-                            </View>
+                            <Text style={[styles.branchStatusNote, { color: palette.textSecondary }]}>{row.shop.code} · {row.shop.username}</Text>
+                          </View>
+                        </View>
+                        <View style={[styles.stateChip, { backgroundColor: `${statusColor}18` }]}>
+                          <View style={[styles.onlineDot, { backgroundColor: statusColor }]} />
+                          <Text style={[styles.stateChipText, { color: statusColor }]}>{row.status}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.branchMetricsRow}>
+                        <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+                          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Revenue</Text>
+                          <Text style={[styles.branchMetricValue, { color: palette.emerald }]}>{formatCompactCurrency(row.totalSales)}</Text>
+                        </View>
+                        <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+                          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Bills</Text>
+                          <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>{row.billCount}</Text>
+                        </View>
+                        <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+                          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Last Active</Text>
+                          <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>{formatRelativeTime(row.lastActivityAt)}</Text>
+                        </View>
+                      </View>
+
+                      <View style={[styles.branchFooter, { borderTopColor: palette.border }]}>
+                        <View style={styles.branchActionRow}>
+                          <View style={styles.branchActionButton}>
+                            <PrimaryButton label="Manage" onPress={() => openManageShopSheet(row.shop)} variant="accent" icon="pencil-box-outline" fullWidth palette={palette} />
+                          </View>
+                          <View style={styles.branchActionButton}>
+                            <PrimaryButton
+                              label={row.shop.is_active ? "Pause" : "Activate"}
+                              onPress={() => void handleToggleShop(row.shop.id, !row.shop.is_active)}
+                              loading={statusUpdatingShopId === row.shop.id}
+                              variant={row.shop.is_active ? "warning" : "primary"}
+                              icon={row.shop.is_active ? "pause-circle-outline" : "check-circle-outline"}
+                              fullWidth
+                              palette={palette}
+                            />
+                          </View>
+                          <View style={styles.branchActionButton}>
+                            <PrimaryButton
+                              label="Delete"
+                              onPress={() => confirmDeleteShop(row.shop)}
+                              loading={deletingShopId === row.shop.id}
+                              disabled={statusUpdatingShopId === row.shop.id}
+                              variant="danger"
+                              icon="trash-can-outline"
+                              fullWidth
+                              palette={palette}
+                            />
                           </View>
                         </View>
                       </View>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
-          </SectionCard>
-        </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Sign Out — pinned at the BOTTOM of settings tab */}
+            <Pressable
+              onPress={handleLogout}
+              style={[styles.logoutRow, adminShadow(palette.shadow, 0.04, 6, 10), { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}
+            >
+              <View style={[styles.logoutIconWrap, { backgroundColor: palette.danger }]}>
+                <MaterialCommunityIcons name="logout" size={18} color="#FFFFFF" />
+              </View>
+              <View style={styles.logoutTextWrap}>
+                <Text style={[styles.logoutText, { color: palette.danger }]}>Sign Out Admin</Text>
+                <Text style={[styles.logoutHint, { color: palette.textMuted }]}>Clears session and returns to login</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={palette.danger} />
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
+
 
       <BottomNav
         items={NAV_ITEMS.map((item) => ({ ...item, icon: item.icon as never }))}
         activeKey={activeNav}
-        onSelect={scrollToSection}
+        onSelect={(key) => setActiveNav(key as AdminNavTab)}
         palette={palette}
         bottomOffset={bottomNavOffset}
       />
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Open update price sheet"
-        onPress={() => void openPriceSheet()}
-        style={[
-          styles.fab,
-          adminShadow(palette.shadow, 0.08, 10, 14),
-          { backgroundColor: palette.card, borderColor: palette.border, bottom: fabOffset },
-        ]}
-      >
-        <MaterialCommunityIcons name="cash-edit" size={18} color={palette.emerald} />
-        <Text style={[styles.fabLabel, { color: palette.textPrimary }]}>Update Price</Text>
-      </Pressable>
+      {/* FAB: Update Price — only visible on Dashboard and Settings tabs */}
+      {(activeNav === "dashboard" || activeNav === "settings") ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open update price sheet"
+          onPress={() => void openPriceSheet()}
+          style={[
+            styles.fab,
+            adminShadow(palette.shadow, 0.12, 14, 20),
+            { backgroundColor: palette.emerald, bottom: fabOffset },
+          ]}
+        >
+          <MaterialCommunityIcons name="cash-edit" size={18} color="#FFFFFF" />
+          <Text style={styles.fabLabel}>Update Price</Text>
+        </Pressable>
+      ) : null}
 
       <PriceUpdateSheet
         visible={priceSheetOpen}
@@ -1902,6 +1491,98 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
+  floatingDropdown: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: "hidden",
+    maxHeight: 360,
+  },
+  tabSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 4,
+  },
+  tabSectionTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    flex: 1,
+  },
+  logoutRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  logoutIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoutTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  logoutText: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  logoutHint: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  createShopBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  createShopBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  // Section card styles (used inline in tab content)
+  sectionCard: {
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 4,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    gap: 3,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "700",
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+
+
   heroCard: {
     borderWidth: 1,
     borderRadius: 24,
