@@ -105,10 +105,12 @@ class BackendApiIntegrationTests(BackendTestCase):
                 saved_global_prices = await global_daily_prices(price_payload, db, admin_user)
                 self.assertEqual(len(saved_global_prices), len(items))
 
-                admin_shop_bootstrap = await shop_prices_bootstrap(shop_id, db)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop_id))
+
+                admin_shop_bootstrap = await shop_prices_bootstrap(current_shop, db)
                 self.assertTrue(admin_shop_bootstrap.prices_set)
 
-                admin_shop_prices = await shop_daily_prices(shop_id, price_payload, db, admin_user)
+                admin_shop_prices = await shop_daily_prices(price_payload, current_shop, db)
                 self.assertEqual(len(admin_shop_prices), len(items))
 
                 shop_login = await login(LoginRequest(username="ml1", password="password"), db)
@@ -117,8 +119,6 @@ class BackendApiIntegrationTests(BackendTestCase):
                 shop_user = await db.scalar(
                     select(User).options(selectinload(User.shop)).where(User.id == shop_login.user.id)
                 )
-                current_shop = session.scalar(select(Shop).where(Shop.id == shop_id))
-
                 shop_session = await me(current_user=shop_user, db=db)
                 self.assertEqual(shop_session.shop_id, shop_id)
 
@@ -128,7 +128,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 today_price_rows = await today_prices(current_shop, db)
                 self.assertEqual(len(today_price_rows), len(items))
 
-                saved_shop_prices = await save_daily_prices(price_payload, db, shop_user, current_shop)
+                saved_shop_prices = await save_daily_prices(price_payload, db, current_shop)
                 self.assertEqual(len(saved_shop_prices), len(items))
 
                 refreshed_bootstrap = await bootstrap(current_shop, db)
@@ -150,23 +150,40 @@ class BackendApiIntegrationTests(BackendTestCase):
                         ),
                     ),
                     db,
-                    shop_user,
                     current_shop,
                 )
                 self.assertEqual(created_bill.status, "paid")
                 self.assertTrue(created_bill.payment.is_settled)
 
-                sales_rows = await sales_summary(period="date", reference_date=None, db=db)
+                sales_rows = await sales_summary(period="date", reference_date=None, shop_id=None, db=db)
                 self.assertEqual(sales_rows[0].shop_name, current_shop.name)
 
-                payment_rows = await payment_summary(period="date", reference_date=None, db=db)
+                weekly_sales_rows = await sales_summary(period="week", reference_date=None, shop_id=None, db=db)
+                self.assertEqual(weekly_sales_rows[0].shop_name, current_shop.name)
+
+                yearly_sales_rows = await sales_summary(period="year", reference_date=None, shop_id=None, db=db)
+                self.assertEqual(yearly_sales_rows[0].shop_name, current_shop.name)
+
+                payment_rows = await payment_summary(period="date", reference_date=None, shop_id=None, db=db)
                 self.assertEqual(payment_rows[0].cash_total, total_amount)
+
+                weekly_payment_rows = await payment_summary(period="week", reference_date=None, shop_id=None, db=db)
+                self.assertEqual(weekly_payment_rows[0].cash_total, total_amount)
+
+                yearly_payment_rows = await payment_summary(period="year", reference_date=None, shop_id=None, db=db)
+                self.assertEqual(yearly_payment_rows[0].cash_total, total_amount)
 
                 bill_rows = await bills(period="date", reference_date=None, shop_id=None, limit=50, cursor_created_at=None, cursor_id=None, db=db)
                 self.assertEqual(len(bill_rows.items), 1)
 
+                weekly_bill_rows = await bills(period="week", reference_date=None, shop_id=None, limit=50, cursor_created_at=None, cursor_id=None, db=db)
+                self.assertEqual(len(weekly_bill_rows.items), 1)
 
-                disabled_shop = await update_shop_status(shop_id, ShopStatusUpdate(is_active=False), db, admin_user)
+                yearly_bill_rows = await bills(period="year", reference_date=None, shop_id=None, limit=50, cursor_created_at=None, cursor_id=None, db=db)
+                self.assertEqual(len(yearly_bill_rows.items), 1)
+
+
+                disabled_shop = await update_shop_status(shop_id, ShopStatusUpdate(is_active=False), db)
                 self.assertFalse(disabled_shop.is_active)
 
         self.run_async(scenario())

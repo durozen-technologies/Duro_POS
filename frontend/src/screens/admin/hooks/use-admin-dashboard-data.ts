@@ -92,8 +92,23 @@ export function useAdminDashboardData({
   const [dailyBillsLoadingMore, setDailyBillsLoadingMore] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const hasLoadedOnceRef = useRef(false);
+  const mountedRef = useRef(true);
+  const dashboardRequestIdRef = useRef(0);
+  const dailyBillsLoadMoreInFlightRef = useRef(false);
+  const globalPriceBootstrapCacheRef = useRef<ShopBootstrapResponse | null>(null);
+  const shopPriceBootstrapCacheRef = useRef(new Map<number, ShopBootstrapResponse>());
+  const billDetailCacheRef = useRef(new Map<number, BillRead>());
+  const billDetailRequestRef = useRef(new Map<number, Promise<BillRead>>());
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const loadDashboard = useCallback(async (isRefresh = false) => {
+    const requestId = ++dashboardRequestIdRef.current;
+
     if (isRefresh) {
       setRefreshing(true);
     } else if (!hasLoadedOnceRef.current) {
@@ -102,6 +117,10 @@ export function useAdminDashboardData({
 
     try {
       const data = await fetchDashboardBootstrap(analyticsPeriod, analyticsReferenceDate, selectedShopId, BILL_PAGE_SIZE);
+
+      if (!mountedRef.current || requestId !== dashboardRequestIdRef.current) {
+        return;
+      }
 
       setDashboardData({
         shops: data.shops,
@@ -129,9 +148,17 @@ export function useAdminDashboardData({
       setDashboardError(null);
       hasLoadedOnceRef.current = true;
     } catch (error) {
+      if (!mountedRef.current || requestId !== dashboardRequestIdRef.current) {
+        return;
+      }
+
       setIsOfflineSnapshot(true);
       setDashboardError(toApiError(error).message);
     } finally {
+      if (!mountedRef.current || requestId !== dashboardRequestIdRef.current) {
+        return;
+      }
+
       setLoading(false);
       setRefreshing(false);
     }
@@ -144,6 +171,7 @@ export function useAdminDashboardData({
   const loadMoreBills = useCallback(async () => {
     if (
       dailyBillsLoadingMore ||
+      dailyBillsLoadMoreInFlightRef.current ||
       !dailyBillsHasMore ||
       dailyBillsCursor.createdAt === null ||
       dailyBillsCursor.id === null
@@ -151,6 +179,7 @@ export function useAdminDashboardData({
       return;
     }
 
+    dailyBillsLoadMoreInFlightRef.current = true;
     setDailyBillsLoadingMore(true);
     try {
       const nextPage = await fetchDailyBills(
@@ -175,6 +204,7 @@ export function useAdminDashboardData({
     } catch (error) {
       throw new Error(toApiError(error).message);
     } finally {
+      dailyBillsLoadMoreInFlightRef.current = false;
       setDailyBillsLoadingMore(false);
     }
   }, [
@@ -188,13 +218,20 @@ export function useAdminDashboardData({
   ]);
 
   const loadPriceBootstrap = useCallback(async (forceRefresh = false) => {
-    if (priceBootstrap && !forceRefresh) {
-      return priceBootstrap;
+    if (!forceRefresh) {
+      const cachedBootstrap = globalPriceBootstrapCacheRef.current ?? priceBootstrap;
+      if (cachedBootstrap) {
+        if (priceBootstrap !== cachedBootstrap) {
+          setPriceBootstrap(cachedBootstrap);
+        }
+        return cachedBootstrap;
+      }
     }
 
     setPriceLoading(true);
     try {
       const bootstrap = await fetchGlobalPriceBootstrap();
+      globalPriceBootstrapCacheRef.current = bootstrap;
       setPriceBootstrap(bootstrap);
       return bootstrap;
     } catch (error) {
@@ -204,11 +241,20 @@ export function useAdminDashboardData({
     }
   }, [priceBootstrap]);
 
-  const loadShopPriceBootstrap = useCallback(async (shopId: number) => {
+  const loadShopPriceBootstrap = useCallback(async (shopId: number, forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cachedBootstrap = shopPriceBootstrapCacheRef.current.get(shopId);
+      if (cachedBootstrap) {
+        setPriceBootstrap(cachedBootstrap);
+        return cachedBootstrap;
+      }
+    }
+
     setPriceBootstrap(null);
     setPriceLoading(true);
     try {
       const bootstrap = await fetchShopPriceBootstrap(shopId);
+      shopPriceBootstrapCacheRef.current.set(shopId, bootstrap);
       setPriceBootstrap(bootstrap);
       return bootstrap;
     } catch (error) {
@@ -221,6 +267,7 @@ export function useAdminDashboardData({
   const saveShopPriceBook = useCallback(async (shopId: number, payload: DailyPriceCreate) => {
     try {
       await saveShopDailyPrices(shopId, payload);
+      shopPriceBootstrapCacheRef.current.delete(shopId);
       await loadDashboard(true);
     } catch (error) {
       throw new Error(toApiError(error).message);
@@ -331,6 +378,7 @@ export function useAdminDashboardData({
   const saveGlobalPriceBook = useCallback(async (payload: DailyPriceCreate) => {
     try {
       await saveGlobalDailyPrices(payload);
+      globalPriceBootstrapCacheRef.current = null;
       await Promise.all([loadPriceBootstrap(true), loadDashboard(true)]);
     } catch (error) {
       throw new Error(toApiError(error).message);
@@ -338,8 +386,32 @@ export function useAdminDashboardData({
   }, [loadDashboard, loadPriceBootstrap]);
 
   const loadBillDetail = useCallback(async (billId: number): Promise<BillRead> => {
+    const cachedBill = billDetailCacheRef.current.get(billId);
+    if (cachedBill) {
+      return cachedBill;
+    }
+
+    const existingRequest = billDetailRequestRef.current.get(billId);
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    const request = (async () => {
+      try {
+        const bill = await fetchAdminBillDetail(billId);
+        billDetailCacheRef.current.set(billId, bill);
+        return bill;
+      } catch (error) {
+        throw new Error(toApiError(error).message);
+      } finally {
+        billDetailRequestRef.current.delete(billId);
+      }
+    })();
+
+    billDetailRequestRef.current.set(billId, request);
+
     try {
-      return await fetchAdminBillDetail(billId);
+      return await request;
     } catch (error) {
       throw new Error(toApiError(error).message);
     }

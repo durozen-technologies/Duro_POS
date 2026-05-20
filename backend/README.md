@@ -39,7 +39,7 @@ backend/
 
 ## Prerequisites
 
-- Python `3.12+`
+- Python `3.11.9+`
 - `uv`
 - PostgreSQL database
 
@@ -83,6 +83,12 @@ Install dependencies:
 uv sync
 ```
 
+Install dev tools, including `ruff`:
+
+```bash
+uv sync --group dev
+```
+
 Start the API:
 
 ```bash
@@ -98,6 +104,68 @@ uv run gunicorn -c gunicorn.conf.py main:app
 ```
 
 This project uses `uvicorn-worker` as the Gunicorn worker class.
+
+## Linting And Formatting
+
+This backend is configured to use `ruff` through `uv`.
+
+Run checks:
+
+```bash
+uv run ruff check .
+```
+
+Auto-fix lint issues when possible:
+
+```bash
+uv run ruff check . --fix
+```
+
+Format Python files:
+
+```bash
+uv run ruff format .
+```
+
+Suggested workflow:
+
+```bash
+uv run ruff check . --fix
+uv run ruff format .
+```
+
+The `ruff` configuration lives in `backend/pyproject.toml`.
+
+## Finding Unused Code
+
+There is no perfect static command for dead-code detection, but these checks
+are useful for the backend:
+
+Check unused imports and local variables in the app package:
+
+```bash
+uv run ruff check app --select F401,F841
+```
+
+Search for a symbol across the backend to see whether it is referenced
+anywhere outside its own definition:
+
+```bash
+rg -n "symbol_name" backend -S
+```
+
+Suggested workflow:
+
+1. Run `uv run ruff check app --select F401,F841`.
+2. Search suspicious helpers with `rg -n "symbol_name" backend -S`.
+3. Remove only code that has no real call sites and is not part of startup,
+   FastAPI dependency injection, or framework registration.
+
+Example:
+
+```bash
+rg -n "get_effective_shop_prices|_get_shop_price_map" backend -S
+```
 
 ## Startup Behavior
 

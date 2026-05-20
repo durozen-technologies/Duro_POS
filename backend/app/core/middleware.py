@@ -136,7 +136,11 @@ class RateLimitMiddleware:
 
             bucket.append(now)
             remaining = max(0, self.requests - len(bucket))
-            reset_after = max(0, int(self.window_seconds - (now - bucket[0]))) if bucket else self.window_seconds
+            reset_after = (
+                max(0, int(self.window_seconds - (now - bucket[0])))
+                if bucket
+                else self.window_seconds
+            )
 
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":

@@ -16,4 +16,3 @@ class User(Base, BaseModelMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     shop = relationship("Shop", back_populates="owner", uselist=False)
-

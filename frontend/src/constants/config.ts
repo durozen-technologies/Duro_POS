@@ -118,43 +118,50 @@ const configuredApiBaseUrl = envApiBaseUrl || expoExtraApiBaseUrl || "";
 const normalizedConfiguredApiBaseUrl = normalizeApiBaseUrl(configuredApiBaseUrl);
 const expoDevHost = getExpoDevHost();
 
-function getAndroidApiBaseUrlFallbacks(baseUrl: string) {
-  if (Platform.OS !== "android" || !baseUrl) {
+function getApiBaseUrlCandidates(baseUrl: string) {
+  if (!baseUrl) {
     return [];
+  }
+
+  if (Platform.OS !== "android") {
+    return [baseUrl];
   }
 
   try {
     const url = new URL(baseUrl);
     const currentHost = url.hostname;
-    const fallbacks: string[] = [];
+    const isLocalhostHost = isLocalhostLikeHost(currentHost);
+    const isPrivateHost = isPrivateIpv4Host(currentHost);
+    const candidates: string[] = [];
 
-    if (isLocalhostLikeHost(currentHost) || isPrivateIpv4Host(currentHost)) {
+    if (isLocalhostHost || isPrivateHost) {
       const emulatorUrl = replaceApiBaseUrlHost(baseUrl, "10.0.2.2");
-      if (emulatorUrl && emulatorUrl !== baseUrl) {
-        fallbacks.push(emulatorUrl);
+      const expoHostUrl =
+        expoDevHost && expoDevHost !== currentHost && !isLocalhostLikeHost(expoDevHost)
+          ? replaceApiBaseUrlHost(baseUrl, expoDevHost)
+          : "";
+
+      if (isLocalhostHost) {
+        candidates.push(emulatorUrl, expoHostUrl, baseUrl);
+      } else {
+        candidates.push(baseUrl, expoHostUrl, emulatorUrl);
       }
+    } else {
+      candidates.push(baseUrl);
     }
 
-    if (
-      expoDevHost &&
-      expoDevHost !== currentHost &&
-      !isLocalhostLikeHost(expoDevHost) &&
-      (isLocalhostLikeHost(currentHost) || isPrivateIpv4Host(currentHost))
-    ) {
-      const expoHostUrl = replaceApiBaseUrlHost(baseUrl, expoDevHost);
-      if (expoHostUrl && expoHostUrl !== baseUrl) {
-        fallbacks.push(expoHostUrl);
-      }
-    }
-
-    return uniqueNonEmpty(fallbacks);
+    return uniqueNonEmpty(candidates);
   } catch {
-    return [];
+    return [baseUrl];
   }
 }
 
-export const API_BASE_URL = normalizedConfiguredApiBaseUrl;
-export const API_BASE_URL_FALLBACKS = getAndroidApiBaseUrlFallbacks(normalizedConfiguredApiBaseUrl);
+const apiBaseUrlCandidates = getApiBaseUrlCandidates(normalizedConfiguredApiBaseUrl);
+
+export const CONFIGURED_API_BASE_URL = normalizedConfiguredApiBaseUrl;
+export const API_BASE_URL = apiBaseUrlCandidates[0] ?? normalizedConfiguredApiBaseUrl;
+export const API_BASE_URL_FALLBACKS = apiBaseUrlCandidates.slice(1);
+export const API_BASE_URL_STORAGE_KEY = "meat-billing-api-base-url";
 export const AUTH_STORAGE_KEY = "meat-billing-auth";
 export const PRINTER_STORAGE_KEY = "meat-billing-printer";
 export const SHOP_LANGUAGE_STORAGE_KEY = "meat-billing-shop-language";

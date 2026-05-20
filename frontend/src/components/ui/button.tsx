@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, Text } from "react-native";
+import { memo } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { cn } from "@/utils/cn";
 
@@ -13,7 +14,7 @@ type ButtonProps = {
   textClassName?: string;
 };
 
-export function Button({
+export const Button = memo(function Button({
   label,
   onPress,
   disabled = false,
@@ -41,15 +42,17 @@ export function Button({
         "items-center justify-center",
         palette,
         sizeStyles,
-        (disabled || loading) && "opacity-50",
+        disabled && !loading && "opacity-75",
         className,
       )}
     >
-      {loading ? (
-        <ActivityIndicator color={variant === "secondary" ? "#1E2B22" : "#FFFFFF"} />
-      ) : (
-        <Text className={cn("font-semibold tracking-[0.3px]", textColor, textSize, textClassName)}>{label}</Text>
-      )}
+      <View className="w-full items-center justify-center">
+        {loading ? (
+          <ActivityIndicator color={variant === "secondary" ? "#1E2B22" : "#FFFFFF"} />
+        ) : (
+          <Text className={cn("text-center font-semibold tracking-[0.3px]", textColor, textSize, textClassName)}>{label}</Text>
+        )}
+      </View>
     </Pressable>
   );
-}
+});

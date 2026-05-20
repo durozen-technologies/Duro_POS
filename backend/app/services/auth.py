@@ -10,6 +10,20 @@ from app.models import DailyPrice, User, UserRole
 from app.schemas.auth import LoginResponse, RegisterRequest, UserSession
 
 
+async def _requires_price_setup(db: AsyncSession, shop_id: int) -> bool:
+    has_today_price = await db.scalar(
+        select(
+            select(DailyPrice.id)
+            .where(
+                DailyPrice.shop_id == shop_id,
+                DailyPrice.price_date == date.today(),
+            )
+            .exists()
+        )
+    )
+    return not bool(has_today_price)
+
+
 def _build_user_session(
     user: User,
     *,
@@ -31,39 +45,44 @@ def _build_user_session(
     )
 
 
-async def login_user(db: AsyncSession, username: str, password: str) -> LoginResponse:
-    user = await db.scalar(select(User).options(selectinload(User.shop)).where(User.username == username))
-    if user is None or not verify_password(password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
-    if user.role == UserRole.SHOP_ACCOUNT and (user.shop is None or not user.shop.is_active):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled")
-
+async def build_user_session(db: AsyncSession, user: User) -> UserSession:
+    """Build the authenticated-session payload for login and ``/me``."""
     shop = user.shop
     requires_price_setup = False
     next_screen = "admin_dashboard"
 
     if user.role == UserRole.SHOP_ACCOUNT and shop is not None:
-        has_today_price = await db.scalar(
-            select(DailyPrice.id).where(
-                DailyPrice.shop_id == shop.id,
-                DailyPrice.price_date == date.today(),
-            )
-        )
-        requires_price_setup = has_today_price is None
+        requires_price_setup = await _requires_price_setup(db, shop.id)
         next_screen = "daily_price_setup" if requires_price_setup else "billing"
 
-    token = create_access_token(user.id)
-    await db.commit()
-
-    session = _build_user_session(
+    return _build_user_session(
         user,
         shop_id=shop.id if shop else None,
         shop_name=shop.name if shop else None,
         requires_price_setup=requires_price_setup,
         next_screen=next_screen,
     )
+
+
+async def login_user(db: AsyncSession, username: str, password: str) -> LoginResponse:
+    user = await db.scalar(
+        select(User).options(selectinload(User.shop)).where(User.username == username)
+    )
+    if user is None or not verify_password(password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
+        )
+    if user.role == UserRole.SHOP_ACCOUNT and (user.shop is None or not user.shop.is_active):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
+        )
+
+    token = create_access_token(user.id)
+    session = await build_user_session(db, user)
     return LoginResponse(access_token=token, user=session)
 
 

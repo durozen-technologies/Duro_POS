@@ -1,10 +1,10 @@
-from contextlib import asynccontextmanager
 import logging
 import socket
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -64,6 +64,7 @@ async def handle_database_dns_error(_: Request, exc: socket.gaierror) -> JSONRes
             "detail": "Database host could not be resolved. Check DATABASE_URL host and network DNS access.",
         },
     )
+
 
 app.add_middleware(
     CORSMiddleware,

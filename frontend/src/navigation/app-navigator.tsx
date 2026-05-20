@@ -1,16 +1,10 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { ShopHeaderActions, ShopHeaderTitle } from "@/components/shop-header";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useAuthHydration } from "@/hooks/use-auth-hydration";
 import { AppStackParamList } from "@/navigation/types";
-import { AdminDashboardScreen } from "@/screens/admin/admin-dashboard-screen";
-import { LoginScreen } from "@/screens/auth/login-screen";
-import { BillingScreen } from "@/screens/shop/billing-screen";
-import { CheckoutScreen } from "@/screens/shop/checkout-screen";
-import { PrinterSetupScreen } from "@/screens/shop/printer-setup-screen";
-import { ReceiptScreen } from "@/screens/shop/receipt-screen";
 import { useAuthStore } from "@/store/auth-store";
 import { useCartStore } from "@/store/cart-store";
 import { usePriceStore } from "@/store/price-store";
@@ -24,16 +18,23 @@ const screenOptions = {
   contentStyle: { backgroundColor: "#F7F1E8" },
 };
 
+const getLoginScreen = () => require("@/screens/auth/login-screen").LoginScreen;
+const getAdminDashboardScreen = () => require("@/screens/admin/admin-dashboard-screen").AdminDashboardScreen;
+const getBillingScreen = () => require("@/screens/shop/billing-screen").BillingScreen;
+const getCheckoutScreen = () => require("@/screens/shop/checkout-screen").CheckoutScreen;
+const getReceiptScreen = () => require("@/screens/shop/receipt-screen").ReceiptScreen;
+const getPrinterSetupScreen = () => require("@/screens/shop/printer-setup-screen").PrinterSetupScreen;
+
 function useSessionReset() {
   const clearSession = useAuthStore((state) => state.clearSession);
   const resetCart = useCartStore((state) => state.resetCart);
   const clearPrices = usePriceStore((state) => state.clear);
 
-  return () => {
+  return useCallback(() => {
     clearSession();
     resetCart();
     clearPrices();
-  };
+  }, [clearPrices, clearSession, resetCart]);
 }
 
 export function AppNavigator() {
@@ -41,6 +42,11 @@ export function AppNavigator() {
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const logout = useSessionReset();
+  const renderBillingHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.billing" />, []);
+  const renderCheckoutHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.checkout" />, []);
+  const renderReceiptHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.receipt" />, []);
+  const renderPrinterHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.printerSetup" />, []);
+  const renderHeaderActions = useCallback(() => <ShopHeaderActions onLogout={logout} />, [logout]);
 
   useEffect(() => {
     if (!token || !user) {
@@ -56,7 +62,7 @@ export function AppNavigator() {
   if (!token || !user) {
     return (
       <Stack.Navigator initialRouteName="Login" screenOptions={screenOptions}>
-        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Login" getComponent={getLoginScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     );
   }
@@ -66,7 +72,7 @@ export function AppNavigator() {
       <Stack.Navigator initialRouteName="AdminDashboard" screenOptions={screenOptions}>
         <Stack.Screen
           name="AdminDashboard"
-          component={AdminDashboardScreen}
+          getComponent={getAdminDashboardScreen}
           options={{
             headerShown: false,
           }}
@@ -79,34 +85,34 @@ export function AppNavigator() {
     <Stack.Navigator initialRouteName="Billing" screenOptions={screenOptions}>
       <Stack.Screen
         name="Billing"
-        component={BillingScreen}
+        getComponent={getBillingScreen}
         options={{
-          headerTitle: () => <ShopHeaderTitle titleKey="header.billing" />,
-          headerRight: () => <ShopHeaderActions onLogout={logout} />,
+          headerTitle: renderBillingHeaderTitle,
+          headerRight: renderHeaderActions,
         }}
       />
       <Stack.Screen
         name="Checkout"
-        component={CheckoutScreen}
+        getComponent={getCheckoutScreen}
         options={{
-          headerTitle: () => <ShopHeaderTitle titleKey="header.checkout" />,
-          headerRight: () => <ShopHeaderActions onLogout={logout} />,
+          headerTitle: renderCheckoutHeaderTitle,
+          headerRight: renderHeaderActions,
         }}
       />
       <Stack.Screen
         name="Receipt"
-        component={ReceiptScreen}
+        getComponent={getReceiptScreen}
         options={{
-          headerTitle: () => <ShopHeaderTitle titleKey="header.receipt" />,
-          headerRight: () => <ShopHeaderActions onLogout={logout} />,
+          headerTitle: renderReceiptHeaderTitle,
+          headerRight: renderHeaderActions,
         }}
       />
       <Stack.Screen
         name="PrinterSetup"
-        component={PrinterSetupScreen}
+        getComponent={getPrinterSetupScreen}
         options={{
-          headerTitle: () => <ShopHeaderTitle titleKey="header.printerSetup" />,
-          headerRight: () => <ShopHeaderActions onLogout={logout} />,
+          headerTitle: renderPrinterHeaderTitle,
+          headerRight: renderHeaderActions,
         }}
       />
     </Stack.Navigator>

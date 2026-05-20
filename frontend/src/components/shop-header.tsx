@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Text, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ type ShopHeaderActionsProps = {
   onLogout: () => void;
 };
 
-export function ShopHeaderActions({ onLogout }: ShopHeaderActionsProps) {
+export const ShopHeaderActions = memo(function ShopHeaderActions({ onLogout }: ShopHeaderActionsProps) {
   const { language, t, toggleLanguage } = useShopTranslation();
   const translateLabel = language === "en" ? "TAMIL" : "EN";
 
@@ -31,14 +32,14 @@ export function ShopHeaderActions({ onLogout }: ShopHeaderActionsProps) {
       />
     </View>
   );
-}
+});
 
 type ShopHeaderTitleProps = {
   titleKey: ShopTranslationKey;
 };
 
-export function ShopHeaderTitle({ titleKey }: ShopHeaderTitleProps) {
+export const ShopHeaderTitle = memo(function ShopHeaderTitle({ titleKey }: ShopHeaderTitleProps) {
   const { t } = useShopTranslation();
 
   return <Text className="text-base font-bold text-ink">{t(titleKey)}</Text>;
-}
+});

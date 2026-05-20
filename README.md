@@ -68,6 +68,22 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 The backend creates tables on startup and seeds the default billing items automatically.
 
+For backend linting and formatting:
+
+```bash
+cd backend
+uv sync --group dev
+uv run ruff check .
+uv run ruff format .
+```
+
+For a quick backend unused-code check:
+
+```bash
+cd backend
+uv run ruff check app --select F401,F841
+```
+
 ### 2. Start the Frontend
 
 ```bash

@@ -4,15 +4,12 @@ import type { AnalyticsPeriod, BaseUnit, ShopRead } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatDate } from "@/utils/format";
 
-import type { ThemePalette } from "./admin-dashboard-theme";
-
 export type AdminNavTab = "dashboard" | "billing" | "inventory" | "settings";
 export type SectionKey = AdminNavTab;
 export type AnalyticsSectionKey = "inventory" | "billing" | "settings";
 export type LogSeverity = "info" | "warning" | "error" | "critical";
 export type ShopOperationalState = "ACTIVE" | "IDLE" | "OFFLINE" | "DISABLED";
 export type ToastTone = "success" | "error";
-
 
 export type SeverityMeta = {
   tone: ToastTone | "warning" | "neutral";
@@ -29,7 +26,48 @@ export const NAV_ITEMS: { key: AdminNavTab; label: string; icon: string }[] = [
   { key: "settings", label: "Settings", icon: "cog-outline" },
 ];
 
+const compactCurrencyFormatter = new Intl.NumberFormat("en-IN", {
+  notation: "compact",
+  maximumFractionDigits: 0,
+});
 
+const compactCurrencyPrecisionFormatter = new Intl.NumberFormat("en-IN", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+const optionDayFormatter = new Intl.DateTimeFormat("en-IN", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+});
+
+const monthYearFormatter = new Intl.DateTimeFormat("en-IN", {
+  month: "long",
+  year: "numeric",
+});
+
+const shortWeekFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+});
+
+const weekRangeEndFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+const fullAnalyticsDateFormatter = new Intl.DateTimeFormat("en-IN", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+const analyticsYearFormatter = new Intl.DateTimeFormat("en-IN", {
+  year: "numeric",
+});
 
 export function triggerHaptic(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
   void Haptics.impactAsync(style).catch(() => undefined);
@@ -37,10 +75,9 @@ export function triggerHaptic(style: Haptics.ImpactFeedbackStyle = Haptics.Impac
 
 export function formatCompactCurrency(value: string | number) {
   const numericValue = Number(money(value).toFixed(2));
-  const compact = new Intl.NumberFormat("en-IN", {
-    notation: "compact",
-    maximumFractionDigits: numericValue >= 100000 ? 1 : 0,
-  }).format(numericValue);
+  const compact = (
+    numericValue >= 100000 ? compactCurrencyPrecisionFormatter : compactCurrencyFormatter
+  ).format(numericValue);
 
   return `Rs. ${compact}`;
 }
@@ -101,6 +138,15 @@ function toLocalDateValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function getStartOfWeek(date: Date) {
+  const weekStart = new Date(date);
+  const dayOfWeek = weekStart.getDay();
+  const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  weekStart.setDate(weekStart.getDate() + offset);
+  weekStart.setHours(0, 0, 0, 0);
+  return weekStart;
+}
+
 function parseLocalDateValue(value: string) {
   const [yearText, monthText, dayText] = value.split("-");
   const year = Number(yearText);
@@ -128,11 +174,7 @@ export function buildDateOptions() {
           ? "Today"
           : index === 1
             ? "Yesterday"
-            : new Intl.DateTimeFormat("en-IN", {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              }).format(date),
+            : optionDayFormatter.format(date),
     };
   });
 }
@@ -145,10 +187,27 @@ export function buildMonthOptions() {
 
     return {
       value,
-      label: new Intl.DateTimeFormat("en-IN", {
-        month: "long",
-        year: "numeric",
-      }).format(date),
+      label: monthYearFormatter.format(date),
+    };
+  });
+}
+
+export function buildWeekOptions() {
+  const currentWeekStart = getStartOfWeek(new Date());
+  return Array.from({ length: 12 }, (_, index) => {
+    const weekStart = new Date(currentWeekStart);
+    weekStart.setDate(currentWeekStart.getDate() - index * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+
+    return {
+      value: toLocalDateValue(weekStart),
+      label:
+        index === 0
+          ? "This Week"
+          : index === 1
+            ? "Last Week"
+            : `${shortWeekFormatter.format(weekStart)} - ${weekRangeEndFormatter.format(weekEnd)}`,
     };
   });
 }
@@ -168,24 +227,21 @@ export function formatAnalyticsReference(period: AnalyticsPeriod, value: string)
   const date = parseLocalDateValue(value);
 
   if (period === "date") {
-    return new Intl.DateTimeFormat("en-IN", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    }).format(date);
+    return fullAnalyticsDateFormatter.format(date);
   }
 
   if (period === "month") {
-    return new Intl.DateTimeFormat("en-IN", {
-      month: "long",
-      year: "numeric",
-    }).format(date);
+    return monthYearFormatter.format(date);
   }
 
-  return new Intl.DateTimeFormat("en-IN", {
-    year: "numeric",
-  }).format(date);
+  if (period === "year") {
+    return analyticsYearFormatter.format(date);
+  }
+
+  const weekStart = getStartOfWeek(date);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  return `${shortWeekFormatter.format(weekStart)} - ${weekRangeEndFormatter.format(weekEnd)}`;
 }
 
 export function getUnitLabel(unit: BaseUnit, quantity: string) {

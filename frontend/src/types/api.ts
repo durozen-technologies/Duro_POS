@@ -1,7 +1,7 @@
 export type UserRole = "admin" | "shop_account";
 export type BaseUnit = "kg" | "unit";
 export type UnitType = "weight" | "count";
-export type AnalyticsPeriod = "date" | "month" | "year";
+export type AnalyticsPeriod = "date" | "month" | "week" | "year";
 
 export interface UserSession {
   id: number;
@@ -56,7 +56,6 @@ export interface DailyPriceEntry {
 
 export interface DailyPriceCreate {
   entries: DailyPriceEntry[];
-  price_date?: string | null;
 }
 
 export interface DailyPriceRead {

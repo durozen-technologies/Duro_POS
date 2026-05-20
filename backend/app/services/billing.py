@@ -1,14 +1,23 @@
 from datetime import UTC, date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Bill, BillItem, BillStatus, DailyPrice, Item, Payment, Receipt, Shop, User, MonthlyBillSequence
+from app.models import (
+    Bill,
+    BillItem,
+    BillStatus,
+    DailyPrice,
+    Item,
+    MonthlyBillSequence,
+    Payment,
+    Receipt,
+    Shop,
+)
 from app.schemas.billing import BillCheckoutRequest, BillLineRead, BillRead
-from app.services.pricing import _get_shop_price_map
 
 TWOPLACES = Decimal("0.01")
 
@@ -17,7 +26,7 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(TWOPLACES, rounding=ROUND_HALF_UP)
 
 
-async def _generate_bill_no(db: AsyncSession, shop: Shop) -> str:
+async def _generate_bill_no(db: AsyncSession) -> str:
     now = datetime.now(UTC)
     month_str = f"{now.year:04d}-{now.month:02d}"
 
@@ -48,25 +57,37 @@ async def _generate_bill_no(db: AsyncSession, shop: Shop) -> str:
     return f"SMB-{now.year:04d}-{now.month:02d}-{sequence:06d}"
 
 
-async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest, actor: User) -> BillRead:
+async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest) -> BillRead:
+    """Create a paid bill using today's price book for the given shop."""
     today = date.today()
-    today_prices_result = await db.scalars(
-        select(DailyPrice).where(
-            DailyPrice.shop_id == shop.id,
-            DailyPrice.price_date == today,
+    price_rows = (
+        await db.execute(
+            select(
+                DailyPrice.item_id,
+                DailyPrice.price_per_unit,
+            ).where(
+                DailyPrice.shop_id == shop.id,
+                DailyPrice.price_date == today,
+            )
         )
-    )
-    today_prices = today_prices_result.all()
-    price_map = await _get_shop_price_map(db, shop)
+    ).all()
+    price_map = {row.item_id: row.price_per_unit for row in price_rows}
     if not price_map:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="No prices have been configured for this shop",
         )
+
     item_ids = [line.item_id for line in payload.items]
-    items_result = await db.scalars(select(Item).where(Item.id.in_(item_ids), Item.is_active.is_(True)))
-    items = items_result.all()
-    items_by_id = {item.id: item for item in items}
+    item_rows = (
+        await db.execute(
+            select(Item.id, Item.name, Item.base_unit).where(
+                Item.id.in_(item_ids),
+                Item.is_active.is_(True),
+            )
+        )
+    ).all()
+    items_by_id = {row.id: row for row in item_rows}
     missing_ids = [item_id for item_id in item_ids if item_id not in items_by_id]
     if missing_ids:
         raise HTTPException(
@@ -86,21 +107,21 @@ async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest
                 detail=f"{item.name} only accepts integer unit quantities",
             )
 
-        price = price_map.get(item.id)
-        if price is None:
+        price_per_unit = price_map.get(item.id)
+        if price_per_unit is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Missing today's price for {item.name}",
             )
 
-        line_total = _round_money(price.price_per_unit * line.quantity)
+        line_total = _round_money(price_per_unit * line.quantity)
         total_amount += line_total
         bill_items.append(
             BillItem(
                 item_id=item.id,
                 quantity=line.quantity,
                 unit=item.base_unit,
-                price_per_unit=price.price_per_unit,
+                price_per_unit=price_per_unit,
                 line_total=line_total,
             )
         )
@@ -110,7 +131,7 @@ async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest
                 item_name=item.name,
                 quantity=line.quantity,
                 unit=item.base_unit,
-                price_per_unit=price.price_per_unit,
+                price_per_unit=price_per_unit,
                 line_total=line_total,
             )
         )
@@ -133,7 +154,7 @@ async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest
         )
 
     bill = Bill(
-        bill_no=await _generate_bill_no(db, shop),
+        bill_no=await _generate_bill_no(db),
         shop_id=shop.id,
         total_amount=total_amount,
         status=BillStatus.PAID,
@@ -157,10 +178,9 @@ async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest
     )
     db.add_all([payment, receipt])
 
+    # Flush once so payment/receipt IDs are available without extra refresh queries.
+    await db.flush()
     await db.commit()
-    await db.refresh(bill)
-    await db.refresh(payment)
-    await db.refresh(receipt)
 
     return BillRead(
         id=bill.id,

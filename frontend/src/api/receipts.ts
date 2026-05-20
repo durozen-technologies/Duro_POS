@@ -57,67 +57,7 @@ function formatReceiptShopName(shopName: string, language?: ShopLanguage) {
   return getReceiptLanguage(language) === "ta" ? shopName : shopName.toUpperCase();
 }
 
-export function buildReceiptText(bill: BillRead, language?: ShopLanguage) {
-  const copy = getReceiptCopy(language);
-  const lines = [
-    copy.companyName,
-    formatReceiptShopName(bill.shop_name, language),
-    `${copy.receipt}: ${bill.receipt.receipt_number}`,
-    `${copy.bill}: ${bill.bill_no}`,
-    `${copy.date}: ${formatDateTime(bill.created_at)}`,
-    `----------------------------------------`,
-    copy.items,
-    "",
-    ...bill.items.map(
-      (item) =>
-        `${translateShopItemName(getReceiptLanguage(language), item.item_name).padEnd(15)} ${item.quantity}${formatUnit(item.unit).padEnd(5)} x ${formatReceiptCurrency(item.price_per_unit)} = ${formatReceiptCurrency(item.line_total)}`,
-    ),
-    "",
-    `----------------------------------------`,
-    `${copy.cash}: ${formatReceiptCurrency(bill.payment.cash_amount)}`,
-    `${copy.upi}: ${formatReceiptCurrency(bill.payment.upi_amount)}`,
-    `${copy.total}: ${formatReceiptCurrency(bill.total_amount)}`,
-    `----------------------------------------`,
-    copy.thankYou,
-    "", // Note: leave some blank lines at the end so the printer rolls the paper up!
-    "",
-    "",
-    "",
-  ];
-
-  return lines.join("\n");
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "'");
-}
-
-// If rate is needed in the future, we can add it as a hidden column in the HTML and use CSS to show it only when needed. This way we can avoid breaking existing printer templates that might rely on the current structure of the receipt.
-// <tr>
-//           <td colspan="3" class="item-calc-row">
-//              ${copy.rate}: ${formatReceiptCurrency(item.price_per_unit)} / ${formatUnit(item.unit)}
-//           </td>
-//         </tr>
-
-export function buildReceiptHtml(bill: BillRead) {
-  const copy = RECEIPT_COPY.en;
-  const itemRows = bill.items
-    .map(
-      (item) => `
-        <tr class="item-row">
-          <td class="item-name strong">${escapeHtml(translateShopItemName("ta", item.item_name))}</td>
-          <td class="align-right item-qty">${item.quantity} ${formatUnit(item.unit)}</td>
-          <td class="align-right item-total strong">${formatReceiptCurrency(item.line_total)}</td>
-        </tr>
-        `,
-    )
-    .join("");
-
+function buildReceiptHtmlMarkup(receiptMarkup: string) {
   return `
     <html lang="ta">
       <head>
@@ -157,10 +97,21 @@ export function buildReceiptHtml(bill: BillRead) {
             letter-spacing: 0;
           }
 
+          .receipt-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+          }
+
           .receipt-container {
             width: 100%;
             max-width: 380px;
             margin: 0 auto;
+          }
+
+          .receipt-container + .receipt-container {
+            padding-top: 18px;
+            border-top: 2px dashed #d3d3d3;
           }
 
           .center { text-align: center; }
@@ -205,7 +156,6 @@ export function buildReceiptHtml(bill: BillRead) {
             margin-bottom: 0;
           }
 
-          /* ── Items table ── */
           table {
             width: 100%;
             border-collapse: collapse;
@@ -247,7 +197,7 @@ export function buildReceiptHtml(bill: BillRead) {
             overflow-wrap: anywhere;
           }
           .item-qty {
-            font-size: 14px;
+            font-size: 22px;
             text-align: right;
             white-space: normal;
             word-break: break-word;
@@ -256,7 +206,7 @@ export function buildReceiptHtml(bill: BillRead) {
             padding-right: 4px;
           }
           .item-total {
-            font-size: 17px;
+            font-size: 21px;
             text-align: right;
             white-space: normal;
             word-break: break-word;
@@ -314,68 +264,141 @@ export function buildReceiptHtml(bill: BillRead) {
             .header-sub  { font-size: 17px; }
             .bill-meta   { font-size: 13px; }
             .item-name   { font-size: 15px; }
-            .item-qty    { font-size: 13px; }
-            .item-total  { font-size: 15px; }
+            .item-qty    { font-size: 17px; }
+            .item-total  { font-size: 16px; }
           }
         </style>
       </head>
       <body>
-        <div class="receipt-container">
-          <div class="center">
-            <div class="strong header-main">${copy.companyName}</div>
-            <div class="strong header-sub">${escapeHtml(formatReceiptShopName(bill.shop_name, "en"))}</div>
-          </div>
-
-          <div class="bill-meta">
-            <span><strong>${copy.bill}:</strong> ${escapeHtml(bill.bill_no)}</span>
-            <span><strong>${copy.date}:</strong> ${escapeHtml(formatDateTime(bill.created_at))}</span>
-          </div>
-
-          <table>
-            <colgroup>
-              <col class="col-item-name" />
-              <col class="col-item-qty" />
-              <col class="col-item-total" />
-            </colgroup>
-            <thead>
-              <tr class="items-header">
-                <th align="left">${copy.item}</th>
-                <th align="right">${copy.quantityUnit}</th>
-                <th align="right">${copy.total}</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemRows}
-            </tbody>
-          </table>
-
-          <!-- Line before payment -->
-          <div class="payment-divider"></div>
-
-          <table class="totals-section">
-            <tr class="total-row">
-              <td>${copy.cash}</td>
-              <td class="align-right">${formatReceiptCurrency(bill.payment.cash_amount)}</td>
-            </tr>
-            <tr class="total-row">
-              <td class="upi-bottom-divider">${copy.upi}</td>
-              <td class="align-right upi-bottom-divider">${formatReceiptCurrency(bill.payment.upi_amount)}</td>
-            </tr>
-            <tr class="total-row grand-total">
-              <td class="strong">${copy.total}</td>
-              <td class="align-right strong">Rs. ${formatReceiptCurrency(bill.total_amount)}</td>
-            </tr>
-          </table>
-
-          <!-- Line after totals -->
-          <div class="total-divider"></div>
-
-          <div class="center footer">
-            <div class="strong thank-you">${copy.thankYou}</div>
-            <div class="footer-note">${copy.poweredBy}</div>
-            <div class="strong thank-you">${copy.provider}</div>
-          </div>
+        <div class="receipt-stack">
+          ${receiptMarkup}
         </div>
       </body>
     </html>`;
+}
+
+export function buildReceiptText(bill: BillRead, language?: ShopLanguage) {
+  const copy = getReceiptCopy(language);
+  const lines = [
+    copy.companyName,
+    formatReceiptShopName(bill.shop_name, language),
+    `${copy.receipt}: ${bill.receipt.receipt_number}`,
+    `${copy.bill}: ${bill.bill_no}`,
+    `${copy.date}: ${formatDateTime(bill.created_at)}`,
+    `----------------------------------------`,
+    copy.items,
+    "",
+    ...bill.items.map(
+      (item) =>
+        `${translateShopItemName(getReceiptLanguage(language), item.item_name).padEnd(15)} ${item.quantity}${formatUnit(item.unit).padEnd(5)} x ${formatReceiptCurrency(item.price_per_unit)} = ${formatReceiptCurrency(item.line_total)}`,
+    ),
+    "",
+    `----------------------------------------`,
+    `${copy.cash}: ${formatReceiptCurrency(bill.payment.cash_amount)}`,
+    `${copy.upi}: ${formatReceiptCurrency(bill.payment.upi_amount)}`,
+    `${copy.total}: ${formatReceiptCurrency(bill.total_amount)}`,
+    `----------------------------------------`,
+    copy.thankYou,
+    "", // Note: leave some blank lines at the end so the printer rolls the paper up!
+    "",
+    "",
+    "",
+  ];
+
+  return lines.join("\n");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "'");
+}
+
+// If rate is needed in the future, we can add it as a hidden column in the HTML and use CSS to show it only when needed. This way we can avoid breaking existing printer templates that might rely on the current structure of the receipt.
+// <tr>
+//           <td colspan="3" class="item-calc-row">
+//              ${copy.rate}: ${formatReceiptCurrency(item.price_per_unit)} / ${formatUnit(item.unit)}
+//           </td>
+//         </tr>
+
+function buildReceiptHtmlBody(bill: BillRead) {
+  const copy = RECEIPT_COPY.en;
+  const itemRows = bill.items
+    .map(
+      (item) => `
+        <tr class="item-row">
+          <td class="item-name strong">${escapeHtml(translateShopItemName("ta", item.item_name))}</td>
+          <td class="align-right item-qty">${item.quantity} ${formatUnit(item.unit)}</td>
+          <td class="align-right item-total strong">${formatReceiptCurrency(item.line_total)}</td>
+        </tr>
+        `,
+    )
+    .join("");
+
+  return `
+    <div class="receipt-container">
+      <div class="center">
+        <div class="strong header-main">${copy.companyName}</div>
+        <div class="strong header-sub">${escapeHtml(formatReceiptShopName(bill.shop_name, "en"))}</div>
+      </div>
+
+      <div class="bill-meta">
+        <span><strong>${copy.bill}:</strong> ${escapeHtml(bill.bill_no)}</span>
+        <span><strong>${copy.date}:</strong> ${escapeHtml(formatDateTime(bill.created_at))}</span>
+      </div>
+
+      <table>
+        <colgroup>
+          <col class="col-item-name" />
+          <col class="col-item-qty" />
+          <col class="col-item-total" />
+        </colgroup>
+        <thead>
+          <tr class="items-header">
+            <th align="left">${copy.item}</th>
+            <th align="right">${copy.quantityUnit}</th>
+            <th align="right">${copy.total}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemRows}
+        </tbody>
+      </table>
+
+      <div class="payment-divider"></div>
+
+      <table class="totals-section">
+        <tr class="total-row">
+          <td>${copy.cash}</td>
+          <td class="align-right">${formatReceiptCurrency(bill.payment.cash_amount)}</td>
+        </tr>
+        <tr class="total-row">
+          <td class="upi-bottom-divider">${copy.upi}</td>
+          <td class="align-right upi-bottom-divider">${formatReceiptCurrency(bill.payment.upi_amount)}</td>
+        </tr>
+        <tr class="total-row grand-total">
+          <td class="strong">${copy.total}</td>
+          <td class="align-right strong">Rs. ${formatReceiptCurrency(bill.total_amount)}</td>
+        </tr>
+      </table>
+
+      <div class="total-divider"></div>
+
+      <div class="center footer">
+        <div class="strong thank-you">${copy.thankYou}</div>
+        <div class="footer-note">${copy.poweredBy}</div>
+        <div class="strong thank-you">${copy.provider}</div>
+      </div>
+    </div>`;
+}
+
+export function buildReceiptHtml(bill: BillRead) {
+  return buildReceiptHtmlMarkup(buildReceiptHtmlBody(bill));
+}
+
+export function buildBatchReceiptHtml(bills: BillRead[]) {
+  return buildReceiptHtmlMarkup(bills.map((bill) => buildReceiptHtmlBody(bill)).join(""));
 }

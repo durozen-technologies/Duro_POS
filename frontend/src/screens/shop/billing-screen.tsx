@@ -62,7 +62,7 @@ type ProductCardProps = {
   quantity: string;
   itemName: string;
   onChangeQuantity: (itemId: number, value: string) => void;
-  onAddToCart: (item: ItemPriceRead) => void;
+  onAddToCart: (item: ItemPriceRead, quantity: string) => void;
   t: any;
 };
 
@@ -134,7 +134,7 @@ const ProductCard = memo(
                     ? t("action.addToCart")
                     : t("action.awaitingPrice")
                 }
-                onPress={() => onAddToCart(item)}
+                onPress={() => onAddToCart(item, quantity)}
                 disabled={!item.current_price}
                 className="h-11 rounded-xl bg-[#163020]"
               />
@@ -234,10 +234,8 @@ export function BillingScreen({
   );
 
   const handleAddToCart = useCallback(
-    (item: ItemPriceRead) => {
-      const rawQuantity =
-        quantities[item.item_id]?.trim() ?? "";
-
+    (item: ItemPriceRead, quantity: string) => {
+      const rawQuantity = quantity.trim();
       const itemName = translateItemName(item.item_name);
 
       if (!item.current_price) {
@@ -284,7 +282,7 @@ export function BillingScreen({
         [item.item_id]: "",
       }));
     },
-    [addItem, quantities, t, translateItemName],
+    [addItem, t, translateItemName],
   );
 
   const cartTotal = formatCurrency(
@@ -390,9 +388,10 @@ export function BillingScreen({
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
           removeClippedSubviews
-          initialNumToRender={6}
+          initialNumToRender={4}
           maxToRenderPerBatch={4}
-          windowSize={7}
+          updateCellsBatchingPeriod={48}
+          windowSize={5}
           contentContainerStyle={{
             paddingBottom: 180,
           }}

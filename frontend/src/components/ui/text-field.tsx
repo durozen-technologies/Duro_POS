@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Text, TextInput, TextInputProps, View } from "react-native";
 
 import { useShopTranslation } from "@/hooks/use-shop-translation";
@@ -9,7 +10,7 @@ type TextFieldProps = TextInputProps & {
   suffix?: string;
 };
 
-export function TextField({ label, error, suffix, className, ...props }: TextFieldProps) {
+export const TextField = memo(function TextField({ label, error, suffix, className, ...props }: TextFieldProps) {
   const { isTamil } = useShopTranslation();
 
   return (
@@ -52,4 +53,4 @@ export function TextField({ label, error, suffix, className, ...props }: TextFie
       {error ? <Text className="text-sm text-[#9F4335]">{error}</Text> : null}
     </View>
   );
-}
+});

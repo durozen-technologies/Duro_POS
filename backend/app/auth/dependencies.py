@@ -3,7 +3,6 @@ from collections.abc import Callable
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -44,16 +43,26 @@ async def get_current_user(
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     if not current_user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
-    if current_user.role == UserRole.SHOP_ACCOUNT and current_user.shop and not current_user.shop.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
+        )
+    if (
+        current_user.role == UserRole.SHOP_ACCOUNT
+        and current_user.shop
+        and not current_user.shop.is_active
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
+        )
     return current_user
 
 
 def require_roles(*roles: UserRole) -> Callable[[User], User]:
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
         if current_user.role not in roles:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+            )
         return current_user
 
     return dependency
@@ -61,9 +70,8 @@ def require_roles(*roles: UserRole) -> Callable[[User], User]:
 
 async def get_current_shop(
     current_user: User = Depends(require_roles(UserRole.SHOP_ACCOUNT)),
-    db: AsyncSession = Depends(get_db),
 ) -> Shop:
-    shop = await db.scalar(select(Shop).where(Shop.owner_user_id == current_user.id))
+    shop = current_user.shop
     if shop is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop account not linked")
     if not shop.is_active:

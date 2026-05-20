@@ -1,7 +1,8 @@
-from enum import Enum
 from decimal import Decimal
+from enum import Enum
 
-from sqlalchemy import Enum as SqlEnum, ForeignKey, Index, Numeric, String, desc
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import ForeignKey, Index, Numeric, String, desc
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -30,8 +31,12 @@ class Bill(Base, BaseModelMixin):
 
     shop = relationship("Shop", back_populates="bills")
     items = relationship("BillItem", back_populates="bill", cascade="all, delete-orphan")
-    payment = relationship("Payment", back_populates="bill", uselist=False, cascade="all, delete-orphan")
-    receipt = relationship("Receipt", back_populates="bill", uselist=False, cascade="all, delete-orphan")
+    payment = relationship(
+        "Payment", back_populates="bill", uselist=False, cascade="all, delete-orphan"
+    )
+    receipt = relationship(
+        "Receipt", back_populates="bill", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class BillItem(Base):

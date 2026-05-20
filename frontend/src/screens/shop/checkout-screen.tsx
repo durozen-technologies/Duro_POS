@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Alert, Linking, Text, View } from "react-native";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, Control, useForm, useWatch } from "react-hook-form";
 import { CommonActions } from "@react-navigation/native";
 
 import { checkoutBill } from "@/api/billing";
@@ -23,6 +23,85 @@ type CheckoutFormValues = {
   upiAmount: string;
 };
 
+type CheckoutPaymentStatusProps = {
+  control: Control<CheckoutFormValues>;
+  totalAmount: string;
+  submitting: boolean;
+  t: ReturnType<typeof useShopTranslation>["t"];
+  onSubmit: () => void;
+};
+
+const CheckoutPaymentStatus = memo(function CheckoutPaymentStatus({
+  control,
+  totalAmount,
+  submitting,
+  t,
+  onSubmit,
+}: CheckoutPaymentStatusProps) {
+  const [cashAmount = "", upiAmount = ""] = useWatch({
+    control,
+    name: ["cashAmount", "upiAmount"],
+  });
+
+  const paymentSummary = useMemo(() => {
+    const total = money(totalAmount);
+    const cash = money(cashAmount);
+    const upi = money(upiAmount);
+    const paid = cash.plus(upi);
+    const balance = total.minus(paid);
+    const exact = paid.equals(total) && total.greaterThan(0);
+    const overpaid = paid.greaterThan(total);
+
+    return {
+      paidAmountText: formatCurrency(paid.toFixed(2)),
+      balanceAmountText: formatCurrency(balance.toFixed(2)),
+      isExact: exact,
+      isOverpaid: overpaid,
+    };
+  }, [cashAmount, totalAmount, upiAmount]);
+
+  return (
+    <>
+      <View className="rounded-[26px] border border-border bg-surface p-4">
+        <View className="mb-3 flex-row flex-wrap items-center justify-between gap-2">
+          <Text className="text-[11px] font-semibold uppercase tracking-[1.4px] text-muted">{t("checkout.receiptControl")}</Text>
+          {paymentSummary.isExact ? (
+            <StatusPill label={t("checkout.paymentMatched")} tone="success" />
+          ) : paymentSummary.isOverpaid ? (
+            <StatusPill label={t("checkout.overpaidLocked")} tone="danger" />
+          ) : (
+            <StatusPill label={t("checkout.pendingBalance")} tone="warning" />
+          )}
+        </View>
+        <View className="gap-3 rounded-[22px] bg-card px-4 py-4">
+          <View className="flex-row flex-wrap items-center justify-between gap-2">
+            <Text className="text-sm text-muted">{t("common.paidAmount")}</Text>
+            <Text className="text-base font-semibold text-ink">{paymentSummary.paidAmountText}</Text>
+          </View>
+          <View className="flex-row flex-wrap items-center justify-between gap-2">
+            <Text className="text-sm text-muted">{t("common.balanceAmount")}</Text>
+            <Text className="text-base font-semibold text-ink">{paymentSummary.balanceAmountText}</Text>
+          </View>
+          <Text className="text-sm leading-6 text-muted">
+            {paymentSummary.isExact
+              ? t("checkout.paymentMatchedDescription")
+              : paymentSummary.isOverpaid
+                ? t("checkout.overpaidDescription")
+                : t("checkout.pendingBalanceDescription")}
+          </Text>
+        </View>
+      </View>
+
+      <Button
+        label={paymentSummary.isExact ? t("action.printReceipt") : t("action.receiptLocked")}
+        onPress={onSubmit}
+        disabled={!paymentSummary.isExact}
+        loading={submitting}
+      />
+    </>
+  );
+});
+
 export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
   const { t } = useShopTranslation();
   const cartItems = useCartStore((state) => state.items);
@@ -42,15 +121,13 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
     }
   }, [cartItems.length, navigation]);
 
-  const totalAmount = money(getCartTotal(cartItems));
-  const cashAmount = money(form.watch("cashAmount"));
-  const upiAmount = money(form.watch("upiAmount"));
-  const paidAmount = cashAmount.plus(upiAmount);
-  const balanceAmount = totalAmount.minus(paidAmount);
-  const isExact = paidAmount.equals(totalAmount) && totalAmount.greaterThan(0);
-  const isOverpaid = paidAmount.greaterThan(totalAmount);
+  const totalAmount = useMemo(() => getCartTotal(cartItems), [cartItems]);
 
   async function handleCheckout(values: CheckoutFormValues) {
+    const total = money(totalAmount);
+    const paidAmount = money(values.cashAmount).plus(money(values.upiAmount));
+    const isExact = paidAmount.equals(total) && total.greaterThan(0);
+
     if (!isExact) {
       return;
     }
@@ -130,41 +207,12 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
           )}
         />
 
-        <View className="rounded-[26px] border border-border bg-surface p-4">
-          <View className="mb-3 flex-row flex-wrap items-center justify-between gap-2">
-            <Text className="text-[11px] font-semibold uppercase tracking-[1.4px] text-muted">{t("checkout.receiptControl")}</Text>
-            {isExact ? (
-              <StatusPill label={t("checkout.paymentMatched")} tone="success" />
-            ) : isOverpaid ? (
-              <StatusPill label={t("checkout.overpaidLocked")} tone="danger" />
-            ) : (
-              <StatusPill label={t("checkout.pendingBalance")} tone="warning" />
-            )}
-          </View>
-          <View className="gap-3 rounded-[22px] bg-card px-4 py-4">
-            <View className="flex-row flex-wrap items-center justify-between gap-2">
-              <Text className="text-sm text-muted">{t("common.paidAmount")}</Text>
-              <Text className="text-base font-semibold text-ink">{formatCurrency(paidAmount.toFixed(2))}</Text>
-            </View>
-            <View className="flex-row flex-wrap items-center justify-between gap-2">
-              <Text className="text-sm text-muted">{t("common.balanceAmount")}</Text>
-              <Text className="text-base font-semibold text-ink">{formatCurrency(balanceAmount.toFixed(2))}</Text>
-            </View>
-            <Text className="text-sm leading-6 text-muted">
-              {isExact
-                ? t("checkout.paymentMatchedDescription")
-                : isOverpaid
-                  ? t("checkout.overpaidDescription")
-                  : t("checkout.pendingBalanceDescription")}
-            </Text>
-          </View>
-        </View>
-
-        <Button
-          label={isExact ? t("action.printReceipt") : t("action.receiptLocked")}
-          onPress={form.handleSubmit(handleCheckout)}
-          disabled={!isExact}
-          loading={submitting}
+        <CheckoutPaymentStatus
+          control={form.control}
+          totalAmount={totalAmount}
+          submitting={submitting}
+          t={t}
+          onSubmit={form.handleSubmit(handleCheckout)}
         />
       </Card>
     </Screen>

@@ -7,8 +7,7 @@ from pydantic import BaseModel, Field
 from app.models import BaseUnit
 from app.schemas.common import ORMModel
 
-
-AnalyticsPeriod = Literal["date", "month", "year"]
+AnalyticsPeriod = Literal["date", "month", "week", "year"]
 
 
 class ShopCreate(BaseModel):
@@ -82,7 +81,6 @@ class AdminBillPage(BaseModel):
     shop_stats: list[AdminBillShopStat]
     next_cursor_created_at: datetime | None = None
     next_cursor_id: int | None = None
-
 
 
 class AdminDashboardBootstrap(BaseModel):

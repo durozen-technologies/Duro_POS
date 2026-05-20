@@ -1,15 +1,18 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import {
   AccessibilityRole,
   ActivityIndicator,
   Animated,
   Pressable,
   StyleSheet,
+  StyleProp,
   Text,
+  TextStyle,
   TextInput,
   View,
+  ViewStyle,
 } from "react-native";
 
 import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
@@ -99,6 +102,25 @@ type TopAppBarProps = {
   onRefresh?: () => void;
 };
 
+type DashboardErrorBannerProps = {
+  dashboardError: string | null;
+  hasShops: boolean;
+  palette: ThemePalette;
+  style?: StyleProp<ViewStyle>;
+};
+
+type TabSectionHeaderProps = {
+  title: string;
+  palette: ThemePalette;
+  badgeLabel?: string;
+};
+
+type SectionHintProps = {
+  text: string;
+  palette: ThemePalette;
+  style?: StyleProp<ViewStyle>;
+};
+
 function CountUpText({
   value,
   formatter,
@@ -106,40 +128,36 @@ function CountUpText({
 }: {
   value: number;
   formatter: (value: number) => string;
-  style: object;
+  style: StyleProp<TextStyle>;
 }) {
-  const [displayValue, setDisplayValue] = useState(value);
+  const emphasis = useRef(new Animated.Value(1)).current;
   const previousValueRef = useRef(value);
+  const formattedValue = useMemo(() => formatter(value), [formatter, value]);
 
   useEffect(() => {
-    const startValue = previousValueRef.current;
-    const delta = value - startValue;
-    const duration = 420;
-    const start = Date.now();
-    let frameId = 0;
+    if (previousValueRef.current === value) {
+      return;
+    }
 
-    const tick = () => {
-      const elapsed = Date.now() - start;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const nextValue = startValue + delta * eased;
-      setDisplayValue(nextValue);
-
-      if (progress < 1) {
-        frameId = requestAnimationFrame(tick);
-      } else {
-        previousValueRef.current = value;
-      }
-    };
-
-    frameId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frameId);
-  }, [value]);
+    previousValueRef.current = value;
+    emphasis.setValue(0.96);
+    Animated.spring(emphasis, {
+      toValue: 1,
+      speed: 20,
+      bounciness: 3,
+      useNativeDriver: true,
+    }).start();
+  }, [emphasis, value]);
 
   return (
-    <Text adjustsFontSizeToFit minimumFontScale={0.74} numberOfLines={1} style={style}>
-      {formatter(displayValue)}
-    </Text>
+    <Animated.Text
+      adjustsFontSizeToFit
+      minimumFontScale={0.74}
+      numberOfLines={1}
+      style={[style, { transform: [{ scale: emphasis }] }]}
+    >
+      {formattedValue}
+    </Animated.Text>
   );
 }
 
@@ -409,7 +427,7 @@ export const PrimaryButton = memo(function PrimaryButton({
           width: fullWidth ? "100%" : undefined,
           backgroundColor: buttonBackground,
           borderColor: buttonBorder,
-          opacity: isDisabled ? 0.56 : 1,
+          opacity: disabled && !loading ? 0.75 : 1,
           transform: [{ scale: pressed && !isDisabled ? 0.99 : 1 }, { translateY: pressed && !isDisabled ? 1 : 0 }],
         },
       ]}
@@ -450,6 +468,56 @@ export const EmptyStateCard = memo(function EmptyStateCard({
         />
       ) : null}
     </View>
+  );
+});
+
+export const DashboardErrorBanner = memo(function DashboardErrorBanner({
+  dashboardError,
+  hasShops,
+  palette,
+  style,
+}: DashboardErrorBannerProps) {
+  if (!dashboardError || !hasShops) {
+    return null;
+  }
+
+  return (
+    <View style={[styles.inlineBanner, style, { backgroundColor: palette.goldSoft, borderColor: palette.gold }]}>
+      <MaterialCommunityIcons name="wifi-alert" size={18} color={palette.cash} />
+      <Text style={[styles.inlineBannerText, { color: palette.textPrimary }]}>{dashboardError}</Text>
+    </View>
+  );
+});
+
+export const TabSectionHeader = memo(function TabSectionHeader({
+  title,
+  palette,
+  badgeLabel,
+}: TabSectionHeaderProps) {
+  return (
+    <View style={styles.tabSectionHeader}>
+      <Text style={[styles.tabSectionTitle, { color: palette.textPrimary }]}>{title}</Text>
+      {badgeLabel ? (
+        <View style={styles.sectionBadge}>
+          <Text
+            style={[
+              styles.sectionBadgeText,
+              { color: palette.emeraldDark, backgroundColor: palette.emeraldSoft },
+            ]}
+          >
+            {badgeLabel}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+});
+
+export const SectionHint = memo(function SectionHint({ text, palette, style }: SectionHintProps) {
+  return (
+    <Text style={[styles.sectionHint, style, { color: palette.textMuted }]}>
+      {text}
+    </Text>
   );
 });
 
@@ -841,7 +909,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    flex: 1,
   },
   buttonContent: {
     flexDirection: "row",
@@ -876,6 +943,48 @@ const styles = StyleSheet.create({
   },
   emptySubtitle: {
     fontSize: 13,
+    lineHeight: 18,
+  },
+  inlineBanner: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  inlineBannerText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  tabSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 4,
+  },
+  tabSectionTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    flex: 1,
+  },
+  sectionBadge: {
+    justifyContent: "center",
+  },
+  sectionBadgeText: {
+    overflow: "hidden",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  sectionHint: {
+    fontSize: 12,
     lineHeight: 18,
   },
   toastContainer: {

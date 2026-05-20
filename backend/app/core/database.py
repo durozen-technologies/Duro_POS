@@ -1,9 +1,13 @@
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import MetaData, inspect, select, text
-from sqlalchemy.engine import Connection
-from sqlalchemy.engine import URL, make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.engine import URL, Connection, make_url
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import get_settings
@@ -62,7 +66,9 @@ def get_engine() -> AsyncEngine:
 def get_session_local() -> async_sessionmaker[AsyncSession]:
     global SessionLocal
     if SessionLocal is None:
-        SessionLocal = async_sessionmaker(bind=get_engine(), autoflush=False, expire_on_commit=False)
+        SessionLocal = async_sessionmaker(
+            bind=get_engine(), autoflush=False, expire_on_commit=False
+        )
     return SessionLocal
 
 
