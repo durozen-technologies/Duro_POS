@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -8,7 +9,7 @@ from app.schemas.common import ORMModel
 
 
 class BillItemInput(BaseModel):
-    item_id: int
+    item_id: UUID
     quantity: Decimal = Field(gt=0)
 
 
@@ -29,7 +30,7 @@ class BillCheckoutRequest(BaseModel):
 
 
 class BillLineRead(ORMModel):
-    item_id: int
+    item_id: UUID
     item_name: str
     quantity: Decimal
     unit: BaseUnit
@@ -38,7 +39,7 @@ class BillLineRead(ORMModel):
 
 
 class PaymentRead(ORMModel):
-    id: int
+    id: UUID
     cash_amount: Decimal
     upi_amount: Decimal
     total_paid: Decimal
@@ -47,15 +48,15 @@ class PaymentRead(ORMModel):
 
 
 class ReceiptRead(ORMModel):
-    id: int
+    id: UUID
     receipt_number: str
     printed_at: datetime
 
 
 class BillRead(ORMModel):
-    id: int
+    id: UUID
     bill_no: str
-    shop_id: int
+    shop_id: UUID
     shop_name: str
     total_amount: Decimal
     status: str

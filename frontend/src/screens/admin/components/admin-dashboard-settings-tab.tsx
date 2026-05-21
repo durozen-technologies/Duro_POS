@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo } from "react";
 import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
-import type { ShopRead } from "@/types/api";
+import type { ShopRead, UUID } from "@/types/api";
 
 import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
 import type { ShopDashboardRow } from "../hooks/use-admin-dashboard-data";
@@ -19,14 +19,14 @@ type AdminSettingsTabProps = {
   hasShops: boolean;
   palette: ThemePalette;
   visibleShopRows: ShopDashboardRow[];
-  branchRanking: Map<number, number>;
-  statusUpdatingShopId: number | null;
+  branchRanking: Map<UUID, number>;
+  statusUpdatingShopId: UUID | null;
   refreshing: boolean;
   bottomPadding: number;
   onRefresh: () => void;
   onCreateBranch: () => void;
   onManageBranch: (shop: ShopRead) => void;
-  onToggleBranch: (shopId: number, isActive: boolean) => void;
+  onToggleBranch: (shopId: UUID, isActive: boolean) => void;
   onLogout: () => void;
 };
 

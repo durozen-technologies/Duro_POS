@@ -7,19 +7,24 @@ query optimization stay in the service layer.
 
 from datetime import date, datetime
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_roles
-from app.core.database import get_db
 from app.core.deps import get_current_admin, get_shop_or_404
-from app.models import Shop, User, UserRole
+from app.db.database import get_db
+from app.db.storage import upload_item_image
+from app.models import BaseUnit, Shop, UnitType, User, UserRole
 from app.schemas.admin import (
     AdminBillPage,
     AdminDashboardBootstrap,
     AnalyticsPeriod,
+    ItemCreate,
+    ItemRead,
     ItemSalesSummary,
+    ItemUpdate,
     PaymentSplitSummary,
     ShopCreate,
     ShopRead,
@@ -28,9 +33,16 @@ from app.schemas.admin import (
     ShopUpdate,
 )
 from app.schemas.billing import BillRead
-from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse
+from app.schemas.pricing import (
+    DailyPriceCreate,
+    DailyPriceRead,
+    ItemImageRead,
+    ShopBootstrapResponse,
+)
 from app.services.admin import (
+    create_item,
     create_shop_account,
+    delete_item,
     delete_shop_account,
     get_bill_by_id,
     get_daily_bills,
@@ -41,6 +53,7 @@ from app.services.admin import (
     get_shop_sales_summary,
     list_shops,
     set_shop_active_state,
+    update_item,
     update_shop_account,
 )
 from app.services.pricing import (
@@ -61,7 +74,7 @@ ReferenceDateParam = Annotated[
     Query(description="Anchor date used to resolve the selected period."),
 ]
 ShopIdParam = Annotated[
-    int | None,
+    UUID | None,
     Query(description="Filter results to a single shop branch."),
 ]
 BillsLimitParam = Annotated[
@@ -77,8 +90,8 @@ CursorCreatedAtParam = Annotated[
     Query(description="Pagination cursor timestamp from the previous page."),
 ]
 CursorIdParam = Annotated[
-    int | None,
-    Query(ge=1, description="Pagination cursor bill ID from the previous page."),
+    UUID | None,
+    Query(description="Pagination cursor bill ID from the previous page."),
 ]
 DashboardBillsLimitParam = Annotated[
     int,
@@ -91,6 +104,18 @@ DashboardBillsLimitParam = Annotated[
 DBSession = Annotated[AsyncSession, Depends(get_db)]
 AdminUserDep = Annotated[User, Depends(get_current_admin)]
 ShopDep = Annotated[Shop, Depends(get_shop_or_404)]
+ItemImageUploadOptional = Annotated[
+    UploadFile | None,
+    File(
+        description="Optional item image file. Stored in RustFS; metadata is saved in Postgres.",
+    ),
+]
+ItemImageUploadRequired = Annotated[
+    UploadFile,
+    File(
+        description="Replacement image file for the item. Stored in RustFS; metadata is saved in Postgres.",
+    ),
+]
 
 
 # ── Shop CRUD ──────────────────────────────────────────────────────────────────
@@ -120,8 +145,8 @@ async def get_shops(db: DBSession) -> list[ShopRead]:
     response_model_exclude_unset=True,
     summary="Get Shop",
 )
-async def get_shop(shop_id: int, db: DBSession) -> ShopRead:
-    """Fetch a single shop branch by its numeric ID."""
+async def get_shop(shop_id: UUID, db: DBSession) -> ShopRead:
+    """Fetch a single shop branch by its ID."""
     return await get_shop_by_id(db, shop_id)
 
 
@@ -132,7 +157,7 @@ async def get_shop(shop_id: int, db: DBSession) -> ShopRead:
     summary="Update Shop Account",
 )
 async def update_shop(
-    shop_id: int,
+    shop_id: UUID,
     payload: ShopUpdate,
     db: DBSession,
 ) -> ShopRead:
@@ -147,7 +172,7 @@ async def update_shop(
     summary="Set Shop Status",
 )
 async def update_shop_status(
-    shop_id: int,
+    shop_id: UUID,
     payload: ShopStatusUpdate,
     db: DBSession,
 ) -> ShopRead:
@@ -155,9 +180,130 @@ async def update_shop_status(
     return await set_shop_active_state(db, shop_id, payload.is_active)
 
 
+@router.post(
+    "/items",
+    response_model=ItemRead,
+    status_code=201,
+    summary="Create Item",
+    description=(
+        "Create a new inventory item. Submit multipart form-data with the item fields and an optional "
+        "`image` file. The image bytes are stored in RustFS, while the image metadata and object key are "
+        "stored on the item row in Postgres."
+    ),
+)
+async def create_inventory_item(
+    name: Annotated[
+        str, Form(min_length=2, max_length=120, description="Display name of the item.")
+    ],
+    unit_type: Annotated[
+        UnitType,
+        Form(description="High-level quantity mode: `weight` or `count`."),
+    ],
+    base_unit: Annotated[
+        BaseUnit,
+        Form(description="Base billing unit used for prices and quantities: `kg` or `unit`."),
+    ],
+    db: DBSession,
+    is_active: Annotated[
+        bool,
+        Form(
+            description="Whether the item should be available for pricing and billing immediately."
+        ),
+    ] = True,
+    image: ItemImageUploadOptional = None,
+) -> ItemRead:
+    """Create a new inventory item for pricing and billing, with an optional image upload."""
+    payload = ItemCreate(
+        name=name,
+        unit_type=unit_type,
+        base_unit=base_unit,
+        is_active=is_active,
+    )
+    return await create_item(db, payload, image=image)
+
+
+@router.patch(
+    "/items/{item_id}",
+    response_model=ItemRead,
+    response_model_exclude_unset=True,
+    summary="Update Item (Preferred)",
+    description=(
+        "Preferred endpoint for item edits. Update item metadata and optionally replace the image "
+        "in the same multipart request. Use this endpoint for most admin item edit flows."
+    ),
+)
+async def update_inventory_item(
+    item_id: UUID,
+    name: Annotated[
+        str, Form(min_length=2, max_length=120, description="Updated display name of the item.")
+    ],
+    unit_type: Annotated[
+        UnitType,
+        Form(description="Updated quantity mode: `weight` or `count`."),
+    ],
+    base_unit: Annotated[
+        BaseUnit,
+        Form(description="Updated billing unit: `kg` or `unit`."),
+    ],
+    db: DBSession,
+    is_active: Annotated[
+        bool,
+        Form(description="Whether the item remains available for pricing and billing."),
+    ],
+    image: ItemImageUploadOptional = None,
+) -> ItemRead:
+    """Update item metadata, active state, and optionally replace its image."""
+    payload = ItemUpdate(
+        name=name,
+        unit_type=unit_type,
+        base_unit=base_unit,
+        is_active=is_active,
+    )
+    return await update_item(db, item_id, payload, image=image)
+
+
+@router.put(
+    "/items/{item_id}/image",
+    response_model=ItemImageRead,
+    response_model_exclude_unset=True,
+    summary="Replace Item Image (Convenience)",
+    deprecated=True,
+    description=(
+        "Deprecated convenience endpoint for image-only updates. Prefer `PATCH /items/{item_id}` "
+        "when the client can submit item fields and image together. Keep using this route only "
+        "for clients that edit the image separately from the rest of the item metadata."
+    ),
+)
+async def upload_inventory_item_image(
+    item_id: UUID,
+    image: ItemImageUploadRequired,
+    db: DBSession,
+) -> ItemImageRead:
+    """Upload or replace an item's image in RustFS and persist metadata in Postgres."""
+    return await upload_item_image(db, item_id, image)
+
+
+@router.delete(
+    "/items/{item_id}",
+    status_code=204,
+    summary="Delete Item",
+    description=(
+        "Delete an item only if it has no billing history and no saved price history. "
+        "If an image exists, its RustFS object is also removed after the database delete succeeds."
+    ),
+)
+async def delete_inventory_item(
+    item_id: UUID,
+    db: DBSession,
+) -> Response:
+    """Delete an item only when it has no billing or price history."""
+    await delete_item(db, item_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.delete("/shops/{shop_id}", status_code=204, summary="Delete Shop Account")
 async def delete_shop(
-    shop_id: int,
+    shop_id: UUID,
     db: DBSession,
 ) -> Response:
     """Delete a shop only when it has no billing or price history."""
@@ -269,7 +415,7 @@ async def bills(
     summary="Get Bill Detail",
 )
 async def bill_detail(
-    bill_id: int,
+    bill_id: UUID,
     db: DBSession,
 ) -> BillRead:
     """Full bill detail including line items, payment breakdown, and receipt."""
@@ -336,10 +482,9 @@ async def global_prices_bootstrap(
 async def global_daily_prices(
     payload: DailyPriceCreate,
     db: DBSession,
-    current_user: AdminUserDep,
 ) -> list[DailyPriceRead]:
     """Set daily prices globally for all active shops."""
-    return await create_global_daily_prices(db, payload, current_user)
+    return await create_global_daily_prices(db, payload)
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -354,7 +499,9 @@ async def global_daily_prices(
 async def dashboard_bootstrap(
     period: AnalyticsPeriodParam = "date",
     reference_date: ReferenceDateParam = None,
-    shop_id: Annotated[int | None, Query(description="Optionally scope the dashboard to one shop branch.")] = None,
+    shop_id: Annotated[
+        UUID | None, Query(description="Optionally scope the dashboard to one shop branch.")
+    ] = None,
     bills_limit: DashboardBillsLimitParam = 50,
     db: DBSession = None,
 ) -> AdminDashboardBootstrap:

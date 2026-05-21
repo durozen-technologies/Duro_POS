@@ -4,16 +4,16 @@ import { toApiError } from "@/api/client";
 import { fetchShopBootstrap } from "@/api/prices";
 import { useAuthStore } from "@/store/auth-store";
 import { usePriceStore } from "@/store/price-store";
-import { DailyPriceRead, ShopBootstrapResponse } from "@/types/api";
+import { DailyPriceRead, ShopBootstrapResponse, UUID } from "@/types/api";
 
 type ShopBootstrapBundle = {
   bootstrap: ShopBootstrapResponse;
   todayPrices: DailyPriceRead[];
 };
 
-const inFlightBootstrapRequests = new Map<number, Promise<ShopBootstrapBundle>>();
+const inFlightBootstrapRequests = new Map<UUID, Promise<ShopBootstrapBundle>>();
 
-async function loadBootstrapBundle(userId: number, forceRefresh = false) {
+async function loadBootstrapBundle(userId: UUID, forceRefresh = false) {
   if (!forceRefresh) {
     const existingRequest = inFlightBootstrapRequests.get(userId);
     if (existingRequest) {

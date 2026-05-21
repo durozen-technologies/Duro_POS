@@ -199,8 +199,7 @@ function buildReceiptHtmlMarkup(receiptMarkup: string) {
           .item-qty {
             font-size: 22px;
             text-align: right;
-            white-space: normal;
-            word-break: break-word;
+            white-space: nowrap;
             color: #000000;
             font-weight: 700;
             padding-right: 4px;
@@ -331,7 +330,7 @@ function buildReceiptHtmlBody(bill: BillRead) {
       (item) => `
         <tr class="item-row">
           <td class="item-name strong">${escapeHtml(translateShopItemName("ta", item.item_name))}</td>
-          <td class="align-right item-qty">${item.quantity} ${formatUnit(item.unit)}</td>
+          <td class="align-right item-qty">${escapeHtml(String(item.quantity))}&nbsp;${escapeHtml(formatUnit(item.unit))}</td>
           <td class="align-right item-total strong">${formatReceiptCurrency(item.line_total)}</td>
         </tr>
         `,

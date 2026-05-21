@@ -1,4 +1,4 @@
-from app.core.database import Base
+from app.db.database import Base
 from app.models.base import BaseModelMixin
 from app.models.bill import Bill, BillItem, BillStatus, MonthlyBillSequence
 from app.models.daily_price import DailyPrice

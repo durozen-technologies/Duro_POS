@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -26,12 +27,12 @@ class RegisterRequest(BaseModel):
 
 
 class UserSession(ORMModel):
-    id: int
+    id: UUID
     username: str
     role: UserRole
     is_active: bool
     created_at: datetime
-    shop_id: int | None = None
+    shop_id: UUID | None = None
     shop_name: str | None = None
     requires_price_setup: bool = False
     next_screen: str

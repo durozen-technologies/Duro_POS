@@ -8,6 +8,7 @@ import unittest
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT_DIR / "backend"
@@ -17,13 +18,13 @@ if str(BACKEND_DIR) not in sys.path:
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 
-from sqlalchemy import create_engine
-from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
-from app.core.database import Base, seed_defaults
-from app.core.security import get_password_hash
-from app.models import DailyPrice, Item, Shop, User, UserRole
+from app.db.database import Base, seed_default_item_images, seed_defaults  # noqa: E402
+from app.core.security import get_password_hash  # noqa: E402
+from app.models import DailyPrice, Item, Shop, User, UserRole  # noqa: E402
 
 
 class AsyncSessionAdapter:
@@ -85,6 +86,7 @@ class DatabaseHarness:
         session = self.session_factory()
         try:
             self.run(seed_defaults(AsyncSessionAdapter(session)))
+            self.run(seed_default_item_images(AsyncSessionAdapter(session)))
         finally:
             session.close()
 
@@ -100,13 +102,17 @@ class DatabaseHarness:
 
     async def fetch_items(self) -> list[Item]:
         with self.session_factory() as session:
-            result = session.scalars(select(Item).where(Item.is_active.is_(True)).order_by(Item.id))
+            result = session.scalars(
+                select(Item).where(Item.is_active.is_(True)).order_by(Item.id)
+            )
             return result.all()
 
-    def build_price_entries(self, base_price: str = "100.00") -> list[dict[str, str | int]]:
+    def build_price_entries(
+        self, base_price: str = "100.00"
+    ) -> list[dict[str, str | UUID]]:
         items = self.run(self.fetch_items())
         start = Decimal(base_price)
-        entries: list[dict[str, str | int]] = []
+        entries: list[dict[str, str | UUID]] = []
         for index, item in enumerate(items):
             entries.append(
                 {
@@ -116,7 +122,9 @@ class DatabaseHarness:
             )
         return entries
 
-    async def create_admin_user(self, username: str = "admin", password: str = "password123") -> User:
+    async def create_admin_user(
+        self, username: str = "admin", password: str = "password123"
+    ) -> User:
         with self.session_factory() as session:
             user = User(
                 username=username,
@@ -156,12 +164,14 @@ class DatabaseHarness:
 
     async def create_prices_for_shop(
         self,
-        shop_id: int,
+        shop_id: UUID,
         price_date,
         prices_by_item_name: dict[str, str],
     ) -> list[DailyPrice]:
         with self.session_factory() as session:
-            items = session.scalars(select(Item).where(Item.name.in_(tuple(prices_by_item_name.keys())))).all()
+            items = session.scalars(
+                select(Item).where(Item.name.in_(tuple(prices_by_item_name.keys())))
+            ).all()
             items_by_name = {item.name: item for item in items}
             prices: list[DailyPrice] = []
             for name, amount in prices_by_item_name.items():

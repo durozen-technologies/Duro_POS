@@ -2,14 +2,15 @@ export type UserRole = "admin" | "shop_account";
 export type BaseUnit = "kg" | "unit";
 export type UnitType = "weight" | "count";
 export type AnalyticsPeriod = "date" | "month" | "week" | "year";
+export type UUID = string;
 
 export interface UserSession {
-  id: number;
+  id: UUID;
   username: string;
   role: UserRole;
   is_active: boolean;
   created_at: string;
-  shop_id?: number | null;
+  shop_id?: UUID | null;
   shop_name?: string | null;
   requires_price_setup?: boolean;
   next_screen: string;
@@ -33,15 +34,16 @@ export interface LoginResponse {
 }
 
 export interface ItemPriceRead {
-  item_id: number;
+  item_id: UUID;
   item_name: string;
   unit_type: UnitType;
   base_unit: BaseUnit;
   current_price?: string | null;
+  image_path?: string | null;
 }
 
 export interface ShopBootstrapResponse {
-  shop_id: number;
+  shop_id: UUID | null;
   shop_name: string;
   price_date: string;
   prices_set: boolean;
@@ -50,7 +52,7 @@ export interface ShopBootstrapResponse {
 }
 
 export interface DailyPriceEntry {
-  item_id: number;
+  item_id: UUID;
   price_per_unit: string;
 }
 
@@ -59,8 +61,8 @@ export interface DailyPriceCreate {
 }
 
 export interface DailyPriceRead {
-  id: number;
-  item_id: number;
+  id: UUID;
+  item_id: UUID;
   price_per_unit: string;
   unit: BaseUnit;
   price_date: string;
@@ -68,7 +70,7 @@ export interface DailyPriceRead {
 }
 
 export interface BillItemInput {
-  item_id: number;
+  item_id: UUID;
   quantity: string;
 }
 
@@ -83,7 +85,7 @@ export interface BillCheckoutRequest {
 }
 
 export interface BillLineRead {
-  item_id: number;
+  item_id: UUID;
   item_name: string;
   quantity: string;
   unit: BaseUnit;
@@ -92,7 +94,7 @@ export interface BillLineRead {
 }
 
 export interface PaymentRead {
-  id: number;
+  id: UUID;
   cash_amount: string;
   upi_amount: string;
   total_paid: string;
@@ -101,15 +103,15 @@ export interface PaymentRead {
 }
 
 export interface ReceiptRead {
-  id: number;
+  id: UUID;
   receipt_number: string;
   printed_at: string;
 }
 
 export interface BillRead {
-  id: number;
+  id: UUID;
   bill_no: string;
-  shop_id: number;
+  shop_id: UUID;
   shop_name: string;
   total_amount: string;
   status: string;
@@ -132,7 +134,7 @@ export interface ShopUpdate {
 }
 
 export interface ShopRead {
-  id: number;
+  id: UUID;
   name: string;
   is_active: boolean;
   created_at: string;
@@ -144,20 +146,20 @@ export interface ShopStatusUpdate {
 }
 
 export interface ShopSalesSummary {
-  shop_id: number;
+  shop_id: UUID;
   shop_name: string;
   total_sales: string;
 }
 
 export interface PaymentSplitSummary {
-  shop_id: number;
+  shop_id: UUID;
   shop_name: string;
   cash_total: string;
   upi_total: string;
 }
 
 export interface ItemSalesSummary {
-  item_id: number;
+  item_id: UUID;
   item_name: string;
   base_unit: BaseUnit;
   quantity_sold: string;
@@ -166,9 +168,9 @@ export interface ItemSalesSummary {
 }
 
 export interface AdminBillSummary {
-  bill_id: number;
+  bill_id: UUID;
   bill_no: string;
-  shop_id: number;
+  shop_id: UUID;
   shop_name: string;
   total_amount: string;
   status: string;
@@ -176,7 +178,7 @@ export interface AdminBillSummary {
 }
 
 export interface AdminBillShopStat {
-  shop_id: number;
+  shop_id: UUID;
   bill_count: number;
   last_bill_at?: string | null;
 }
@@ -189,12 +191,12 @@ export interface AdminBillPage {
   largest_bill?: AdminBillSummary | null;
   shop_stats: AdminBillShopStat[];
   next_cursor_created_at?: string | null;
-  next_cursor_id?: number | null;
+  next_cursor_id?: UUID | null;
 }
 
 
 export interface DashboardShopSummary {
-  shop_id: number;
+  shop_id: UUID;
   shop_name: string;
   total_sales: string | number;
   cash_total: string | number;

@@ -1,9 +1,16 @@
 import json
 import os
+import re
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+S3_BUCKET_NAME_PATTERN = re.compile(
+    r"^(?!xn--)(?!.*\.\.)(?!.*\.$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+)
+ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
@@ -36,15 +43,34 @@ class Settings(BaseSettings):
             "/api/v1/openapi.json",
         ]
     )
+    trusted_proxies: list[str] = Field(default_factory=list)
+    trusted_proxy_depth: int = 1
+    trust_x_forwarded_proto: bool = False
+    enable_penetration_detection: bool = True
+    security_passive_mode: bool = False
+    rustfs_endpoint_url: str | None = None
+    rustfs_access_key_id: str | None = None
+    rustfs_secret_access_key: str | None = None
+    rustfs_region_name: str = "us-east-1"
+    rustfs_bucket_name: str = "pos-mlb-items"
+    rustfs_connect_timeout_seconds: int = 5
+    rustfs_read_timeout_seconds: int = 15
+    item_image_max_bytes: int = 5 * 1024 * 1024
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE_PATH),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
-    @field_validator("cors_origins", "allowed_hosts", "rate_limit_exempt_paths", mode="before")
+    @field_validator(
+        "cors_origins",
+        "allowed_hosts",
+        "rate_limit_exempt_paths",
+        "trusted_proxies",
+        mode="before",
+    )
     @classmethod
     def parse_list_settings(cls, value: object) -> object:
         if value is None:
@@ -60,6 +86,40 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        rustfs_connection_values = [
+            self.rustfs_endpoint_url,
+            self.rustfs_access_key_id,
+            self.rustfs_secret_access_key,
+        ]
+        configured_connection_values = [
+            value for value in rustfs_connection_values if value and value.strip()
+        ]
+        if configured_connection_values and len(configured_connection_values) != len(
+            rustfs_connection_values
+        ):
+            raise ValueError(
+                "RUSTFS_ENDPOINT_URL, RUSTFS_ACCESS_KEY_ID, "
+                "RUSTFS_SECRET_ACCESS_KEY, and RUSTFS_BUCKET_NAME must be set together"
+            )
+        if configured_connection_values and not self.rustfs_bucket_name.strip():
+            raise ValueError(
+                "RUSTFS_ENDPOINT_URL, RUSTFS_ACCESS_KEY_ID, "
+                "RUSTFS_SECRET_ACCESS_KEY, and RUSTFS_BUCKET_NAME must be set together"
+            )
+        if self.rustfs_bucket_name and not S3_BUCKET_NAME_PATTERN.fullmatch(
+            self.rustfs_bucket_name
+        ):
+            raise ValueError(
+                "RUSTFS_BUCKET_NAME must be a valid S3 bucket name: 3-63 chars, lowercase "
+                "letters/numbers, and may include hyphens or periods only"
+            )
+        if self.item_image_max_bytes < 1:
+            raise ValueError("ITEM_IMAGE_MAX_BYTES must be greater than 0")
+        if self.rustfs_connect_timeout_seconds < 1:
+            raise ValueError("RUSTFS_CONNECT_TIMEOUT_SECONDS must be greater than 0")
+        if self.rustfs_read_timeout_seconds < 1:
+            raise ValueError("RUSTFS_READ_TIMEOUT_SECONDS must be greater than 0")
+
         if not self.production:
             return self
 
@@ -86,8 +146,19 @@ class Settings(BaseSettings):
             raise ValueError("RATE_LIMIT_REQUESTS must be greater than 0")
         if self.rate_limit_window_seconds < 1:
             raise ValueError("RATE_LIMIT_WINDOW_SECONDS must be greater than 0")
+        if self.trusted_proxy_depth < 1:
+            raise ValueError("TRUSTED_PROXY_DEPTH must be greater than 0")
 
         return self
+
+    @property
+    def rustfs_enabled(self) -> bool:
+        return bool(
+            self.rustfs_endpoint_url
+            and self.rustfs_access_key_id
+            and self.rustfs_secret_access_key
+            and self.rustfs_bucket_name
+        )
 
 
 @lru_cache

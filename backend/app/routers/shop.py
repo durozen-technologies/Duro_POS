@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_shop, require_roles
-from app.core.database import get_db
+from app.db.database import get_db
 from app.models import Shop, UserRole
 from app.schemas.billing import BillCheckoutRequest, BillRead
 from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse

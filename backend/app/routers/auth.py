@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_active_user
-from app.core.database import get_db
+from app.db.database import get_db
 from app.models import User
 from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, UserSession
 from app.services.auth import build_user_session, login_user, register_admin

@@ -1,7 +1,10 @@
 from app.schemas.admin import (
     AdminBillSummary,
     AnalyticsPeriod,
+    ItemCreate,
+    ItemRead,
     ItemSalesSummary,
+    ItemUpdate,
     PaymentSplitSummary,
     ShopCreate,
     ShopRead,
@@ -21,6 +24,7 @@ from app.schemas.pricing import (
     DailyPriceCreate,
     DailyPriceEntry,
     DailyPriceRead,
+    ItemImageRead,
     ItemPriceRead,
     ShopBootstrapResponse,
 )
@@ -35,7 +39,10 @@ __all__ = [
     "DailyPriceCreate",
     "DailyPriceEntry",
     "DailyPriceRead",
+    "ItemCreate",
+    "ItemImageRead",
     "ItemPriceRead",
+    "ItemRead",
     "LoginRequest",
     "LoginResponse",
     "PaymentRead",
@@ -50,4 +57,5 @@ __all__ = [
     "TokenPayload",
     "UserSession",
     "ItemSalesSummary",
+    "ItemUpdate",
 ]

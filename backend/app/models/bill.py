@@ -1,11 +1,13 @@
 from decimal import Decimal
 from enum import Enum
+from uuid import UUID
 
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey, Index, Numeric, String, desc
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.database import Base
+from app.core.ids import UUID_SQL_TYPE, uuid7
+from app.db.database import Base
 from app.models.base import BaseModelMixin
 from app.models.enums import BaseUnit
 
@@ -23,9 +25,11 @@ class Bill(Base, BaseModelMixin):
         Index("ix_bills_created_at_total_amount_desc", desc("created_at"), desc("total_amount")),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
     bill_no: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True, nullable=False)
+    shop_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("shops.id"), index=True, nullable=False
+    )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     status: Mapped[BillStatus] = mapped_column(SqlEnum(BillStatus), nullable=False)
 
@@ -42,9 +46,13 @@ class Bill(Base, BaseModelMixin):
 class BillItem(Base):
     __tablename__ = "bill_items"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    bill_id: Mapped[int] = mapped_column(ForeignKey("bills.id"), index=True, nullable=False)
-    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True, nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    bill_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("bills.id"), index=True, nullable=False
+    )
+    item_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("items.id"), index=True, nullable=False
+    )
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
     unit: Mapped[BaseUnit] = mapped_column(SqlEnum(BaseUnit), nullable=False)
     price_per_unit: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)

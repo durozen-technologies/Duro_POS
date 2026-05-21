@@ -25,6 +25,7 @@ import type {
   ShopRead,
   ShopSalesSummary,
   ShopUpdate,
+  UUID,
 } from "@/types/api";
 
 import { getShopStatus, type ShopOperationalState } from "../admin-dashboard-utils";
@@ -52,7 +53,7 @@ type UpdateBranchInput = ShopUpdate;
 type UseAdminDashboardDataOptions = {
   analyticsPeriod: AnalyticsPeriod;
   analyticsReferenceDate: string;
-  selectedShopId: number | null;
+  selectedShopId: UUID | null;
 };
 
 export function useAdminDashboardData({
@@ -70,7 +71,7 @@ export function useAdminDashboardData({
     shops: ShopRead[];
     salesSummary: ShopSalesSummary[];
     paymentSummary: PaymentSplitSummary[];
-    dailyBillStats: { shopId: number; billCount: number; lastBillAt: string | null }[];
+    dailyBillStats: { shopId: UUID; billCount: number; lastBillAt: string | null }[];
     largestBill: AdminBillSummary | null;
     itemSales: ItemSalesSummary[];
   }>({
@@ -84,7 +85,7 @@ export function useAdminDashboardData({
 
   const [dailyBills, setDailyBills] = useState<AdminBillSummary[]>([]);
   const [dailyBillsTotalCount, setDailyBillsTotalCount] = useState(0);
-  const [dailyBillsCursor, setDailyBillsCursor] = useState<{ createdAt: string | null; id: number | null }>({
+  const [dailyBillsCursor, setDailyBillsCursor] = useState<{ createdAt: string | null; id: UUID | null }>({
     createdAt: null,
     id: null,
   });
@@ -96,9 +97,9 @@ export function useAdminDashboardData({
   const dashboardRequestIdRef = useRef(0);
   const dailyBillsLoadMoreInFlightRef = useRef(false);
   const globalPriceBootstrapCacheRef = useRef<ShopBootstrapResponse | null>(null);
-  const shopPriceBootstrapCacheRef = useRef(new Map<number, ShopBootstrapResponse>());
-  const billDetailCacheRef = useRef(new Map<number, BillRead>());
-  const billDetailRequestRef = useRef(new Map<number, Promise<BillRead>>());
+  const shopPriceBootstrapCacheRef = useRef(new Map<UUID, ShopBootstrapResponse>());
+  const billDetailCacheRef = useRef(new Map<UUID, BillRead>());
+  const billDetailRequestRef = useRef(new Map<UUID, Promise<BillRead>>());
 
   useEffect(() => {
     return () => {
@@ -241,7 +242,7 @@ export function useAdminDashboardData({
     }
   }, [priceBootstrap]);
 
-  const loadShopPriceBootstrap = useCallback(async (shopId: number, forceRefresh = false) => {
+  const loadShopPriceBootstrap = useCallback(async (shopId: UUID, forceRefresh = false) => {
     if (!forceRefresh) {
       const cachedBootstrap = shopPriceBootstrapCacheRef.current.get(shopId);
       if (cachedBootstrap) {
@@ -264,7 +265,7 @@ export function useAdminDashboardData({
     }
   }, []);
 
-  const saveShopPriceBook = useCallback(async (shopId: number, payload: DailyPriceCreate) => {
+  const saveShopPriceBook = useCallback(async (shopId: UUID, payload: DailyPriceCreate) => {
     try {
       await saveShopDailyPrices(shopId, payload);
       shopPriceBootstrapCacheRef.current.delete(shopId);
@@ -385,7 +386,7 @@ export function useAdminDashboardData({
     }
   }, [loadDashboard, loadPriceBootstrap]);
 
-  const loadBillDetail = useCallback(async (billId: number): Promise<BillRead> => {
+  const loadBillDetail = useCallback(async (billId: UUID): Promise<BillRead> => {
     const cachedBill = billDetailCacheRef.current.get(billId);
     if (cachedBill) {
       return cachedBill;

@@ -2,6 +2,7 @@ import { apiClient } from "@/api/client";
 import {
   AdminBillPage,
   AnalyticsPeriod,
+  AdminDashboardBootstrap,
   BillRead,
   DailyPriceCreate,
   DailyPriceRead,
@@ -13,7 +14,7 @@ import {
   ShopSalesSummary,
   ShopStatusUpdate,
   ShopUpdate,
-  AdminDashboardBootstrap,
+  UUID,
 } from "@/types/api";
 
 export async function createShop(payload: ShopCreate) {
@@ -26,22 +27,22 @@ export async function fetchShops() {
   return data;
 }
 
-export async function updateShop(shopId: number, payload: ShopUpdate) {
+export async function updateShop(shopId: UUID, payload: ShopUpdate) {
   const { data } = await apiClient.patch<ShopRead>(`/api/v1/admin/shops/${shopId}`, payload);
   return data;
 }
 
-export async function updateShopStatus(shopId: number, payload: ShopStatusUpdate) {
+export async function updateShopStatus(shopId: UUID, payload: ShopStatusUpdate) {
   const { data } = await apiClient.patch<ShopRead>(`/api/v1/admin/shops/${shopId}/status`, payload);
   return data;
 }
 
-export async function fetchAdminBillDetail(billId: number) {
+export async function fetchAdminBillDetail(billId: UUID) {
   const { data } = await apiClient.get<BillRead>(`/api/v1/admin/bills/${billId}`);
   return data;
 }
 
-export async function deleteShop(shopId: number) {
+export async function deleteShop(shopId: UUID) {
   await apiClient.delete(`/api/v1/admin/shops/${shopId}`);
 }
 
@@ -62,10 +63,10 @@ export async function fetchPaymentSummary(period: AnalyticsPeriod, referenceDate
 export async function fetchDailyBills(
   period: AnalyticsPeriod,
   referenceDate?: string,
-  shopId?: number | null,
+  shopId?: UUID | null,
   limit = 100,
   cursorCreatedAt?: string | null,
-  cursorId?: number | null,
+  cursorId?: UUID | null,
 ) {
   const { data } = await apiClient.get<AdminBillPage>("/api/v1/admin/bills", {
     params: {
@@ -80,7 +81,7 @@ export async function fetchDailyBills(
   return data;
 }
 
-export async function fetchItemSales(period: AnalyticsPeriod, referenceDate?: string, shopId?: number | null) {
+export async function fetchItemSales(period: AnalyticsPeriod, referenceDate?: string, shopId?: UUID | null) {
   const { data } = await apiClient.get<ItemSalesSummary[]>("/api/v1/admin/item-sales", {
     params: { period, reference_date: referenceDate, shop_id: shopId ?? undefined },
   });
@@ -97,12 +98,12 @@ export async function saveGlobalDailyPrices(payload: DailyPriceCreate) {
   return data;
 }
 
-export async function fetchShopPriceBootstrap(shopId: number) {
+export async function fetchShopPriceBootstrap(shopId: UUID) {
   const { data } = await apiClient.get<ShopBootstrapResponse>(`/api/v1/admin/shops/${shopId}/prices/bootstrap`);
   return data;
 }
 
-export async function saveShopDailyPrices(shopId: number, payload: DailyPriceCreate) {
+export async function saveShopDailyPrices(shopId: UUID, payload: DailyPriceCreate) {
   const { data } = await apiClient.post<DailyPriceRead[]>(`/api/v1/admin/shops/${shopId}/daily-prices`, payload);
   return data;
 }
@@ -110,7 +111,7 @@ export async function saveShopDailyPrices(shopId: number, payload: DailyPriceCre
 export async function fetchDashboardBootstrap(
   period: AnalyticsPeriod,
   referenceDate?: string,
-  shopId?: number | null,
+  shopId?: UUID | null,
   limit = 50,
 ) {
   const { data } = await apiClient.get<AdminDashboardBootstrap>("/api/v1/admin/dashboard/bootstrap", {

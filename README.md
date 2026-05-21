@@ -13,14 +13,13 @@ The project is split into two app folders:
 
 ## Product Flow
 
-1. Create the first admin account from the login screen or `POST /api/v1/auth/register`.
+1. Login with user anme and password by the admin.
 2. Admin creates shop accounts from the dashboard.
-3. Shop users log in with generated usernames like `ml1`, `ml2`, `ml3`.
-4. Each shop sets the full daily price sheet before billing starts.
-5. Counter staff add items to the cart and move to checkout.
-6. The backend accepts a bill only when cash plus UPI exactly matches the total.
-7. The receipt screen can print directly to a saved Bluetooth or USB thermal printer on Android, or fall back to system print on web and iOS.
-8. A settled receipt and audit log entry are created immediately after checkout.
+3. Each shop sets the full daily price sheet before billing starts.
+4. Counter staff add items to the cart and move to checkout.
+5. The backend accepts a bill only when cash plus UPI exactly matches the total.
+6. The receipt screen can print directly to a saved Bluetooth or USB thermal printer on Android, or fall back to system print on web and iOS.
+7. A settled receipt and audit log entry are created immediately after checkout.
 
 ## Tech Stack
 
@@ -67,6 +66,8 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The backend creates tables on startup and seeds the default billing items automatically.
+It also stores the bundled default item images in the database during startup,
+and mirrors them to RustFS when RustFS is configured and reachable.
 
 For backend linting and formatting:
 
@@ -120,6 +121,35 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:8000 npx expo start --lan
 - iOS simulator and local web usually use `http://127.0.0.1:8000`.
 - On a phone, point the frontend to your computer's LAN IP or a public backend tunnel.
 - Expo tunnel mode shares the JavaScript bundle, not the backend API.
+
+## Backend URL
+
+Use a different backend URL depending on how you started the API:
+
+- If you ran the backend directly with `uv run uvicorn ...`, open `http://127.0.0.1:8000`.
+- If you started the Docker stack with `docker compose up` or `make docker-up`, also open `http://127.0.0.1:8000` from your machine because Nginx publishes that port.
+- If another Docker service needs to call the API on the same Compose network, use `http://backend:8000`.
+- `http://0.0.0.0:8000` is a bind address, not a browser URL.
+
+Common endpoints:
+
+- API root through Docker proxy or direct backend run: `http://127.0.0.1:8000`
+- Health check: `http://127.0.0.1:8000/api/v1/health`
+- Swagger UI when enabled: `http://127.0.0.1:8000/docs`
+- ReDoc when enabled: `http://127.0.0.1:8000/redoc`
+
+If the Docker URL stops responding after a `compose.yaml` or Nginx change, recreate the services so Docker reapplies the published ports:
+
+```bash
+docker compose up -d --build --force-recreate
+```
+
+If you change backend seed files or the bundled default images under
+`backend/assets/`, rebuild the backend image before checking the seeded catalog:
+
+```bash
+docker compose up -d --build --force-recreate backend
+```
 
 ## Direct POS Printing
 

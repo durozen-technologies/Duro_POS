@@ -10,6 +10,8 @@ import {
   View,
 } from "react-native";
 
+import type { UUID } from "@/types/api";
+
 import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
 import type { BillingSection } from "../hooks/use-admin-dashboard-view-model";
 import {
@@ -33,7 +35,7 @@ type AdminBillingTabProps = {
   bottomSpacer: number;
   printingAll: boolean;
   onRefresh: () => void;
-  onOpenBill: (billId: number) => void;
+  onOpenBill: (billId: UUID) => void;
   onPrintAll: () => void;
   onLoadMore: () => void;
 };

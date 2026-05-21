@@ -8,7 +8,6 @@ import {
   Alert,
   Animated,
   LayoutAnimation,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -23,11 +22,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { z } from "zod";
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { printBillsWithPrinter } from "@/services/printer-service";
 import { useAuthStore } from "@/store/auth-store";
 import { useAdminThemeStore } from "@/store/admin-theme-store";
 import { useCartStore } from "@/store/cart-store";
+import { usePrinterStore } from "@/store/printer-store";
 import { usePriceStore } from "@/store/price-store";
-import type { AnalyticsPeriod, BillRead, ShopRead } from "@/types/api";
+import type { AnalyticsPeriod, BillRead, ShopRead, UUID } from "@/types/api";
 import { isPositiveNumber, toMoneyString } from "@/utils/decimal";
 
 import { adminShadow, getAdminPalette } from "./admin-dashboard-theme";
@@ -118,12 +119,13 @@ export function AdminDashboardScreen() {
   const clearSession = useAuthStore((state) => state.clearSession);
   const resetCart = useCartStore((state) => state.resetCart);
   const clearPrices = usePriceStore((state) => state.clear);
+  const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
 
   const [analyticsPeriod, setAnalyticsPeriod] = useState<AnalyticsPeriod>("date");
   const [analyticsReferenceDate, setAnalyticsReferenceDate] = useState(
     dateOptions[0]?.value ?? new Date().toISOString().slice(0, 10),
   );
-  const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
+  const [selectedShopId, setSelectedShopId] = useState<UUID | null>(null);
   const [shopSelectorOpen, setShopSelectorOpen] = useState(false);
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<AdminNavTab>("dashboard");
@@ -133,14 +135,14 @@ export function AdminDashboardScreen() {
   const [selectedManagedShop, setSelectedManagedShop] = useState<ShopRead | null>(null);
   const [creating, setCreating] = useState(false);
   const [updatingShop, setUpdatingShop] = useState(false);
-  const [deletingShopId, setDeletingShopId] = useState<number | null>(null);
-  const [statusUpdatingShopId, setStatusUpdatingShopId] = useState<number | null>(null);
+  const [deletingShopId, setDeletingShopId] = useState<UUID | null>(null);
+  const [statusUpdatingShopId, setStatusUpdatingShopId] = useState<UUID | null>(null);
   const [priceSheetOpen, setPriceSheetOpen] = useState(false);
   const [savingPrice, setSavingPrice] = useState(false);
-  const [selectedPriceItemId, setSelectedPriceItemId] = useState<number | null>(null);
-  const [priceSelectedShopId, setPriceSelectedShopId] = useState<number | null>(null);
+  const [selectedPriceItemId, setSelectedPriceItemId] = useState<UUID | null>(null);
+  const [priceSelectedShopId, setPriceSelectedShopId] = useState<UUID | null>(null);
   const [priceShopPickerOpen, setPriceShopPickerOpen] = useState(false);
-  const [draftPrices, setDraftPrices] = useState<Record<number, string>>({});
+  const [draftPrices, setDraftPrices] = useState<Record<UUID, string>>({});
   const [itemPickerOpen, setItemPickerOpen] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
@@ -352,7 +354,7 @@ export function AdminDashboardScreen() {
     setShopSelectorOpen((current) => !current);
   }, []);
 
-  const handleSelectShop = useCallback((shopId: number | null) => {
+  const handleSelectShop = useCallback((shopId: UUID | null) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedShopId(shopId);
     setShopSelectorOpen(false);
@@ -465,7 +467,7 @@ export function AdminDashboardScreen() {
   }, [confirmDeleteShop, selectedManagedShop]);
 
   const handleToggleShop = useCallback(
-    async (shopId: number, isActive: boolean) => {
+    async (shopId: UUID, isActive: boolean) => {
       const shop = shops.find((item) => item.id === shopId);
       if (!shop) {
         return;
@@ -519,7 +521,7 @@ export function AdminDashboardScreen() {
     setPriceError(null);
   }
 
-  const openBillPreview = useCallback(async (billId: number) => {
+  const openBillPreview = useCallback(async (billId: UUID) => {
     setBillPreviewOpen(true);
     setBillPreviewLoading(true);
     setSelectedBillPreview(null);
@@ -541,7 +543,7 @@ export function AdminDashboardScreen() {
     setSelectedBillPreview(null);
   }
 
-  function handleSelectPriceItem(itemId: number) {
+  function handleSelectPriceItem(itemId: UUID) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedPriceItemId(itemId);
     setItemPickerOpen(false);
@@ -581,7 +583,7 @@ export function AdminDashboardScreen() {
       return;
     }
 
-    const entries: { item_id: number; price_per_unit: string }[] = [];
+    const entries: { item_id: UUID; price_per_unit: string }[] = [];
     for (const item of priceBootstrap.items) {
       const rawValue = resolvePriceDraft(item.item_id, item.current_price);
       entries.push({
@@ -619,7 +621,7 @@ export function AdminDashboardScreen() {
     }
   }
 
-  async function handleSelectPriceShop(shopId: number) {
+  async function handleSelectPriceShop(shopId: UUID) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setPriceSelectedShopId(shopId);
     setPriceShopPickerOpen(false);
@@ -647,9 +649,13 @@ export function AdminDashboardScreen() {
       return;
     }
 
+    if (!preferredPrinter) {
+      Alert.alert("Printer Not Configured", "Connect a saved printer on this device before printing receipts.");
+      return;
+    }
+
     try {
       setPrintingAll(true);
-      const { buildBatchReceiptHtml } = await import("@/api/receipts");
       const fullBills: BillRead[] = [];
 
       for (let index = 0; index < visibleBills.length; index += PRINT_ALL_CHUNK_SIZE) {
@@ -659,14 +665,16 @@ export function AdminDashboardScreen() {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
 
-      const combinedHtml = buildBatchReceiptHtml(fullBills);
-      await Linking.openURL(`printerapp://print?html=${encodeURIComponent(combinedHtml)}`);
-    } catch {
-      Alert.alert("Unable to Print", "Make sure the printer app is installed, or try printing bills individually.");
+      await printBillsWithPrinter(fullBills, preferredPrinter);
+    } catch (error) {
+      Alert.alert(
+        "Unable to Print",
+        error instanceof Error ? error.message : "The saved printer could not print these receipts.",
+      );
     } finally {
       setPrintingAll(false);
     }
-  }, [loadBillDetail, printingAll, visibleBills]);
+  }, [loadBillDetail, preferredPrinter, printingAll, visibleBills]);
 
   const handleLoadMoreBills = useCallback(() => {
     void loadMoreBills().catch((error) => {
@@ -681,7 +689,7 @@ export function AdminDashboardScreen() {
     showToast("success", `${nextTheme === "dark" ? "Dark" : "Light"} mode enabled.`);
   }, [colorScheme, setThemePreference, showToast]);
 
-  const handleOpenBillPreview = useCallback((billId: number) => {
+  const handleOpenBillPreview = useCallback((billId: UUID) => {
     void openBillPreview(billId);
   }, [openBillPreview]);
 
@@ -689,7 +697,7 @@ export function AdminDashboardScreen() {
     void handlePrintAllBills();
   }, [handlePrintAllBills]);
 
-  const handleToggleBranchStatus = useCallback((shopId: number, isActive: boolean) => {
+  const handleToggleBranchStatus = useCallback((shopId: UUID, isActive: boolean) => {
     void handleToggleShop(shopId, isActive);
   }, [handleToggleShop]);
 

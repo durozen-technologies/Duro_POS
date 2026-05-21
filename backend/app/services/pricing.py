@@ -1,16 +1,46 @@
 from datetime import date
+from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import DailyPrice, Item, Shop, User
+from app.db.storage import build_item_image_path
+from app.models import DailyPrice, Item, Shop
 from app.schemas.pricing import (
     DailyPriceCreate,
+    DailyPriceEntry,
     DailyPriceRead,
     ItemPriceRead,
     ShopBootstrapResponse,
 )
+
+
+def _validate_daily_price_entries(
+    entries: list[DailyPriceEntry], active_item_ids: set[UUID]
+) -> None:
+    submitted_item_ids: set[UUID] = set()
+    for entry in entries:
+        if entry.item_id in submitted_item_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Duplicate price entry for item {entry.item_id}",
+            )
+        submitted_item_ids.add(entry.item_id)
+
+    unknown_item_ids = submitted_item_ids - active_item_ids
+    if unknown_item_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Prices can only be submitted for active items",
+        )
+
+    missing_item_ids = active_item_ids - submitted_item_ids
+    if missing_item_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Prices must be provided for every active item",
+        )
 
 
 async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapResponse:
@@ -48,6 +78,8 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
                 Item.name,
                 Item.unit_type,
                 Item.base_unit,
+                Item.image_object_key,
+                Item.image_content_type,
                 latest_prices.c.price_per_unit,
                 latest_prices.c.price_date,
             )
@@ -74,6 +106,9 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
                 unit_type=row.unit_type,
                 base_unit=row.base_unit,
                 current_price=row.price_per_unit,
+                image_path=build_item_image_path(
+                    row.id, row.image_object_key, row.image_content_type
+                ),
             )
             for row in rows
         ],
@@ -114,35 +149,14 @@ async def create_daily_prices(
       per-object ``db.refresh()`` loop (N extra SELECTs) is not needed.
     """
     target_date = date.today()
+    entries = payload.entries
 
     item_rows = (
         await db.execute(select(Item.id, Item.base_unit).where(Item.is_active.is_(True)))
     ).all()
     items_by_id = {row.id: row.base_unit for row in item_rows}
     active_item_ids = set(items_by_id)
-
-    submitted_item_ids: set[int] = set()
-    for entry in payload.entries:
-        if entry.item_id in submitted_item_ids:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Duplicate price entry for item {entry.item_id}",
-            )
-        submitted_item_ids.add(entry.item_id)
-
-    unknown_item_ids = submitted_item_ids - active_item_ids
-    if unknown_item_ids:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Prices can only be submitted for active items",
-        )
-
-    missing_item_ids = active_item_ids - submitted_item_ids
-    if missing_item_ids:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Prices must be provided for every active item",
-        )
+    _validate_daily_price_entries(entries, active_item_ids)
 
     existing_result = await db.scalars(
         select(DailyPrice).where(
@@ -153,7 +167,7 @@ async def create_daily_prices(
     existing_prices_by_item_id = {price.item_id: price for price in existing_result.all()}
 
     saved_prices: list[DailyPrice] = []
-    for entry in payload.entries:
+    for entry in entries:
         item_id = entry.item_id
         daily_price = existing_prices_by_item_id.get(item_id)
         if daily_price is None:
@@ -174,6 +188,8 @@ async def create_daily_prices(
     await db.flush()
     await db.commit()
     return [DailyPriceRead.model_validate(price) for price in saved_prices]
+
+
 async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
     """Return active items with the latest global price snapshot in one query.
 
@@ -210,6 +226,8 @@ async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
                 Item.name,
                 Item.unit_type,
                 Item.base_unit,
+                Item.image_object_key,
+                Item.image_content_type,
                 latest_prices.c.price_per_unit,
                 latest_prices.c.price_date,
             )
@@ -236,6 +254,9 @@ async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
                 unit_type=row.unit_type,
                 base_unit=row.base_unit,
                 current_price=row.price_per_unit,
+                image_path=build_item_image_path(
+                    row.id, row.image_object_key, row.image_content_type
+                ),
             )
             for row in rows
         ],
@@ -245,70 +266,57 @@ async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
 async def create_global_daily_prices(
     db: AsyncSession,
     payload: DailyPriceCreate,
-    actor: User,
 ) -> list[DailyPriceRead]:
-    """Create daily prices for all shops at once (global pricing)."""
+    """Create daily prices for all active shops at once (global pricing)."""
     target_date = date.today()
 
-    # Get all shops
     shops_result = await db.scalars(select(Shop).where(Shop.is_active.is_(True)))
     shops = shops_result.all()
 
     if not shops:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="No active shops to apply global prices to",
         )
 
-    items_result = await db.scalars(select(Item).where(Item.is_active.is_(True)))
-    items = items_result.all()
-    items_by_id = {item.id: item for item in items}
-    submitted_item_ids = {entry.item_id for entry in payload.entries}
-    missing_item_ids = {item.id for item in items} - submitted_item_ids
+    item_rows = (
+        await db.execute(select(Item.id, Item.base_unit).where(Item.is_active.is_(True)))
+    ).all()
+    items_by_id = {row.id: row.base_unit for row in item_rows}
+    active_item_ids = set(items_by_id)
+    _validate_daily_price_entries(payload.entries, active_item_ids)
 
-    if missing_item_ids:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Prices must be provided for every active item",
+    shop_ids = [shop.id for shop in shops]
+    existing_prices_result = await db.scalars(
+        select(DailyPrice).where(
+            DailyPrice.shop_id.in_(shop_ids),
+            DailyPrice.price_date == target_date,
         )
+    )
+    existing_prices_by_key = {
+        (price.shop_id, price.item_id): price for price in existing_prices_result.all()
+    }
 
     saved_prices: list[DailyPrice] = []
 
-    # For each shop, create or update daily prices
     for shop in shops:
-        existing_prices_result = await db.scalars(
-            select(DailyPrice).where(
-                DailyPrice.shop_id == shop.id, DailyPrice.price_date == target_date
-            )
-        )
-        existing_prices = existing_prices_result.all()
-        existing_prices_by_item_id = {price.item_id: price for price in existing_prices}
-
         for entry in payload.entries:
-            item = items_by_id.get(entry.item_id)
-            if item is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Item {entry.item_id} not found",
-                )
-
-            daily_price = existing_prices_by_item_id.get(item.id)
+            daily_price = existing_prices_by_key.get((shop.id, entry.item_id))
             if daily_price is None:
                 daily_price = DailyPrice(
                     shop_id=shop.id,
-                    item_id=item.id,
+                    item_id=entry.item_id,
                     price_per_unit=entry.price_per_unit,
-                    unit=item.base_unit,
+                    unit=items_by_id[entry.item_id],
                     price_date=target_date,
                 )
                 db.add(daily_price)
             else:
                 daily_price.price_per_unit = entry.price_per_unit
-                daily_price.unit = item.base_unit
+                daily_price.unit = items_by_id[entry.item_id]
 
             saved_prices.append(daily_price)
 
+    await db.flush()
     await db.commit()
-    for price in saved_prices:
-        await db.refresh(price)
     return [DailyPriceRead.model_validate(price) for price in saved_prices]

@@ -1,10 +1,10 @@
 import { create } from "zustand";
 
-import { BaseUnit, UnitType } from "@/types/api";
+import { BaseUnit, UnitType, UUID } from "@/types/api";
 import { money } from "@/utils/decimal";
 
 export type CartItem = {
-  item_id: number;
+  item_id: UUID;
   item_name: string;
   base_unit: BaseUnit;
   unit_type: UnitType;
@@ -15,8 +15,8 @@ export type CartItem = {
 type CartState = {
   items: CartItem[];
   addItem: (item: CartItem) => void;
-  updateQuantity: (itemId: number, quantity: string) => void;
-  removeItem: (itemId: number) => void;
+  updateQuantity: (itemId: UUID, quantity: string) => void;
+  removeItem: (itemId: UUID) => void;
   resetCart: () => void;
 };
 

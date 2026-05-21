@@ -22,7 +22,6 @@ const getLoginScreen = () => require("@/screens/auth/login-screen").LoginScreen;
 const getAdminDashboardScreen = () => require("@/screens/admin/admin-dashboard-screen").AdminDashboardScreen;
 const getBillingScreen = () => require("@/screens/shop/billing-screen").BillingScreen;
 const getCheckoutScreen = () => require("@/screens/shop/checkout-screen").CheckoutScreen;
-const getReceiptScreen = () => require("@/screens/shop/receipt-screen").ReceiptScreen;
 const getPrinterSetupScreen = () => require("@/screens/shop/printer-setup-screen").PrinterSetupScreen;
 
 function useSessionReset() {
@@ -44,7 +43,6 @@ export function AppNavigator() {
   const logout = useSessionReset();
   const renderBillingHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.billing" />, []);
   const renderCheckoutHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.checkout" />, []);
-  const renderReceiptHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.receipt" />, []);
   const renderPrinterHeaderTitle = useCallback(() => <ShopHeaderTitle titleKey="header.printerSetup" />, []);
   const renderHeaderActions = useCallback(() => <ShopHeaderActions onLogout={logout} />, [logout]);
 
@@ -96,14 +94,6 @@ export function AppNavigator() {
         getComponent={getCheckoutScreen}
         options={{
           headerTitle: renderCheckoutHeaderTitle,
-          headerRight: renderHeaderActions,
-        }}
-      />
-      <Stack.Screen
-        name="Receipt"
-        getComponent={getReceiptScreen}
-        options={{
-          headerTitle: renderReceiptHeaderTitle,
           headerRight: renderHeaderActions,
         }}
       />

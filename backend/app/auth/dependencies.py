@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -6,8 +7,8 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.database import get_db
 from app.core.security import decode_access_token
+from app.db.database import get_db
 from app.models import Shop, User, UserRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -31,7 +32,7 @@ async def get_current_user(
 
     try:
         payload = decode_access_token(credentials.credentials)
-        user_id = int(payload["sub"])
+        user_id = UUID(payload["sub"])
     except (JWTError, KeyError, TypeError, ValueError) as exc:
         raise credentials_exception from exc
 

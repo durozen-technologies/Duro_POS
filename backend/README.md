@@ -97,13 +97,199 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 Prefer `uv run uvicorn ...` instead of a global `uvicorn` binary so the app uses the project environment and installed packages.
 
+On startup, the backend:
+
+- creates or updates the database schema
+- seeds the default catalog items
+- stores the default item images in the `items.image_data` column
+- mirrors those images to RustFS when `RUSTFS_*` settings are configured and reachable
+
 Run with Gunicorn:
 
 ```bash
-uv run gunicorn -c gunicorn.conf.py main:app
+uv run python -m gunicorn main:app \
+  --bind 0.0.0.0:${PORT:-8000} \
+  --worker-class uvicorn_worker.UvicornWorker \
+  --workers ${WEB_CONCURRENCY:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)} \
+  --timeout ${GUNICORN_TIMEOUT:-60} \
+  --graceful-timeout ${GUNICORN_GRACEFUL_TIMEOUT:-30} \
+  --keep-alive ${GUNICORN_KEEPALIVE:-5} \
+  --access-logfile - \
+  --error-logfile - \
+  --log-level ${LOG_LEVEL:-info} \
+  --capture-output
 ```
 
 This project uses `uvicorn-worker` as the Gunicorn worker class.
+
+## Docker
+
+Build the backend image:
+
+```bash
+make backend-docker-build
+```
+
+Build the reverse-proxy image:
+
+```bash
+make nginx-docker-build
+```
+
+Build both images together:
+
+```bash
+make docker-build
+```
+
+Validate the rendered Compose config:
+
+```bash
+make docker-config
+```
+
+Or start both services together:
+
+```bash
+make docker-up
+```
+
+Rebuild and recreate the services after Dockerfile, `compose.yaml`, or Nginx config changes:
+
+```bash
+make docker-rebuild
+```
+
+Also rebuild the backend image after changing:
+
+- files in `backend/assets/`
+- default item seed definitions in `backend/app/db/default_items.py`
+- database/image initialization logic in `backend/app/db/database.py`
+
+Stop the services:
+
+```bash
+make docker-down
+```
+
+Access the backend through Nginx after the stack is healthy:
+
+```bash
+http://127.0.0.1:8000
+```
+
+Backend URL reference:
+
+- From your host machine with `docker compose up` or `make docker-up`: `http://127.0.0.1:8000`
+- From another container on the same Compose network: `http://backend:8000`
+- Direct host access to the `backend` container is not available by default because Compose uses `expose: 8000`, not `ports:`
+- `http://0.0.0.0:8000` is only the server bind address for local runs, not a browser URL
+
+Useful routes through the proxy:
+
+- API health: `http://127.0.0.1:8000/api/v1/health`
+- OpenAPI schema: `http://127.0.0.1:8000/api/v1/openapi.json`
+- Swagger UI when `PRODUCTION=False`: `http://127.0.0.1:8000/docs`
+- ReDoc when `PRODUCTION=False`: `http://127.0.0.1:8000/redoc`
+
+Quick checks:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/health
+curl http://127.0.0.1:8000/api/v1/openapi.json
+```
+
+This setup uses:
+
+- `backend/Dockerfile` for the FastAPI app
+- `nginx/Dockerfile` based on the official `nginx:stable-alpine3.23` image
+- `compose.yaml` to connect `backend` and `nginx`
+
+The proxy publishes `http://127.0.0.1:8000` and forwards requests to the backend
+service on port `8000` inside the Compose network. Inside Docker, Nginx listens
+on unprivileged port `8080`, and Compose maps host port `8000` to container
+port `8080`.
+
+If you run the backend without Docker using `uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000`,
+open `http://127.0.0.1:8000` from the same machine.
+
+If `curl http://127.0.0.1:8000/health` fails after changing Docker port mappings or proxy config,
+recreate the services so Docker reapplies the published ports:
+
+```bash
+make docker-rebuild
+```
+
+By default, Compose points the backend at host services through Docker's host
+gateway with:
+
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/meat_billing
+RUSTFS_ENDPOINT_URL=http://host.docker.internal:9000
+```
+
+If the database or object storage runs outside Docker, point `DATABASE_URL`,
+`RUSTFS_*`, and `ALLOWED_HOSTS` at addresses reachable from the backend container.
+Inside Docker, `localhost` means the container itself, not your host machine.
+The Compose file adds `host.docker.internal:host-gateway` for the backend so
+Linux Docker can reach services running on the host.
+
+If RustFS is configured but unreachable at startup, default item images are still
+stored in Postgres and the backend logs a warning for the RustFS mirror failure.
+If both `image_data` and `image_object_key` remain empty after startup, rebuild
+the backend image and restart the service so the latest seed code and bundled
+assets are present in the container.
+
+If your host Postgres or RustFS process listens only on `127.0.0.1`, containers
+still may not be able to connect. In that case, bind the service to an address
+reachable from Docker and allow the Docker bridge network in the service's
+access controls.
+If you enable proxy-aware checks in the backend, also set `TRUSTED_PROXIES` and
+`TRUST_X_FORWARDED_PROTO` appropriately.
+
+Compose defaults:
+
+- backend restart policy: `unless-stopped`
+- nginx restart policy: `unless-stopped`
+- backend image runs as non-root user `app`
+- nginx image runs as non-root user `nginxapp`
+- backend image includes a Docker `HEALTHCHECK` for `/api/v1/health`
+- backend waits for its own `/api/v1/health` to pass
+- nginx waits for backend health before starting
+- nginx health is checked with `nginx -t` plus PID verification
+  so the container health reflects the Nginx process and config directly
+- backend proxy-aware defaults in Compose:
+  `ALLOWED_HOSTS=["localhost","127.0.0.1"]`,
+  `TRUSTED_PROXIES=[]`, and `TRUST_X_FORWARDED_PROTO=False`
+- backend Gunicorn worker default in Compose:
+  `WEB_CONCURRENCY=1`
+
+This backend validates `TRUSTED_PROXIES` as IP addresses or CIDR ranges only.
+Docker service names like `nginx` are not valid values there.
+
+Override those defaults with environment variables before `docker compose up`, for example:
+
+```bash
+BACKEND_PRODUCTION=True \
+BACKEND_ALLOWED_HOSTS='["api.example.com"]' \
+BACKEND_TRUSTED_PROXIES='["172.16.0.0/12"]' \
+BACKEND_TRUST_X_FORWARDED_PROTO=True \
+BACKEND_DATABASE_URL='postgresql+asyncpg://postgres:root@host.docker.internal:5432/meat_billing' \
+BACKEND_RUSTFS_ENDPOINT_URL='http://host.docker.internal:9000' \
+docker compose up --build
+```
+
+View service logs:
+
+```bash
+make docker-logs
+```
+
+View service status:
+
+```bash
+make docker-ps
+```
 
 ## Linting And Formatting
 
@@ -210,7 +396,7 @@ Seeded items currently include:
 
 ### Auth
 
-- `POST /api/v1/auth/register`
+<!-- - `POST /api/v1/auth/register` -->
 - `POST /api/v1/auth/login`
 - `GET /api/v1/auth/me`
 
@@ -256,7 +442,17 @@ ACCESS_TOKEN_EXPIRE_MINUTES=720
 Recommended start command:
 
 ```bash
-gunicorn -c gunicorn.conf.py main:app
+python -m gunicorn main:app \
+  --bind 0.0.0.0:$PORT \
+  --worker-class uvicorn_worker.UvicornWorker \
+  --workers ${WEB_CONCURRENCY:-1} \
+  --timeout ${GUNICORN_TIMEOUT:-60} \
+  --graceful-timeout ${GUNICORN_GRACEFUL_TIMEOUT:-30} \
+  --keep-alive ${GUNICORN_KEEPALIVE:-5} \
+  --access-logfile - \
+  --error-logfile - \
+  --log-level ${LOG_LEVEL:-info} \
+  --capture-output
 ```
 
 Health check path:

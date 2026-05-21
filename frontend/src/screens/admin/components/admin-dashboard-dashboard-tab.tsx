@@ -1,6 +1,8 @@
 import { memo } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import type { UUID } from "@/types/api";
+
 import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
 import type { MetricCardViewModel } from "../hooks/use-admin-dashboard-view-model";
 import { DashboardErrorBanner, MetricCard } from "./admin-dashboard-primitives";
@@ -12,7 +14,7 @@ type AdminDashboardTabProps = {
   refreshing: boolean;
   onRefresh: () => void;
   bottomSpacer: number;
-  selectedShopId: number | null;
+  selectedShopId: UUID | null;
   selectedShopName: string;
   analyticsReferenceLabel: string;
   visibleBillCount: number;

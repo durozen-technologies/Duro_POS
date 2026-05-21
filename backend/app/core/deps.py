@@ -6,11 +6,13 @@ Centralising these here prevents:
 - Repeated inline 404 guard patterns
 """
 
+from uuid import UUID
+
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_roles
-from app.core.database import get_db
+from app.db.database import get_db
 from app.models import Shop, User, UserRole
 
 
@@ -30,7 +32,7 @@ def get_current_admin(
 
 
 async def get_shop_or_404(
-    shop_id: int,
+    shop_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Shop:
     """

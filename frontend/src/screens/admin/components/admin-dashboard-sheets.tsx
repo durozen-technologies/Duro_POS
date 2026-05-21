@@ -6,7 +6,6 @@ import {
   Alert,
   Animated,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   PanResponder,
   Platform,
@@ -20,7 +19,9 @@ import {
 import { WebView } from "react-native-webview";
 
 import { buildReceiptHtml } from "@/api/receipts";
-import type { BillRead, ShopBootstrapResponse, ShopRead } from "@/types/api";
+import { printBillWithPrinter } from "@/services/printer-service";
+import { usePrinterStore } from "@/store/printer-store";
+import type { BillRead, ShopBootstrapResponse, ShopRead, UUID } from "@/types/api";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 
 import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
@@ -39,9 +40,9 @@ type PriceUpdateSheetProps = {
     current_price?: string | null;
   })
   | null;
-  selectedPriceItemId: number | null;
-  resolveItemPrice: (itemId: number, currentPrice?: string | null) => string;
-  onSelectItem: (itemId: number, currentPrice?: string | null) => void;
+  selectedPriceItemId: UUID | null;
+  resolveItemPrice: (itemId: UUID, currentPrice?: string | null) => string;
+  onSelectItem: (itemId: UUID, currentPrice?: string | null) => void;
   draftPrice: string;
   onChangeDraftPrice: (value: string) => void;
   priceError: string | null;
@@ -52,8 +53,8 @@ type PriceUpdateSheetProps = {
   savingPrice: boolean;
   onSave: () => void;
   shops: ShopRead[];
-  selectedPriceShopId: number | null;
-  onSelectShop: (shopId: number) => void;
+  selectedPriceShopId: UUID | null;
+  onSelectShop: (shopId: UUID) => void;
   shopPickerOpen: boolean;
   onToggleShopPicker: () => void;
 };
@@ -82,6 +83,8 @@ type BillPreviewSheetProps = {
   loading: boolean;
   bill: BillRead | null;
 };
+
+const RECEIPT_PREVIEW_CANVAS_WIDTH = 404;
 
 function useSwipeToClose(onClose: () => void) {
   const translateY = useRef(new Animated.Value(0)).current;
@@ -173,7 +176,7 @@ export function PriceUpdateSheet({
               },
             ]}
           >
-            <View style={styles.sheetHandle} />
+            <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
             <View style={styles.sheetHeader}>
               <View style={styles.headerTextWrap}>
                 <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Update Price</Text>
@@ -398,6 +401,13 @@ export function ShopEditorSheet({
   onToggleActive,
 }: ShopEditorSheetProps) {
   const isEdit = mode === "edit";
+  const [passwordVisible, setPasswordVisible] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setPasswordVisible(false);
+    }
+  }, [visible]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -415,7 +425,7 @@ export function ShopEditorSheet({
               },
             ]}
           >
-            <View style={styles.sheetHandle} />
+            <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
             <View style={styles.sheetHeader}>
               <View style={styles.headerTextWrap}>
                 <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>{isEdit ? "Manage Shop" : "Create Shop"}</Text>
@@ -521,11 +531,23 @@ export function ShopEditorSheet({
                           placeholder={isEdit ? "Leave blank to keep the current password" : "Enter login password"}
                           autoCapitalize="none"
                           autoCorrect={false}
-                          secureTextEntry
+                          secureTextEntry={!passwordVisible}
                           placeholderTextColor={palette.textMuted}
                           style={[styles.sheetInput, { color: palette.textPrimary }]}
                           accessibilityLabel="Enter login password"
                         />
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
+                          onPress={() => setPasswordVisible((current) => !current)}
+                          style={styles.inputIconButton}
+                        >
+                          <MaterialCommunityIcons
+                            name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+                            size={20}
+                            color={palette.textMuted}
+                          />
+                        </Pressable>
                       </View>
                       {fieldState.error ? <Text style={[styles.inlineError, { color: palette.danger }]}>{fieldState.error.message}</Text> : null}
                     </View>
@@ -644,6 +666,7 @@ export function BillPreviewSheet({
   bill,
 }: BillPreviewSheetProps) {
   const { panResponder, translateY } = useSwipeToClose(onClose);
+  const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const [receiptPreviewHeight, setReceiptPreviewHeight] = useState(320);
   const [printing, setPrinting] = useState(false);
   const receiptHtml = useMemo(() => (bill ? buildReceiptHtml(bill) : ""), [bill]);
@@ -654,11 +677,17 @@ export function BillPreviewSheet({
 
   async function handlePrint() {
     if (!bill) return;
+
+    if (!preferredPrinter) {
+      Alert.alert("Printer Not Configured", "Connect a saved printer on this device before printing receipts.");
+      return;
+    }
+
     try {
       setPrinting(true);
-      await Linking.openURL(`printerapp://print?html=${encodeURIComponent(receiptHtml)}`);
-    } catch {
-      Alert.alert("Unable to Open Printer", "Make sure the printer app is installed and try again.");
+      await printBillWithPrinter(bill, preferredPrinter);
+    } catch (error) {
+      Alert.alert("Unable to Print", error instanceof Error ? error.message : "The saved printer could not print this receipt.");
     } finally {
       setPrinting(false);
     }
@@ -718,7 +747,7 @@ export function BillPreviewSheet({
               },
             ]}
           >
-            <View style={styles.sheetHandle} />
+            <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
             <View style={styles.sheetHeader}>
               <View style={styles.headerTextWrap}>
                 <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Bill Preview</Text>
@@ -748,74 +777,82 @@ export function BillPreviewSheet({
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.sheetContent}
                 >
-                  <View style={[styles.previewSummaryCard, { backgroundColor: palette.emeraldSoft, borderColor: palette.border }]}>
-                    <Text style={[styles.previewSummaryLabel, { color: palette.emeraldDark }]}>{bill.bill_no}</Text>
-                    <Text style={[styles.previewSummaryAmount, { color: palette.emeraldDark }]}>{formatCurrency(bill.total_amount)}</Text>
-                    <Text style={[styles.previewSummaryMeta, { color: palette.textSecondary }]}>
-                      {bill.shop_name} · {formatDateTime(bill.created_at)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.fieldGroup}>
-                    <Text style={[styles.fieldLabel, { color: palette.textMuted }]}>Printout Preview</Text>
-                    <View style={[styles.receiptPreviewWrap, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                      <View style={styles.receiptPreviewFrame}>
-                        <WebView
-                          originWhitelist={["*"]}
-                          source={{ html: receiptHtml }}
-                          injectedJavaScript={receiptPreviewScript}
-                          onMessage={(event) => {
-                            const nextHeight = Number(event.nativeEvent.data);
-                            if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
-                              return;
-                            }
-                            setReceiptPreviewHeight(nextHeight);
-                          }}
-                          scrollEnabled={false}
-                          nestedScrollEnabled={false}
-                          showsVerticalScrollIndicator={false}
-                          showsHorizontalScrollIndicator={false}
-                          style={{ width: "100%", height: receiptPreviewHeight, backgroundColor: "transparent" }}
-                        />
-                      </View>
+                  <View style={styles.receiptPreviewWrap}>
+                    <View
+                      style={[
+                        styles.receiptPreviewFrame,
+                        {
+                          width: RECEIPT_PREVIEW_CANVAS_WIDTH,
+                          maxWidth: "100%",
+                          backgroundColor: palette.card,
+                          borderColor: palette.border,
+                        },
+                      ]}
+                    >
+                      <WebView
+                        originWhitelist={["*"]}
+                        source={{ html: receiptHtml }}
+                        injectedJavaScript={receiptPreviewScript}
+                        onMessage={(event) => {
+                          const nextHeight = Number(event.nativeEvent.data);
+                          if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
+                            return;
+                          }
+                          setReceiptPreviewHeight(nextHeight);
+                        }}
+                        scrollEnabled={false}
+                        nestedScrollEnabled={false}
+                        showsVerticalScrollIndicator={false}
+                        showsHorizontalScrollIndicator={false}
+                        style={{ width: "100%", height: receiptPreviewHeight, backgroundColor: "transparent" }}
+                      />
                     </View>
                   </View>
                 </ScrollView>
 
-                {/* Print button */}
+                {/* Print footer */}
                 <View
                   style={[
-                    styles.billPreviewActionsWrap,
-                    adminShadow(palette.shadow, 0.08, 10, 10),
+                    styles.printFooter,
                     {
-                      backgroundColor: palette.surfaceMuted,
-                      borderColor: palette.border,
+                      backgroundColor: palette.card,
+                      borderTopColor: palette.border,
                     },
                   ]}
                 >
-                  <View style={styles.actionsRow}>
-                    <View style={styles.sheetActionButton}>
-                      <PrimaryButton
-                        label="Close"
-                        onPress={onClose}
-                        variant="secondary"
-                        fullWidth
-                        palette={palette}
-                      />
-                    </View>
-                    <View style={styles.sheetActionButton}>
-                      <PrimaryButton
-                        label={printing ? "Opening..." : "Print Receipt"}
-                        onPress={() => void handlePrint()}
-                        loading={printing}
-                        icon="printer-outline"
-                        fullWidth
-                        palette={palette}
-                        backgroundColorOverride={palette.emerald}
-                        borderColorOverride={palette.emerald}
-                        textColorOverride="#FFFFFF"
-                      />
-                    </View>
+                  <View style={styles.printFooterActionsRow}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Print receipt"
+                      accessibilityState={{ disabled: printing }}
+                      disabled={printing}
+                      onPress={() => void handlePrint()}
+                      style={({ pressed }) => [
+                        styles.footerButton,
+                        {
+                          backgroundColor: palette.emerald,
+                          borderColor: palette.emerald,
+                          opacity: printing ? 0.72 : pressed ? 0.94 : 1,
+                        },
+                      ]}
+                    >
+                      <View style={styles.footerButtonContent}>
+                        <View style={styles.footerButtonIconSlot}>
+                          {printing ? (
+                            <ActivityIndicator size="small" color={palette.emeraldDark} />
+                          ) : (
+                            <MaterialCommunityIcons
+                              name="printer-outline"
+                              size={18}
+                              color={palette.emeraldDark}
+                            />
+                          )}
+                        </View>
+                        <Text style={[styles.footerButtonPrimaryText, { color: palette.emeraldDark }]}>
+                          {printing ? "Opening..." : "Print Receipt"}
+                        </Text>
+                      </View>
+                    </Pressable>
                   </View>
                 </View>
               </>
@@ -857,7 +894,6 @@ const styles = StyleSheet.create({
     width: 54,
     height: 5,
     borderRadius: 999,
-    backgroundColor: "#CBD5E1",
     alignSelf: "center",
     marginBottom: 12,
   },
@@ -993,6 +1029,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+  inputIconButton: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   inlineError: {
     fontSize: 12,
     lineHeight: 18,
@@ -1024,37 +1066,66 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingTop: 8,
   },
-  previewSummaryCard: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 16,
-    gap: 4,
-  },
-  previewSummaryLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-  },
-  previewSummaryAmount: {
-    fontSize: 26,
-    fontWeight: "800",
-  },
-  previewSummaryMeta: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
   receiptPreviewWrap: {
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 10,
+    alignItems: "center",
   },
   receiptPreviewFrame: {
     overflow: "hidden",
-    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#000000",
-    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+  },
+  printFooter: {
+    marginTop: 10,
+    marginHorizontal: -18,
+    marginBottom: -18,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  printFooterActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  footerButton: {
+    width: "72%",
+    maxWidth: 320,
+    height: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  footerButtonIconSlot: {
+    width: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  footerButtonPrimaryText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    lineHeight: 20,
   },
   createActionsWrap: {
     marginTop: 8,
@@ -1067,16 +1138,5 @@ const styles = StyleSheet.create({
   },
   sheetActionButton: {
     flex: 1,
-  },
-  billPreviewActionsWrap: {
-    marginTop: 8,
-    marginHorizontal: -18,
-    marginBottom: -18,
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 18,
-    borderTopWidth: 1,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
   },
 });

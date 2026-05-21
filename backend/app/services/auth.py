@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -10,7 +11,7 @@ from app.models import DailyPrice, User, UserRole
 from app.schemas.auth import LoginResponse, RegisterRequest, UserSession
 
 
-async def _requires_price_setup(db: AsyncSession, shop_id: int) -> bool:
+async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
     has_today_price = await db.scalar(
         select(
             select(DailyPrice.id)
@@ -27,7 +28,7 @@ async def _requires_price_setup(db: AsyncSession, shop_id: int) -> bool:
 def _build_user_session(
     user: User,
     *,
-    shop_id: int | None = None,
+    shop_id: UUID | None = None,
     shop_name: str | None = None,
     requires_price_setup: bool = False,
     next_screen: str,

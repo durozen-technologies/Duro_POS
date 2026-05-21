@@ -1,12 +1,17 @@
-import asyncio
 from datetime import UTC, date, datetime, timedelta
+from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import and_, distinct, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
 from app.core.security import get_password_hash
+from app.db.storage import (
+    build_item_image_path,
+    delete_item_image_storage,
+    save_item_image_upload,
+)
 from app.models import Bill, BillItem, DailyPrice, Item, Payment, Shop, User, UserRole
 from app.schemas.admin import (
     AdminBillPage,
@@ -14,7 +19,10 @@ from app.schemas.admin import (
     AdminBillSummary,
     AdminDashboardBootstrap,
     AnalyticsPeriod,
+    ItemCreate,
+    ItemRead,
     ItemSalesSummary,
+    ItemUpdate,
     PaymentSplitSummary,
     ShopCreate,
     ShopRead,
@@ -32,6 +40,44 @@ def _shop_to_read(shop: Shop) -> ShopRead:
         created_at=shop.created_at,
         username=shop.owner.username,
     )
+
+
+def _item_to_read(item: Item) -> ItemRead:
+    return ItemRead(
+        id=item.id,
+        name=item.name,
+        unit_type=item.unit_type,
+        base_unit=item.base_unit,
+        is_active=item.is_active,
+        created_at=item.created_at,
+        image_path=build_item_image_path(item.id, item.image_object_key, item.image_content_type),
+        image_content_type=item.image_content_type,
+    )
+
+
+def _normalize_item_name(raw_name: str) -> str:
+    item_name = raw_name.strip()
+    if len(item_name) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Item name is required",
+        )
+    return item_name
+
+
+async def _ensure_unique_item_name(
+    db: AsyncSession,
+    item_name: str,
+    *,
+    exclude_item_id: UUID | None = None,
+) -> None:
+    filters = [func.lower(Item.name) == item_name.lower()]
+    if exclude_item_id is not None:
+        filters.append(Item.id != exclude_item_id)
+
+    existing_item = await db.scalar(select(Item.id).where(*filters).limit(1))
+    if existing_item is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Item name already exists")
 
 
 def _bill_to_read(bill: Bill) -> BillRead:
@@ -105,11 +151,11 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
 
     if len(shop_name) < 2:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Shop name is required"
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Shop name is required"
         )
     if len(username) < 3:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username is required"
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Username is required"
         )
 
     existing_user = await db.scalar(select(User.id).where(User.username == username))
@@ -129,7 +175,7 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
     return _shop_to_read(shop)
 
 
-async def update_shop_account(db: AsyncSession, shop_id: int, payload: ShopUpdate) -> ShopRead:
+async def update_shop_account(db: AsyncSession, shop_id: UUID, payload: ShopUpdate) -> ShopRead:
     """Update a shop's name, username, and optionally its password.
 
     Uses a single JOIN SELECT with ``with_for_update()`` to avoid the
@@ -187,7 +233,7 @@ async def update_shop_account(db: AsyncSession, shop_id: int, payload: ShopUpdat
     return _shop_to_read(shop)
 
 
-async def delete_shop_account(db: AsyncSession, shop_id: int) -> None:
+async def delete_shop_account(db: AsyncSession, shop_id: UUID) -> None:
     """Delete a shop and its owner user in one transaction.
 
     Improvements over the previous version:
@@ -269,7 +315,7 @@ async def list_shops(db: AsyncSession) -> list[ShopRead]:
     ]
 
 
-async def get_shop_by_id(db: AsyncSession, shop_id: int) -> ShopRead:
+async def get_shop_by_id(db: AsyncSession, shop_id: UUID) -> ShopRead:
     """Fetch a single shop by PK using a flat projection JOIN.
 
     One SQL JOIN selecting only the 5 columns ShopRead needs — no ORM object
@@ -292,7 +338,127 @@ async def get_shop_by_id(db: AsyncSession, shop_id: int) -> ShopRead:
     return ShopRead(**result)
 
 
-async def set_shop_active_state(db: AsyncSession, shop_id: int, is_active: bool) -> ShopRead:
+async def create_item(
+    db: AsyncSession,
+    payload: ItemCreate,
+    image: UploadFile | None = None,
+) -> ItemRead:
+    item_name = _normalize_item_name(payload.name)
+    await _ensure_unique_item_name(db, item_name)
+
+    item = Item(
+        name=item_name,
+        unit_type=payload.unit_type,
+        base_unit=payload.base_unit,
+        is_active=payload.is_active,
+    )
+    uploaded_image_object_key: str | None = None
+
+    try:
+        db.add(item)
+        await db.flush()
+        if image is not None:
+            await save_item_image_upload(db, item, image, commit=False)
+            uploaded_image_object_key = item.image_object_key
+        await db.commit()
+        return _item_to_read(item)
+    except Exception:
+        await db.rollback()
+        await delete_item_image_storage(uploaded_image_object_key)
+        raise
+
+
+async def update_item(
+    db: AsyncSession,
+    item_id: UUID,
+    payload: ItemUpdate,
+    image: UploadFile | None = None,
+) -> ItemRead:
+    item = await db.scalar(select(Item).where(Item.id == item_id).with_for_update())
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    item_name = _normalize_item_name(payload.name)
+    name_changed = item.name != item_name
+    configuration_changed = (
+        name_changed
+        or item.unit_type != payload.unit_type
+        or item.base_unit != payload.base_unit
+        or item.is_active != payload.is_active
+    )
+
+    if name_changed and item.name.lower() != item_name.lower():
+        await _ensure_unique_item_name(db, item_name, exclude_item_id=item_id)
+
+    if not configuration_changed and image is None:
+        return _item_to_read(item)
+
+    previous_image_object_key = item.image_object_key
+    uploaded_image_object_key: str | None = None
+
+    try:
+        item.name = item_name
+        item.unit_type = payload.unit_type
+        item.base_unit = payload.base_unit
+        item.is_active = payload.is_active
+        await db.flush()
+        if image is not None:
+            await save_item_image_upload(db, item, image, commit=False)
+            uploaded_image_object_key = item.image_object_key
+        await db.commit()
+        if (
+            image is not None
+            and previous_image_object_key
+            and previous_image_object_key != item.image_object_key
+        ):
+            await delete_item_image_storage(previous_image_object_key)
+        return _item_to_read(item)
+    except Exception:
+        await db.rollback()
+        if uploaded_image_object_key and uploaded_image_object_key != previous_image_object_key:
+            await delete_item_image_storage(uploaded_image_object_key)
+        raise
+
+
+async def delete_item(db: AsyncSession, item_id: UUID) -> None:
+    item = await db.scalar(select(Item).where(Item.id == item_id).with_for_update())
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    existence_row = (
+        await db.execute(
+            select(
+                select(BillItem.id)
+                .where(BillItem.item_id == item_id)
+                .exists()
+                .label("has_bill_items"),
+                select(DailyPrice.id)
+                .where(DailyPrice.item_id == item_id)
+                .exists()
+                .label("has_prices"),
+            )
+        )
+    ).one()
+    has_bill_items, has_prices = existence_row
+
+    if has_bill_items:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete an item that already has billing history",
+        )
+    if has_prices:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete an item that already has price history",
+        )
+
+    image_object_key = item.image_object_key
+    await db.delete(item)
+    await db.commit()
+    await delete_item_image_storage(image_object_key)
+
+
+async def set_shop_active_state(db: AsyncSession, shop_id: UUID, is_active: bool) -> ShopRead:
     """Toggle is_active on both Shop and its owner User in one transaction.
 
     Uses a single JOIN SELECT with ``with_for_update()`` to prevent a
@@ -316,7 +482,7 @@ async def set_shop_active_state(db: AsyncSession, shop_id: int, is_active: bool)
     return _shop_to_read(shop)
 
 
-async def get_bill_by_id(db: AsyncSession, bill_id: int) -> BillRead:
+async def get_bill_by_id(db: AsyncSession, bill_id: UUID) -> BillRead:
     """Fetch a single bill with all related data in one SQL statement.
 
     Uses explicit JOINs with ``contains_eager`` for the to-one relationships
@@ -347,7 +513,7 @@ async def get_shop_sales_summary(
     db: AsyncSession,
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
-    shop_id: int | None = None,
+    shop_id: UUID | None = None,
 ) -> list[ShopSalesSummary]:
     """Return total sales grouped by shop for the given time period.
 
@@ -393,7 +559,7 @@ async def get_payment_split_summary(
     db: AsyncSession,
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
-    shop_id: int | None = None,
+    shop_id: UUID | None = None,
 ) -> list[PaymentSplitSummary]:
     """Return cash/UPI payment totals grouped by shop for the given time period.
 
@@ -443,10 +609,10 @@ async def get_daily_bills(
     db: AsyncSession,
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
-    shop_id: int | None = None,
+    shop_id: UUID | None = None,
     limit: int = 100,
     cursor_created_at: datetime | None = None,
-    cursor_id: int | None = None,
+    cursor_id: UUID | None = None,
     # Inject stats if precalculated to avoid redundant queries
     precalculated_stats: list[AdminBillShopStat] | None = None,
     precalculated_largest_bill: AdminBillSummary | None = None,
@@ -457,8 +623,9 @@ async def get_daily_bills(
     ``next_cursor_created_at`` / ``next_cursor_id`` values from a previous
     response to fetch the next page.
 
-    When called standalone (router path), all three sub-queries (shop stats,
-    bill page, largest bill) are fired concurrently via ``asyncio.gather``.
+    When called standalone (router path), the stats, bill-page, and largest-
+    bill queries are executed in sequence on the same ``AsyncSession``.
+    This avoids unsupported concurrent use of one SQLAlchemy session.
     When called from ``get_dashboard_bootstrap``, precalculated stats and the
     largest-bill are injected to skip those redundant queries.
 
@@ -476,7 +643,7 @@ async def get_daily_bills(
     # Validate cursor — both fields must be supplied or both omitted.
     if (cursor_created_at is None) != (cursor_id is None):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="cursor_created_at and cursor_id must both be provided or both omitted.",
         )
 
@@ -504,25 +671,22 @@ async def get_daily_bills(
     )
 
     if precalculated_stats is None:
-        # Standalone path: fire all three independent queries concurrently.
-        stats_result, bills_result, largest_result = await asyncio.gather(
-            db.execute(
-                select(
-                    Bill.shop_id,
-                    func.count(Bill.id).label("bill_count"),
-                    func.max(Bill.created_at).label("last_bill_at"),
-                )
-                .where(*base_filters)
-                .group_by(Bill.shop_id)
-            ),
-            db.execute(bills_query),
-            db.execute(
-                select(Bill, Shop.name)
-                .join(Shop, Shop.id == Bill.shop_id)
-                .where(*base_filters)
-                .order_by(Bill.total_amount.desc(), Bill.created_at.desc(), Bill.id.desc())
-                .limit(1)
-            ),
+        stats_result = await db.execute(
+            select(
+                Bill.shop_id,
+                func.count(Bill.id).label("bill_count"),
+                func.max(Bill.created_at).label("last_bill_at"),
+            )
+            .where(*base_filters)
+            .group_by(Bill.shop_id)
+        )
+        bills_result = await db.execute(bills_query)
+        largest_result = await db.execute(
+            select(Bill, Shop.name)
+            .join(Shop, Shop.id == Bill.shop_id)
+            .where(*base_filters)
+            .order_by(Bill.total_amount.desc(), Bill.created_at.desc(), Bill.id.desc())
+            .limit(1)
         )
         shop_stats = [
             AdminBillShopStat(
@@ -594,7 +758,7 @@ async def get_item_sales_summary(
     db: AsyncSession,
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
-    shop_id: int | None = None,
+    shop_id: UUID | None = None,
     limit: int = 100,
 ) -> list[ItemSalesSummary]:
     """Return quantity sold and revenue grouped by item for the given time period.
@@ -661,7 +825,7 @@ async def get_dashboard_bootstrap(
     db: AsyncSession,
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
-    shop_id: int | None = None,
+    shop_id: UUID | None = None,
     bills_limit: int = 50,
 ) -> AdminDashboardBootstrap:
     """Return the admin dashboard payload with minimal duplicate work.

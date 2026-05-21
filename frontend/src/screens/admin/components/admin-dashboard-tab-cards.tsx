@@ -11,7 +11,7 @@ import {
   getUnitLabel,
 } from "@/screens/admin/admin-dashboard-utils";
 import type { ShopDashboardRow } from "@/screens/admin/hooks/use-admin-dashboard-data";
-import type { ItemSalesSummary, ShopRead } from "@/types/api";
+import type { ItemSalesSummary, ShopRead, UUID } from "@/types/api";
 import { formatCurrency } from "@/utils/format";
 
 type InventoryItemCardProps = {
@@ -70,7 +70,7 @@ type BranchControlCardProps = {
   palette: ThemePalette;
   statusUpdating: boolean;
   onManage: (shop: ShopRead) => void;
-  onToggle: (shopId: number, isActive: boolean) => void;
+  onToggle: (shopId: UUID, isActive: boolean) => void;
 };
 
 export const BranchControlCard = memo(function BranchControlCard({

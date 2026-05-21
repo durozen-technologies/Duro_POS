@@ -6,6 +6,7 @@ import type {
   AnalyticsPeriod,
   ItemSalesSummary,
   ShopBootstrapResponse,
+  UUID,
 } from "@/types/api";
 import { isPositiveNumber, money } from "@/utils/decimal";
 import { formatCurrency, formatDate, formatDateTime } from "@/utils/format";
@@ -51,9 +52,9 @@ export type BillingSectionItem = AdminBillSummary & {
 
 type UseAdminPriceEditorModelOptions = {
   priceBootstrap: ShopBootstrapResponse | null;
-  selectedPriceItemId: number | null;
-  draftPrices: Record<number, string>;
-  selectedPriceShopId: number | null;
+  selectedPriceItemId: UUID | null;
+  draftPrices: Record<UUID, string>;
+  selectedPriceShopId: UUID | null;
 };
 
 export function useAdminPriceEditorModel({
@@ -68,7 +69,7 @@ export function useAdminPriceEditorModel({
   );
 
   const resolvePriceDraft = useCallback(
-    (itemId: number, currentPrice?: string | null) => draftPrices[itemId] ?? currentPrice ?? "",
+    (itemId: UUID, currentPrice?: string | null) => draftPrices[itemId] ?? currentPrice ?? "",
     [draftPrices],
   );
 
@@ -118,7 +119,7 @@ export function useAdminPriceEditorModel({
 type UseAdminDashboardAnalyticsOptions = {
   analyticsPeriod: AnalyticsPeriod;
   analyticsReferenceDate: string;
-  selectedShopId: number | null;
+  selectedShopId: UUID | null;
   dateOptions: Option[];
   monthOptions: Option[];
   weekOptions: Option[];
@@ -193,7 +194,7 @@ export function useAdminDashboardAnalytics({
   );
 
   const branchRanking = useMemo(() => {
-    const rankMap = new Map<number, number>();
+    const rankMap = new Map<UUID, number>();
     [...visibleShopRows]
       .sort((left, right) => money(right.totalSales).minus(left.totalSales).toNumber())
       .forEach((row, index) => rankMap.set(row.shop.id, index + 1));

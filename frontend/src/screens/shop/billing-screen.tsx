@@ -15,7 +15,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Screen } from "@/components/ui/screen";
 import { SectionHeading } from "@/components/ui/section-heading";
-import { StatusPill } from "@/components/ui/status-pill";
 import { TextField } from "@/components/ui/text-field";
 
 import { useShopBootstrap } from "@/hooks/use-shop-bootstrap";
@@ -23,25 +22,17 @@ import { useShopTranslation } from "@/hooks/use-shop-translation";
 
 import { BillingScreenProps } from "@/navigation/types";
 
+import { resolveApiUrl } from "@/api/client";
 import {
   CartItem,
   getCartTotal,
   useCartStore,
 } from "@/store/cart-store";
-import { ItemPriceRead } from "@/types/api";
+import { usePrinterStore } from "@/store/printer-store";
+import { ItemPriceRead, UUID } from "@/types/api";
 
 import { money, toQuantityString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
-
-const ITEM_IMAGES: Record<string, any> = {
-  Chicken: require("../../asserts/chicken-with-skin.jpeg"),
-  "Chicken without skin": require("../../asserts/chicken-without-skin.jpeg"),
-  Duck: require("../../asserts/duck.jpeg"),
-  "Country Chicken": require("../../asserts/country-chicken.jpeg"),
-  "Live Country Chicken": require("../../asserts/live-country-chicken.jpg"),
-  "Live Chicken": require("../../asserts/live-chicken.jpeg"),
-  "Chicken Cleaning": require("../../asserts/chicken-cleaning.jpeg"),
-};
 
 const ITEM_DISPLAY_ORDER = [
   "Chicken",
@@ -61,7 +52,7 @@ type ProductCardProps = {
   item: ItemPriceRead;
   quantity: string;
   itemName: string;
-  onChangeQuantity: (itemId: number, value: string) => void;
+  onChangeQuantity: (itemId: UUID, value: string) => void;
   onAddToCart: (item: ItemPriceRead, quantity: string) => void;
   t: any;
 };
@@ -75,14 +66,16 @@ const ProductCard = memo(
     onAddToCart,
     t,
   }: ProductCardProps) => {
-    const itemImage = ITEM_IMAGES[item.item_name];
+    const itemImageUri = item.image_path
+      ? resolveApiUrl(item.image_path)
+      : "";
 
     return (
       <Card className="mb-4 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-black/5">
         <View className="flex-row gap-4">
-          {itemImage ? (
+          {itemImageUri ? (
             <Image
-              source={itemImage}
+              source={{ uri: itemImageUri }}
               resizeMode="cover"
               fadeDuration={150}
               className="h-24 w-24 rounded-xl bg-[#F3F4F6]"
@@ -151,7 +144,7 @@ ProductCard.displayName = "ProductCard";
 type CartLineProps = {
   item: CartItem;
   itemName: string;
-  onRemove: (itemId: number) => void;
+  onRemove: (itemId: UUID) => void;
   t: any;
 };
 
@@ -198,13 +191,14 @@ export function BillingScreen({
   const { t, translateItemName } = useShopTranslation();
 
   const cartItems = useCartStore((state) => state.items);
+  const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
 
   const addItem = useCartStore((state) => state.addItem);
 
   const removeItem = useCartStore((state) => state.removeItem);
 
   const [quantities, setQuantities] = useState<
-    Record<number, string>
+    Record<UUID, string>
   >({});
 
   const orderedItems = useMemo(() => {
@@ -224,7 +218,7 @@ export function BillingScreen({
   }, [bootstrap]);
 
   const handleQuantityChange = useCallback(
-    (itemId: number, value: string) => {
+    (itemId: UUID, value: string) => {
       setQuantities((prev) => ({
         ...prev,
         [itemId]: value,
@@ -290,7 +284,7 @@ export function BillingScreen({
   );
 
   const handleRemoveItem = useCallback(
-    (itemId: number) => {
+    (itemId: UUID) => {
       removeItem(itemId);
     },
     [removeItem],
@@ -342,9 +336,26 @@ export function BillingScreen({
             />
           ))
         )}
+
+        <Card className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-black/5">
+          <Text className="text-sm font-semibold text-[#111827]">
+            {t("common.savedPrinter")}
+          </Text>
+          <Text className="mt-2 text-sm leading-6 text-[#6B7280]">
+            {preferredPrinter
+              ? preferredPrinter.name
+              : t("printer.noPrinterSavedDescription")}
+          </Text>
+          <Button
+            label={t("action.managePrinter")}
+            onPress={() => navigation.navigate("PrinterSetup")}
+            variant="secondary"
+            className="mt-4"
+          />
+        </Card>
       </View>
     ),
-    [cartItems, handleRemoveItem, t, translateItemName],
+    [cartItems, handleRemoveItem, navigation, preferredPrinter, t, translateItemName],
   );
 
   if (loading && !bootstrap) {

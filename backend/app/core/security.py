@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from jose import jwt
 from pwdlib import PasswordHash
@@ -18,7 +19,7 @@ def get_password_hash(password: str) -> str:
     return password_hash.hash(password)
 
 
-def create_access_token(subject: str | int, expires_delta: timedelta | None = None) -> str:
+def create_access_token(subject: str | UUID, expires_delta: timedelta | None = None) -> str:
     expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )

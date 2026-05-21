@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -8,7 +9,7 @@ from app.schemas.common import ORMModel
 
 
 class DailyPriceEntry(BaseModel):
-    item_id: int
+    item_id: UUID
     price_per_unit: Decimal = Field(gt=0)
 
 
@@ -17,8 +18,8 @@ class DailyPriceCreate(BaseModel):
 
 
 class DailyPriceRead(ORMModel):
-    id: int
-    item_id: int
+    id: UUID
+    item_id: UUID
     price_per_unit: Decimal
     unit: BaseUnit
     price_date: date
@@ -26,15 +27,23 @@ class DailyPriceRead(ORMModel):
 
 
 class ItemPriceRead(BaseModel):
-    item_id: int
+    item_id: UUID
     item_name: str
     unit_type: UnitType
     base_unit: BaseUnit
     current_price: Decimal | None = None
+    image_path: str | None = None
+
+
+class ItemImageRead(BaseModel):
+    item_id: UUID
+    item_name: str
+    image_path: str | None = None
+    image_content_type: str | None = None
 
 
 class ShopBootstrapResponse(BaseModel):
-    shop_id: int | None = None
+    shop_id: UUID | None = None
     shop_name: str
     price_date: date
     prices_set: bool

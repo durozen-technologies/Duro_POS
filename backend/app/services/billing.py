@@ -57,7 +57,11 @@ async def _generate_bill_no(db: AsyncSession) -> str:
     return f"SMB-{now.year:04d}-{now.month:02d}-{sequence:06d}"
 
 
-async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest) -> BillRead:
+async def create_bill(
+    db: AsyncSession,
+    shop: Shop,
+    payload: BillCheckoutRequest,
+) -> BillRead:
     """Create a paid bill using today's price book for the given shop."""
     today = date.today()
     price_rows = (
@@ -103,7 +107,7 @@ async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest
         item = items_by_id[line.item_id]
         if item.base_unit.value == "unit" and line.quantity != line.quantity.to_integral_value():
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"{item.name} only accepts integer unit quantities",
             )
 
@@ -144,12 +148,12 @@ async def create_bill(db: AsyncSession, shop: Shop, payload: BillCheckoutRequest
 
     if total_paid < total_amount:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Payment pending. Balance: {balance}",
         )
     if total_paid > total_amount:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Payment exceeds total amount. Receipt remains blocked until corrected",
         )
 

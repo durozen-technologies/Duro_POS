@@ -38,7 +38,30 @@ function uniqueNonEmpty(values: string[]) {
 }
 
 function getDisplayedApiBaseUrl() {
-  return CONFIGURED_API_BASE_URL || lastReachableBaseUrl || API_BASE_URL || "";
+  return (
+    lastReachableBaseUrl ||
+    apiClient.defaults.baseURL?.trim() ||
+    CONFIGURED_API_BASE_URL ||
+    API_BASE_URL ||
+    ""
+  );
+}
+
+export function resolveApiUrl(path: string) {
+  const trimmedPath = path.trim();
+  if (!trimmedPath) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(trimmedPath)) {
+    return trimmedPath;
+  }
+
+  const baseUrl = getDisplayedApiBaseUrl().replace(/\/$/, "");
+  if (!baseUrl) {
+    return trimmedPath;
+  }
+
+  return `${baseUrl}/${trimmedPath.replace(/^\//, "")}`;
 }
 
 function updateReachableBaseUrl(baseUrl: string) {
