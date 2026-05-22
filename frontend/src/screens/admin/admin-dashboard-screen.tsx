@@ -22,7 +22,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { z } from "zod";
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { printBillsWithPrinter } from "@/services/printer-service";
+import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import { useAuthStore } from "@/store/auth-store";
 import { useAdminThemeStore } from "@/store/admin-theme-store";
 import { useCartStore } from "@/store/cart-store";
@@ -120,6 +120,7 @@ export function AdminDashboardScreen() {
   const resetCart = useCartStore((state) => state.resetCart);
   const clearPrices = usePriceStore((state) => state.clear);
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
+  const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
   const [analyticsPeriod, setAnalyticsPeriod] = useState<AnalyticsPeriod>("date");
   const [analyticsReferenceDate, setAnalyticsReferenceDate] = useState(
@@ -665,7 +666,7 @@ export function AdminDashboardScreen() {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
 
-      await printBillsWithPrinter(fullBills, preferredPrinter);
+      await startReceiptImagePrintJob(fullBills, preferredPrinter);
     } catch (error) {
       Alert.alert(
         "Unable to Print",
@@ -1044,6 +1045,7 @@ export function AdminDashboardScreen() {
           void handleToggleShop(selectedManagedShop.id, !selectedManagedShop.is_active);
         }}
       />
+      {receiptImagePrintBridge}
     </SafeAreaView>
   );
 }

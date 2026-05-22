@@ -19,7 +19,7 @@ import {
 import { WebView } from "react-native-webview";
 
 import { buildReceiptHtml } from "@/api/receipts";
-import { printBillWithPrinter } from "@/services/printer-service";
+import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import { usePrinterStore } from "@/store/printer-store";
 import type { BillRead, ShopBootstrapResponse, ShopRead, UUID } from "@/types/api";
 import { formatCurrency, formatDateTime } from "@/utils/format";
@@ -670,6 +670,7 @@ export function BillPreviewSheet({
   const [receiptPreviewHeight, setReceiptPreviewHeight] = useState(320);
   const [printing, setPrinting] = useState(false);
   const receiptHtml = useMemo(() => (bill ? buildReceiptHtml(bill) : ""), [bill]);
+  const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
   useEffect(() => {
     setReceiptPreviewHeight(320);
@@ -685,7 +686,7 @@ export function BillPreviewSheet({
 
     try {
       setPrinting(true);
-      await printBillWithPrinter(bill, preferredPrinter);
+      await startReceiptImagePrintJob([bill], preferredPrinter);
     } catch (error) {
       Alert.alert("Unable to Print", error instanceof Error ? error.message : "The saved printer could not print this receipt.");
     } finally {
@@ -868,6 +869,7 @@ export function BillPreviewSheet({
             )}
           </Animated.View>
         </KeyboardAvoidingView>
+        {receiptImagePrintBridge}
       </View>
     </Modal>
   );

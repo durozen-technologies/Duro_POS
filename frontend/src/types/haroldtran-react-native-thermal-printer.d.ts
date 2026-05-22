@@ -7,6 +7,12 @@ declare module "@haroldtran/react-native-thermal-printer" {
     onError?: (error: Error) => void;
   };
 
+  export type PrinterImageOptions = PrinterOptions & {
+    imageWidth?: number;
+    align?: "left" | "center" | "right";
+    paddingX?: number;
+  };
+
   export type IBLEPrinter = {
     device: unknown;
     device_name: string;
@@ -43,6 +49,7 @@ declare module "@haroldtran/react-native-thermal-printer" {
     connectPrinter: (inner_mac_address: string) => Promise<IBLEPrinter>;
     closeConn: () => Promise<void>;
     printBill: (text: string, opts?: PrinterOptions) => void;
+    printImageBase64: (base64: string, opts?: PrinterImageOptions) => void;
   };
 
   export const USBPrinter: {
@@ -51,5 +58,6 @@ declare module "@haroldtran/react-native-thermal-printer" {
     connectPrinter: (vendorId: string, productId: string) => Promise<IUSBPrinter>;
     closeConn: () => Promise<void>;
     printBill: (text: string, opts?: PrinterOptions) => void;
+    printImageBase64: (base64: string, opts?: PrinterImageOptions) => void;
   };
 }

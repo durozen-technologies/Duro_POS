@@ -4,13 +4,15 @@ BACKEND_DIR := backend
 FRONTEND_DIR := frontend
 UV := uv
 NPM := npm
+COMPOSE_FILE ?= compose.yaml
+DOCKER_COMPOSE := docker compose -f $(COMPOSE_FILE)
 
 .PHONY: help \
 	backend-sync backend-sync-dev backend-dev backend-gunicorn \
-	backend-docker-build nginx-docker-build docker-build docker-config docker-up docker-rebuild docker-down docker-logs docker-ps \
+	backend-docker-build nginx-docker-build docker-build docker-config docker-up docker-rebuild docker-down docker-logs docker-ps caddy-export-local-ca caddy-trust-local-ca caddy-trust-browser-ca \
 	backend-lint backend-lint-fix backend-format \
 	backend-test backend-test-unit backend-test-integration backend-test-cov \
-	frontend-install frontend-dev frontend-dev-go frontend-android frontend-ios frontend-web \
+	frontend-install frontend-dev frontend-dev-go frontend-android frontend-android-device frontend-ios frontend-web \
 	frontend-lint frontend-typecheck
 
 help: ## Show available targets
@@ -34,26 +36,39 @@ backend-docker-build: ## Build the backend Docker image
 nginx-docker-build: ## Build the nginx reverse-proxy image
 	docker build -f nginx/Dockerfile -t billing-nginx:latest nginx
 
-docker-build: ## Build both backend and nginx images
-	docker compose build
+docker-build: ## Build services from the selected Compose file; use COMPOSE_FILE=...
+	$(DOCKER_COMPOSE) build
 
-docker-config: ## Validate and print the rendered Docker Compose config
-	docker compose config
+docker-config: ## Validate the selected Compose file; use COMPOSE_FILE=...
+	$(DOCKER_COMPOSE) config
 
-docker-up: ## Start backend and nginx with Docker Compose
-	docker compose up --build
+docker-up: ## Start services from the selected Compose file; remove orphaned old services
+	$(DOCKER_COMPOSE) up --build --remove-orphans
 
-docker-rebuild: ## Rebuild and recreate Docker Compose services
-	docker compose up --build --force-recreate
+docker-rebuild: ## Rebuild and recreate services from the selected Compose file; remove orphaned old services
+	$(DOCKER_COMPOSE) up --build --force-recreate --remove-orphans
 
-docker-down: ## Stop Docker Compose services
-	docker compose down
+docker-down: ## Stop services from the selected Compose file; remove orphaned old services
+	$(DOCKER_COMPOSE) down --remove-orphans
 
-docker-logs: ## Tail Docker Compose service logs
-	docker compose logs -f
+docker-logs: ## Tail logs from the selected Compose file; use COMPOSE_FILE=...
+	$(DOCKER_COMPOSE) logs -f
 
-docker-ps: ## Show Docker Compose service status
-	docker compose ps
+docker-ps: ## Show service status from the selected Compose file; use COMPOSE_FILE=...
+	$(DOCKER_COMPOSE) ps
+
+caddy-export-local-ca: ## Copy Caddy's local root CA to caddy/certs/caddy-local-root.crt
+	mkdir -p caddy/certs
+	$(DOCKER_COMPOSE) cp caddy:/data/caddy/pki/authorities/local/root.crt caddy/certs/caddy-local-root.crt
+
+caddy-trust-local-ca: caddy-export-local-ca ## Trust Caddy's local root CA on Debian/Ubuntu hosts
+	sudo install -m 0644 caddy/certs/caddy-local-root.crt /usr/local/share/ca-certificates/caddy-local-root.crt
+	sudo update-ca-certificates
+
+caddy-trust-browser-ca: caddy-export-local-ca ## Import Caddy's local root CA into the NSS browser trust store
+	test -n "$$(command -v certutil)" || (echo "certutil not found; install libnss3-tools first" && exit 1)
+	mkdir -p "$$HOME/.pki/nssdb"
+	certutil -d sql:"$$HOME/.pki/nssdb" -A -t "C,," -n "Caddy Local Authority" -i caddy/certs/caddy-local-root.crt
 
 backend-lint: ## Run Ruff checks for the backend
 	cd $(BACKEND_DIR) && $(UV) run ruff check .
@@ -86,10 +101,13 @@ frontend-dev-go: ## Start Expo in Go mode
 	cd $(FRONTEND_DIR) && npx expo start --go
 
 frontend-android: ## Run the Expo Android app
-	cd $(FRONTEND_DIR) && npx expo run:android
+	$(NPM) --prefix $(FRONTEND_DIR) run android
+
+frontend-android-device: ## Run the Expo Android app on a connected device; optional DEVICE=<adb serial or name>
+	$(NPM) --prefix $(FRONTEND_DIR) run android -- --device $(DEVICE)
 
 frontend-ios: ## Run the Expo iOS app
-	cd $(FRONTEND_DIR) && npx expo run:ios
+	$(NPM) --prefix $(FRONTEND_DIR) run ios
 
 frontend-web: ## Start Expo for web
 	cd $(FRONTEND_DIR) && npx expo start --web

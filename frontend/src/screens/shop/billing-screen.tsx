@@ -18,7 +18,10 @@ import { SectionHeading } from "@/components/ui/section-heading";
 import { TextField } from "@/components/ui/text-field";
 
 import { useShopBootstrap } from "@/hooks/use-shop-bootstrap";
-import { useShopTranslation } from "@/hooks/use-shop-translation";
+import {
+  translateShopItemName,
+  useShopTranslation,
+} from "@/hooks/use-shop-translation";
 
 import { BillingScreenProps } from "@/navigation/types";
 
@@ -52,9 +55,12 @@ type ProductCardProps = {
   item: ItemPriceRead;
   quantity: string;
   itemName: string;
+  priceText: string;
+  quantityLabel: string;
+  quantityPlaceholder: string;
+  buttonLabel: string;
   onChangeQuantity: (itemId: UUID, value: string) => void;
   onAddToCart: (item: ItemPriceRead, quantity: string) => void;
-  t: any;
 };
 
 const ProductCard = memo(
@@ -62,9 +68,12 @@ const ProductCard = memo(
     item,
     quantity,
     itemName,
+    priceText,
+    quantityLabel,
+    quantityPlaceholder,
+    buttonLabel,
     onChangeQuantity,
     onAddToCart,
-    t,
   }: ProductCardProps) => {
     const itemImageUri = item.image_path
       ? resolveApiUrl(item.image_path)
@@ -93,10 +102,7 @@ const ProductCard = memo(
                   </Text>
 
                   <Text className="mt-1 text-sm text-[#6B7280]">
-                    {item.current_price
-                      ? formatCurrency(item.current_price)
-                      : t("common.pricePending")}{" "}
-                    / {formatUnit(item.base_unit)}
+                    {priceText}
                   </Text>
                 </View>
               </View>
@@ -104,17 +110,9 @@ const ProductCard = memo(
 
             <View className="mt-4 gap-3">
               <TextField
-                label={
-                  item.base_unit === "kg"
-                    ? t("common.quantityKg")
-                    : t("common.quantityUnits")
-                }
+                label={quantityLabel}
                 keyboardType="decimal-pad"
-                placeholder={
-                  item.base_unit === "kg"
-                    ? t("common.exampleKg")
-                    : t("common.exampleUnits")
-                }
+                placeholder={quantityPlaceholder}
                 value={quantity}
                 onChangeText={(value) =>
                   onChangeQuantity(item.item_id, value)
@@ -122,11 +120,7 @@ const ProductCard = memo(
               />
 
               <Button
-                label={
-                  item.current_price
-                    ? t("action.addToCart")
-                    : t("action.awaitingPrice")
-                }
+                label={buttonLabel}
                 onPress={() => onAddToCart(item, quantity)}
                 disabled={!item.current_price}
                 className="h-11 rounded-xl bg-[#163020]"
@@ -137,6 +131,18 @@ const ProductCard = memo(
       </Card>
     );
   },
+  (prev, next) =>
+    prev.item.item_id === next.item.item_id &&
+    prev.item.current_price === next.item.current_price &&
+    prev.item.image_path === next.item.image_path &&
+    prev.quantity === next.quantity &&
+    prev.itemName === next.itemName &&
+    prev.priceText === next.priceText &&
+    prev.quantityLabel === next.quantityLabel &&
+    prev.quantityPlaceholder === next.quantityPlaceholder &&
+    prev.buttonLabel === next.buttonLabel &&
+    prev.onChangeQuantity === next.onChangeQuantity &&
+    prev.onAddToCart === next.onAddToCart,
 );
 
 ProductCard.displayName = "ProductCard";
@@ -144,12 +150,23 @@ ProductCard.displayName = "ProductCard";
 type CartLineProps = {
   item: CartItem;
   itemName: string;
+  quantitySummary: string;
+  totalText: string;
+  removeHelpText: string;
+  removeButtonLabel: string;
   onRemove: (itemId: UUID) => void;
-  t: any;
 };
 
 const CartLine = memo(
-  ({ item, itemName, onRemove, t }: CartLineProps) => (
+  ({
+    item,
+    itemName,
+    quantitySummary,
+    totalText,
+    removeHelpText,
+    removeButtonLabel,
+    onRemove,
+  }: CartLineProps) => (
     <Card className="mb-4 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-black/5">
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1">
@@ -157,19 +174,19 @@ const CartLine = memo(
             {itemName}
           </Text>
           <Text className="mt-1 text-sm text-[#6B7280]">
-            {item.quantity} {formatUnit(item.base_unit)} x {formatCurrency(item.price_per_unit)}
+            {quantitySummary}
           </Text>
           <Text className="mt-3 text-xs text-[#6B7280]">
-            {t("billing.removeLine")}
+            {removeHelpText}
           </Text>
         </View>
 
         <View className="items-end gap-3">
           <Text className="text-base font-bold text-[#111827]">
-            {formatCurrency(money(item.quantity).mul(money(item.price_per_unit)).toFixed(2))}
+            {totalText}
           </Text>
           <Button
-            label={t("action.remove")}
+            label={removeButtonLabel}
             onPress={() => onRemove(item.item_id)}
             variant="secondary"
             size="sm"
@@ -178,6 +195,16 @@ const CartLine = memo(
       </View>
     </Card>
   ),
+  (prev, next) =>
+    prev.item.item_id === next.item.item_id &&
+    prev.item.quantity === next.item.quantity &&
+    prev.item.price_per_unit === next.item.price_per_unit &&
+    prev.itemName === next.itemName &&
+    prev.quantitySummary === next.quantitySummary &&
+    prev.totalText === next.totalText &&
+    prev.removeHelpText === next.removeHelpText &&
+    prev.removeButtonLabel === next.removeButtonLabel &&
+    prev.onRemove === next.onRemove,
 );
 
 CartLine.displayName = "CartLine";
@@ -188,7 +215,7 @@ export function BillingScreen({
   const { bootstrap, loading, error, refresh } =
     useShopBootstrap();
 
-  const { t, translateItemName } = useShopTranslation();
+  const { language, t } = useShopTranslation();
 
   const cartItems = useCartStore((state) => state.items);
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
@@ -200,6 +227,9 @@ export function BillingScreen({
   const [quantities, setQuantities] = useState<
     Record<UUID, string>
   >({});
+  const isBillingLocked = Boolean(
+    bootstrap && !bootstrap.prices_set,
+  );
 
   const orderedItems = useMemo(() => {
     if (!bootstrap) return [];
@@ -217,12 +247,29 @@ export function BillingScreen({
     });
   }, [bootstrap]);
 
+  const translatedItemNames = useMemo(() => {
+    const entries = orderedItems.map(
+      (item): [UUID, string] => [
+        item.item_id,
+        translateShopItemName(language, item.item_name),
+      ],
+    );
+
+    return new Map<UUID, string>(entries);
+  }, [language, orderedItems]);
+
   const handleQuantityChange = useCallback(
     (itemId: UUID, value: string) => {
-      setQuantities((prev) => ({
-        ...prev,
-        [itemId]: value,
-      }));
+      setQuantities((prev) => {
+        if (prev[itemId] === value) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [itemId]: value,
+        };
+      });
     },
     [],
   );
@@ -230,7 +277,9 @@ export function BillingScreen({
   const handleAddToCart = useCallback(
     (item: ItemPriceRead, quantity: string) => {
       const rawQuantity = quantity.trim();
-      const itemName = translateItemName(item.item_name);
+      const itemName =
+        translatedItemNames.get(item.item_id) ??
+        item.item_name;
 
       if (!item.current_price) {
         Alert.alert(
@@ -276,7 +325,7 @@ export function BillingScreen({
         [item.item_id]: "",
       }));
     },
-    [addItem, t, translateItemName],
+    [addItem, t, translatedItemNames],
   );
 
   const cartTotal = formatCurrency(
@@ -292,19 +341,44 @@ export function BillingScreen({
 
   const renderProduct: ListRenderItem<ItemPriceRead> =
     useCallback(
-      ({ item }) => (
-        <ProductCard
-          item={item}
-          quantity={quantities[item.item_id] ?? ""}
-          itemName={translateItemName(item.item_name)}
-          onChangeQuantity={handleQuantityChange}
-          onAddToCart={handleAddToCart}
-          t={t}
-        />
-      ),
+      ({ item }) => {
+        const quantityLabel =
+          item.base_unit === "kg"
+            ? t("common.quantityKg")
+            : t("common.quantityUnits");
+        const quantityPlaceholder =
+          item.base_unit === "kg"
+            ? t("common.exampleKg")
+            : t("common.exampleUnits");
+
+        return (
+          <ProductCard
+            item={item}
+            quantity={quantities[item.item_id] ?? ""}
+            itemName={
+              translatedItemNames.get(item.item_id) ??
+              item.item_name
+            }
+            priceText={`${
+              item.current_price
+                ? formatCurrency(item.current_price)
+                : t("common.pricePending")
+            } / ${formatUnit(item.base_unit)}`}
+            quantityLabel={quantityLabel}
+            quantityPlaceholder={quantityPlaceholder}
+            buttonLabel={
+              item.current_price
+                ? t("action.addToCart")
+                : t("action.awaitingPrice")
+            }
+            onChangeQuantity={handleQuantityChange}
+            onAddToCart={handleAddToCart}
+          />
+        );
+      },
       [
         quantities,
-        translateItemName,
+        translatedItemNames,
         handleQuantityChange,
         handleAddToCart,
         t,
@@ -330,9 +404,19 @@ export function BillingScreen({
             <CartLine
               key={item.item_id}
               item={item}
-              itemName={translateItemName(item.item_name)}
+              itemName={
+                translatedItemNames.get(item.item_id) ??
+                item.item_name
+              }
+              quantitySummary={`${item.quantity} ${formatUnit(item.base_unit)} x ${formatCurrency(item.price_per_unit)}`}
+              totalText={formatCurrency(
+                money(item.quantity)
+                  .mul(money(item.price_per_unit))
+                  .toFixed(2),
+              )}
+              removeHelpText={t("billing.removeLine")}
+              removeButtonLabel={t("action.remove")}
               onRemove={handleRemoveItem}
-              t={t}
             />
           ))
         )}
@@ -355,7 +439,7 @@ export function BillingScreen({
         </Card>
       </View>
     ),
-    [cartItems, handleRemoveItem, navigation, preferredPrinter, t, translateItemName],
+    [cartItems, handleRemoveItem, navigation, preferredPrinter, t, translatedItemNames],
   );
 
   if (loading && !bootstrap) {
@@ -379,6 +463,24 @@ export function BillingScreen({
           label={t("action.tryAgain")}
           onPress={() => void refresh()}
           className="mt-4"
+        />
+      </Screen>
+    );
+  }
+
+  if (bootstrap && isBillingLocked) {
+    return (
+      <Screen>
+        <EmptyState
+          title={t("billing.waitingAdminPriceSetup")}
+          description={`${t(
+            "billing.waitingAdminPriceSetupDescription",
+            {
+              shopName: bootstrap.shop_name,
+            },
+          )}\n\n${t("billing.lockedDescription")}`}
+          actionLabel={t("action.tryAgain")}
+          onAction={() => void refresh()}
         />
       </Screen>
     );

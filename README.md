@@ -101,6 +101,34 @@ npx expo run:android
 npm run start:dev
 ```
 
+From the repository root, pass the app directory explicitly:
+
+```bash
+npm --prefix frontend run android
+```
+
+For a physical Android phone over USB, connect the device with USB debugging enabled and use:
+
+```bash
+cd frontend
+adb devices
+npm run android:usb
+npm run start:dev -- --clear
+```
+
+From the repository root, the equivalent device command is:
+
+```bash
+adb devices
+npm --prefix frontend run android -- --device RZCT4186DGA
+```
+
+If the backend is running on the same computer instead of a public URL, forward it to the phone:
+
+```bash
+adb reverse tcp:8000 tcp:8000
+```
+
 If you need a custom backend host, set `EXPO_PUBLIC_API_BASE_URL` before starting Expo:
 
 ```bash
@@ -203,3 +231,4 @@ Notes:
 
 - Backend setup and API notes: [backend/README.md](backend/README.md)
 - Frontend setup and operator flow: [frontend/README.md](frontend/README.md)
+                        

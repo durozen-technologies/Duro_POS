@@ -125,6 +125,36 @@ npm run start:android
 
 Use this path when you need Bluetooth or USB printer discovery and direct receipt printing.
 
+### Physical Android Device Over USB
+
+Enable Developer options and USB debugging on the phone, then accept the RSA prompt after connecting the cable.
+
+Check that ADB can see the phone:
+
+```bash
+adb devices
+```
+
+Install the native development build on the connected phone:
+
+```bash
+npm run android:usb
+```
+
+Start Metro for the dev client in a second terminal:
+
+```bash
+npm run start:dev -- --clear
+```
+
+If your backend is running on this computer and not on a public URL, forward it over USB before opening the app:
+
+```bash
+adb reverse tcp:8000 tcp:8000
+```
+
+Use this path when you want real-device Android testing without relying on the emulator or Wi-Fi discovery.
+
 ### iOS Simulator
 
 ```bash
@@ -208,6 +238,7 @@ npm run start:go
 npm run start:dev
 npm run start:android
 npm run android
+npm run android:usb
 npm run android:dev
 npm run ios
 npm run web

@@ -1,0 +1,53 @@
+{
+	https_port {$CADDY_HTTPS_PORT:443}
+
+	servers {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+	}
+}
+
+{$CADDY_SITE_ADDRESSES} {
+	request_body {
+		max_size 10MB
+	}
+
+	route {
+		handle /health {
+			uri replace /health /api/v1/health
+			reverse_proxy {$CADDY_UPSTREAM} {
+				transport http {
+					dial_timeout 30s
+					response_header_timeout 60s
+					read_timeout 60s
+					write_timeout 60s
+				}
+			}
+		}
+
+		rate_limit {
+			zone per_client {
+				match {
+					not path /health
+				}
+				key {remote_host}
+				events {$CADDY_RATE_LIMIT_EVENTS}
+				window {$CADDY_RATE_LIMIT_WINDOW}
+			}
+			log_key
+		}
+
+		handle {
+			reverse_proxy {$CADDY_UPSTREAM} {
+				transport http {
+					dial_timeout 30s
+					response_header_timeout 60s
+					read_timeout 60s
+					write_timeout 60s
+				}
+			}
+		}
+	}
+}

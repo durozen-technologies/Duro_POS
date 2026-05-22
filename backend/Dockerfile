@@ -30,11 +30,13 @@ WORKDIR /app
 
 RUN addgroup --system --gid "${APP_GID}" app \
     && adduser --system --uid "${APP_UID}" --ingroup app --home "${HOME}" app \
-    && mkdir -p "${HOME}" \
+    && mkdir -p "${HOME}" /app/assets \
     && chown app:app "${HOME}"
 
 COPY --from=builder /app/.venv/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder --chown=app:app /app /app
+COPY --from=builder --chown=app:app /app/main.py /app/main.py
+COPY --from=builder --chown=app:app /app/app /app/app
+COPY --from=builder --chown=app:app /app/assets /app/assets
 
 USER app:app
 

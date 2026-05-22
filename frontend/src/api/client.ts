@@ -140,7 +140,20 @@ function probeBaseUrl(baseUrl: string) {
       timeout: PROBE_REQUEST_TIMEOUT_MS,
       validateStatus: () => true,
     })
-    .then(() => baseUrl);
+    .then((response) => {
+      // Accept healthy hosts and the backend's temporary startup/degraded state,
+      // but reject unauthorized/error pages so failover does not lock onto them.
+      if (
+        (response.status >= 200 && response.status < 300) ||
+        response.status === 503
+      ) {
+        return baseUrl;
+      }
+
+      throw new Error(
+        `Health probe failed for ${baseUrl} with status ${response.status}`,
+      );
+    });
 }
 
 function raceForFirstReachableBaseUrl(candidates: string[]) {

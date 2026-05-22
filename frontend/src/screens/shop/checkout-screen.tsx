@@ -10,12 +10,12 @@ import { Screen } from "@/components/ui/screen";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { StatusPill } from "@/components/ui/status-pill";
 import { TextField } from "@/components/ui/text-field";
+import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import { useShopTranslation } from "@/hooks/use-shop-translation";
 import { CheckoutScreenProps } from "@/navigation/types";
 import {
   getPrinterDeviceDetail,
   getSavedPrinterLabel,
-  printBillWithPrinter,
 } from "@/services/printer-service";
 import { getCartTotal, useCartStore } from "@/store/cart-store";
 import { usePrinterStore } from "@/store/printer-store";
@@ -180,6 +180,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
   const totalAmount = useMemo(() => getCartTotal(cartItems), [cartItems]);
   const printerLabel = preferredPrinter ? getSavedPrinterLabel(preferredPrinter) : null;
   const printerDetail = preferredPrinter ? getPrinterDeviceDetail(preferredPrinter) : null;
+  const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
   async function handleCheckout(values: CheckoutFormValues) {
     const total = money(totalAmount);
@@ -224,7 +225,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
       checkoutCompletedRef.current = true;
 
       try {
-        await printBillWithPrinter(bill, preferredPrinter);
+        await startReceiptImagePrintJob([bill], preferredPrinter);
       } catch (error) {
         Alert.alert(
           t("printer.connectionFailedTitle"),
@@ -296,6 +297,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
           onSubmit={form.handleSubmit(handleCheckout)}
         />
       </Card>
+      {receiptImagePrintBridge}
     </Screen>
   );
 }

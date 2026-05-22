@@ -2,6 +2,7 @@ import { NativeModules, PermissionsAndroid, Platform } from "react-native";
 import {
   type IBLEPrinter,
   type IUSBPrinter,
+  type PrinterImageOptions as NativePrinterImageOptions,
   type PrinterOptions as NativePrinterOptions,
 } from "@haroldtran/react-native-thermal-printer";
 
@@ -44,7 +45,10 @@ type PrinterRuntime = {
   connect: (device: PrinterDevice) => Promise<void>;
   closeConn: () => Promise<void>;
   printBill: (text: string, options?: PrinterOptions) => Promise<void>;
+  printImageBase64: (base64: string, options?: NativePrinterImageOptions) => Promise<void>;
 };
+
+const RECEIPT_IMAGE_WIDTH = 380;
 
 const RECEIPT_COPY = {
   en: {
@@ -344,6 +348,33 @@ function getPrintOptions(onError?: (error: Error) => void): NativePrinterOptions
   };
 }
 
+function getPrintImageOptions(onError?: (error: Error) => void): NativePrinterImageOptions {
+  return {
+    beep: true,
+    cut: true,
+    tailingLine: true,
+    encoding: "UTF8",
+    imageWidth: RECEIPT_IMAGE_WIDTH,
+    align: "center",
+    onError,
+  };
+}
+
+function getPrintImageSliceOptions(
+  index: number,
+  total: number,
+  onError?: (error: Error) => void,
+): NativePrinterImageOptions {
+  const isLastSlice = index === total - 1;
+
+  return {
+    ...getPrintImageOptions(onError),
+    beep: isLastSlice,
+    cut: isLastSlice,
+    tailingLine: isLastSlice,
+  };
+}
+
 function toError(error: unknown) {
   if (error instanceof Error) {
     return error;
@@ -360,6 +391,7 @@ function isNoDeviceFound(error: unknown) {
 function waitForPrintDispatch(
   dispatch: (options: NativePrinterOptions) => void,
   options: PrinterOptions = {},
+  settleDelayMs = 400,
 ) {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -383,8 +415,16 @@ function waitForPrintDispatch(
 
       settled = true;
       resolve();
-    }, 400);
+    }, settleDelayMs);
   });
+}
+
+function waitForImagePrintDispatch(
+  dispatch: (options: NativePrinterOptions) => void,
+  options: PrinterOptions = {},
+) {
+  // Image printing takes longer than text on many thermal drivers.
+  return waitForPrintDispatch(dispatch, options, 900);
 }
 
 function normalizeBluetoothPrinter(printer: IBLEPrinter): PrinterDevice {
@@ -466,6 +506,15 @@ function createBluetoothRuntime(): PrinterRuntime {
         (nativeOptions) => BLEPrinter.printBill(text, nativeOptions),
         options,
       ),
+    printImageBase64: (base64, options = {}) =>
+      waitForImagePrintDispatch(
+        (nativeOptions) =>
+          BLEPrinter.printImageBase64(base64, {
+            ...getPrintImageOptions(nativeOptions.onError),
+            ...options,
+          }),
+        options,
+      ),
   };
 }
 
@@ -505,6 +554,15 @@ function createUsbRuntime(): PrinterRuntime {
     printBill: (text, options = {}) =>
       waitForPrintDispatch(
         (nativeOptions) => USBPrinter.printBill(text, nativeOptions),
+        options,
+      ),
+    printImageBase64: (base64, options = {}) =>
+      waitForImagePrintDispatch(
+        (nativeOptions) =>
+          USBPrinter.printImageBase64(base64, {
+            ...getPrintImageOptions(nativeOptions.onError),
+            ...options,
+          }),
         options,
       ),
   };
@@ -660,6 +718,25 @@ export async function printBillWithPrinter(
 ) {
   await withPrinterConnection(device, async (printer) => {
     await printer.printBill(buildPrintableReceipt(bill));
+  });
+}
+
+export async function printReceiptImageBase64WithPrinter(
+  base64Chunks: string[],
+  device: PrinterDevice,
+) {
+  if (base64Chunks.length === 0) {
+    return;
+  }
+
+  await withPrinterConnection(device, async (printer) => {
+    for (let index = 0; index < base64Chunks.length; index += 1) {
+      const base64Chunk = base64Chunks[index];
+      await printer.printImageBase64(
+        base64Chunk,
+        getPrintImageSliceOptions(index, base64Chunks.length),
+      );
+    }
   });
 }
 

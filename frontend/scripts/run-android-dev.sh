@@ -7,4 +7,5 @@ AVD_NAME="${1:-MeatBillingPOS}"
 cd "$ROOT_DIR"
 
 bash ./scripts/start-android-emulator.sh "$AVD_NAME"
+node ./scripts/cleanup-bundled-native-deps.js
 npx expo run:android
