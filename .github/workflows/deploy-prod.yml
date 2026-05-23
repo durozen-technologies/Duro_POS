@@ -196,7 +196,6 @@ jobs:
           RUSTFS_SECRET_KEY: ${{ secrets.RUSTFS_SECRET_KEY }}
           RUSTFS_SERVER_DOMAINS: ${{ secrets.RUSTFS_SERVER_DOMAINS }}
           BACKEND_SECRET_KEY: ${{ secrets.BACKEND_SECRET_KEY }}
-          BACKEND_ALLOWED_HOSTS_SECRET: ${{ secrets.BACKEND_ALLOWED_HOSTS }}
           CADDY_ACME_EMAIL: ${{ secrets.CADDY_ACME_EMAIL }}
           DUCKDNS_API_TOKEN: ${{ secrets.DUCKDNS_API_TOKEN }}
           BACKEND_RUSTFS_BUCKET_NAME: ${{ secrets.BACKEND_RUSTFS_BUCKET_NAME }}
@@ -206,12 +205,9 @@ jobs:
             exit 1
           fi
 
-          if [ -n "${BACKEND_ALLOWED_HOSTS_SECRET}" ]; then
-            BACKEND_ALLOWED_HOSTS="${BACKEND_ALLOWED_HOSTS_SECRET}"
-          elif [ -n "${CADDY_DUCKDNS_HOST}" ]; then
+          BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","127.0.0.1","localhost","backend"]'
+          if [ -n "${CADDY_DUCKDNS_HOST}" ]; then
             BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","'"${CADDY_DUCKDNS_HOST}"'","127.0.0.1","localhost","backend"]'
-          else
-            BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","127.0.0.1","localhost","backend"]'
           fi
 
           cat > .env.deploy <<EOF

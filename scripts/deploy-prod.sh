@@ -193,6 +193,28 @@ wait_caddy_health() {
   return 1
 }
 
+backend_allowed_hosts_mismatch() {
+  local cid current
+  cid="$(service_container_id backend)"
+  [[ -z "${cid}" ]] && return 1
+  current="$(compose exec -T backend printenv ALLOWED_HOSTS 2>/dev/null || true)"
+  [[ "${current}" != "${BACKEND_ALLOWED_HOSTS:-}" ]]
+}
+
+refresh_backend_env_if_needed() {
+  if ! backend_allowed_hosts_mismatch; then
+    return 0
+  fi
+
+  log "Backend ALLOWED_HOSTS out of sync with .env — recreating backend"
+  compose up -d --no-deps backend
+
+  if ! wait_backend_health; then
+    log "Backend failed after env sync"
+    return 1
+  fi
+}
+
 rollback() {
   local backend_tag="${1:-}"
   local caddy_tag="${2:-}"
@@ -234,11 +256,17 @@ deploy_app() {
 
   if [[ "${sync_compose}" == "true" && "${deploy_backend}" != "true" && "${deploy_caddy}" != "true" ]]; then
     sync_compose_project
+    if ! refresh_backend_env_if_needed; then
+      exit 1
+    fi
     log "Compose sync complete (no image updates)"
     return 0
   fi
 
   if [[ "${deploy_backend}" != "true" && "${deploy_caddy}" != "true" ]]; then
+    if ! refresh_backend_env_if_needed; then
+      exit 1
+    fi
     log "Nothing to deploy (DEPLOY_BACKEND=false, DEPLOY_CADDY=false)"
     return 0
   fi
@@ -283,6 +311,11 @@ deploy_app() {
     final_caddy_tag="${new_caddy_tag}"
   else
     log "Skipping caddy deploy"
+  fi
+
+  if ! refresh_backend_env_if_needed; then
+    rollback "${BACKEND_TAG_PREVIOUS}" "${CADDY_TAG_PREVIOUS}" true false
+    exit 1
   fi
 
   write_state \

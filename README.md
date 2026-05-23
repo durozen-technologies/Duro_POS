@@ -210,7 +210,6 @@ COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env
 | `BACKEND_SECRET_KEY` | 32+ char JWT secret (`PRODUCTION=True`) |
 | `CADDY_PUBLIC_HOST` | Primary API hostname (e.g. EC2 public DNS) — Caddy TLS + backend allowed host |
 | `CADDY_DUCKDNS_HOST` | Optional second hostname (DuckDNS) |
-| `BACKEND_ALLOWED_HOSTS` | Optional JSON override; CI auto-builds from `CADDY_PUBLIC_HOST` (+ DuckDNS if set) |
 | `CADDY_ACME_EMAIL` | Let's Encrypt contact email |
 | `DUCKDNS_API_TOKEN` | Required only when `CADDY_DUCKDNS_HOST` is set |
 | `BACKEND_RUSTFS_BUCKET_NAME` | Optional |
