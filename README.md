@@ -133,65 +133,171 @@ The Makefile also supports selecting a different compose file:
 make docker-up COMPOSE_FILE=docker-compose.prod.yml
 ```
 
-## Production deployment (VM + Docker Hub + GitHub Actions)
+## Production deployment guide
 
-Production uses [`docker-compose.prod.yml`](docker-compose.prod.yml) with **pre-built images** from Docker Hub (no source build on the VM).
+Production runs on an **Ubuntu EC2 VM** using [`docker-compose.prod.yml`](docker-compose.prod.yml). Images are **built in GitHub Actions**, pushed to **Docker Hub**, and the VM **pulls pre-built images** (no app source code on the server).
 
-| Service | Image | Restarts on routine deploy |
-|---------|-------|----------------------------|
-| `postgres` | `postgres:17-alpine` | No |
-| `rustfs` | `rustfs/rustfs:latest` | No |
-| `backend` | `DOCKERHUB_USERNAME/mahalakshmi-pos-backend:IMAGE_TAG` | Yes |
-| `caddy` | `DOCKERHUB_USERNAME/mahalakshmi-pos-caddy:IMAGE_TAG` | Yes |
+### Architecture
 
-Data bind mounts (preserve existing VM data):
+```mermaid
+flowchart TB
+  subgraph internet [Internet]
+    Mobile[Expo mobile app]
+    Admin[Browser / API clients]
+    DBA[DB client e.g. pgAdmin]
+  end
 
-- Postgres: `/home/ubuntu/pos-postgress/data`
-- RustFS: `/home/ubuntu/rustfs/data`
+  subgraph ec2 [EC2 VM — ubuntu]
+    subgraph network [Docker network: mahalakshmi-pos-network]
+      Caddy[Caddy :443 / :80\nTLS + rate limit]
+      Backend[Backend :8000\nFastAPI + migrate.py]
+      Postgres[(Postgres :5432)]
+      RustFS[RustFS :9000 / :9001]
+    end
+
+    subgraph host_mounts [Bind mounts — persistent]
+      PGData["/home/ubuntu/pos-postgress/data"]
+      RFData["/home/ubuntu/rustfs/data"]
+    end
+
+    EnvFile[".env\n(written by CI from GitHub Secrets)"]
+    DeployScript["scripts/deploy-prod.sh"]
+  end
+
+  subgraph cicd [GitHub Actions]
+    BuildBE[Build backend image]
+    BuildCaddy[Build caddy image]
+    Push[Push to Docker Hub :latest]
+    SSHDeploy[SSH + SCP to VM]
+  end
+
+  Mobile -->|HTTPS API| Caddy
+  Admin -->|HTTPS API| Caddy
+  Caddy -->|reverse proxy| Backend
+  Backend -->|DATABASE_URL postgres:5432| Postgres
+  Backend -.->|RustFS disabled in prod override| RustFS
+  DBA -->|TCP 5432 public| Postgres
+
+  Postgres --- PGData
+  RustFS --- RFData
+
+  BuildBE --> Push
+  BuildCaddy --> Push
+  Push --> SSHDeploy
+  SSHDeploy --> EnvFile
+  SSHDeploy --> DeployScript
+  DeployScript --> Caddy
+  DeployScript --> Backend
+```
+
+**Traffic flow**
+
+1. Clients hit `https://<CADDY_PUBLIC_HOST>/api/v1/...`
+2. **Caddy** terminates TLS and proxies to `backend:8000` on the internal network
+3. **Backend** connects to **Postgres** at `postgres:5432` (Docker DNS name, not `localhost`)
+4. **RustFS** runs for object storage; backend RustFS is currently disabled via [`docker-compose.prod.override.yml`](docker-compose.prod.override.yml) (images stored in Postgres until S3 API is fixed)
+
+**What lives where**
+
+| Location | Contents |
+|----------|----------|
+| GitHub Secrets | Passwords, API keys, hostnames, SSH key |
+| VM `/home/ubuntu/mahalakshmi-pos/.env` | Generated each deploy from secrets (never commit) |
+| VM `/home/ubuntu/pos-postgress/data` | Postgres data (survives container restarts) |
+| VM `/home/ubuntu/rustfs/data` | RustFS data |
+| VM `/home/ubuntu/mahalakshmi-pos/.deploy/state` | Last deployed backend/caddy image tags (rollback) |
+| Docker Hub | `durozen/mahalakshmi-pos-backend:latest`, `durozen/mahalakshmi-pos-caddy:latest` |
+
+All four services attach to **`mahalakshmi-pos-network`** (explicit bridge network in compose).
+
+---
+
+### How it is implemented
+
+#### 1. CI/CD ([`.github/workflows/deploy-prod.yml`](.github/workflows/deploy-prod.yml))
+
+| Push changes | Builds | Deploys |
+|--------------|--------|---------|
+| `backend/**` | Backend image → Docker Hub | Backend container |
+| `caddy/**` | Caddy image → Docker Hub | Caddy container |
+| `docker-compose.prod.yml`, `scripts/**`, workflow | Nothing | Sync compose + `.env` only |
+
+**Deploy job steps**
+
+1. Build `.env.deploy` from GitHub Secrets (hostname, DB password, keys, etc.)
+2. SCP to VM: compose files, `.env`, `scripts/deploy-prod.sh`, log scripts
+3. SSH: `bash scripts/deploy-prod.sh`
+
+**Important:** list env vars like `BACKEND_ALLOWED_HOSTS` are written as **single-quoted JSON** in `.env` because Docker Compose strips unquoted double quotes.
+
+#### 2. Deploy script ([`scripts/deploy-prod.sh`](scripts/deploy-prod.sh))
+
+```
+bootstrap infra (postgres + rustfs)
+  → skip if already healthy (no restart, no pull)
+sync compose project (network/volumes)
+  → if DEPLOY_BACKEND: pull :latest → migrate.py → recreate backend
+  → if DEPLOY_CADDY: pull :latest → recreate caddy
+  → if ALLOWED_HOSTS in .env ≠ running container: recreate backend
+  → health checks; rollback to previous tag on failure
+```
+
+Migrations run **before** the backend server starts:
+
+```bash
+compose run --rm --no-deps backend python migrate.py
+```
+
+#### 3. Caddy hostname config
+
+At container start, [`caddy/docker-entrypoint.sh`](caddy/docker-entrypoint.sh) renders [`caddy/Caddyfile.template`](caddy/Caddyfile.template) using `CADDY_PUBLIC_HOST` (and optional `CADDY_DUCKDNS_HOST`) from `.env`.
+
+#### 4. Backend config
+
+[`backend/app/core/config.py`](backend/app/core/config.py) reads `ALLOWED_HOSTS`, `CORS_ORIGINS`, etc. from the container environment. CI auto-builds allowed hosts from `CADDY_PUBLIC_HOST`.
+
+---
+
+### Services and ports
+
+| Service | Image | Host ports | Internal | Restarts on deploy |
+|---------|-------|------------|----------|-------------------|
+| `postgres` | `postgres:17-alpine` | `5432` (public) | `postgres:5432` | No |
+| `rustfs` | `rustfs/rustfs:latest` | `9000`, `9001` | `rustfs:9000` | No |
+| `backend` | `DOCKERHUB_USERNAME/mahalakshmi-pos-backend:latest` | — | `backend:8000` | Yes |
+| `caddy` | `DOCKERHUB_USERNAME/mahalakshmi-pos-caddy:latest` | `80`, `443` | — | Yes |
+
+Postgres is published on `0.0.0.0:5432`. You must also allow **TCP 5432** in the **EC2 security group** for external DB clients.
+
+**External Postgres connection**
+
+```text
+Host:     <CADDY_PUBLIC_HOST or EC2 public IP>
+Port:     5432
+Database: meat_billing
+User:     postgres
+Password: <POSTGRES_PASSWORD secret>
+```
+
+---
 
 ### One-time VM setup
 
-1. Stop old standalone containers: `docker stop rustfs_container postgres_pos || true`
-2. Create deploy directory (e.g. `/home/ubuntu/mahalakshmi-pos`)
-3. Copy [`.env.prod.example`](.env.prod.example) to `.env` and fill values
-4. Bootstrap infra once:
+1. Stop old standalone containers if any:
 
    ```bash
-   COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env up -d
+   docker stop rustfs_container postgres_pos 2>/dev/null || true
    ```
 
-### Routine deploy behavior
+2. Create deploy directory: `/home/ubuntu/mahalakshmi-pos`
 
-- **Postgres / RustFS**: not pulled, not restarted if already healthy
-- **Backend / Caddy**: image pulled and recreated only
-- **Migrations**: `python migrate.py` runs before the backend server starts (schema + column fixes)
+3. Configure **GitHub Secrets** (see table below) — CI writes `.env` on each deploy
 
-### CI/CD
+4. Push to `main` or run the workflow manually — first deploy bootstraps infra
 
-- [`.github/workflows/deploy-prod.yml`](.github/workflows/deploy-prod.yml)
-- **Path triggers** on `main` only when these change:
-  - `backend/**` → build + deploy **backend** only
-  - `caddy/**` → build + deploy **caddy** only
-  - `docker-compose.prod.yml`, `scripts/**`, workflow → deploy/sync only (no image rebuild)
-- **Manual run**: choose `build_backend` / `build_caddy`, or **skip_build** to pull existing tags
-- All services share Docker network **`mahalakshmi-pos-network`**
+5. Open EC2 security group: **80, 443** (API), **5432** (Postgres, optional/restrict by IP)
 
-### Postgres WAL corruption
-
-If Postgres logs show `invalid checkpoint record` / `could not locate a valid checkpoint record`, the data directory has WAL corruption (often from an unclean shutdown or copying data while Postgres was running).
-
-1. Stop postgres: `docker compose -f docker-compose.prod.yml stop postgres`
-2. On the VM, run: `bash scripts/postgres-recover.sh` (runs `pg_resetwal` after confirmation)
-3. Start postgres: `COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env up -d postgres`
-4. Check: `~/pos-logs postgres`
-
-If recovery fails or data is unimportant, move the old directory aside and init fresh:
-
-```bash
-mv /home/ubuntu/pos-postgress/data /home/ubuntu/pos-postgress/data.bak.$(date +%s)
-mkdir -p /home/ubuntu/pos-postgress/data
-COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env up -d postgres
-```
+---
 
 ### GitHub Secrets
 
@@ -203,20 +309,157 @@ COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env
 | `DEPLOY_USER` | SSH user (e.g. `ubuntu`) |
 | `DEPLOY_SSH_KEY` | SSH private key (PEM) |
 | `DEPLOY_PATH` | Deploy dir (e.g. `/home/ubuntu/mahalakshmi-pos`) |
-| `POSTGRES_PASSWORD` | Database |
-| `POSTGRES_DB`, `POSTGRES_USER` | Optional overrides |
-| `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | Object storage |
-| `RUSTFS_SERVER_DOMAINS` | RustFS console domain (e.g. `1.2.3.4:9001`) |
-| `BACKEND_SECRET_KEY` | 32+ char JWT secret (`PRODUCTION=True`) |
-| `CADDY_PUBLIC_HOST` | Primary API hostname (e.g. EC2 public DNS) — Caddy TLS + backend allowed host |
-| `CADDY_DUCKDNS_HOST` | Optional second hostname (DuckDNS) |
+| `CADDY_PUBLIC_HOST` | Primary API hostname — TLS + backend allowed hosts |
 | `CADDY_ACME_EMAIL` | Let's Encrypt contact email |
+| `POSTGRES_PASSWORD` | Database password (must match existing data dir) |
+| `POSTGRES_DB`, `POSTGRES_USER` | Optional overrides (default `meat_billing` / `postgres`) |
+| `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | Object storage |
+| `RUSTFS_SERVER_DOMAINS` | RustFS console domain (e.g. `16.112.68.20:9001`) |
+| `BACKEND_SECRET_KEY` | 32+ char JWT secret |
+| `CADDY_DUCKDNS_HOST` | Optional second hostname |
 | `DUCKDNS_API_TOKEN` | Required only when `CADDY_DUCKDNS_HOST` is set |
 | `BACKEND_RUSTFS_BUCKET_NAME` | Optional |
 
-### Logs from VM home directory
+There is **no** `BACKEND_ALLOWED_HOSTS` secret — CI generates it from `CADDY_PUBLIC_HOST`.
 
-After deploy, symlinks are created in the deploy user's home:
+Example hostname secret:
+
+```env
+CADDY_PUBLIC_HOST=ec2-16-112-68-20.ap-south-2.compute.amazonaws.com
+```
+
+---
+
+### How to update
+
+#### Update backend code
+
+1. Change files under `backend/`
+2. Commit and push to `main`
+3. GitHub Actions builds a new image, pushes `:latest`, runs migrations, recreates backend
+
+Or manually: **Actions → Deploy Production → Run workflow** with `build_backend: true`.
+
+#### Update Caddy / TLS / hostname
+
+1. Change files under `caddy/` and/or update `CADDY_PUBLIC_HOST` secret
+2. Push to `main` (or run workflow with `build_caddy: true`)
+
+#### Update compose, deploy script, or secrets only
+
+1. Change `docker-compose.prod.yml`, `scripts/**`, or GitHub Secrets
+2. Push — deploy runs **without** rebuilding images (sync + env refresh)
+
+#### Update secrets (password, hostname, etc.)
+
+1. Change the secret in **GitHub → Settings → Secrets**
+2. Re-run **Deploy Production** workflow (or push any deploy-path change)
+
+The deploy script recreates the backend if `ALLOWED_HOSTS` in `.env` differs from the running container.
+
+#### Update on the VM directly (emergency)
+
+```bash
+cd /home/ubuntu/mahalakshmi-pos
+# edit .env if needed (use single-quoted JSON for list vars)
+COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml \
+  -f docker-compose.prod.override.yml --env-file .env up -d --no-deps backend
+```
+
+Prefer GitHub Secrets + CI so changes are reproducible.
+
+#### Update mobile app API URL
+
+In `frontend/.env` (local, not deployed by CI):
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://<CADDY_PUBLIC_HOST>
+```
+
+---
+
+### Database migrations
+
+#### Automatic (every backend deploy)
+
+[`backend/migrate.py`](backend/migrate.py) runs via `deploy-prod.sh` before the backend container starts. It calls `initialize_database()` which:
+
+- creates missing tables (`create_all`)
+- applies incremental column / schema fixes in code
+
+No separate Alembic step — schema changes are implemented in [`backend/app/db/database.py`](backend/app/db/database.py).
+
+#### Manual migration on the VM
+
+```bash
+cd /home/ubuntu/mahalakshmi-pos
+COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml \
+  -f docker-compose.prod.override.yml --env-file .env \
+  run --rm --no-deps backend python migrate.py
+```
+
+#### Verify DB connection
+
+```bash
+curl -sS https://<CADDY_PUBLIC_HOST>/api/v1/health
+# expect: {"status":"ok","database":"connected","error":null}
+```
+
+---
+
+### Migrating to a new VM
+
+#### A. Move the whole stack (keep data)
+
+1. **On old VM** — stop app containers (leave data dirs):
+
+   ```bash
+   cd /home/ubuntu/mahalakshmi-pos
+   COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env stop backend caddy
+   ```
+
+2. **Copy data** to new VM:
+
+   ```bash
+   rsync -avz /home/ubuntu/pos-postgress/data/  NEW_VM:/home/ubuntu/pos-postgress/data/
+   rsync -avz /home/ubuntu/rustfs/data/          NEW_VM:/home/ubuntu/rustfs/data/
+   ```
+
+3. **On new VM** — install Docker, create `/home/ubuntu/mahalakshmi-pos`, update GitHub Secrets:
+   - `DEPLOY_HOST` → new VM IP/hostname
+   - `CADDY_PUBLIC_HOST` → new public DNS name
+   - `POSTGRES_PASSWORD` → **same password** as old DB (data dir expects it)
+   - `RUSTFS_SERVER_DOMAINS` → new IP:9001
+
+4. Run **Deploy Production** workflow — infra starts, backend migrates, caddy gets TLS for new hostname
+
+5. Update EC2 security group on new instance (80, 443, 5432 if needed)
+
+#### B. Fresh database on same VM
+
+```bash
+cd /home/ubuntu/mahalakshmi-pos
+COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env stop postgres backend
+mv /home/ubuntu/pos-postgress/data /home/ubuntu/pos-postgress/data.bak.$(date +%s)
+mkdir -p /home/ubuntu/pos-postgress/data
+COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env up -d postgres
+bash scripts/deploy-prod.sh   # runs migrate.py + starts backend
+```
+
+#### C. Postgres WAL corruption
+
+If Postgres logs show `invalid checkpoint record`:
+
+1. `docker compose ... stop postgres`
+2. `bash scripts/postgres-recover.sh` (runs `pg_resetwal` after confirmation)
+3. `COMPOSE_PROFILES=infra docker compose ... up -d postgres`
+4. `~/pos-logs postgres`
+
+---
+
+### Logs and operations
+
+After deploy, symlinks exist in the ubuntu home directory:
 
 | Command | Action |
 |---------|--------|
@@ -224,35 +467,76 @@ After deploy, symlinks are created in the deploy user's home:
 | `~/pos-logs backend` | Follow one service |
 | `~/pos-logs export` | Write logs to `~/mahalakshmi-pos/logs/*.log` |
 | `~/pos-logs tail backend` | `tail -f` exported log file |
-| `~/pos-logs deploy` | Tail `logs/deploy.log` (deploy history) |
+| `~/pos-logs deploy` | Tail `logs/deploy.log` |
+
+On the VM:
 
 ```bash
-make docker-prod-deploy   # run deploy script locally on VM
+cd /home/ubuntu/mahalakshmi-pos
+make docker-prod-deploy    # or: bash scripts/deploy-prod.sh
 make docker-prod-logs
+make docker-prod-ps
 ```
 
-## HTTPS
+Check all containers share the network:
 
-Caddy config is generated at container start from [`caddy/Caddyfile.template`](caddy/Caddyfile.template) using `CADDY_PUBLIC_HOST` and optional `CADDY_DUCKDNS_HOST` (from GitHub Secrets → VM `.env`).
+```bash
+docker network inspect mahalakshmi-pos-network --format '{{range .Containers}}{{.Name}} {{end}}'
+```
 
-- Primary host: HTTP-01 / automatic TLS via Let's Encrypt
-- Optional DuckDNS host: DNS-01 challenge when `CADDY_DUCKDNS_HOST` + `DUCKDNS_API_TOKEN` are set
+---
 
-Required GitHub Secrets:
+### HTTPS
+
+Caddy config is generated at container start from [`caddy/Caddyfile.template`](caddy/Caddyfile.template) using `CADDY_PUBLIC_HOST` and optional `CADDY_DUCKDNS_HOST`.
+
+- Primary host: automatic TLS via Let's Encrypt (HTTP-01)
+- Optional DuckDNS host: DNS-01 when `CADDY_DUCKDNS_HOST` + `DUCKDNS_API_TOKEN` are set
+
+Required secrets:
 
 ```env
 CADDY_PUBLIC_HOST=ec2-xx-xx-xx-xx.region.compute.amazonaws.com
 CADDY_ACME_EMAIL=your-email@example.com
-# Optional:
-CADDY_DUCKDNS_HOST=pos-mlb.duckdns.org
-DUCKDNS_API_TOKEN=your-duckdns-token
 ```
 
-Bring Caddy up or rebuild it after config changes:
+---
 
-```bash
-docker compose -f compose.yaml up -d --build caddy
-```
+### API URLs
+
+Production (through Caddy):
+
+- `https://<CADDY_PUBLIC_HOST>/api/v1/health`
+- `https://<CADDY_PUBLIC_HOST>/docs`
+
+Example:
+
+- `https://ec2-16-112-68-20.ap-south-2.compute.amazonaws.com/api/v1/health`
+
+Internal (on VM / within Docker network):
+
+- `http://backend:8000/api/v1/health`
+- `postgres:5432` (database)
+
+Local dev:
+
+- `http://127.0.0.1:8000/api/v1/health`
+
+---
+
+### Production troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `Invalid host header` | EC2 hostname not in `ALLOWED_HOSTS` | Set `CADDY_PUBLIC_HOST` secret; redeploy |
+| `error parsing ... allowed_hosts / cors_origins` | Docker Compose stripped JSON quotes in `.env` | Use single-quoted JSON: `'["host"]'` — CI does this automatically after latest workflow |
+| Backend crash loop after deploy | Old Docker Hub image + bad env format | Fix `.env` quoting; run workflow with `build_backend: true` |
+| `database: disconnected` in health | Postgres down or wrong password | Check `~/pos-logs postgres`; verify `POSTGRES_PASSWORD` matches data dir |
+| Cannot connect to Postgres from PC | Security group blocks 5432 | Add inbound rule for your IP on port 5432 |
+| Caddy unhealthy / TLS error | Bad Caddyfile or missing `CADDY_PUBLIC_HOST` | Check `~/pos-logs caddy`; verify secrets |
+
+Reference env template: [`.env.prod.example`](.env.prod.example)
+
 
 ## DuckDNS
 
@@ -300,19 +584,19 @@ echo '127.0.0.1 pos-mlb.duckdns.org' | sudo tee -a /etc/hosts
 sudo resolvectl flush-caches
 ```
 
-## API URLs
+## API URLs (local / DuckDNS)
 
-Direct backend:
+Direct backend (local dev):
 
 - `http://127.0.0.1:8000`
 - `http://127.0.0.1:8000/api/v1/health`
 - `http://127.0.0.1:8000/docs`
 
-Through Caddy:
+Optional DuckDNS (if configured):
 
-- `https://pos-mlb.duckdns.org`
-- `https://pos-mlb.duckdns.org/docs`
 - `https://pos-mlb.duckdns.org/api/v1/health`
+
+See **Production deployment guide → API URLs** for the primary EC2 hostname.
 
 Internal Docker upstream:
 
