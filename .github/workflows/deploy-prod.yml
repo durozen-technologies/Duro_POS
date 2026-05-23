@@ -146,21 +146,22 @@ jobs:
         run: |
           DEPLOY_BACKEND=false
           DEPLOY_CADDY=false
-          BACKEND_TAG="${{ github.sha }}"
-          CADDY_TAG="${{ github.sha }}"
+          BACKEND_TAG="latest"
+          CADDY_TAG="latest"
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$SKIP_BUILD" = "true" ]; then
-            TAG="${INPUT_TAG:-latest}"
-            BACKEND_TAG="$TAG"
-            CADDY_TAG="$TAG"
             if [ "$MANUAL_BACKEND" = "true" ]; then DEPLOY_BACKEND=true; fi
             if [ "$MANUAL_CADDY" = "true" ]; then DEPLOY_CADDY=true; fi
           else
-            if [ "$CHANGED_BACKEND" = "true" ] || [ "$BUILT_BACKEND" = "success" ]; then DEPLOY_BACKEND=true; fi
-            if [ "$CHANGED_CADDY" = "true" ] || [ "$BUILT_CADDY" = "success" ]; then DEPLOY_CADDY=true; fi
+            if [ "$CHANGED_BACKEND" = "true" ] || [ "$BUILT_BACKEND" = "success" ]; then
+              DEPLOY_BACKEND=true
+            fi
+            if [ "$CHANGED_CADDY" = "true" ] || [ "$BUILT_CADDY" = "success" ]; then
+              DEPLOY_CADDY=true
+            fi
             if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-              if [ "$MANUAL_BACKEND" != "true" ]; then DEPLOY_BACKEND=false; fi
-              if [ "$MANUAL_CADDY" != "true" ]; then DEPLOY_CADDY=false; fi
+              if [ "$MANUAL_BACKEND" = "true" ]; then DEPLOY_BACKEND=true; else DEPLOY_BACKEND=false; fi
+              if [ "$MANUAL_CADDY" = "true" ]; then DEPLOY_CADDY=true; else DEPLOY_CADDY=false; fi
             fi
           fi
 
@@ -186,6 +187,8 @@ jobs:
           DEPLOY_BACKEND: ${{ steps.plan.outputs.deploy_backend }}
           DEPLOY_CADDY: ${{ steps.plan.outputs.deploy_caddy }}
           SYNC_COMPOSE: ${{ steps.plan.outputs.sync_compose }}
+          CADDY_PUBLIC_HOST: ${{ secrets.CADDY_PUBLIC_HOST }}
+          CADDY_DUCKDNS_HOST: ${{ secrets.CADDY_DUCKDNS_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -193,11 +196,24 @@ jobs:
           RUSTFS_SECRET_KEY: ${{ secrets.RUSTFS_SECRET_KEY }}
           RUSTFS_SERVER_DOMAINS: ${{ secrets.RUSTFS_SERVER_DOMAINS }}
           BACKEND_SECRET_KEY: ${{ secrets.BACKEND_SECRET_KEY }}
-          BACKEND_ALLOWED_HOSTS: ${{ secrets.BACKEND_ALLOWED_HOSTS != '' && secrets.BACKEND_ALLOWED_HOSTS || '["pos-mlb.duckdns.org"]' }}
+          BACKEND_ALLOWED_HOSTS_SECRET: ${{ secrets.BACKEND_ALLOWED_HOSTS }}
           CADDY_ACME_EMAIL: ${{ secrets.CADDY_ACME_EMAIL }}
           DUCKDNS_API_TOKEN: ${{ secrets.DUCKDNS_API_TOKEN }}
           BACKEND_RUSTFS_BUCKET_NAME: ${{ secrets.BACKEND_RUSTFS_BUCKET_NAME }}
         run: |
+          if [ -z "${CADDY_PUBLIC_HOST}" ]; then
+            echo "CADDY_PUBLIC_HOST GitHub secret is required" >&2
+            exit 1
+          fi
+
+          if [ -n "${BACKEND_ALLOWED_HOSTS_SECRET}" ]; then
+            BACKEND_ALLOWED_HOSTS="${BACKEND_ALLOWED_HOSTS_SECRET}"
+          elif [ -n "${CADDY_DUCKDNS_HOST}" ]; then
+            BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","'"${CADDY_DUCKDNS_HOST}"'","127.0.0.1","localhost","backend"]'
+          else
+            BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","127.0.0.1","localhost","backend"]'
+          fi
+
           cat > .env.deploy <<EOF
           DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
           BACKEND_IMAGE_TAG=${BACKEND_IMAGE_TAG}
@@ -218,6 +234,8 @@ jobs:
           BACKEND_ALLOWED_HOSTS=${BACKEND_ALLOWED_HOSTS}
           BACKEND_RUSTFS_BUCKET_NAME=${BACKEND_RUSTFS_BUCKET_NAME:-pos-mlb-items}
           CADDY_ACME_EMAIL=${CADDY_ACME_EMAIL}
+          CADDY_PUBLIC_HOST=${CADDY_PUBLIC_HOST}
+          CADDY_DUCKDNS_HOST=${CADDY_DUCKDNS_HOST}
           DUCKDNS_API_TOKEN=${DUCKDNS_API_TOKEN}
           CADDY_UPSTREAM=backend:8000
           EOF

@@ -8,4 +8,3 @@ services:
       RUSTFS_ACCESS_KEY_ID: ""
       RUSTFS_SECRET_ACCESS_KEY: ""
       RUSTFS_BUCKET_NAME: ""
-      ALLOWED_HOSTS: '["pos-mlb.duckdns.org","127.0.0.1","localhost","backend"]'

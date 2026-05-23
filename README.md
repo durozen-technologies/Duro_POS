@@ -208,8 +208,11 @@ COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env
 | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | Object storage |
 | `RUSTFS_SERVER_DOMAINS` | RustFS console domain (e.g. `1.2.3.4:9001`) |
 | `BACKEND_SECRET_KEY` | 32+ char JWT secret (`PRODUCTION=True`) |
-| `BACKEND_ALLOWED_HOSTS` | e.g. `["pos-mlb.duckdns.org"]` |
-| `CADDY_ACME_EMAIL`, `DUCKDNS_API_TOKEN` | TLS |
+| `CADDY_PUBLIC_HOST` | Primary API hostname (e.g. EC2 public DNS) — Caddy TLS + backend allowed host |
+| `CADDY_DUCKDNS_HOST` | Optional second hostname (DuckDNS) |
+| `BACKEND_ALLOWED_HOSTS` | Optional JSON override; CI auto-builds from `CADDY_PUBLIC_HOST` (+ DuckDNS if set) |
+| `CADDY_ACME_EMAIL` | Let's Encrypt contact email |
+| `DUCKDNS_API_TOKEN` | Required only when `CADDY_DUCKDNS_HOST` is set |
 | `BACKEND_RUSTFS_BUCKET_NAME` | Optional |
 
 ### Logs from VM home directory
@@ -231,33 +234,19 @@ make docker-prod-logs
 
 ## HTTPS
 
-The current Caddy config is in [`caddy/Caddyfile`](caddy/Caddyfile) and uses:
+Caddy config is generated at container start from [`caddy/Caddyfile.template`](caddy/Caddyfile.template) using `CADDY_PUBLIC_HOST` and optional `CADDY_DUCKDNS_HOST` (from GitHub Secrets → VM `.env`).
 
-- reverse proxy to `backend:8000`
-- edge rate limiting
-- DuckDNS DNS challenge for automatic TLS
+- Primary host: HTTP-01 / automatic TLS via Let's Encrypt
+- Optional DuckDNS host: DNS-01 challenge when `CADDY_DUCKDNS_HOST` + `DUCKDNS_API_TOKEN` are set
 
-The Caddy image is built from [`caddy/Dockerfile`](caddy/Dockerfile) and includes:
-
-- `github.com/mholt/caddy-ratelimit`
-- `github.com/caddy-dns/duckdns`
-
-Current public hostname:
-
-- `pos-mlb.duckdns.org`
-
-Current TLS mode:
-
-- Let's Encrypt via `dns-01` challenge through DuckDNS
-
-Required root `.env` values:
+Required GitHub Secrets:
 
 ```env
+CADDY_PUBLIC_HOST=ec2-xx-xx-xx-xx.region.compute.amazonaws.com
 CADDY_ACME_EMAIL=your-email@example.com
+# Optional:
+CADDY_DUCKDNS_HOST=pos-mlb.duckdns.org
 DUCKDNS_API_TOKEN=your-duckdns-token
-CADDY_UPSTREAM=backend:8000
-CADDY_RATE_LIMIT_EVENTS=120
-CADDY_RATE_LIMIT_WINDOW=1m
 ```
 
 Bring Caddy up or rebuild it after config changes:

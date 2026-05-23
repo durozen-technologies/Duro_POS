@@ -135,7 +135,27 @@ bootstrap_infra() {
 
 sync_compose_project() {
   log "Applying compose/network changes without recreating containers"
-  compose up -d --no-recreate
+  compose up -d --no-recreate --pull never
+}
+
+resolve_image_tags() {
+  local deploy_backend="${1}"
+  local deploy_caddy="${2}"
+
+  # Deploy always pulls :latest from Docker Hub (also tagged with git sha on push for history).
+  if [[ "${deploy_backend}" == "true" ]]; then
+    export BACKEND_IMAGE_TAG="latest"
+  else
+    export BACKEND_IMAGE_TAG="${BACKEND_TAG_PREVIOUS:-latest}"
+  fi
+
+  if [[ "${deploy_caddy}" == "true" ]]; then
+    export CADDY_IMAGE_TAG="latest"
+  else
+    export CADDY_IMAGE_TAG="${CADDY_TAG_PREVIOUS:-latest}"
+  fi
+
+  log "Image tags: backend=${BACKEND_IMAGE_TAG} (deploy=${deploy_backend}), caddy=${CADDY_IMAGE_TAG} (deploy=${deploy_caddy})"
 }
 
 run_migrations() {
@@ -202,8 +222,11 @@ deploy_app() {
   local deploy_backend="${DEPLOY_BACKEND:-true}"
   local deploy_caddy="${DEPLOY_CADDY:-true}"
   local sync_compose="${SYNC_COMPOSE:-false}"
-  local new_backend_tag="${BACKEND_IMAGE_TAG:-${IMAGE_TAG:-latest}}"
-  local new_caddy_tag="${CADDY_IMAGE_TAG:-${IMAGE_TAG:-latest}}"
+
+  resolve_image_tags "${deploy_backend}" "${deploy_caddy}"
+
+  local new_backend_tag="${BACKEND_IMAGE_TAG}"
+  local new_caddy_tag="${CADDY_IMAGE_TAG}"
   local final_backend_tag="${BACKEND_TAG_PREVIOUS}"
   local final_caddy_tag="${CADDY_TAG_PREVIOUS}"
 
