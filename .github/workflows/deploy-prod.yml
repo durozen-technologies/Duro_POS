@@ -205,10 +205,12 @@ jobs:
             exit 1
           fi
 
-          BACKEND_ALLOWED_HOSTS="${CADDY_PUBLIC_HOST},127.0.0.1,localhost,backend"
+          BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","127.0.0.1","localhost","backend"]'
           if [ -n "${CADDY_DUCKDNS_HOST}" ]; then
-            BACKEND_ALLOWED_HOSTS="${CADDY_PUBLIC_HOST},${CADDY_DUCKDNS_HOST},127.0.0.1,localhost,backend"
+            BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","'"${CADDY_DUCKDNS_HOST}"'","127.0.0.1","localhost","backend"]'
           fi
+          BACKEND_CORS_ORIGINS='["*"]'
+          BACKEND_TRUSTED_PROXIES='[]'
 
           : > .env.deploy
           echo "DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}" >> .env.deploy
@@ -228,6 +230,8 @@ jobs:
           echo "BACKEND_SECRET_KEY=${BACKEND_SECRET_KEY}" >> .env.deploy
           echo "BACKEND_PRODUCTION=True" >> .env.deploy
           echo "BACKEND_ALLOWED_HOSTS=${BACKEND_ALLOWED_HOSTS}" >> .env.deploy
+          echo "BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}" >> .env.deploy
+          echo "BACKEND_TRUSTED_PROXIES=${BACKEND_TRUSTED_PROXIES}" >> .env.deploy
           echo "BACKEND_RUSTFS_BUCKET_NAME=${BACKEND_RUSTFS_BUCKET_NAME:-pos-mlb-items}" >> .env.deploy
           echo "CADDY_ACME_EMAIL=${CADDY_ACME_EMAIL}" >> .env.deploy
           echo "CADDY_PUBLIC_HOST=${CADDY_PUBLIC_HOST}" >> .env.deploy
