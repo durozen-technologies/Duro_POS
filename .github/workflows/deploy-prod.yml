@@ -229,9 +229,9 @@ jobs:
           echo "RUSTFS_SERVER_DOMAINS=${RUSTFS_SERVER_DOMAINS}" >> .env.deploy
           echo "BACKEND_SECRET_KEY=${BACKEND_SECRET_KEY}" >> .env.deploy
           echo "BACKEND_PRODUCTION=True" >> .env.deploy
-          echo "BACKEND_ALLOWED_HOSTS=${BACKEND_ALLOWED_HOSTS}" >> .env.deploy
-          echo "BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}" >> .env.deploy
-          echo "BACKEND_TRUSTED_PROXIES=${BACKEND_TRUSTED_PROXIES}" >> .env.deploy
+          echo "BACKEND_ALLOWED_HOSTS='${BACKEND_ALLOWED_HOSTS}'" >> .env.deploy
+          echo "BACKEND_CORS_ORIGINS='${BACKEND_CORS_ORIGINS}'" >> .env.deploy
+          echo "BACKEND_TRUSTED_PROXIES='${BACKEND_TRUSTED_PROXIES}'" >> .env.deploy
           echo "BACKEND_RUSTFS_BUCKET_NAME=${BACKEND_RUSTFS_BUCKET_NAME:-pos-mlb-items}" >> .env.deploy
           echo "CADDY_ACME_EMAIL=${CADDY_ACME_EMAIL}" >> .env.deploy
           echo "CADDY_PUBLIC_HOST=${CADDY_PUBLIC_HOST}" >> .env.deploy
