@@ -24,7 +24,11 @@ log() {
 }
 
 compose() {
-  docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
+  local args=(-f "${COMPOSE_FILE}" --env-file "${ENV_FILE}")
+  if [[ -f "${DEPLOY_ROOT}/docker-compose.prod.override.yml" ]]; then
+    args+=(-f "${DEPLOY_ROOT}/docker-compose.prod.override.yml")
+  fi
+  docker compose "${args[@]}" "$@"
 }
 
 service_container_id() {
@@ -90,19 +94,43 @@ bootstrap_infra() {
     return 0
   fi
 
-  local pg_cid
+  local pg_cid rf_cid pg_health rf_health
   pg_cid="$(service_container_id postgres)"
-  if [[ -n "${pg_cid}" ]]; then
-    local pg_health
-    pg_health="$(service_health postgres)"
+  rf_cid="$(service_container_id rustfs)"
+  pg_health="$(service_health postgres)"
+  rf_health="$(service_health rustfs)"
+
+  if [[ -n "${pg_cid}" && "${pg_health}" != "healthy" ]]; then
     log "Postgres container exists but is not healthy (status=${pg_health})"
     log "Not restarting Postgres automatically — fix data/WAL or run scripts/postgres-recover.sh"
     exit 1
   fi
 
-  log "First-time infra bootstrap: starting postgres and rustfs on mahalakshmi-pos-network"
-  compose up -d postgres rustfs
-  compose up -d --wait postgres rustfs
+  if [[ -z "${pg_cid}" ]]; then
+    log "Starting postgres for first-time bootstrap"
+    compose up -d postgres
+  fi
+
+  if [[ -z "${rf_cid}" ]]; then
+    log "Starting rustfs for first-time bootstrap"
+    compose up -d rustfs
+  elif [[ "${rf_health}" != "healthy" ]]; then
+    log "RustFS not healthy (status=${rf_health}) — recreating rustfs"
+    compose up -d --force-recreate rustfs
+  fi
+
+  log "Waiting for infra health"
+  local i
+  for ((i = 1; i <= HEALTH_RETRIES; i++)); do
+    if infra_healthy; then
+      log "Infra healthy"
+      return 0
+    fi
+    sleep "${HEALTH_INTERVAL}"
+  done
+
+  log "Infra failed to become healthy (postgres=${pg_health}, rustfs=${rf_health})"
+  exit 1
 }
 
 sync_compose_project() {

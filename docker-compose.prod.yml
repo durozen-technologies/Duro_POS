@@ -69,10 +69,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "curl",
-          "-f",
-          "http://127.0.0.1:9000/rustfs/health/live",
+          "CMD-SHELL",
+          "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/ | grep -qE '^(200|403|404)$'",
         ]
       interval: 15s
       timeout: 5s
@@ -96,14 +94,14 @@ services:
       SECRET_KEY: ${BACKEND_SECRET_KEY:?Set BACKEND_SECRET_KEY}
       DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meat_billing}}
       PRODUCTION: ${BACKEND_PRODUCTION:-True}
-      ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:-["pos-mlb.duckdns.org"]}
+      ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:-["pos-mlb.duckdns.org","127.0.0.1","localhost","backend"]}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["*"]}
       RUSTFS_ENDPOINT_URL: ${BACKEND_RUSTFS_ENDPOINT_URL:-http://rustfs:9000}
       RUSTFS_ACCESS_KEY_ID: ${BACKEND_RUSTFS_ACCESS_KEY_ID:-${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY}}
       RUSTFS_SECRET_ACCESS_KEY: ${BACKEND_RUSTFS_SECRET_ACCESS_KEY:-${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY}}
       RUSTFS_BUCKET_NAME: ${BACKEND_RUSTFS_BUCKET_NAME:-pos-mlb-items}
       RUSTFS_REGION_NAME: ${BACKEND_RUSTFS_REGION_NAME:-us-east-1}
-      TRUSTED_PROXIES: ${BACKEND_TRUSTED_PROXIES:-["caddy"]}
+      TRUSTED_PROXIES: ${BACKEND_TRUSTED_PROXIES:-[]}
       TRUST_X_FORWARDED_PROTO: ${BACKEND_TRUST_X_FORWARDED_PROTO:-True}
       WEB_CONCURRENCY: ${BACKEND_WEB_CONCURRENCY:-1}
     expose:

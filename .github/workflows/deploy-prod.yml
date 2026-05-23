@@ -193,7 +193,7 @@ jobs:
           RUSTFS_SECRET_KEY: ${{ secrets.RUSTFS_SECRET_KEY }}
           RUSTFS_SERVER_DOMAINS: ${{ secrets.RUSTFS_SERVER_DOMAINS }}
           BACKEND_SECRET_KEY: ${{ secrets.BACKEND_SECRET_KEY }}
-          BACKEND_ALLOWED_HOSTS: ${{ secrets.BACKEND_ALLOWED_HOSTS }}
+          BACKEND_ALLOWED_HOSTS: ${{ secrets.BACKEND_ALLOWED_HOSTS != '' && secrets.BACKEND_ALLOWED_HOSTS || '["pos-mlb.duckdns.org"]' }}
           CADDY_ACME_EMAIL: ${{ secrets.CADDY_ACME_EMAIL }}
           DUCKDNS_API_TOKEN: ${{ secrets.DUCKDNS_API_TOKEN }}
           BACKEND_RUSTFS_BUCKET_NAME: ${{ secrets.BACKEND_RUSTFS_BUCKET_NAME }}
@@ -215,7 +215,7 @@ jobs:
           RUSTFS_SERVER_DOMAINS=${RUSTFS_SERVER_DOMAINS}
           BACKEND_SECRET_KEY=${BACKEND_SECRET_KEY}
           BACKEND_PRODUCTION=True
-          BACKEND_ALLOWED_HOSTS=${BACKEND_ALLOWED_HOSTS:-["pos-mlb.duckdns.org"]}
+          BACKEND_ALLOWED_HOSTS=${BACKEND_ALLOWED_HOSTS}
           BACKEND_RUSTFS_BUCKET_NAME=${BACKEND_RUSTFS_BUCKET_NAME:-pos-mlb-items}
           CADDY_ACME_EMAIL=${CADDY_ACME_EMAIL}
           DUCKDNS_API_TOKEN=${DUCKDNS_API_TOKEN}
@@ -227,7 +227,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh"
+          source: "docker-compose.prod.yml,docker-compose.prod.override.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh"
           target: ${{ secrets.DEPLOY_PATH }}
           strip_components: 0
 
