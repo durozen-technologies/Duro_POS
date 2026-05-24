@@ -20,18 +20,6 @@
 			}
 		}
 
-		rate_limit {
-			zone per_client {
-				match {
-					not path /health
-				}
-				key {remote_host}
-				events {$CADDY_RATE_LIMIT_EVENTS}
-				window {$CADDY_RATE_LIMIT_WINDOW}
-			}
-			log_key
-		}
-
 		handle {
 			reverse_proxy {$CADDY_UPSTREAM} {
 				transport http {
