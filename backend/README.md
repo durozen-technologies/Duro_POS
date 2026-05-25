@@ -104,7 +104,24 @@ Install dev tools:
 uv sync --group dev
 ```
 
-Start the API:
+Start the API (recommended — auto-migrates on start and when schema files change):
+
+```bash
+# from repo root
+make backend-dev
+
+# or from backend/
+uv run python scripts/dev.py
+```
+
+One-off migration:
+
+```bash
+make backend-migrate
+# or: uv run python migrate.py
+```
+
+Plain uvicorn (migrations still run via FastAPI lifespan on each reload):
 
 ```bash
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -143,6 +160,19 @@ On startup the backend:
 
 In production, startup fails fast if database initialization fails.
 
+## Database migrations
+
+Migrations are **not** Alembic-based. [`migrate.py`](migrate.py) runs `initialize_database()` (see [`app/db/database.py`](app/db/database.py)).
+
+| Environment | Command / trigger |
+|-------------|-------------------|
+| Local one-off | `make backend-migrate` or `uv run python migrate.py` |
+| Local dev server | `make backend-dev` (watches schema paths) |
+| Docker / production image | [`docker-entrypoint.sh`](docker-entrypoint.sh) runs `migrate.py` before Gunicorn |
+| Production CI/CD | Root [`scripts/deploy-prod.sh`](../scripts/deploy-prod.sh) runs `migrate.py` on the pulled image **before** recreating the backend (triggered by pushes to `backend/**` on `main`) |
+
+See the root [README.md — Database migrations](../README.md#database-migrations) for the full production flow.
+
 ## Docker
 
 The active stack uses [`compose.yaml`](../compose.yaml), not Nginx.
@@ -151,6 +181,8 @@ Current services in the active compose file:
 
 - `backend`
 - `caddy`
+
+Production images use [`Dockerfile`](Dockerfile) with [`docker-entrypoint.sh`](docker-entrypoint.sh) (migrate, then `exec` the Gunicorn command).
 
 Useful commands from the repo root:
 
@@ -344,5 +376,5 @@ uv run ruff check app --select F401,F841
 
 ## Current Gaps
 
-- no Alembic migration workflow yet
+- no Alembic revision history (schema changes are applied in `initialize_database()`)
 - rate limiting is still in-memory per process, so multiple workers apply limits independently

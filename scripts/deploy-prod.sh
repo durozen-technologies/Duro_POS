@@ -159,8 +159,9 @@ resolve_image_tags() {
 }
 
 run_migrations() {
-  log "Running backend database migrations"
-  compose run --rm --no-deps backend python migrate.py
+  local image_tag="${1:-${BACKEND_IMAGE_TAG:-latest}}"
+  log "Running backend database migrations (image tag=${image_tag})"
+  BACKEND_IMAGE_TAG="${image_tag}" compose run --rm --no-deps backend python migrate.py
 }
 
 wait_backend_health() {
@@ -278,7 +279,7 @@ deploy_app() {
     log "Pulling backend image (tag=${new_backend_tag})"
     BACKEND_IMAGE_TAG="${new_backend_tag}" compose pull backend
 
-    if ! run_migrations; then
+    if ! run_migrations "${new_backend_tag}"; then
       log "Database migration failed"
       rollback "${BACKEND_TAG_PREVIOUS}" "${CADDY_TAG_PREVIOUS}" true false
       exit 1

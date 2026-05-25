@@ -38,7 +38,10 @@ COPY --from=builder --chown=app:app /app/main.py /app/main.py
 COPY --from=builder --chown=app:app /app/migrate.py /app/migrate.py
 COPY --from=builder --chown=app:app /app/app /app/app
 COPY --from=builder --chown=app:app /app/assets /app/assets
+COPY --chown=app:app docker-entrypoint.sh /docker-entrypoint.sh
 
+USER root
+RUN chmod +x /docker-entrypoint.sh
 USER app:app
 
 EXPOSE 8000
@@ -46,4 +49,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).getcode()==200 else 1)"
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["sh", "-c", "python -m gunicorn main:app --bind 0.0.0.0:${PORT:-8000} --worker-class uvicorn_worker.UvicornWorker --workers ${WEB_CONCURRENCY:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)} --timeout ${GUNICORN_TIMEOUT:-60} --graceful-timeout ${GUNICORN_GRACEFUL_TIMEOUT:-30} --keep-alive ${GUNICORN_KEEPALIVE:-5} --access-logfile - --error-logfile - --log-level ${LOG_LEVEL:-info} --capture-output"]

@@ -10,7 +10,7 @@ DOCKER_COMPOSE := docker compose -f $(COMPOSE_FILE)
 DOCKER_COMPOSE_PROD := docker compose -f $(PROD_COMPOSE_FILE)
 
 .PHONY: help \
-	backend-sync backend-sync-dev backend-dev backend-gunicorn \
+	backend-sync backend-sync-dev backend-migrate backend-dev backend-gunicorn \
 	backend-docker-build nginx-docker-build docker-build docker-config docker-up docker-rebuild docker-down docker-logs docker-ps \
 	docker-prod-config docker-prod-up docker-prod-down docker-prod-logs docker-prod-ps docker-prod-deploy \
 	caddy-export-local-ca caddy-trust-local-ca caddy-trust-browser-ca \
@@ -28,8 +28,11 @@ backend-sync: ## Install backend dependencies
 backend-sync-dev: ## Install backend dependencies with dev tools
 	cd $(BACKEND_DIR) && $(UV) sync --group dev
 
-backend-dev: ## Run the backend in reload mode on port 8000
-	cd $(BACKEND_DIR) && $(UV) run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+backend-migrate: ## Apply database schema updates (create tables + incremental fixes)
+	cd $(BACKEND_DIR) && $(UV) run python migrate.py
+
+backend-dev: ## Run backend with auto-migrate on start and when schema files change
+	cd $(BACKEND_DIR) && $(UV) run python scripts/dev.py
 
 backend-gunicorn: ## Run the backend with Gunicorn
 	cd $(BACKEND_DIR) && $(UV) run python -m gunicorn main:app --bind 0.0.0.0:$${PORT:-8000} --worker-class uvicorn_worker.UvicornWorker --workers $${WEB_CONCURRENCY:-$$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)} --timeout $${GUNICORN_TIMEOUT:-60} --graceful-timeout $${GUNICORN_GRACEFUL_TIMEOUT:-30} --keep-alive $${GUNICORN_KEEPALIVE:-5} --access-logfile - --error-logfile - --log-level $${LOG_LEVEL:-info} --capture-output

@@ -44,6 +44,7 @@ Mobile-first meat billing system with:
 ├── compose.yaml
 ├── docker-compose.prod.yml
 ├── Makefile
+├── scripts/deploy-prod.sh
 └── README.md
 ```
 
@@ -169,6 +170,7 @@ flowchart TB
     BuildCaddy[Build caddy image]
     Push[Push to Docker Hub :latest]
     SSHDeploy[SSH + SCP to VM]
+    Migrate[migrate.py on new image]
   end
 
   Mobile -->|HTTPS API| Caddy
@@ -186,8 +188,9 @@ flowchart TB
   Push --> SSHDeploy
   SSHDeploy --> EnvFile
   SSHDeploy --> DeployScript
+  DeployScript --> Migrate
+  Migrate --> Backend
   DeployScript --> Caddy
-  DeployScript --> Backend
 ```
 
 **Traffic flow**
@@ -218,9 +221,18 @@ All four services attach to **`mahalakshmi-pos-network`** (explicit bridge netwo
 
 | Push changes | Builds | Deploys |
 |--------------|--------|---------|
-| `backend/**` | Backend image → Docker Hub | Backend container |
+| `backend/**` | Backend image → Docker Hub | Pull image → **run DB migrations** → recreate backend |
 | `caddy/**` | Caddy image → Docker Hub | Caddy container |
 | `docker-compose.prod.yml`, `scripts/**`, workflow | Nothing | Sync compose + `.env` only |
+
+**Backend push flow**
+
+1. `paths-filter` detects changes under `backend/**`
+2. `build-backend` builds and pushes `mahalakshmi-pos-backend:latest` (and `:sha`)
+3. `deploy` writes `.env`, SCPs compose + scripts to the VM, SSH runs `deploy-prod.sh`
+4. On the VM (when `DEPLOY_BACKEND=true`): pull `:latest` → `migrate.py` on that image → recreate backend → health check (rollback on failure)
+
+Frontend-only or caddy-only pushes do **not** run database migrations.
 
 **Deploy job steps**
 
@@ -236,25 +248,32 @@ All four services attach to **`mahalakshmi-pos-network`** (explicit bridge netwo
 bootstrap infra (postgres + rustfs)
   → skip if already healthy (no restart, no pull)
 sync compose project (network/volumes)
-  → if DEPLOY_BACKEND: pull :latest → migrate.py → recreate backend
+  → if DEPLOY_BACKEND:
+      pull :latest
+      run_migrations (one-off container, same image tag)
+      recreate backend
   → if DEPLOY_CADDY: pull :latest → recreate caddy
   → if ALLOWED_HOSTS in .env ≠ running container: recreate backend
   → health checks; rollback to previous tag on failure
 ```
 
-Migrations run **before** the backend server starts:
+Migrations run **before** the backend API container is recreated. The deploy script uses the image tag that was just pulled:
 
 ```bash
-compose run --rm --no-deps backend python migrate.py
+BACKEND_IMAGE_TAG="${tag}" compose run --rm --no-deps backend python migrate.py
 ```
+
+`--no-deps` avoids starting the long-running backend service; Postgres must already be healthy from `bootstrap_infra`. If migration fails, the script rolls back the backend image and exits without deploying the new container.
 
 #### 3. Caddy hostname config
 
 At container start, [`caddy/docker-entrypoint.sh`](caddy/docker-entrypoint.sh) renders [`caddy/Caddyfile.template`](caddy/Caddyfile.template) using `CADDY_PUBLIC_HOST` (and optional `CADDY_DUCKDNS_HOST`) from `.env`.
 
-#### 4. Backend config
+#### 4. Backend config and container entrypoint
 
 [`backend/app/core/config.py`](backend/app/core/config.py) reads `ALLOWED_HOSTS`, `CORS_ORIGINS`, etc. from the container environment. CI auto-builds allowed hosts from `CADDY_PUBLIC_HOST`.
+
+[`backend/docker-entrypoint.sh`](backend/docker-entrypoint.sh) runs `migrate.py` before Gunicorn on every container start (safety net if the deploy script was skipped or the container restarts without a full deploy).
 
 ---
 
@@ -332,13 +351,15 @@ CADDY_PUBLIC_HOST=ec2-16-112-68-20.ap-south-2.compute.amazonaws.com
 
 ### How to update
 
-#### Update backend code
+#### Update backend code (includes DB schema)
 
-1. Change files under `backend/`
+1. Change files under `backend/` (models, `app/db/database.py`, API code, etc.)
 2. Commit and push to `main`
-3. GitHub Actions builds a new image, pushes `:latest`, runs migrations, recreates backend
+3. GitHub Actions: build image → push `:latest` → SSH deploy → **`migrate.py` on new image** → recreate backend
 
 Or manually: **Actions → Deploy Production → Run workflow** with `build_backend: true`.
+
+Check deploy logs on the VM: `~/pos-logs deploy` should show `Running backend database migrations (image tag=latest)`.
 
 #### Update Caddy / TLS / hostname
 
@@ -380,20 +401,50 @@ EXPO_PUBLIC_API_BASE_URL=https://<CADDY_PUBLIC_HOST>
 
 ### Database migrations
 
-#### Automatic (every backend deploy)
+Schema updates are **code-driven** (no Alembic). [`backend/migrate.py`](backend/migrate.py) calls `initialize_database()` in [`backend/app/db/database.py`](backend/app/db/database.py), which:
 
-[`backend/migrate.py`](backend/migrate.py) runs via `deploy-prod.sh` before the backend container starts. It calls `initialize_database()` which:
+- creates missing tables (`create_all` from SQLAlchemy models)
+- applies incremental fixes (legacy column drops, UUID columns, indexes, item image columns)
+- seeds default catalog data and bundled item images
 
-- creates missing tables (`create_all`)
-- applies incremental column / schema fixes in code
+When you change models or migration logic, commit under `backend/` and push to `main` — CI/CD applies migrations on the production VM automatically.
 
-No separate Alembic step — schema changes are implemented in [`backend/app/db/database.py`](backend/app/db/database.py).
+#### When migrations run
+
+| When | How |
+|------|-----|
+| **CI/CD** (push `backend/**` to `main`) | `deploy-prod.sh` → `run_migrations` with the pulled `:latest` image, then recreate backend |
+| **Production container start** | [`backend/docker-entrypoint.sh`](backend/docker-entrypoint.sh) → `migrate.py` → Gunicorn |
+| **FastAPI lifespan** | `initialize_database()` on API startup (dev reload and production) |
+| **Local dev** (`make backend-dev`) | Migrates on start; re-runs when `app/db/`, `app/models/`, or `migrate.py` change |
+
+#### Changing the schema (developer workflow)
+
+1. Update models in `backend/app/models/` and migration helpers in `backend/app/db/database.py` as needed.
+2. Test locally: `make backend-migrate` or `make backend-dev`.
+3. Push to `main` with changes under `backend/**`.
+4. Confirm the **Deploy Production** workflow succeeded and health shows `database: connected`.
+
+#### Local commands
+
+```bash
+make backend-migrate   # one-off migration
+make backend-dev       # dev server with auto-migrate
+```
 
 #### Manual migration on the VM
 
 ```bash
 cd /home/ubuntu/mahalakshmi-pos
 COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml \
+  -f docker-compose.prod.override.yml --env-file .env \
+  run --rm --no-deps backend python migrate.py
+```
+
+To use a specific image tag (same as deploy):
+
+```bash
+BACKEND_IMAGE_TAG=latest docker compose -f docker-compose.prod.yml \
   -f docker-compose.prod.override.yml --env-file .env \
   run --rm --no-deps backend python migrate.py
 ```
