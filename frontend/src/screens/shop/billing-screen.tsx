@@ -1,9 +1,8 @@
-import React, { memo, useCallback, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   ListRenderItem,
   Pressable,
   Text,
@@ -15,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CartActionBar } from "@/components/ui/cart-action-bar";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Screen } from "@/components/ui/screen";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -28,7 +28,6 @@ import {
 
 import { BillingScreenProps } from "@/navigation/types";
 
-import { resolveApiUrl } from "@/api/client";
 import {
   CartItem,
   getCartTotal,
@@ -40,6 +39,7 @@ import { ItemPriceRead, UUID } from "@/types/api";
 import { money, toQuantityString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
 import { cn } from "@/utils/cn";
+import { getItemThumbnailUri, prefetchItemThumbnails } from "@/utils/item-images";
 
 type ProductCardProps = {
   item: ItemPriceRead;
@@ -53,6 +53,24 @@ type ProductCardProps = {
   onAddToCart: (item: ItemPriceRead, quantity: string) => void;
 };
 
+type CatalogueOption = {
+  key: string;
+  label: string;
+  count: number;
+  isUncategorized?: boolean;
+};
+
+type CatalogueDropdownProps = {
+  label: string;
+  selectedLabel: string;
+  itemCountLabel: string;
+  options: CatalogueOption[];
+  selectedKey: string | null;
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (key: string) => void;
+};
+
 type BillingRefreshControlProps = {
   title: string;
   subtitle: string;
@@ -61,6 +79,22 @@ type BillingRefreshControlProps = {
   loading: boolean;
   onRefresh: () => void;
 };
+
+const UNCATEGORIZED_CATALOGUE_KEY = "uncategorized-catalogue";
+
+function getCatalogueKey(item: ItemPriceRead) {
+  const categoryId = item.category_id?.trim();
+  if (categoryId) {
+    return `category-id:${categoryId}`;
+  }
+
+  const categoryName = item.category?.trim();
+  if (categoryName) {
+    return `category-name:${categoryName.toLocaleLowerCase()}`;
+  }
+
+  return UNCATEGORIZED_CATALOGUE_KEY;
+}
 
 const BillingRefreshControl = memo(function BillingRefreshControl({
   title,
@@ -115,6 +149,97 @@ const BillingRefreshControl = memo(function BillingRefreshControl({
   );
 });
 
+const CatalogueDropdown = memo(function CatalogueDropdown({
+  label,
+  selectedLabel,
+  itemCountLabel,
+  options,
+  selectedKey,
+  open,
+  onToggle,
+  onSelect,
+}: CatalogueDropdownProps) {
+  return (
+    <View className="mb-4">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        className="rounded-[18px] border border-border bg-card px-4 py-3 shadow-soft"
+      >
+        <View className="flex-row items-center gap-3">
+          <View className="h-10 w-10 items-center justify-center rounded-[14px] bg-accentSoft">
+            <MaterialCommunityIcons name="filter-variant" size={20} color="#244734" />
+          </View>
+
+          <View className="min-w-0 flex-1">
+            <Text className="text-[11px] font-semibold uppercase tracking-[1.2px] text-accentDeep">
+              {label}
+            </Text>
+            <Text className="mt-0.5 text-base font-bold text-ink" numberOfLines={1}>
+              {selectedLabel}
+            </Text>
+          </View>
+
+          <Text className="text-xs font-semibold text-muted" numberOfLines={1}>
+            {itemCountLabel}
+          </Text>
+
+          <MaterialCommunityIcons
+            name={open ? "chevron-up" : "chevron-down"}
+            size={22}
+            color="#6C7A70"
+          />
+        </View>
+      </Pressable>
+
+      {open ? (
+        <View className="mt-2 overflow-hidden rounded-[18px] border border-border bg-card shadow-soft">
+          {options.map((option, index) => {
+            const selected = option.key === selectedKey;
+            const optionIcon = option.isUncategorized
+              ? "tag-off-outline"
+              : "tag-outline";
+
+            return (
+              <Pressable
+                key={option.key}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => onSelect(option.key)}
+                className={cn(
+                  "flex-row items-center gap-3 px-4 py-3",
+                  index < options.length - 1 && "border-b border-border/60",
+                  selected && "bg-accentSoft",
+                )}
+              >
+                <MaterialCommunityIcons
+                  name={optionIcon}
+                  size={18}
+                  color={selected ? "#244734" : "#6C7A70"}
+                />
+                <Text
+                  className={cn(
+                    "min-w-0 flex-1 text-sm font-semibold",
+                    selected ? "text-accentDeep" : "text-ink",
+                  )}
+                  numberOfLines={1}
+                >
+                  {option.label}
+                </Text>
+                <Text className="text-xs font-semibold text-muted">
+                  {option.count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+});
+
 const ProductCard = memo(
   ({
     item,
@@ -127,9 +252,7 @@ const ProductCard = memo(
     onChangeQuantity,
     onAddToCart,
   }: ProductCardProps) => {
-    const itemImageUri = item.image_path
-      ? resolveApiUrl(item.image_path)
-      : "";
+    const itemImageUri = getItemThumbnailUri(item);
 
     const hasPrice = Boolean(item.current_price && money(item.current_price).greaterThan(0));
 
@@ -141,11 +264,15 @@ const ProductCard = memo(
               className="w-[108px] overflow-hidden rounded-[18px] border border-border/70 bg-surface"
               style={{ aspectRatio: 1 }}
             >
-              <Image
-                source={{ uri: itemImageUri }}
-                resizeMode="cover"
-                fadeDuration={150}
-                className="h-full w-full bg-surface"
+              <ItemThumbnail
+                uri={itemImageUri}
+                recyclingKey={item.item_id}
+                size={108}
+                borderRadius={18}
+                backgroundColor="#F4F7F2"
+                icon="food-drumstick-outline"
+                iconColor="#6C7A70"
+                iconSize={28}
               />
             </View>
           ) : (
@@ -194,6 +321,7 @@ const ProductCard = memo(
     prev.item.item_id === next.item.item_id &&
     prev.item.current_price === next.item.current_price &&
     prev.item.image_path === next.item.image_path &&
+    prev.item.image_thumb_path === next.item.image_thumb_path &&
     prev.quantity === next.quantity &&
     prev.itemName === next.itemName &&
     prev.priceText === next.priceText &&
@@ -295,6 +423,9 @@ export function BillingScreen({
   const [quantities, setQuantities] = useState<
     Record<UUID, string>
   >({});
+  const [selectedCatalogueKey, setSelectedCatalogueKey] =
+    useState<string | null>(null);
+  const [catalogueOpen, setCatalogueOpen] = useState(false);
   const isBillingLocked = Boolean(
     bootstrap && !bootstrap.prices_set,
   );
@@ -322,6 +453,71 @@ export function BillingScreen({
 
     return new Map<UUID, string>(entries);
   }, [language, orderedItems]);
+
+  const catalogueOptions = useMemo(() => {
+    const categories = new Map<string, CatalogueOption>();
+
+    for (const item of orderedItems) {
+      const key = getCatalogueKey(item);
+      const existing = categories.get(key);
+
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+
+      const categoryName = item.category?.trim();
+
+      categories.set(key, {
+        key,
+        label: categoryName || t("billing.uncategorizedCatalogue"),
+        count: 1,
+        isUncategorized: key === UNCATEGORIZED_CATALOGUE_KEY,
+      });
+    }
+
+    return [...categories.values()];
+  }, [orderedItems, t]);
+
+  const selectedCatalogueOption =
+    catalogueOptions.find(
+      (option) => option.key === selectedCatalogueKey,
+    ) ?? catalogueOptions[0] ?? null;
+  const activeCatalogueKey = selectedCatalogueOption?.key ?? null;
+
+  const visibleItems = useMemo(() => {
+    if (!activeCatalogueKey) {
+      return [];
+    }
+
+    return orderedItems.filter(
+      (item) => getCatalogueKey(item) === activeCatalogueKey,
+    );
+  }, [activeCatalogueKey, orderedItems]);
+
+  useEffect(() => {
+    prefetchItemThumbnails(orderedItems);
+  }, [orderedItems]);
+
+  useEffect(() => {
+    const firstCatalogueKey = catalogueOptions[0]?.key ?? null;
+
+    if (!firstCatalogueKey) {
+      if (selectedCatalogueKey !== null) {
+        setSelectedCatalogueKey(null);
+      }
+      setCatalogueOpen(false);
+      return;
+    }
+
+    if (
+      selectedCatalogueKey === null ||
+      !catalogueOptions.some((option) => option.key === selectedCatalogueKey)
+    ) {
+      setSelectedCatalogueKey(firstCatalogueKey);
+      setCatalogueOpen(false);
+    }
+  }, [catalogueOptions, selectedCatalogueKey]);
 
   const handleQuantityChange = useCallback(
     (itemId: UUID, value: string) => {
@@ -409,6 +605,15 @@ export function BillingScreen({
     void refresh();
   }, [refresh]);
 
+  const handleToggleCatalogue = useCallback(() => {
+    setCatalogueOpen((current) => !current);
+  }, []);
+
+  const handleSelectCatalogue = useCallback((key: string) => {
+    setSelectedCatalogueKey(key);
+    setCatalogueOpen(false);
+  }, []);
+
   const renderProduct: ListRenderItem<ItemPriceRead> =
     useCallback(
       ({ item }) => {
@@ -454,6 +659,38 @@ export function BillingScreen({
         t,
       ],
     );
+
+  const renderCatalogueHeader = useCallback(
+    () => {
+      if (!selectedCatalogueOption) {
+        return null;
+      }
+
+      return (
+        <CatalogueDropdown
+          label={t("billing.catalogueFilter")}
+          selectedLabel={selectedCatalogueOption.label}
+          itemCountLabel={t("billing.catalogueItemCount", {
+            count: selectedCatalogueOption.count,
+          })}
+          options={catalogueOptions}
+          selectedKey={activeCatalogueKey}
+          open={catalogueOpen}
+          onToggle={handleToggleCatalogue}
+          onSelect={handleSelectCatalogue}
+        />
+      );
+    },
+    [
+      catalogueOpen,
+      catalogueOptions,
+      handleSelectCatalogue,
+      handleToggleCatalogue,
+      activeCatalogueKey,
+      selectedCatalogueOption,
+      t,
+    ],
+  );
 
   const renderCartFooter = useCallback(
     () => (
@@ -584,7 +821,7 @@ export function BillingScreen({
       >
         <FlatList
           style={{ flex: 1 }}
-          data={orderedItems}
+          data={visibleItems}
           renderItem={renderProduct}
           keyExtractor={(item) =>
             item.item_id.toString()
@@ -600,10 +837,11 @@ export function BillingScreen({
           contentContainerStyle={{
             paddingBottom: 180,
           }}
+          ListHeaderComponent={renderCatalogueHeader}
           ListFooterComponent={renderCartFooter}
           ListEmptyComponent={
             <EmptyState
-              title={t("billing.unableToLoadShopData")}
+              title={t("billing.noCatalogueItems")}
               description={t(
                 "billing.cartEmptyDescription",
               )}

@@ -1,5 +1,8 @@
-import { apiClient } from "@/api/client";
+import * as FileSystem from "expo-file-system/legacy";
+
+import { apiClient, getApiAuthHeaders, resolveReachableApiUrlCandidates } from "@/api/client";
 import {
+  AdminItemRowsPage,
   AdminBillPage,
   AnalyticsPeriod,
   AdminDashboardBootstrap,
@@ -9,6 +12,7 @@ import {
   DailyPriceUpdate,
   ItemCategoryCreate,
   ItemCategoryRead,
+  ItemImageRead,
   ItemMetadataUpdate,
   ItemRead,
   ItemScope,
@@ -17,7 +21,10 @@ import {
   PriceStatus,
   ShopBootstrapResponse,
   ShopCreate,
+  ShopItemAllocationBulkCreate,
+  ShopItemAllocationBulkRead,
   ShopItemAllocationUpdate,
+  ShopItemCounts,
   ShopItemPage,
   ShopItemRead,
   ShopRead,
@@ -27,18 +34,122 @@ import {
   UUID,
 } from "@/types/api";
 
+export type ItemImageUploadFile = {
+  uri: string;
+  name: string;
+  type: string;
+};
+export type ItemMultipartFields = Record<string, string>;
+
+function parseUploadResponseBody(body: string) {
+  if (!body.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function getUploadResponseMessage(body: unknown) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return "";
+  }
+  const record = body as Record<string, unknown>;
+  if (typeof record.detail === "string") {
+    return record.detail;
+  }
+  if (typeof record.message === "string") {
+    return record.message;
+  }
+  if (typeof record.error === "string") {
+    return record.error;
+  }
+  if (Array.isArray(record.detail)) {
+    const messages = record.detail
+      .map((entry) => {
+        if (typeof entry === "string") {
+          return entry;
+        }
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return "";
+        }
+        const detail = entry as Record<string, unknown>;
+        return typeof detail.msg === "string" ? detail.msg : "";
+      })
+      .filter(Boolean);
+    if (messages.length > 0) {
+      return messages.join("\n");
+    }
+  }
+  return "";
+}
+
+function getUploadAttemptSummary(uploadUrls: string[]) {
+  const origins = uploadUrls.map((uploadUrl) => {
+    try {
+      return new URL(uploadUrl).origin;
+    } catch {
+      return uploadUrl;
+    }
+  });
+  return Array.from(new Set(origins)).join(", ");
+}
+
+class UploadHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "UploadHttpError";
+  }
+}
+
+class UploadFileUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UploadFileUnavailableError";
+  }
+}
+
+function isLocalUploadFileError(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return /Directory for '.+' doesn't exist|No such file or directory|open failed: ENOENT|file .+ doesn't exist/i.test(
+    message,
+  );
+}
+
+async function assertUploadFileReady(file: ItemImageUploadFile) {
+  const fileInfo = await FileSystem.getInfoAsync(file.uri);
+  if (!fileInfo.exists) {
+    throw new UploadFileUnavailableError(
+      "Selected image file is no longer available. Pick the image again and save.",
+    );
+  }
+  if (fileInfo.isDirectory) {
+    throw new UploadFileUnavailableError("Selected image points to a folder. Pick an image file and save.");
+  }
+}
+
 export async function createShop(payload: ShopCreate) {
   const { data } = await apiClient.post<ShopRead>("/api/v1/admin/shops", payload);
   return data;
 }
 
-export async function fetchShops() {
-  const { data } = await apiClient.get<ShopRead[]>("/api/v1/admin/shops");
+export type ApiRequestOptions = {
+  signal?: AbortSignal;
+};
+
+export async function fetchShops(options: ApiRequestOptions = {}) {
+  const { data } = await apiClient.get<ShopRead[]>("/api/v1/admin/shops", {
+    signal: options.signal,
+  });
   return data;
 }
 
-export async function fetchItemCategories() {
-  const { data } = await apiClient.get<ItemCategoryRead[]>("/api/v1/admin/item-categories");
+export async function fetchItemCategories(options: ApiRequestOptions = {}) {
+  const { data } = await apiClient.get<ItemCategoryRead[]>("/api/v1/admin/item-categories", {
+    signal: options.signal,
+  });
   return data;
 }
 
@@ -84,6 +195,17 @@ export type FetchShopItemsParams = {
   cursor_id?: UUID | null;
 };
 
+function itemRowParams(params?: FetchShopItemsParams) {
+  return {
+    q: params?.q || undefined,
+    active: params?.active,
+    limit: params?.limit ?? 50,
+    cursor_sort_order: params?.cursor_sort_order ?? undefined,
+    cursor_name: params?.cursor_name ?? undefined,
+    cursor_id: params?.cursor_id ?? undefined,
+  };
+}
+
 export async function fetchShopItemsPage(shopId: UUID, params?: FetchShopItemsParams) {
   const { data } = await apiClient.get<ShopItemPage>(`/api/v1/admin/shops/${shopId}/items`, {
     params: {
@@ -103,6 +225,105 @@ export async function fetchShopItemsPage(shopId: UUID, params?: FetchShopItemsPa
   return data;
 }
 
+export async function fetchSelectedShopItemRows(
+  shopId: UUID,
+  params?: FetchShopItemsParams,
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<AdminItemRowsPage>(
+    `/api/v1/admin/shops/${shopId}/selected-items/rows`,
+    { params: itemRowParams(params), signal: options.signal },
+  );
+  return data;
+}
+
+export async function fetchSelectedShopItemCounts(
+  shopId: UUID,
+  params?: FetchShopItemsParams,
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<ShopItemCounts>(
+    `/api/v1/admin/shops/${shopId}/selected-items/counts`,
+    { params: { q: params?.q || undefined }, signal: options.signal },
+  );
+  return data;
+}
+
+export async function fetchSelectedShopItemsPage(shopId: UUID, params?: FetchShopItemsParams) {
+  const { data } = await apiClient.get<ShopItemPage>(`/api/v1/admin/shops/${shopId}/selected-items`, {
+    params: {
+      q: params?.q || undefined,
+      limit: params?.limit ?? 100,
+      cursor_sort_order: params?.cursor_sort_order ?? undefined,
+      cursor_name: params?.cursor_name ?? undefined,
+      cursor_id: params?.cursor_id ?? undefined,
+    },
+  });
+  return data;
+}
+
+export async function fetchShopItemImportCandidateRows(
+  shopId: UUID,
+  params?: FetchShopItemsParams,
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<AdminItemRowsPage>(
+    `/api/v1/admin/shops/${shopId}/item-import-candidates/rows`,
+    { params: itemRowParams(params), signal: options.signal },
+  );
+  return data;
+}
+
+export async function fetchShopItemImportCandidateCounts(
+  shopId: UUID,
+  params?: FetchShopItemsParams,
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<ShopItemCounts>(
+    `/api/v1/admin/shops/${shopId}/item-import-candidates/counts`,
+    { params: { q: params?.q || undefined }, signal: options.signal },
+  );
+  return data;
+}
+
+export async function fetchShopItemImportCandidatesPage(shopId: UUID, params?: FetchShopItemsParams) {
+  const { data } = await apiClient.get<ShopItemPage>(`/api/v1/admin/shops/${shopId}/item-import-candidates`, {
+    params: {
+      q: params?.q || undefined,
+      limit: params?.limit ?? 100,
+      cursor_sort_order: params?.cursor_sort_order ?? undefined,
+      cursor_name: params?.cursor_name ?? undefined,
+      cursor_id: params?.cursor_id ?? undefined,
+    },
+  });
+  return data;
+}
+
+export async function fetchCatalogueItemRows(
+  params?: FetchShopItemsParams,
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<AdminItemRowsPage>("/api/v1/admin/items/rows", {
+    params: itemRowParams(params),
+    signal: options.signal,
+  });
+  return data;
+}
+
+export async function fetchCatalogueItemCounts(
+  params?: FetchShopItemsParams,
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<ShopItemCounts>("/api/v1/admin/items/counts", {
+    params: {
+      q: params?.q || undefined,
+      active: params?.active,
+    },
+    signal: options.signal,
+  });
+  return data;
+}
+
 export async function fetchCatalogueItemsPage(params?: FetchShopItemsParams) {
   const { data } = await apiClient.get<ShopItemPage>("/api/v1/admin/items", {
     params: {
@@ -118,13 +339,17 @@ export async function fetchCatalogueItemsPage(params?: FetchShopItemsParams) {
   return data;
 }
 
-export async function fetchCatalogueItem(itemId: UUID) {
-  const { data } = await apiClient.get<ShopItemRead>(`/api/v1/admin/items/${itemId}`);
+export async function fetchCatalogueItem(itemId: UUID, options: ApiRequestOptions = {}) {
+  const { data } = await apiClient.get<ShopItemRead>(`/api/v1/admin/items/${itemId}`, {
+    signal: options.signal,
+  });
   return data;
 }
 
-export async function fetchShopItem(shopId: UUID, itemId: UUID) {
-  const { data } = await apiClient.get<ShopItemRead>(`/api/v1/admin/shops/${shopId}/items/${itemId}`);
+export async function fetchShopItem(shopId: UUID, itemId: UUID, options: ApiRequestOptions = {}) {
+  const { data } = await apiClient.get<ShopItemRead>(`/api/v1/admin/shops/${shopId}/items/${itemId}`, {
+    signal: options.signal,
+  });
   return data;
 }
 
@@ -138,9 +363,75 @@ export async function createItem(payload: FormData) {
   return data;
 }
 
+async function uploadItemMultipartFile<TResponse>(
+  path: string,
+  file: ItemImageUploadFile,
+  httpMethod: "POST" | "PUT" | "PATCH",
+  parameters?: ItemMultipartFields,
+) {
+  const uploadUrls = await resolveReachableApiUrlCandidates(path);
+  if (uploadUrls.length === 0) {
+    throw new Error("API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart Expo.");
+  }
+  await assertUploadFileReady(file);
+
+  let lastNetworkError: unknown = null;
+  for (const [index, uploadUrl] of uploadUrls.entries()) {
+    try {
+      const response = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+        fieldName: "image",
+        headers: {
+          Accept: "application/json",
+          ...getApiAuthHeaders(),
+        },
+        httpMethod,
+        mimeType: file.type,
+        parameters,
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      });
+      const body = parseUploadResponseBody(response.body);
+      if (response.status >= 200 && response.status < 300) {
+        return body as TResponse;
+      }
+      const message = getUploadResponseMessage(body);
+      throw new UploadHttpError(message || `Image upload failed with status ${response.status}.`, response.status);
+    } catch (error) {
+      if (error instanceof UploadHttpError) {
+        throw error;
+      }
+      if (error instanceof UploadFileUnavailableError || isLocalUploadFileError(error)) {
+        throw new UploadFileUnavailableError(
+          "Selected image file is no longer available. Pick the image again and save.",
+        );
+      }
+      lastNetworkError = error;
+      if (index < uploadUrls.length - 1) {
+        continue;
+      }
+    }
+  }
+
+  if (lastNetworkError instanceof Error && lastNetworkError.message) {
+    const attemptedTargets = getUploadAttemptSummary(uploadUrls);
+    const attemptedMessage = attemptedTargets ? ` Tried ${attemptedTargets}.` : "";
+    throw new Error(
+      `Image upload could not reach backend API.${attemptedMessage} ${lastNetworkError.message}`,
+    );
+  }
+  throw new Error("Image upload failed before the backend responded.");
+}
+
+export async function createItemWithImageFile(payload: ItemMultipartFields, file: ItemImageUploadFile) {
+  return uploadItemMultipartFile<ItemRead>("/api/v1/admin/items", file, "POST", payload);
+}
+
 export async function updateItem(itemId: UUID, payload: FormData) {
   const { data } = await apiClient.patch<ItemRead>(`/api/v1/admin/items/${itemId}`, payload);
   return data;
+}
+
+export async function updateItemWithImageFile(itemId: UUID, payload: ItemMultipartFields, file: ItemImageUploadFile) {
+  return uploadItemMultipartFile<ItemRead>(`/api/v1/admin/items/${itemId}`, file, "PATCH", payload);
 }
 
 export async function updateItemMetadata(itemId: UUID, payload: ItemMetadataUpdate) {
@@ -157,9 +448,31 @@ export async function createShopItem(shopId: UUID, payload: FormData) {
   return data;
 }
 
+export async function createShopItemWithImageFile(
+  shopId: UUID,
+  payload: ItemMultipartFields,
+  file: ItemImageUploadFile,
+) {
+  return uploadItemMultipartFile<ItemRead>(`/api/v1/admin/shops/${shopId}/items`, file, "POST", payload);
+}
+
 export async function updateShopItem(shopId: UUID, itemId: UUID, payload: FormData) {
   const { data } = await apiClient.patch<ItemRead>(`/api/v1/admin/shops/${shopId}/items/${itemId}`, payload);
   return data;
+}
+
+export async function updateShopItemWithImageFile(
+  shopId: UUID,
+  itemId: UUID,
+  payload: ItemMultipartFields,
+  file: ItemImageUploadFile,
+) {
+  return uploadItemMultipartFile<ItemRead>(
+    `/api/v1/admin/shops/${shopId}/items/${itemId}`,
+    file,
+    "PATCH",
+    payload,
+  );
 }
 
 export async function updateShopItemMetadata(shopId: UUID, itemId: UUID, payload: ItemMetadataUpdate) {
@@ -176,8 +489,26 @@ export async function deleteItemImage(itemId: UUID) {
   return data;
 }
 
+export async function replaceItemImage(itemId: UUID, payload: FormData) {
+  const { data } = await apiClient.put<ItemImageRead>(`/api/v1/admin/items/${itemId}/image`, payload);
+  return data;
+}
+
+export async function replaceItemImageFile(itemId: UUID, file: ItemImageUploadFile) {
+  return uploadItemMultipartFile<ItemImageRead>(`/api/v1/admin/items/${itemId}/image`, file, "PUT");
+}
+
 export async function allocateShopItem(shopId: UUID, itemId: UUID) {
   const { data } = await apiClient.post<ShopItemRead>(`/api/v1/admin/shops/${shopId}/item-allocations/${itemId}`);
+  return data;
+}
+
+export async function allocateShopItems(shopId: UUID, itemIds: UUID[]) {
+  const payload: ShopItemAllocationBulkCreate = { item_ids: itemIds };
+  const { data } = await apiClient.post<ShopItemAllocationBulkRead>(
+    `/api/v1/admin/shops/${shopId}/item-allocations/bulk`,
+    payload,
+  );
   return data;
 }
 
@@ -246,8 +577,11 @@ export async function saveGlobalDailyPrices(payload: DailyPriceCreate) {
   return data;
 }
 
-export async function fetchShopPriceBootstrap(shopId: UUID) {
-  const { data } = await apiClient.get<ShopBootstrapResponse>(`/api/v1/admin/shops/${shopId}/prices/bootstrap`);
+export async function fetchShopPriceBootstrap(shopId: UUID, options: ApiRequestOptions = {}) {
+  const { data } = await apiClient.get<ShopBootstrapResponse>(
+    `/api/v1/admin/shops/${shopId}/prices/bootstrap`,
+    { signal: options.signal },
+  );
   return data;
 }
 

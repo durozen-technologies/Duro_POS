@@ -44,6 +44,20 @@ def _unique_constraint_names_for_columns(bind, table_name: str, columns: set[str
     }
 
 
+def _constraint_names(bind, table_name: str) -> set[str]:
+    if table_name not in _table_names(bind):
+        return set()
+    inspector = sa.inspect(bind)
+    names = set()
+    for collection in (
+        inspector.get_check_constraints(table_name),
+        inspector.get_unique_constraints(table_name),
+        inspector.get_foreign_keys(table_name),
+    ):
+        names.update(item["name"] for item in collection if item.get("name"))
+    return names
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     if "shop_id" not in _column_names(bind, "items"):
@@ -59,7 +73,9 @@ def upgrade() -> None:
         for constraint_name in _unique_constraint_names_for_columns(bind, "items", {"name"}):
             op.drop_constraint(constraint_name, "items", type_="unique")
 
-    if bind.dialect.name != "sqlite":
+    if bind.dialect.name != "sqlite" and "fk_items_shop_id_shops" not in _constraint_names(
+        bind, "items"
+    ):
         op.create_foreign_key(
             "fk_items_shop_id_shops",
             "items",
@@ -93,7 +109,9 @@ def downgrade() -> None:
     if "ix_items_shop_id" in _index_names(bind, "items"):
         op.drop_index("ix_items_shop_id", table_name="items")
 
-    if bind.dialect.name != "sqlite":
+    if bind.dialect.name != "sqlite" and "fk_items_shop_id_shops" in _constraint_names(
+        bind, "items"
+    ):
         op.drop_constraint("fk_items_shop_id_shops", "items", type_="foreignkey")
 
     if "shop_id" in _column_names(bind, "items"):

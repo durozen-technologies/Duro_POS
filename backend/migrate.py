@@ -7,8 +7,8 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
-from app.db.database import (
-    close_database_connections,
+from app.db.database import close_database_connections
+from app.db.startup import (
     migrate_legacy_item_images_before_schema_changes,
     run_database_startup_tasks,
 )

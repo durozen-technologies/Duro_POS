@@ -4,7 +4,7 @@ import type {
   AdminItemEditorMode,
   AdminItemWorkspace,
 } from "@/screens/admin/admin-items-model";
-import type { UUID } from "@/types/api";
+import type { ShopItemRead, UUID } from "@/types/api";
 
 export type AppStackParamList = {
   AppLoading: undefined;
@@ -19,6 +19,7 @@ export type AppStackParamList = {
     workspace: AdminItemWorkspace;
     itemId?: UUID;
     shopId?: UUID;
+    initialItem?: ShopItemRead;
   };
   Billing: undefined;
   Checkout: undefined;

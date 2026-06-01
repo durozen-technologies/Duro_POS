@@ -128,6 +128,7 @@ class ItemRead(ORMModel):
     updated_at: datetime | None = None
     custom_attributes: JsonObject = Field(default_factory=dict)
     image_path: str | None = None
+    image_thumb_path: str | None = None
     image_content_type: str | None = None
 
 
@@ -165,6 +166,16 @@ class ShopItemAllocationUpdate(BaseModel):
     custom_attributes: JsonObject = Field(default_factory=dict)
 
 
+class ShopItemAllocationBulkCreate(BaseModel):
+    item_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
+class ShopItemAllocationBulkRead(BaseModel):
+    item_ids: list[UUID]
+    allocated_count: int = 0
+    already_allocated_count: int = 0
+
+
 class ShopItemCounts(BaseModel):
     all: int = 0
     allocated: int = 0
@@ -182,6 +193,16 @@ class ShopItemPage(BaseModel):
     limit: int
     total_count: int = 0
     counts: ShopItemCounts = Field(default_factory=ShopItemCounts)
+    has_more: bool
+    next_cursor_group: int | None = None
+    next_cursor_sort_order: int | None = None
+    next_cursor_name: str | None = None
+    next_cursor_id: UUID | None = None
+
+
+class AdminItemRowsPage(BaseModel):
+    items: list[ShopItemRead]
+    limit: int
     has_more: bool
     next_cursor_group: int | None = None
     next_cursor_sort_order: int | None = None

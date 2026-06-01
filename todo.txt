@@ -25,3 +25,174 @@ In prices page:
 - Image of the items also should be there in the item card.
 
 Important: Improve the api performance and query optimization, sclabe and effient functions. Improve the frontend performance.
+
+
+
+# Admin Items Performance + Migration Repair Plan
+
+## Summary
+Migration audit found one important Postgres risk: `0001_current_schema` already creates `items.shop_id` with a foreign key, but `0003_add_shop_scoped_items` unconditionally creates the same FK again on non-SQLite databases. SQLite smoke passes, so this can hide until a fresh Postgres migration. Admin Items performance work should include a migration cleanup pass, not only frontend/backend query changes.
+
+## Migration Findings
+- Alembic has one linear head: `0013_item_image_thumbnails`.
+- SQLite `upgrade head` and `current` succeed, with only expression-index reflection warnings.
+- `alembic check` on SQLite is noisy and not reliable because SQLite cannot reflect several expression/descending indexes.
+- Offline SQL generation with `--sql` currently fails because migrations use live DB inspection.
+- `0003_add_shop_scoped_items` should be patched because a future `0014` migration cannot fix a failure that happens earlier in a fresh Postgres run.
+- Runtime schema guards overlap safely with `0010` and `0013`, but new performance indexes should stay in Alembic, not startup guards.
+
+## Key Changes
+- Patch `0003_add_shop_scoped_items.py`:
+  - Add a `_constraint_names()` helper like later migrations.
+  - Only call `op.create_foreign_key("fk_items_shop_id_shops", ...)` when that FK is missing.
+  - Keep SQLite behavior unchanged.
+
+- Add Alembic revision `0014_admin_items_perf_indexes`:
+  - Add Postgres expression sort indexes matching Admin Items row queries:
+    - `ix_items_catalogue_sort_lower_name` on catalogue items ordered by `sort_order, lower(name), id`.
+    - `ix_items_catalogue_active_sort_lower_name` for active catalogue import candidates.
+    - `ix_items_shop_sort_lower_name` for shop-owned item listing.
+  - Add missing metadata indexes expected by model metadata:
+    - `ix_daily_prices_created_at`
+    - `ix_item_categories_created_at`
+  - Keep it index-only: no tables, no columns, no RustFS/storage changes.
+
+- Frontend/backend performance fixes remain as planned:
+  - Gate hidden workspace hooks so Catalogue does not load shops/prices, Shop Items does not load prices, and Prices loads only when active.
+  - Add request cancellation for stale Admin item searches/counts.
+  - Keep row-first APIs as active list APIs.
+  - Keep RustFS thumbnail/direct URL improvements and add old-image thumbnail backfill.
+
+## Test Plan
+- Migration checks:
+  - `backend/.venv/bin/python -m alembic -c backend/alembic.ini heads`
+  - SQLite upgrade/current smoke.
+  - Fresh Postgres `upgrade head` smoke, because SQLite will not catch the duplicate-FK problem.
+  - Existing legacy `python backend/migrate.py` workflow with RustFS configured.
+
+- App checks:
+  - `backend/.venv/bin/python -m ruff check backend/app backend/migrate.py backend/migrations test`
+  - `backend/.venv/bin/python -m unittest discover test`
+  - `npm --prefix frontend run typecheck`
+
+## Assumptions
+- Existing applied migrations may be edited only for the `0003` fresh-Postgres safety fix.
+- No receipt, checkout, item seeding, image-in-Postgres, or RustFS storage-model changes.
+- Offline Alembic SQL generation is not part of the supported deployment path unless we later rewrite the inspection-heavy migrations.
+
+
+# Admin Items Deep Performance Repair Plan
+
+## Summary
+The main performance problems are API fan-out and cold image delivery, not one single bad endpoint. Current code can load shops and the expensive Prices bootstrap while the user is only on Catalogue or Shop Items. Search/count requests are ignored when stale but not cancelled, so the backend still works on them. RustFS thumbnails exist, but production defaults still fall back through FastAPI unless public RustFS is enabled, and old images can generate thumbnails lazily during scrolling.
+
+## Key Changes
+- Frontend API loading:
+  - Split the Admin Items route into active workspace sections or add strict `enabled` gates so Catalogue only loads catalogue rows/counts, Shop Items only loads shops + selected rows/counts, and Prices only loads shops + price bootstrap.
+  - Stop `useShopPrices()` from auto-calling `/prices/bootstrap` unless the active workspace is Prices.
+  - Stop `useAdminItemShops()` from loading on Catalogue.
+  - Add `AbortController` support through `apiClient` and Admin item API clients so stale search/count/list requests are cancelled, not only ignored.
+  - Debounce counts separately from rows; rows load first, counts update later without blocking visible list rendering.
+  - Keep full legacy APIs exported, but make active screens use only row-first endpoints.
+
+- Frontend rendering:
+  - Keep Catalogue Add/Edit only and Shop Items inline import tabs.
+  - Optimize Prices by avoiding full dirty/invalid recomputation on every keystroke; update per-item draft metadata incrementally and build full save payload only when saving/completing.
+  - Keep `ItemThumbnail`, but prefetch only first visible thumbnail URLs per active list and never prefetch hidden workspace lists.
+  - Remove or quarantine unused legacy `AdminItemsTab` code path if it is no longer routed, so future changes do not revive count-heavy behavior.
+
+- Backend/API queries:
+  - Keep compact endpoints as the primary list APIs:
+    - `/api/v1/admin/items/rows`
+    - `/api/v1/admin/shops/{shop_id}/selected-items/rows`
+    - `/api/v1/admin/shops/{shop_id}/item-import-candidates/rows`
+  - Rework count endpoints to avoid unnecessary allocation aggregation where possible, especially catalogue counts.
+  - Keep full endpoints for detail/backward compatibility only.
+  - Add an `IntegrityError` recovery path to bulk allocation so double taps or concurrent imports remain idempotent instead of surfacing a unique-constraint failure.
+  - Add lightweight slow-request logging or `Server-Timing` for Admin item row/count/price/image routes.
+
+- Postgres:
+  - Add index-only Alembic revision `0014_admin_items_perf_indexes`.
+  - Add expression sort indexes matching current ordering, especially `lower(name)`:
+    - catalogue/global active sort: `shop_id, is_active, sort_order, lower(name), id`
+    - shop-owned sort: `shop_id, sort_order, lower(name), id`
+  - Keep existing `pg_trgm` search indexes from `0009`; do not duplicate them.
+  - Verify existing `daily_prices(shop_id, item_id, price_date desc, created_at desc, id desc)` remains the Prices bootstrap path.
+
+- RustFS/image delivery:
+  - Enable public RustFS thumbnail URLs in production when allowed:
+    - set `RUSTFS_PUBLIC_BASE_URL` to the Caddy `/rustfs` URL
+    - set `RUSTFS_PUBLIC_READ_ENABLED=True`
+  - Keep FastAPI proxy fallback for private deployments.
+  - Add a batch thumbnail backfill command/task for old images so scrolling does not trigger many RustFS GET + PIL resize + RustFS PUT + DB commit operations.
+  - Make lazy thumbnail ETags stable by returning the uploaded object ETag or deriving a consistent content hash.
+  - Keep gzip excluded for `image/*`.
+
+## Test Plan
+- Backend:
+  - Test row/count endpoints for catalogue, selected items, import candidates, search, pagination, and inactive/already allocated filtering.
+  - Test bulk import double-submit/concurrent idempotency.
+  - Test Prices bootstrap still returns all active allocated items and uses latest prices correctly.
+  - Test image proxy headers, thumbnail lazy/backfilled behavior, stable ETag/304, and no gzip for image responses.
+  - Run ruff, unittest, and Alembic SQLite upgrade/current smoke.
+
+- Frontend:
+  - Run `npm --prefix frontend run typecheck`.
+  - Manually verify network calls:
+    - Catalogue: only catalogue rows/counts, no shops, no prices bootstrap.
+    - Shop Items: shops + selected rows/counts; candidate rows/counts only after opening Available catalogue.
+    - Prices: shops + price bootstrap only when Prices is active.
+  - Verify import one item, import selected items, rapid search, shop switch, and image scrolling.
+
+## Assumptions
+- Keep full/detail APIs for compatibility.
+- Prices remains all-editable on one page.
+- No item seeding, receipt, checkout, image-in-Postgres, or RustFS storage-model changes.
+- Public RustFS reads are enabled only when deployment policy allows anonymous read for item image objects.
+
+====================================================================================================================================================
+
+# Billing Page Catalogue Dropdown
+
+## Summary
+Add a category-based catalogue dropdown to the shop billing page so the cashier can filter billing items by category before entering quantities.
+
+## Key Changes
+- Update `frontend/src/screens/shop/billing-screen.tsx` only.
+- Build dropdown options from the existing `ItemPriceRead.category_id` / `category` fields already returned by `/api/v1/shop/bootstrap`.
+- Add an `All catalogue` default option, plus one option per category, with `Uncategorized` for items without a category.
+- Filter the product `FlatList` by the selected category; the cart, checkout flow, and printing flow stay unchanged.
+- Add a compact dropdown control above the product cards using existing React Native primitives, `MaterialCommunityIcons`, and local screen styling.
+
+## UI Behavior
+- Default selection: `All catalogue`.
+- Selecting a category immediately shows only matching items.
+- If refreshed data no longer contains the selected category, reset to `All catalogue`.
+- Keep typed quantities per item while switching categories.
+- Show the existing empty state if the selected category has no visible products.
+
+## Public APIs / Types
+- No backend changes.
+- No migration changes.
+- No API response changes.
+- No changes to checkout, payment validation, receipt preview, print, or commit behavior.
+
+## Translations
+Add shop translation keys for:
+- `billing.catalogueFilter`
+- `billing.allCatalogue`
+- `billing.uncategorizedCatalogue`
+- `billing.catalogueItemCount`
+- `billing.noCatalogueItems`
+
+Include both English and Tamil entries in `frontend/src/locales/shop-translations.json`.
+
+## Test Plan
+- Run `cd frontend && npm run typecheck`.
+- Manually verify billing screen:
+  - all items show by default,
+  - selecting a category filters products,
+  - cart contents remain visible and unchanged,
+  - refresh preserves valid selection or resets invalid selection,
+  - Tamil language mode still displays item Tamil names.
+

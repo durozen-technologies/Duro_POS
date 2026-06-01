@@ -1,10 +1,3 @@
 # Production overrides — merged automatically by deploy-prod.sh when present.
-# RustFS S3 API is disabled on backend until bucket API works with rustfs/rustfs:latest.
-# Item images are stored in Postgres until RustFS S3 is configured.
-services:
-  backend:
-    environment:
-      RUSTFS_ENDPOINT_URL: ""
-      RUSTFS_ACCESS_KEY_ID: ""
-      RUSTFS_SECRET_ACCESS_KEY: ""
-      RUSTFS_BUCKET_NAME: ""
+# Keep RustFS enabled from docker-compose.prod.yml; item images are RustFS-only.
+services: {}

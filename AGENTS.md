@@ -2,64 +2,40 @@
 
 ## Scope
 
-This file applies to the whole repository.
+This file applies to the whole repository. It provides high-level architectural constraints and business rules for the Billing System.
 
 ## Project Shape
 
-- `backend/`: FastAPI, SQLAlchemy async, PostgreSQL, Alembic, RustFS/S3-compatible item images.
-- `frontend/`: Expo React Native, TypeScript, Zustand, NativeWind, Android receipt printing.
-- `WhatsApp Bot/`: FastAPI WhatsApp bot that reuses backend domain models and schemas.
-- `test/`: backend unit and integration tests.
+- `backend/`: FastAPI, SQLAlchemy (async), PostgreSQL, Alembic, RustFS for item images.
+- `frontend/`: Expo React Native, TypeScript, Zustand, NativeWind, Android ESC/POS printing.
+- `WhatsApp Bot/`: FastAPI bot reusing `backend.app` models and schemas for sales reporting.
+- `caddy/`: Reverse proxy with automatic HTTPS and rate limiting.
 
 ## Non-Negotiable Business Rules
 
-- Receipt data must be saved only after printing succeeds. Keep the preview/print/commit flow intact.
-- Item images must not be stored in Postgres. Store/read images through RustFS using `image_object_key` and `image_content_type`.
-- Do not reintroduce `items.image_data` into active models or application reads/writes. It is legacy-only migration code.
-- Tamil item names are first-class item data. Preserve `tamil_name` / `item_tamil_name` through backend schemas, APIs, cart state, receipt output, and frontend language selection.
-- Admin item create/update must require valid Tamil names, not whitespace-only values.
+- **Checkout Flow**: Receipt data must only be committed to the database *after* successful printing. The flow is: `preview` -> `print` -> `commit`.
+- **Image Storage**: Item images must be stored in RustFS (S3-compatible). Use `image_object_key` and `image_content_type`. Never reintroduce `image_data` bytes into Postgres.
+- **Tamil Support**: `tamil_name` is a first-class requirement for items. Admin updates must require valid Tamil names. Frontend should toggle display based on language selection.
+- **Exact Payment**: Checkout requires the sum of Cash and UPI amounts to exactly match the bill total.
 
-## Backend Rules
+## Backend Architecture
 
-- Schema changes must use Alembic revisions under `backend/migrations/versions/`.
-- Keep `backend/migrate.py` as the single application migration command: it runs legacy image migration, Alembic, then idempotent startup data tasks.
-- Do not use `Base.metadata.create_all()` as the production schema migration path.
-- If touching DB startup or migrations, verify both fresh DB behavior and legacy-column behavior when relevant.
-- Production requires RustFS for item images; image upload should fail instead of falling back to Postgres.
+- **Shared Domain**: `backend.app.models` and `backend.app.schemas` are the source of truth for both the API and the WhatsApp Bot.
+- **Migrations**: Always use Alembic revisions in `backend/migrations/versions/`. Use [migrate.py](file:///home/sachinn-p/Codes/Billing System/backend/migrate.py) for deployments.
+- **Startup**: Idempotent startup tasks in [startup.py](file:///home/sachinn-p/Codes/Billing System/backend/app/db/startup.py) handle legacy data migration and bucket initialization.
 
-## Frontend Rules
+## Frontend Architecture
 
-- Checkout must call bill preview first, print the preview, and commit with `checkout_token` only after print succeeds.
-- Tamil display should use `item_tamil_name` when selected language is Tamil; English should use `item_name`.
-- Keep receipt rendering, cart state, direct printer paths, and admin/shop screens type-safe.
+- **State Management**: Zustand for cart, auth, and printer configuration.
+- **Printing**: Uses `@haroldtran/react-native-thermal-printer` on Android. Fallback to `expo-print` on other platforms.
+- **API Client**: [client.ts](file:///home/sachinn-p/Codes/Billing System/frontend/src/api/client.ts) handles base URL probing and failover.
 
 ## Validation Commands
 
-Run focused checks for touched areas first, then broader checks when done:
-
 ```bash
-backend/.venv/bin/python -m ruff check backend/app backend/migrate.py backend/migrations test
-backend/.venv/bin/python -m unittest discover test
-npm --prefix frontend run typecheck
+# Backend Lint & Test
+cd backend && uv run ruff check . && uv run --with pytest pytest ../test/
+
+# Frontend Typecheck
+cd frontend && npm run typecheck
 ```
-
-For migration work, also run:
-
-```bash
-DATABASE_URL=sqlite:////tmp/billing_alembic_check.sqlite3 backend/.venv/bin/python -m alembic -c backend/alembic.ini upgrade head
-DATABASE_URL=sqlite:////tmp/billing_alembic_check.sqlite3 backend/.venv/bin/python -m alembic -c backend/alembic.ini current
-```
-
-For lockfile/dependency changes in `backend/`, run from `backend/`:
-
-```bash
-uv lock --check
-```
-
-## Working Style
-
-- Keep changes surgical and consistent with nearby code.
-- Do not revert unrelated dirty files.
-- Prefer `rg` for search.
-- Use `apply_patch` for edits.
-- Reference changed files with line numbers in final summaries.

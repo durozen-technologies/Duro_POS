@@ -4,14 +4,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import get_settings
-from app.core.middleware import RequestIdMiddleware
-from app.db.database import run_database_startup_tasks
+from app.core.middleware import (
+    RequestIdMiddleware,
+    SelectiveGZipMiddleware,
+    SlowAdminRouteLoggingMiddleware,
+)
+from app.db.startup import run_database_startup_tasks
 from app.routers import api_router
 
 settings = get_settings()
@@ -74,7 +77,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestIdMiddleware)
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(SlowAdminRouteLoggingMiddleware)
+app.add_middleware(SelectiveGZipMiddleware, minimum_size=1024)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)

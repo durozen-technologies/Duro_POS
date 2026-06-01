@@ -1,10 +1,54 @@
-# Python-generated files
+# Environment and local tools
+.env
+.env.local
+.env.*
+!.env.example
+.envrc
+.direnv/
+.agents
+.agents/
+.codex
+.codex/
+.trae
+.trae/
+
+# Python versioning / virtualenvs
+.python-version
+.venv/
+venv/
+env/
+ENV/
+
+# Python caches and test artifacts
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.nox/
+.tox/
+.cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.ipynb_checkpoints/
+
+# Packaging/build outputs
 build/
 dist/
 wheels/
-*.egg-info
+pip-wheel-metadata/
+*.egg-info/
 
-# Virtual environments
-.venv
+# Local runtime data
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.log
+*.pid
+*.pid.lock

@@ -30,6 +30,7 @@ class DailyPrice(Base, BaseModelMixin):
             desc("created_at"),
             desc("id"),
         ),
+        Index("ix_daily_prices_shop_date_item", "shop_id", "price_date", "item_id"),
     )
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)

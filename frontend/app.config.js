@@ -49,11 +49,20 @@ const config = {
       "android.permission.BLUETOOTH_SCAN",
       "android.permission.BLUETOOTH_CONNECT",
       "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.READ_MEDIA_IMAGES",
     ],
     package: "com.anonymous.meatbillingpos",
   },
   web: {},
-  plugins: ["expo-secure-store"],
+  plugins: [
+    "expo-secure-store",
+    [
+      "expo-image-picker",
+      {
+        photosPermission: "Allow Meat Billing POS to choose item images for catalogue and shop items.",
+      },
+    ],
+  ],
   extra: {
     eas: {
       projectId: "8bd0810a-72de-43b3-a836-8c0d78481136",

@@ -56,9 +56,13 @@ class Settings(BaseSettings):
     rustfs_secret_access_key: str | None = None
     rustfs_region_name: str = "us-east-1"
     rustfs_bucket_name: str = "pos-mlb-items"
+    rustfs_public_base_url: str | None = None
+    rustfs_public_read_enabled: bool = False
     rustfs_connect_timeout_seconds: int = 5
     rustfs_read_timeout_seconds: int = 15
     item_image_max_bytes: int = 5 * 1024 * 1024
+    item_image_thumbnail_size: int = 192
+    item_image_full_max_size: int = 1024
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE_PATH),
@@ -107,6 +111,10 @@ class Settings(BaseSettings):
             )
         if self.item_image_max_bytes < 1:
             raise ValueError("ITEM_IMAGE_MAX_BYTES must be greater than 0")
+        if self.item_image_thumbnail_size < 1:
+            raise ValueError("ITEM_IMAGE_THUMBNAIL_SIZE must be greater than 0")
+        if self.item_image_full_max_size < self.item_image_thumbnail_size:
+            raise ValueError("ITEM_IMAGE_FULL_MAX_SIZE must be greater than or equal to thumbnail size")
         if self.rustfs_connect_timeout_seconds < 1:
             raise ValueError("RUSTFS_CONNECT_TIMEOUT_SECONDS must be greater than 0")
         if self.rustfs_read_timeout_seconds < 1:

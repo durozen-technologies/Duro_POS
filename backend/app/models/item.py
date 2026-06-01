@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     text,
@@ -31,6 +32,16 @@ class Item(Base, BaseModelMixin):
             "(unit_type = 'COUNT' AND base_unit = 'UNIT')",
             name="ck_items_unit_pair",
         ),
+        Index("ix_items_sort_name", "sort_order", "name", "id"),
+        Index(
+            "ix_items_global_active_import_sort",
+            "shop_id",
+            "is_active",
+            "sort_order",
+            "name",
+            "id",
+        ),
+        Index("ix_items_shop_sort_name_id", "shop_id", "sort_order", "name", "id"),
     )
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
@@ -46,10 +57,15 @@ class Item(Base, BaseModelMixin):
     )
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
     category_id: Mapped[UUID | None] = mapped_column(
-        UUID_SQL_TYPE, ForeignKey("item_categories.id", ondelete="SET NULL"), index=True, nullable=True
+        UUID_SQL_TYPE,
+        ForeignKey("item_categories.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
     )
     image_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image_content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    image_thumbnail_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    image_thumbnail_content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     custom_attributes: Mapped[dict[str, object | None]] = mapped_column(
         MutableDict.as_mutable(JSON),

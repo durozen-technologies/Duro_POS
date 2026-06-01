@@ -31,6 +31,7 @@ from app.models import BaseUnit, Shop, UnitType, User, UserRole
 from app.schemas.admin import (
     AdminBillPage,
     AdminDashboardBootstrap,
+    AdminItemRowsPage,
     AnalyticsPeriod,
     ItemCategoryCreate,
     ItemCategoryRead,
@@ -43,7 +44,10 @@ from app.schemas.admin import (
     PaymentSplitSummary,
     PriceStatus,
     ShopCreate,
+    ShopItemAllocationBulkCreate,
+    ShopItemAllocationBulkRead,
     ShopItemAllocationUpdate,
+    ShopItemCounts,
     ShopItemPage,
     ShopItemRead,
     ShopRead,
@@ -61,6 +65,10 @@ from app.schemas.pricing import (
 )
 from app.services.admin import (
     allocate_catalogue_item,
+    allocate_catalogue_items,
+    count_catalogue_items,
+    count_selected_shop_items,
+    count_shop_item_import_candidates,
     create_item,
     create_item_category,
     create_shop_account,
@@ -77,8 +85,13 @@ from app.services.admin import (
     get_shop_by_id,
     get_shop_item,
     get_shop_sales_summary,
+    list_catalogue_item_rows,
     list_catalogue_items,
     list_item_categories,
+    list_selected_shop_item_rows,
+    list_selected_shop_items,
+    list_shop_item_import_candidate_rows,
+    list_shop_item_import_candidates,
     list_shop_items,
     list_shops,
     set_shop_active_state,
@@ -418,6 +431,144 @@ async def get_shop_items(
 
 
 @router.get(
+    "/shops/{shop_id}/selected-items",
+    response_model=ShopItemPage,
+    response_model_exclude_unset=True,
+    summary="List Selected Shop Items",
+)
+async def get_selected_shop_items(
+    shop: ShopDep,
+    db: DBSession,
+    q: ItemSearchParam = None,
+    limit: ItemsLimitParam = 100,
+    cursor_sort_order: ItemCursorSortOrderParam = None,
+    cursor_name: ItemCursorNameParam = None,
+    cursor_id: ItemCursorIdParam = None,
+) -> ShopItemPage:
+    """Return compact selected item rows for the shop item management page."""
+    return await list_selected_shop_items(
+        db,
+        shop,
+        q=q,
+        limit=limit,
+        cursor_sort_order=cursor_sort_order,
+        cursor_name=cursor_name,
+        cursor_id=cursor_id,
+    )
+
+
+@router.get(
+    "/shops/{shop_id}/selected-items/rows",
+    response_model=AdminItemRowsPage,
+    response_model_exclude_unset=True,
+    summary="List Selected Shop Item Rows",
+)
+async def get_selected_shop_item_rows(
+    shop: ShopDep,
+    db: DBSession,
+    q: ItemSearchParam = None,
+    limit: ItemsLimitParam = 100,
+    cursor_sort_order: ItemCursorSortOrderParam = None,
+    cursor_name: ItemCursorNameParam = None,
+    cursor_id: ItemCursorIdParam = None,
+) -> AdminItemRowsPage:
+    """Return row-first selected shop item data without count-heavy joins."""
+    return await list_selected_shop_item_rows(
+        db,
+        shop,
+        q=q,
+        limit=limit,
+        cursor_sort_order=cursor_sort_order,
+        cursor_name=cursor_name,
+        cursor_id=cursor_id,
+    )
+
+
+@router.get(
+    "/shops/{shop_id}/selected-items/counts",
+    response_model=ShopItemCounts,
+    response_model_exclude_unset=True,
+    summary="Count Selected Shop Items",
+)
+async def get_selected_shop_item_counts(
+    shop: ShopDep,
+    db: DBSession,
+    q: ItemSearchParam = None,
+) -> ShopItemCounts:
+    """Return exact selected shop item counts for background UI badges."""
+    return await count_selected_shop_items(db, shop, q=q)
+
+
+@router.get(
+    "/shops/{shop_id}/item-import-candidates",
+    response_model=ShopItemPage,
+    response_model_exclude_unset=True,
+    summary="List Shop Item Import Candidates",
+)
+async def get_shop_item_import_candidates(
+    shop: ShopDep,
+    db: DBSession,
+    q: ItemSearchParam = None,
+    limit: ItemsLimitParam = 100,
+    cursor_sort_order: ItemCursorSortOrderParam = None,
+    cursor_name: ItemCursorNameParam = None,
+    cursor_id: ItemCursorIdParam = None,
+) -> ShopItemPage:
+    """Return compact active catalogue items that are not yet selected for the shop."""
+    return await list_shop_item_import_candidates(
+        db,
+        shop,
+        q=q,
+        limit=limit,
+        cursor_sort_order=cursor_sort_order,
+        cursor_name=cursor_name,
+        cursor_id=cursor_id,
+    )
+
+
+@router.get(
+    "/shops/{shop_id}/item-import-candidates/rows",
+    response_model=AdminItemRowsPage,
+    response_model_exclude_unset=True,
+    summary="List Shop Item Import Candidate Rows",
+)
+async def get_shop_item_import_candidate_rows(
+    shop: ShopDep,
+    db: DBSession,
+    q: ItemSearchParam = None,
+    limit: ItemsLimitParam = 100,
+    cursor_sort_order: ItemCursorSortOrderParam = None,
+    cursor_name: ItemCursorNameParam = None,
+    cursor_id: ItemCursorIdParam = None,
+) -> AdminItemRowsPage:
+    """Return row-first import candidates without exact count work."""
+    return await list_shop_item_import_candidate_rows(
+        db,
+        shop,
+        q=q,
+        limit=limit,
+        cursor_sort_order=cursor_sort_order,
+        cursor_name=cursor_name,
+        cursor_id=cursor_id,
+    )
+
+
+@router.get(
+    "/shops/{shop_id}/item-import-candidates/counts",
+    response_model=ShopItemCounts,
+    response_model_exclude_unset=True,
+    summary="Count Shop Item Import Candidates",
+)
+async def get_shop_item_import_candidate_counts(
+    shop: ShopDep,
+    db: DBSession,
+    q: ItemSearchParam = None,
+) -> ShopItemCounts:
+    """Return exact import candidate counts for background UI badges."""
+    return await count_shop_item_import_candidates(db, shop, q=q)
+
+
+@router.get(
     "/shops/{shop_id}/items/{item_id}",
     response_model=ShopItemRead,
     response_model_exclude_unset=True,
@@ -430,6 +581,20 @@ async def get_shop_item_detail(
 ) -> ShopItemRead:
     """Return one effective shop item row for route-safe editor loading."""
     return await get_shop_item(db, shop, item_id)
+
+
+@router.post(
+    "/shops/{shop_id}/item-allocations/bulk",
+    response_model=ShopItemAllocationBulkRead,
+    response_model_exclude_unset=True,
+    summary="Allocate Catalogue Items",
+)
+async def allocate_shop_catalogue_items(
+    payload: ShopItemAllocationBulkCreate,
+    shop: ShopDep,
+    db: DBSession,
+) -> ShopItemAllocationBulkRead:
+    return await allocate_catalogue_items(db, shop, payload.item_ids)
 
 
 @router.post(
@@ -554,6 +719,48 @@ async def delete_shop_inventory_item(
 ) -> Response:
     await delete_item(db, item_id, shop_id=shop.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/items/rows",
+    response_model=AdminItemRowsPage,
+    response_model_exclude_unset=True,
+    summary="List Catalogue Item Rows",
+)
+async def get_catalogue_item_rows(
+    db: DBSession,
+    q: ItemSearchParam = None,
+    active: ItemActiveParam = None,
+    limit: ItemsLimitParam = 100,
+    cursor_sort_order: ItemCursorSortOrderParam = None,
+    cursor_name: ItemCursorNameParam = None,
+    cursor_id: ItemCursorIdParam = None,
+) -> AdminItemRowsPage:
+    """Return row-first global catalogue item data without count-heavy joins."""
+    return await list_catalogue_item_rows(
+        db,
+        q=q,
+        active=active,
+        limit=limit,
+        cursor_sort_order=cursor_sort_order,
+        cursor_name=cursor_name,
+        cursor_id=cursor_id,
+    )
+
+
+@router.get(
+    "/items/counts",
+    response_model=ShopItemCounts,
+    response_model_exclude_unset=True,
+    summary="Count Catalogue Items",
+)
+async def get_catalogue_item_counts(
+    db: DBSession,
+    q: ItemSearchParam = None,
+    active: ItemActiveParam = None,
+) -> ShopItemCounts:
+    """Return exact catalogue counts for background UI badges."""
+    return await count_catalogue_items(db, q=q, active=active)
 
 
 @router.get(

@@ -1,7 +1,17 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,6 +24,8 @@ class ShopItemAllocation(Base, BaseModelMixin):
     __tablename__ = "shop_item_allocations"
     __table_args__ = (
         UniqueConstraint("shop_id", "item_id", name="uq_shop_item_allocations_shop_item"),
+        Index("ix_shop_item_allocations_sort", "shop_id", "is_active", "sort_order", "item_id"),
+        Index("ix_shop_item_allocations_shop_sort_item_fast", "shop_id", "sort_order", "item_id"),
     )
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)

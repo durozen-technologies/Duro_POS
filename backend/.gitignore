@@ -1,15 +1,29 @@
+# Environment and local tools
 .env
 .env.local
 .env.*
 !.env.example
+.envrc
+.direnv/
 .agents
-.venv/
-.codex
 .agents/
+.codex
 .codex/
+.trae
+.trae/
 .git.backup/
+
+# Python versioning / virtualenvs
 .python-version
+.venv/
+venv/
+env/
+ENV/
+
+# Python caches and test artifacts
 __pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -20,9 +34,22 @@ __pycache__/
 .cache/
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
+.ipynb_checkpoints/
+
+# Packaging/build outputs
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+*.egg-info/
+
+# Local runtime data
+*.sqlite
 *.sqlite3
 *.db
+*.db-journal
 *.log
 *.pid
 *.pid.lock

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
+from uuid import UUID
 
 from test.support import AsyncSessionAdapter, BackendTestCase
 
 from fastapi import HTTPException
+from PIL import Image
 from sqlalchemy import select, text
 
 from app.db import storage as item_storage
@@ -24,6 +28,12 @@ from app.services.admin import create_shop_account
 from app.services.auth import register_admin
 from app.services.billing import create_bill, preview_bill
 from app.services.pricing import create_daily_prices, create_global_daily_prices, get_global_bootstrap
+
+
+def _square_image_bytes(size: int = 400, image_format: str = "PNG") -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (size, size), color=(180, 40, 40)).save(output, format=image_format)
+    return output.getvalue()
 
 
 class ServiceUnitTests(BackendTestCase):
@@ -69,7 +79,9 @@ class ServiceUnitTests(BackendTestCase):
 
         self.run_async(scenario())
 
-    def test_seeded_default_items_do_not_store_database_images(self) -> None:
+    def test_created_items_do_not_store_database_images(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
@@ -80,6 +92,8 @@ class ServiceUnitTests(BackendTestCase):
         self.run_async(scenario())
 
     def test_item_image_upload_requires_rustfs(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
@@ -98,12 +112,270 @@ class ServiceUnitTests(BackendTestCase):
 
         self.run_async(scenario())
 
+    def test_item_image_variants_use_thumbnails_and_uuid7_keys(self) -> None:
+        original, original_content_type, thumbnail, thumbnail_content_type = (
+            item_storage._prepare_square_image_variants(_square_image_bytes(1200))
+        )
+
+        self.assertEqual(original_content_type, "image/jpeg")
+        self.assertEqual(thumbnail_content_type, "image/jpeg")
+        with Image.open(BytesIO(original)) as original_image:
+            self.assertEqual(original_image.size, (1024, 1024))
+        with Image.open(BytesIO(thumbnail)) as thumbnail_image:
+            self.assertEqual(thumbnail_image.size, (192, 192))
+
+        item_id = UUID("018f36ba-7c1f-7c2d-9d67-000000000001")
+        object_key = item_storage._get_object_key(
+            item_id,
+            "chicken.jpg",
+            variant="thumb",
+        )
+        object_uuid = UUID(hex=Path(object_key).stem)
+        self.assertEqual(object_uuid.version, 7)
+        self.assertIn(f"items/{item_id}/thumb/", object_key)
+
+    def test_item_image_path_uses_public_rustfs_url_when_enabled(self) -> None:
+        original_values = (
+            item_storage.settings.rustfs_public_read_enabled,
+            item_storage.settings.rustfs_public_base_url,
+            item_storage.settings.rustfs_bucket_name,
+        )
+        item_storage.settings.rustfs_public_read_enabled = True
+        item_storage.settings.rustfs_public_base_url = "https://pos.example/rustfs/"
+        item_storage.settings.rustfs_bucket_name = "pos-mlb-items"
+        try:
+            item_id = UUID("018f36ba-7c1f-7c2d-9d67-000000000001")
+            image_path = item_storage.build_item_image_path(
+                item_id,
+                "items/chicken/thumb/image.jpg",
+                variant="thumb",
+            )
+            self.assertEqual(
+                image_path,
+                "https://pos.example/rustfs/pos-mlb-items/items/chicken/thumb/image.jpg",
+            )
+        finally:
+            (
+                item_storage.settings.rustfs_public_read_enabled,
+                item_storage.settings.rustfs_public_base_url,
+                item_storage.settings.rustfs_bucket_name,
+            ) = original_values
+
+    def test_missing_thumbnail_metadata_is_cleared_and_regenerated(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        original_key = "items/chicken/original/image.jpg"
+        missing_thumbnail_key = "items/chicken/thumb/missing.jpg"
+        regenerated_thumbnail_key = "items/chicken/thumb/regenerated.jpg"
+
+        async def fake_download_object(object_key, *, fallback_content_type=None):
+            if object_key == missing_thumbnail_key:
+                raise item_storage.StoredImageObjectNotFoundError(object_key)
+            self.assertEqual(object_key, original_key)
+            return item_storage.StoredImagePayload(
+                content=_square_image_bytes(400, "JPEG"),
+                content_type=fallback_content_type or "image/jpeg",
+                object_key=object_key,
+                etag=f'"{object_key}"',
+                last_modified=datetime(2026, 5, 31, tzinfo=UTC),
+                cache_control=item_storage.PROXY_IMAGE_CACHE_CONTROL,
+            )
+
+        async def fake_upload_bytes(**kwargs):
+            self.assertEqual(kwargs["variant"], "thumb")
+            return regenerated_thumbnail_key, "image/jpeg", '"regenerated-thumb"'
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
+                chicken.image_object_key = original_key
+                chicken.image_content_type = "image/jpeg"
+                chicken.image_thumbnail_object_key = missing_thumbnail_key
+                chicken.image_thumbnail_content_type = "image/jpeg"
+                session.commit()
+
+                with (
+                    patch.object(item_storage, "_download_object", fake_download_object),
+                    patch.object(item_storage, "_upload_bytes", fake_upload_bytes),
+                ):
+                    payload = await item_storage.get_item_image_response_payload(
+                        chicken,
+                        db=AsyncSessionAdapter(session),
+                        variant="thumb",
+                        request_id="test-request-id",
+                    )
+
+                self.assertEqual(payload.object_key, regenerated_thumbnail_key)
+                session.expire_all()
+                refreshed = session.scalar(select(Item).where(Item.name == "Chicken"))
+                self.assertEqual(refreshed.image_object_key, original_key)
+                self.assertEqual(
+                    refreshed.image_thumbnail_object_key,
+                    regenerated_thumbnail_key,
+                )
+                self.assertEqual(refreshed.image_thumbnail_content_type, "image/jpeg")
+
+        self.run_async(scenario())
+
+    def test_missing_original_metadata_is_cleared(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        original_key = "items/chicken/original/missing.jpg"
+        thumbnail_key = "items/chicken/thumb/stale.jpg"
+
+        async def fake_download_object(object_key, *, fallback_content_type=None):
+            raise item_storage.StoredImageObjectNotFoundError(object_key)
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
+                chicken.image_object_key = original_key
+                chicken.image_content_type = "image/jpeg"
+                chicken.image_thumbnail_object_key = thumbnail_key
+                chicken.image_thumbnail_content_type = "image/jpeg"
+                session.commit()
+
+                with (
+                    patch.object(item_storage, "_download_object", fake_download_object),
+                    self.assertRaises(HTTPException) as ctx,
+                ):
+                    await item_storage.get_item_image_response_payload(
+                        chicken,
+                        db=AsyncSessionAdapter(session),
+                        variant="original",
+                        request_id="test-request-id",
+                    )
+
+                self.assertEqual(ctx.exception.status_code, 404)
+                session.expire_all()
+                refreshed = session.scalar(select(Item).where(Item.name == "Chicken"))
+                self.assertIsNone(refreshed.image_object_key)
+                self.assertIsNone(refreshed.image_content_type)
+                self.assertIsNone(refreshed.image_thumbnail_object_key)
+                self.assertIsNone(refreshed.image_thumbnail_content_type)
+
+        self.run_async(scenario())
+
+    def test_item_image_upload_cleans_new_objects_when_commit_fails(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+        uploaded_keys: list[str] = []
+        deleted_keys: list[str] = []
+
+        async def fake_upload_bytes(**kwargs):
+            object_key = f"items/{kwargs['item_id']}/{kwargs['variant']}/uploaded.jpg"
+            uploaded_keys.append(object_key)
+            return object_key, kwargs["content_type"], f'"{object_key}"'
+
+        async def fake_delete_object(object_key):
+            if object_key:
+                deleted_keys.append(object_key)
+
+        async def scenario() -> None:
+            original_values = (
+                item_storage.settings.rustfs_endpoint_url,
+                item_storage.settings.rustfs_access_key_id,
+                item_storage.settings.rustfs_secret_access_key,
+            )
+            item_storage.settings.rustfs_endpoint_url = "http://rustfs.test"
+            item_storage.settings.rustfs_access_key_id = "access"
+            item_storage.settings.rustfs_secret_access_key = "secret"
+            try:
+                with self.harness.session_factory() as session:
+                    chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
+                    db = AsyncSessionAdapter(session)
+
+                    async def fail_commit() -> None:
+                        raise RuntimeError("commit failed")
+
+                    db.commit = fail_commit
+                    with (
+                        patch.object(item_storage, "_upload_bytes", fake_upload_bytes),
+                        patch.object(item_storage, "_delete_object_if_present", fake_delete_object),
+                        self.assertRaises(RuntimeError),
+                    ):
+                        await item_storage.save_item_image_content(
+                            db,
+                            chicken,
+                            filename="chicken.png",
+                            content=_square_image_bytes(),
+                            content_type="image/png",
+                        )
+            finally:
+                (
+                    item_storage.settings.rustfs_endpoint_url,
+                    item_storage.settings.rustfs_access_key_id,
+                    item_storage.settings.rustfs_secret_access_key,
+                ) = original_values
+
+        self.run_async(scenario())
+        self.assertEqual(len(uploaded_keys), 2)
+        self.assertEqual(set(deleted_keys), set(uploaded_keys))
+
+    def test_item_image_upload_deletes_stale_objects_after_commit(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+        deleted_keys: list[str] = []
+
+        async def fake_upload_bytes(**kwargs):
+            object_key = f"items/{kwargs['item_id']}/{kwargs['variant']}/new.jpg"
+            return object_key, kwargs["content_type"], f'"{object_key}"'
+
+        async def fake_delete_object(object_key):
+            if object_key:
+                deleted_keys.append(object_key)
+
+        async def scenario() -> None:
+            original_values = (
+                item_storage.settings.rustfs_endpoint_url,
+                item_storage.settings.rustfs_access_key_id,
+                item_storage.settings.rustfs_secret_access_key,
+            )
+            item_storage.settings.rustfs_endpoint_url = "http://rustfs.test"
+            item_storage.settings.rustfs_access_key_id = "access"
+            item_storage.settings.rustfs_secret_access_key = "secret"
+            try:
+                with self.harness.session_factory() as session:
+                    chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
+                    chicken.image_object_key = "items/chicken/original/old.jpg"
+                    chicken.image_content_type = "image/jpeg"
+                    chicken.image_thumbnail_object_key = "items/chicken/thumb/old.jpg"
+                    chicken.image_thumbnail_content_type = "image/jpeg"
+                    session.commit()
+
+                    with (
+                        patch.object(item_storage, "_upload_bytes", fake_upload_bytes),
+                        patch.object(item_storage, "_delete_object_if_present", fake_delete_object),
+                    ):
+                        result = await item_storage.save_item_image_content(
+                            AsyncSessionAdapter(session),
+                            chicken,
+                            filename="chicken.png",
+                            content=_square_image_bytes(),
+                            content_type="image/png",
+                        )
+
+                    self.assertIsNotNone(result.image_path)
+                    self.assertIsNotNone(result.image_thumb_path)
+            finally:
+                (
+                    item_storage.settings.rustfs_endpoint_url,
+                    item_storage.settings.rustfs_access_key_id,
+                    item_storage.settings.rustfs_secret_access_key,
+                ) = original_values
+
+        self.run_async(scenario())
+        self.assertEqual(
+            set(deleted_keys),
+            {"items/chicken/original/old.jpg", "items/chicken/thumb/old.jpg"},
+        )
+
     def test_legacy_database_images_migrate_to_rustfs_and_clear_bytes(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken", "Duck")))
         upload_calls = []
 
         async def fake_upload_bytes(**kwargs):
             upload_calls.append(kwargs)
-            return f"items/{kwargs['item_id']}/migrated.jpg", kwargs["content_type"]
+            object_key = f"items/{kwargs['item_id']}/migrated.jpg"
+            return object_key, kwargs["content_type"], f'"{object_key}"'
 
         async def scenario() -> None:
             original_values = (
@@ -240,6 +512,7 @@ class ServiceUnitTests(BackendTestCase):
 
     def test_global_bootstrap_requires_every_item_priced_today(self) -> None:
         _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken", "Duck")))
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
@@ -262,6 +535,7 @@ class ServiceUnitTests(BackendTestCase):
 
     def test_create_global_daily_prices_requires_active_shops(self) -> None:
         self.run_async(self.harness.create_admin_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
@@ -288,6 +562,7 @@ class ServiceUnitTests(BackendTestCase):
 
     def test_create_global_daily_prices_rejects_duplicate_items(self) -> None:
         self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:

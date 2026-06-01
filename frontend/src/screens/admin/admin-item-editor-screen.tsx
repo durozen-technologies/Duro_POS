@@ -1,9 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { zodResolver } from "@hookform/resolvers/zod";
+import * as FileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
-import { requireOptionalNativeModule } from "expo-modules-core";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button as TButton, Input, Spinner, XStack, YStack } from "tamagui";
@@ -13,18 +13,24 @@ import { z } from "zod";
 import {
   createItem,
   createItemCategory,
+  createItemWithImageFile,
   createShopItem,
+  createShopItemWithImageFile,
+  deleteItemImage,
   deleteItemCategory,
   fetchCatalogueItem,
   fetchItemCategories,
   fetchShopItem,
+  replaceItemImageFile,
   updateItem,
+  updateItemWithImageFile,
   updateItemMetadata,
   updateShopItem,
   updateShopItemAllocation,
+  updateShopItemWithImageFile,
   updateShopItemMetadata,
 } from "@/api/admin";
-import { resolveApiUrl, toApiError } from "@/api/client";
+import { isApiRequestCanceled, resolveApiUrl, toApiError } from "@/api/client";
 import type { ItemCategoryRead, ItemMetadataUpdate, ShopItemRead, UUID } from "@/types/api";
 import type { AdminItemEditorScreenProps } from "@/navigation/types";
 
@@ -36,16 +42,25 @@ import {
 } from "./admin-items-model";
 
 type ExpoImagePickerModule = typeof import("expo-image-picker");
-type ExpoImagePickerNativeModule = {
-  launchImageLibraryAsync?: unknown;
-  requestMediaLibraryPermissionsAsync?: unknown;
-};
 type ImageDraft = {
   uri: string;
   name: string;
   type: string;
 };
+type PickedImageAsset = {
+  uri: string;
+  fileName?: string | null;
+  fileSize?: number | null;
+  mimeType?: string | null;
+};
+type ReactNativeFormDataFile = {
+  uri: string;
+  name: string;
+  type: string;
+};
 
+const MAX_ITEM_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024;
+const ITEM_IMAGE_UPLOAD_DRAFT_DIR = "item-image-uploads";
 const ATTRIBUTE_VALUE_TYPES = ["text", "number", "boolean", "null"] as const;
 type AttributeValueType = typeof ATTRIBUTE_VALUE_TYPES[number];
 
@@ -126,19 +141,126 @@ const EMPTY_EDITOR: EditorValues = {
 };
 
 async function loadImagePickerModule(): Promise<ExpoImagePickerModule | null> {
-  const nativeImagePicker = requireOptionalNativeModule<ExpoImagePickerNativeModule>("ExponentImagePicker");
-  if (!nativeImagePicker?.launchImageLibraryAsync || !nativeImagePicker.requestMediaLibraryPermissionsAsync) {
-    return null;
-  }
   try {
-    return await import("expo-image-picker");
-  } catch {
+    const imagePicker = await import("expo-image-picker");
+    if (!imagePicker.launchImageLibraryAsync) {
+      return null;
+    }
+    return imagePicker;
+  } catch (error) {
+    console.warn("expo-image-picker is unavailable in the current native build.", error);
     return null;
   }
 }
 
 function appendReactNativeFile(formData: FormData, fieldName: string, file: ImageDraft) {
-  formData.append(fieldName, file as unknown as Blob);
+  const uploadFile: ReactNativeFormDataFile = {
+    uri: file.uri,
+    name: file.name,
+    type: file.type,
+  };
+  formData.append(fieldName, uploadFile as unknown as Blob);
+}
+
+function extensionForImageType(contentType: string) {
+  if (contentType === "image/png") {
+    return ".png";
+  }
+  if (contentType === "image/webp") {
+    return ".webp";
+  }
+  return ".jpg";
+}
+
+function normalizedImageFilename(asset: PickedImageAsset, contentType: string) {
+  const fallbackName = `item-${Date.now()}${extensionForImageType(contentType)}`;
+  const candidate = asset.fileName?.trim() || fallbackName;
+  const sanitized = candidate.replace(/[^a-zA-Z0-9._-]/g, "-");
+  return /\.[a-zA-Z0-9]+$/.test(sanitized)
+    ? sanitized
+    : `${sanitized}${extensionForImageType(contentType)}`;
+}
+
+function readableBytes(byteCount: number) {
+  return `${(byteCount / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function ensureImageUploadDraftDirectory() {
+  const parentDirectory = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+  if (!parentDirectory) {
+    throw new Error("Image upload storage is unavailable on this device.");
+  }
+
+  const uploadDirectory = `${parentDirectory}${ITEM_IMAGE_UPLOAD_DRAFT_DIR}`;
+  try {
+    await FileSystem.makeDirectoryAsync(uploadDirectory, { intermediates: true });
+  } catch (error) {
+    const directoryInfo = await FileSystem.getInfoAsync(uploadDirectory);
+    if (!directoryInfo.exists || !directoryInfo.isDirectory) {
+      throw error;
+    }
+  }
+  return uploadDirectory;
+}
+
+async function getLocalFileSize(uri: string) {
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists) {
+    throw new Error("Selected image file is no longer available. Pick it again and save.");
+  }
+  return typeof info.size === "number" ? info.size : null;
+}
+
+async function copyImageToUploadDraftDirectory(sourceUri: string, name: string) {
+  const uploadDirectory = await ensureImageUploadDraftDirectory();
+  const cachedName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${name}`;
+  const cachedUri = `${uploadDirectory.replace(/\/$/, "")}/${cachedName}`;
+  try {
+    await FileSystem.copyAsync({ from: sourceUri, to: cachedUri });
+  } catch (error) {
+    throw new Error(
+      "Selected image could not be prepared for upload. Pick the image again and save.",
+      { cause: error },
+    );
+  }
+  return cachedUri;
+}
+
+async function deleteImageDraftFile(draft: ImageDraft | null) {
+  if (!draft?.uri) {
+    return;
+  }
+  try {
+    await FileSystem.deleteAsync(draft.uri, { idempotent: true });
+  } catch {
+    // The OS may already have cleaned it up; nothing else to do.
+  }
+}
+
+async function prepareImageDraftForUpload(asset: PickedImageAsset): Promise<ImageDraft> {
+  const contentType = asset.mimeType?.startsWith("image/") ? asset.mimeType : "image/jpeg";
+  const name = normalizedImageFilename(asset, contentType);
+  const uri = asset.uri;
+
+  if (!uri) {
+    throw new Error("Selected image has no readable file URI. Pick another image.");
+  }
+
+  if (typeof asset.fileSize === "number" && asset.fileSize > MAX_ITEM_IMAGE_UPLOAD_BYTES) {
+    throw new Error(
+      `Selected image is ${readableBytes(asset.fileSize)}. Choose an image under ${readableBytes(MAX_ITEM_IMAGE_UPLOAD_BYTES)}.`,
+    );
+  }
+
+  const cachedUri = await copyImageToUploadDraftDirectory(uri, name);
+  const preparedSize = await getLocalFileSize(cachedUri);
+  if (preparedSize !== null && preparedSize > MAX_ITEM_IMAGE_UPLOAD_BYTES) {
+    throw new Error(
+      `Selected image is ${readableBytes(preparedSize)}. Choose an image under ${readableBytes(MAX_ITEM_IMAGE_UPLOAD_BYTES)}.`,
+    );
+  }
+
+  return { uri: cachedUri, name, type: contentType };
 }
 
 function attributesFromObject(attributes: ShopItemRead["custom_attributes"]): EditorValues["attributes"] {
@@ -196,20 +318,35 @@ function valuesFromItem(item: ShopItemRead): EditorValues {
   };
 }
 
+function buildFormFields(
+  values: EditorValues,
+  customAttributes: Record<string, string | number | boolean | null>,
+  removeImage: boolean,
+) {
+  const fields: Record<string, string> = {
+    name: values.name.trim(),
+    tamil_name: values.tamilName.trim(),
+    unit_type: values.unitType,
+    base_unit: values.baseUnit,
+    is_active: String(values.isActive),
+    sort_order: values.sortOrder.trim() || "0",
+    category: values.category.trim(),
+    custom_attributes: JSON.stringify(customAttributes),
+    remove_image: String(removeImage),
+  };
+  if (values.categoryId) {
+    fields.category_id = values.categoryId;
+  }
+  return fields;
+}
+
 function buildFormData(values: EditorValues, imageDraft: ImageDraft | null, removeImage: boolean) {
   const formData = new FormData();
-  formData.append("name", values.name.trim());
-  formData.append("tamil_name", values.tamilName.trim());
-  formData.append("unit_type", values.unitType);
-  formData.append("base_unit", values.baseUnit);
-  formData.append("is_active", String(values.isActive));
-  formData.append("sort_order", values.sortOrder.trim() || "0");
-  formData.append("category", values.category.trim());
-  if (values.categoryId) {
-    formData.append("category_id", values.categoryId);
-  }
-  formData.append("custom_attributes", JSON.stringify(attributesToObject(values.attributes)));
-  formData.append("remove_image", String(removeImage && !imageDraft));
+  Object.entries(buildFormFields(values, attributesToObject(values.attributes), removeImage && !imageDraft)).forEach(
+    ([key, value]) => {
+      formData.append(key, value);
+    },
+  );
   if (imageDraft) {
     appendReactNativeFile(formData, "image", imageDraft);
   }
@@ -248,18 +385,24 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   const colorScheme = useColorScheme();
   const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
   const insets = useSafeAreaInsets();
-  const { mode, workspace, itemId, shopId } = route.params;
+  const { mode, workspace, itemId, shopId, initialItem } = route.params;
   const isCreate = mode === AdminItemEditorMode.Create;
   const isCustomize = mode === AdminItemEditorMode.Customize;
-  const [item, setItem] = useState<ShopItemRead | null>(null);
+  const [item, setItem] = useState<ShopItemRead | null>(() => (isCreate ? null : initialItem ?? null));
   const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
   const [categories, setCategories] = useState<ItemCategoryRead[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoryDraft, setCategoryDraft] = useState("");
-  const [loading, setLoading] = useState(!isCreate);
+  const [loading, setLoading] = useState(!isCreate && !initialItem);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [itemError, setItemError] = useState<string | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageStatus, setImageStatus] = useState<string | null>(null);
+  const [storedImageFailed, setStoredImageFailed] = useState(false);
+  const [itemReloadKey, setItemReloadKey] = useState(0);
 
   const {
     control,
@@ -269,7 +412,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     watch,
     formState: { errors, isDirty, isValid },
   } = useForm<EditorValues>({
-    defaultValues: EMPTY_EDITOR,
+    defaultValues: isCreate || !initialItem ? EMPTY_EDITOR : valuesFromItem(initialItem),
     resolver: zodResolver(editorSchema),
     mode: "onChange",
   });
@@ -278,61 +421,108 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   const isActive = watch("isActive");
   const watchedAttributes = watch("attributes");
   const selectedCategoryId = watch("categoryId");
+  const dirtyRef = useRef(false);
+  const savingRef = useRef(false);
 
-  const loadCategories = useCallback(async () => {
+  useEffect(() => {
+    dirtyRef.current = isDirty || Boolean(imageDraft) || removeImageRequested;
+  }, [imageDraft, isDirty, removeImageRequested]);
+
+  const loadCategories = useCallback(async (signal?: AbortSignal) => {
     setCategoriesLoading(true);
     try {
-      const nextCategories = await fetchItemCategories();
+      const nextCategories = await fetchItemCategories({ signal });
       setCategories(nextCategories);
+      setCategoryError(null);
     } catch (requestError) {
-      setError(getRequestErrorMessage(requestError, "Unable to load categories."));
+      if (isApiRequestCanceled(requestError)) {
+        return;
+      }
+      setCategoryError(getRequestErrorMessage(requestError, "Unable to load categories."));
     } finally {
-      setCategoriesLoading(false);
+      if (!signal?.aborted) {
+        setCategoriesLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    void loadCategories();
-  }, [loadCategories]);
+    if (isCustomize) {
+      setCategoryError(null);
+      setCategoriesLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    void loadCategories(controller.signal);
+    return () => controller.abort();
+  }, [isCustomize, loadCategories]);
 
   useEffect(() => {
     if (isCreate || !itemId) {
+      setItem(null);
       reset(EMPTY_EDITOR);
       setImageDraft(null);
       setRemoveImageRequested(false);
+      setLoading(false);
+      setItemError(null);
+      setImageError(null);
+      setImageStatus(null);
+      setStoredImageFailed(false);
       return;
     }
     let alive = true;
-    setLoading(true);
+    const controller = new AbortController();
+    if (initialItem) {
+      setItem(initialItem);
+      reset(valuesFromItem(initialItem));
+      setImageDraft(null);
+      setRemoveImageRequested(false);
+      setStoredImageFailed(false);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    if (!initialItem) {
+      setItemError(null);
+    }
     const request =
       workspace === AdminItemWorkspace.Catalogue || !shopId
-        ? fetchCatalogueItem(itemId)
-        : fetchShopItem(shopId, itemId);
+        ? fetchCatalogueItem(itemId, { signal: controller.signal })
+        : fetchShopItem(shopId, itemId, { signal: controller.signal });
     void request
       .then((loadedItem) => {
         if (!alive) {
           return;
         }
         setItem(loadedItem);
-        reset(valuesFromItem(loadedItem));
-        setImageDraft(null);
-        setRemoveImageRequested(false);
-        setError(null);
+        if (!dirtyRef.current) {
+          reset(valuesFromItem(loadedItem));
+          setImageDraft(null);
+          setRemoveImageRequested(false);
+          setStoredImageFailed(false);
+        }
+        setItemError(null);
       })
       .catch((requestError) => {
+        if (isApiRequestCanceled(requestError)) {
+          return;
+        }
         if (alive) {
-          setError(getRequestErrorMessage(requestError, "Unable to load item."));
+          if (!initialItem) {
+            setItemError(getRequestErrorMessage(requestError, "Unable to load item."));
+          }
         }
       })
       .finally(() => {
-        if (alive) {
+        if (alive && !initialItem) {
           setLoading(false);
         }
       });
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [isCreate, itemId, reset, shopId, workspace]);
+  }, [initialItem, isCreate, itemId, itemReloadKey, reset, shopId, workspace]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (event) => {
@@ -359,71 +549,113 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     : isCustomize
       ? "Customize shop item"
       : "Edit item";
-  const currentImageUri = removeImageRequested ? "" : imageDraft?.uri ?? (item?.image_path ? resolveApiUrl(item.image_path) : "");
+  const storedImagePath = item?.image_path || item?.image_thumb_path || "";
+  const hasStoredImage = Boolean(item?.image_path || item?.image_thumb_path);
+  const storedImageUri = storedImagePath && !storedImageFailed ? resolveApiUrl(storedImagePath) : "";
+  const currentImageUri = removeImageRequested
+    ? ""
+    : imageDraft?.uri ?? storedImageUri;
+  const currentImageIsDraft = Boolean(imageDraft && !removeImageRequested);
   const canEditSharedFields = !isCustomize;
   const customizationBlocked = isCustomize && item !== null && !item.allocated;
+  const hasImageChange = Boolean(imageDraft || removeImageRequested);
+  const hasPendingChanges = isDirty || hasImageChange;
+  const isImageOnlyChange =
+    !isCreate &&
+    !isCustomize &&
+    Boolean(itemId) &&
+    hasImageChange &&
+    !isDirty;
+  const saveDisabled = saving || customizationBlocked || (!isCreate && !hasPendingChanges) || (isCreate && !isValid);
+
+  useEffect(() => {
+    setStoredImageFailed(false);
+    setImageError(null);
+  }, [item?.image_path, item?.image_thumb_path]);
 
   const pickImage = useCallback(async () => {
+    setImageError(null);
+    setImageStatus("Opening image picker...");
     const imagePicker = await loadImagePickerModule();
     if (!imagePicker) {
-      Alert.alert("Image picker unavailable", "Rebuild the app with expo-image-picker to upload item images.");
+      setImageStatus(null);
+      setImageError(
+        "Image picker is not available in this installed Android build. Reinstall the dev client so the native image picker module is included.",
+      );
       return;
     }
-    const permission = await imagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError("Allow photo access to upload item images.");
-      return;
+    try {
+      const result = await imagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.72,
+      });
+      if (result.canceled || !result.assets[0]) {
+        setImageStatus(null);
+        return;
+      }
+      const draft = await prepareImageDraftForUpload(result.assets[0]);
+      setSaveError(null);
+      setImageError(null);
+      setImageStatus("Ready to upload when you save.");
+      setRemoveImageRequested(false);
+      setStoredImageFailed(false);
+      void deleteImageDraftFile(imageDraft);
+      setImageDraft(draft);
+    } catch (error) {
+      triggerHaptic();
+      setImageStatus(null);
+      setImageError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to open the image picker on this device.",
+      );
     }
-    const result = await imagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
-    });
-    if (result.canceled || !result.assets[0]) {
-      return;
-    }
-    const asset = result.assets[0];
-    setRemoveImageRequested(false);
-    setImageDraft({
-      uri: asset.uri,
-      name: asset.fileName ?? `item-${Date.now()}.jpg`,
-      type: asset.mimeType ?? "image/jpeg",
-    });
-  }, []);
+  }, [imageDraft]);
 
   const removeImage = useCallback(() => {
     if (imageDraft) {
+      void deleteImageDraftFile(imageDraft);
       setImageDraft(null);
+      setImageError(null);
+      setImageStatus(null);
       return;
     }
     if (removeImageRequested) {
       setRemoveImageRequested(false);
+      setImageError(null);
+      setImageStatus(null);
       return;
     }
-    if (!itemId || !item?.image_path) {
+    if (!itemId || !hasStoredImage) {
       setImageDraft(null);
       return;
     }
-    Alert.alert("Remove item image", `Remove the stored image for ${item.name} when you save?`, [
+    Alert.alert("Remove item image", `Remove the stored image for ${item?.name ?? "this item"} when you save?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove on save",
         style: "destructive",
-        onPress: () => setRemoveImageRequested(true),
+        onPress: () => {
+          setSaveError(null);
+          setImageError(null);
+          setImageStatus("Stored image will be removed when you save.");
+          setRemoveImageRequested(true);
+        },
       },
     ]);
-  }, [imageDraft, item, itemId, removeImageRequested]);
+  }, [hasStoredImage, imageDraft, item?.name, itemId, removeImageRequested]);
 
   const addCategory = useCallback(async () => {
     const categoryName = categoryDraft.trim();
     if (!categoryName) {
       triggerHaptic();
-      setError("Enter a category name.");
+      setCategoryError("Enter a category name.");
       return;
     }
     setCategoriesLoading(true);
-    setError(null);
+    setCategoryError(null);
     try {
       const createdCategory = await createItemCategory({ name: categoryName });
       setCategories((current) => [...current, createdCategory].sort((left, right) => left.name.localeCompare(right.name)));
@@ -432,7 +664,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       setValue("category", createdCategory.name, { shouldDirty: true, shouldValidate: true });
     } catch (requestError) {
       triggerHaptic();
-      setError(getRequestErrorMessage(requestError, "Unable to create category."));
+      setCategoryError(getRequestErrorMessage(requestError, "Unable to create category."));
     } finally {
       setCategoriesLoading(false);
     }
@@ -447,7 +679,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         onPress: () => {
           void (async () => {
             setCategoriesLoading(true);
-            setError(null);
+            setCategoryError(null);
             try {
               await deleteItemCategory(category.id);
               setCategories((current) => current.filter((candidate) => candidate.id !== category.id));
@@ -457,7 +689,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
               }
             } catch (requestError) {
               triggerHaptic();
-              setError(getRequestErrorMessage(requestError, "Unable to delete category."));
+              setCategoryError(getRequestErrorMessage(requestError, "Unable to delete category."));
             } finally {
               setCategoriesLoading(false);
             }
@@ -467,17 +699,57 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     ]);
   }, [selectedCategoryId, setValue]);
 
+  const saveImageOnlyChange = useCallback(async () => {
+    if (!itemId || !hasImageChange || savingRef.current) {
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError(null);
+    setImageError(null);
+    setImageStatus(imageDraft ? "Uploading replacement image..." : "Removing stored image...");
+    try {
+      if (imageDraft) {
+        await replaceItemImageFile(itemId, imageDraft);
+      } else {
+        await deleteItemImage(itemId);
+      }
+      void deleteImageDraftFile(imageDraft);
+      setImageDraft(null);
+      setRemoveImageRequested(false);
+      setStoredImageFailed(false);
+      if (workspace === AdminItemWorkspace.Catalogue) {
+        navigation.navigate("AdminItemsCatalogue");
+      } else {
+        navigation.navigate("AdminShopItems", { shopId });
+      }
+    } catch (requestError) {
+      triggerHaptic();
+      setImageError(getRequestErrorMessage(requestError, "Unable to save item image."));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+      setImageStatus(null);
+    }
+  }, [hasImageChange, imageDraft, itemId, navigation, shopId, workspace]);
+
   const submit = handleSubmit(async (values) => {
     let customAttributes: Record<string, string | number | boolean | null>;
     try {
       customAttributes = attributesToObject(values.attributes);
     } catch (requestError) {
       triggerHaptic();
-      setError(requestError instanceof Error ? requestError.message : "Invalid custom attributes.");
+      setSaveError(requestError instanceof Error ? requestError.message : "Invalid custom attributes.");
       return;
     }
+    if (savingRef.current) {
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
-    setError(null);
+    setSaveError(null);
+    setImageError(null);
+    setImageStatus(hasImageChange ? "Saving item image..." : null);
     try {
       if (isCustomize) {
         if (!shopId || !itemId) {
@@ -494,37 +766,69 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           custom_attributes: customAttributes,
         });
       } else if (isCreate) {
-        const payload = buildFormData(values, imageDraft, false);
+        const payload = buildFormFields(values, customAttributes, false);
         if (workspace === AdminItemWorkspace.Catalogue) {
-          await createItem(payload);
+          if (imageDraft) {
+            await createItemWithImageFile(payload, imageDraft);
+          } else {
+            await createItem(buildFormData(values, null, false));
+          }
         } else {
           if (!shopId) {
             throw new Error("Select a shop before creating a shop item.");
           }
-          await createShopItem(shopId, payload);
+          if (imageDraft) {
+            await createShopItemWithImageFile(shopId, payload, imageDraft);
+          } else {
+            await createShopItem(shopId, buildFormData(values, null, false));
+          }
         }
       } else {
         if (!itemId) {
           throw new Error("Item is required for editing.");
         }
-        const hasImageChange = Boolean(imageDraft || removeImageRequested);
         if (workspace === AdminItemWorkspace.Catalogue || !shopId) {
-          if (hasImageChange) {
-            await updateItem(itemId, buildFormData(values, imageDraft, removeImageRequested));
+          if (hasImageChange && !isDirty) {
+            if (imageDraft) {
+              await replaceItemImageFile(itemId, imageDraft);
+            } else {
+              await deleteItemImage(itemId);
+            }
+          } else if (hasImageChange) {
+            if (imageDraft) {
+              await updateItemWithImageFile(
+                itemId,
+                buildFormFields(values, customAttributes, false),
+                imageDraft,
+              );
+            } else {
+              await updateItem(itemId, buildFormData(values, null, removeImageRequested));
+            }
           } else {
             await updateItemMetadata(itemId, buildMetadataPayload(values, customAttributes));
           }
         } else {
           if (hasImageChange) {
-            await updateShopItem(shopId, itemId, buildFormData(values, imageDraft, removeImageRequested));
+            if (imageDraft) {
+              await updateShopItemWithImageFile(
+                shopId,
+                itemId,
+                buildFormFields(values, customAttributes, false),
+                imageDraft,
+              );
+            } else {
+              await updateShopItem(shopId, itemId, buildFormData(values, null, removeImageRequested));
+            }
           } else {
             await updateShopItemMetadata(shopId, itemId, buildMetadataPayload(values, customAttributes));
           }
         }
       }
       reset(values);
+      void deleteImageDraftFile(imageDraft);
       setImageDraft(null);
       setRemoveImageRequested(false);
+      setStoredImageFailed(false);
       if (workspace === AdminItemWorkspace.Catalogue) {
         navigation.navigate("AdminItemsCatalogue");
       } else {
@@ -532,14 +836,33 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       }
     } catch (requestError) {
       triggerHaptic();
-      setError(getRequestErrorMessage(requestError, "Unable to save item."));
+      const message = getRequestErrorMessage(requestError, "Unable to save item.");
+      if (hasImageChange) {
+        setImageError(message);
+      } else {
+        setSaveError(message);
+      }
     } finally {
+      savingRef.current = false;
       setSaving(false);
+      setImageStatus(null);
     }
   }, () => {
+    savingRef.current = false;
     triggerHaptic();
-    setError("Fix the highlighted fields before saving.");
+    setSaveError("Fix the highlighted fields before saving.");
   });
+
+  const saveItem = useCallback(() => {
+    if (saveDisabled || savingRef.current) {
+      return;
+    }
+    if (isImageOnlyChange) {
+      void saveImageOnlyChange();
+      return;
+    }
+    void submit();
+  }, [isImageOnlyChange, saveDisabled, saveImageOnlyChange, submit]);
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
@@ -568,10 +891,19 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.content, { paddingBottom: 34 + insets.bottom }]}
         >
-          {error ? (
+          {itemError ? (
             <View style={[styles.errorBox, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
               <MaterialCommunityIcons name="alert-circle-outline" size={18} color={palette.danger} />
-              <Text style={[styles.errorText, { color: palette.danger }]}>{error}</Text>
+              <Text style={[styles.errorText, { color: palette.danger }]}>{itemError}</Text>
+              <Pressable accessibilityRole="button" onPress={() => setItemReloadKey((value) => value + 1)} hitSlop={10}>
+                <Text style={[styles.errorAction, { color: palette.danger }]}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {saveError ? (
+            <View style={[styles.errorBox, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={18} color={palette.danger} />
+              <Text style={[styles.errorText, { color: palette.danger }]}>{saveError}</Text>
             </View>
           ) : null}
           {customizationBlocked ? (
@@ -587,7 +919,22 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             <View style={[styles.panel, { backgroundColor: palette.card, borderColor: palette.border }]}>
               <View style={[styles.imagePreview, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
                 {currentImageUri ? (
-                  <Image source={{ uri: currentImageUri }} contentFit="cover" style={StyleSheet.absoluteFill} />
+                  <Image
+                    source={{ uri: currentImageUri }}
+                    contentFit="cover"
+                    recyclingKey={currentImageUri}
+                    style={StyleSheet.absoluteFill}
+                    onError={() => {
+                      if (currentImageIsDraft) {
+                        setImageError("Selected image could not be previewed. Choose another square image.");
+                        return;
+                      }
+                      if (hasStoredImage) {
+                        setStoredImageFailed(true);
+                        setImageError("Stored image is missing in RustFS. Pick a replacement image and save.");
+                      }
+                    }}
+                  />
                 ) : (
                   <MaterialCommunityIcons name="image-plus" size={30} color={palette.textMuted} />
                 )}
@@ -595,9 +942,11 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
               <YStack flex={1} gap={8}>
                 <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Image</Text>
                 <Text style={[styles.sectionHint, { color: palette.textMuted }]}>Square image for admin and billing item rows.</Text>
+                {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
+                {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
                 <XStack gap={8} flexWrap="wrap">
                   <EditorButton label="Pick image" icon="image-edit-outline" onPress={pickImage} palette={palette} />
-                  {imageDraft || currentImageUri || removeImageRequested ? (
+                  {imageDraft || hasStoredImage || removeImageRequested ? (
                     <EditorButton
                       label={removeImageRequested ? "Undo remove" : imageDraft ? "Clear" : "Remove"}
                       icon="image-remove-outline"
@@ -678,8 +1027,10 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                 selectedCategoryId={selectedCategoryId}
                 draftName={categoryDraft}
                 loading={categoriesLoading}
+                errorMessage={categoryError}
                 palette={palette}
                 onChangeDraftName={setCategoryDraft}
+                onRetry={() => void loadCategories()}
                 onSelect={(category) => {
                   setValue("categoryId", category?.id ?? "", { shouldDirty: true, shouldValidate: true });
                   setValue("category", category?.name ?? "", { shouldDirty: true, shouldValidate: true });
@@ -695,11 +1046,11 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             <EditorButton
               label={saving ? "Saving..." : "Save item"}
               icon="content-save-outline"
-              onPress={() => void submit()}
+              onPress={saveItem}
               palette={palette}
               active
               loading={saving}
-              disabled={!isValid || customizationBlocked}
+              disabled={saveDisabled}
               flex
             />
           </XStack>
@@ -757,8 +1108,10 @@ function CategoryManager({
   selectedCategoryId,
   draftName,
   loading,
+  errorMessage,
   palette,
   onChangeDraftName,
+  onRetry,
   onSelect,
   onAdd,
   onDelete,
@@ -767,8 +1120,10 @@ function CategoryManager({
   selectedCategoryId: UUID | "";
   draftName: string;
   loading: boolean;
+  errorMessage: string | null;
   palette: ThemePalette;
   onChangeDraftName: (value: string) => void;
+  onRetry: () => void;
   onSelect: (category: ItemCategoryRead | null) => void;
   onAdd: () => void;
   onDelete: (category: ItemCategoryRead) => void;
@@ -784,6 +1139,16 @@ function CategoryManager({
         </YStack>
         {loading ? <Spinner color={palette.emerald} size="small" /> : null}
       </XStack>
+
+      {errorMessage ? (
+        <View style={[styles.errorBox, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={18} color={palette.danger} />
+          <Text style={[styles.errorText, { color: palette.danger }]}>{errorMessage}</Text>
+          <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={10}>
+            <Text style={[styles.errorAction, { color: palette.danger }]}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <XStack gap={8} alignItems="center">
         <Input
@@ -1119,6 +1484,11 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "700",
   },
+  imageMessage: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
   fieldLabel: {
     fontSize: 11,
     lineHeight: 15,
@@ -1153,6 +1523,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "800",
+  },
+  errorAction: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
   },
   categoryPanel: {
     borderWidth: 1,

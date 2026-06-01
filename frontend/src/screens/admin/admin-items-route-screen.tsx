@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
@@ -6,6 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { YStack } from "tamagui";
 
 import type { FetchShopItemsParams } from "@/api/admin";
+import { useApiConnection } from "@/hooks/use-api-connection";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAdminItemsStore } from "@/store/admin-items-store";
 import type {
@@ -14,7 +16,8 @@ import type {
   ShopItemRead,
   UUID,
 } from "@/types/api";
-import { isNonNegativeNumber, toMoneyString } from "@/utils/decimal";
+import { isPositiveNumber, toMoneyString } from "@/utils/decimal";
+import { prefetchItemThumbnails } from "@/utils/item-images";
 import type {
   AdminItemPricesScreenProps,
   AdminItemsCatalogueScreenProps,
@@ -24,31 +27,31 @@ import type {
 import { getAdminPalette } from "./admin-dashboard-theme";
 import {
   AdminItemEditorMode,
-  AdminItemFilter,
   AdminItemFormScope,
   AdminItemWorkspace,
   ItemScope,
-  PriceStatus,
 } from "./admin-items-model";
 import {
   EmptyState,
   ErrorState,
   FilterBar,
-  ImportCatalogueModal,
+  ImportCatalogueToolbar,
   ItemList,
   ItemRow,
   PriceGrid,
-  type PriceFilter,
   type RowAction,
   ShopPicker,
+  ShopItemsInlineTabs,
+  type ShopItemsTab,
   StatsStrip,
   WorkspaceTabs,
 } from "./components/admin-items-management";
 import { ToastBanner } from "./components/admin-dashboard-primitives";
 import {
   useAdminItemShops,
+  useAvailableCatalogueItems,
   useCatalogueItems,
-  useShopItems,
+  useSelectedShopItems,
   useShopPrices,
 } from "./hooks/use-admin-items-data";
 import { triggerHaptic, type ToastTone } from "./admin-dashboard-utils";
@@ -58,18 +61,17 @@ type ItemsRouteProps =
   | AdminShopItemsScreenProps
   | AdminItemPricesScreenProps;
 
-function buildShopItemQuery(filter: AdminItemFilter, search: string): FetchShopItemsParams {
+function buildSelectedShopItemQuery(search: string): FetchShopItemsParams {
   return {
     q: search.trim() || undefined,
-    allocated: true,
-    limit: 100,
+    limit: 50,
   };
 }
 
-function buildCatalogueItemQuery(filter: AdminItemFilter, search: string): FetchShopItemsParams {
+function buildCatalogueItemQuery(search: string): FetchShopItemsParams {
   return {
     q: search.trim() || undefined,
-    limit: 100,
+    limit: 50,
   };
 }
 
@@ -81,7 +83,9 @@ function AdminItemsRoute({
   const colorScheme = useColorScheme();
   const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const storedShopId = useAdminItemsStore((state) => state.selectedShopId);
+  const adminItemsHydrated = useAdminItemsStore((state) => state.hydrated);
   const setStoredShopId = useAdminItemsStore((state) => state.setSelectedShopId);
   const routeShopId = "params" in route ? route.params?.shopId : undefined;
   const initialShopId = routeShopId ?? storedShopId;
@@ -90,22 +94,36 @@ function AdminItemsRoute({
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
   const [importSearch, setImportSearch] = useState("");
   const debouncedImportSearch = useDebouncedValue(importSearch.trim(), 300);
-  const [importOpen, setImportOpen] = useState(false);
-  const [filter, setFilter] = useState(AdminItemFilter.All);
-  const [priceFilter, setPriceFilter] = useState<PriceFilter>("all");
+  const [shopItemsTab, setShopItemsTab] = useState<ShopItemsTab>("selected");
+  const [selectedImportIds, setSelectedImportIds] = useState<Set<UUID>>(() => new Set());
   const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
   const toastAnimation = useMemo(() => new Animated.Value(0), []);
-  const shopsState = useAdminItemShops();
-  const catalogueState = useCatalogueItems();
-  const shopItemsState = useShopItems(selectedShopId);
-  const importItemsState = useShopItems(selectedShopId);
-  const priceState = useShopPrices(selectedShopId);
+  const isCatalogueWorkspace = workspace === AdminItemWorkspace.Catalogue;
+  const isShopItemsWorkspace = workspace === AdminItemWorkspace.Shop;
+  const isPricesWorkspace = workspace === AdminItemWorkspace.Prices;
+  const shopsState = useAdminItemShops(isFocused && !isCatalogueWorkspace);
+  const catalogueState = useCatalogueItems(isFocused && isCatalogueWorkspace);
+  const shopItemsState = useSelectedShopItems(selectedShopId, isFocused && isShopItemsWorkspace);
+  const availableCatalogueState = useAvailableCatalogueItems(
+    selectedShopId,
+    isFocused && isShopItemsWorkspace && shopItemsTab === "available",
+  );
+  const priceState = useShopPrices(selectedShopId, isFocused && isPricesWorkspace);
+  const apiConnection = useApiConnection();
 
   const selectedShop = useMemo(
     () => shopsState.shops.find((shop) => shop.id === selectedShopId) ?? null,
     [selectedShopId, shopsState.shops],
   );
-
+  const selectedImportCount = selectedImportIds.size;
+  const selectedImportKey = useMemo(
+    () => [...selectedImportIds].sort().join("|"),
+    [selectedImportIds],
+  );
+  const importingImportKey = useMemo(
+    () => [...availableCatalogueState.importingIds].sort().join("|"),
+    [availableCatalogueState.importingIds],
+  );
   const showToast = useCallback((tone: ToastTone, message: string) => {
     setToast({ tone, message });
   }, []);
@@ -125,13 +143,26 @@ function AdminItemsRoute({
   }, [toast, toastAnimation]);
 
   useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
     if (routeShopId && routeShopId !== selectedShopId) {
       setSelectedShopId(routeShopId);
       setStoredShopId(routeShopId);
     }
-  }, [routeShopId, selectedShopId, setStoredShopId]);
+  }, [isFocused, routeShopId, selectedShopId, setStoredShopId]);
 
   useEffect(() => {
+    if (!isFocused || routeShopId || !adminItemsHydrated || !storedShopId || selectedShopId === storedShopId) {
+      return;
+    }
+    setSelectedShopId(storedShopId);
+  }, [adminItemsHydrated, isFocused, routeShopId, selectedShopId, storedShopId]);
+
+  useEffect(() => {
+    if (!isFocused || !adminItemsHydrated) {
+      return;
+    }
     if (selectedShopId) {
       setStoredShopId(selectedShopId);
       return;
@@ -139,58 +170,87 @@ function AdminItemsRoute({
     if (workspace !== AdminItemWorkspace.Catalogue && shopsState.shops[0]?.id) {
       setSelectedShopId(shopsState.shops[0].id);
     }
-  }, [selectedShopId, setStoredShopId, shopsState.shops, workspace]);
+  }, [adminItemsHydrated, isFocused, selectedShopId, setStoredShopId, shopsState.shops, workspace]);
 
   useEffect(() => {
-    setFilter(AdminItemFilter.All);
-    setPriceFilter("all");
+    setShopItemsTab("selected");
+    setImportSearch("");
+    setSelectedImportIds(new Set());
   }, [workspace]);
 
   useEffect(() => {
-    if (workspace === AdminItemWorkspace.Catalogue) {
-      void catalogueState.load(buildCatalogueItemQuery(filter, debouncedSearch)).catch((error) => {
+    if (isFocused && workspace === AdminItemWorkspace.Catalogue) {
+      void catalogueState.load(buildCatalogueItemQuery(debouncedSearch)).catch((error) => {
         showToast("error", error instanceof Error ? error.message : "Unable to load catalogue.");
       });
     }
-  }, [catalogueState.load, debouncedSearch, filter, showToast, workspace]);
+  }, [catalogueState.load, debouncedSearch, isFocused, showToast, workspace]);
 
   useEffect(() => {
-    if (workspace !== AdminItemWorkspace.Shop || !selectedShopId) {
+    if (isFocused && workspace === AdminItemWorkspace.Catalogue) {
+      prefetchItemThumbnails(catalogueState.items);
+    }
+  }, [catalogueState.items, isFocused, workspace]);
+
+  useEffect(() => {
+    if (!isFocused || workspace !== AdminItemWorkspace.Shop || !selectedShopId) {
       return;
     }
-    void shopItemsState.load(buildShopItemQuery(filter, debouncedSearch)).catch((error) => {
+    void shopItemsState.load(buildSelectedShopItemQuery(debouncedSearch)).catch((error) => {
       showToast("error", error instanceof Error ? error.message : "Unable to load shop items.");
     });
-  }, [debouncedSearch, filter, selectedShopId, shopItemsState.load, showToast, workspace]);
+  }, [debouncedSearch, isFocused, selectedShopId, shopItemsState.load, showToast, workspace]);
 
   useEffect(() => {
-    if (workspace !== AdminItemWorkspace.Shop || !selectedShopId || !importOpen) {
+    if (!isFocused || workspace !== AdminItemWorkspace.Shop || !selectedShopId || shopItemsTab !== "available") {
       return;
     }
-    void importItemsState.load({
+    void availableCatalogueState.load({
       q: debouncedImportSearch || undefined,
-      scope: ItemScope.Global,
-      allocated: false,
-      limit: 100,
+      limit: 50,
     }).catch((error) => {
       showToast("error", error instanceof Error ? error.message : "Unable to load catalogue items.");
     });
   }, [
+    availableCatalogueState.load,
     debouncedImportSearch,
-    importItemsState.load,
-    importOpen,
+    isFocused,
     selectedShopId,
+    shopItemsTab,
     showToast,
     workspace,
   ]);
 
+  useEffect(() => {
+    if (isFocused && workspace === AdminItemWorkspace.Shop && shopItemsTab === "selected") {
+      prefetchItemThumbnails(shopItemsState.items);
+    }
+  }, [isFocused, shopItemsState.items, shopItemsTab, workspace]);
+
+  useEffect(() => {
+    if (isFocused && workspace === AdminItemWorkspace.Shop && shopItemsTab === "available") {
+      prefetchItemThumbnails(availableCatalogueState.items);
+    }
+  }, [availableCatalogueState.items, isFocused, shopItemsTab, workspace]);
+
+  useEffect(() => {
+    if (isFocused && workspace === AdminItemWorkspace.Prices) {
+      prefetchItemThumbnails(priceState.bootstrap?.items ?? []);
+    }
+  }, [isFocused, priceState.bootstrap?.items, workspace]);
+
+  useEffect(() => {
+    setSelectedImportIds(new Set());
+    setImportSearch("");
+    setShopItemsTab("selected");
+  }, [selectedShopId]);
+
   const selectShop = useCallback((shopId: UUID) => {
     setStoredShopId(shopId);
     setSelectedShopId(shopId);
-    setFilter(AdminItemFilter.All);
-    setPriceFilter("all");
-    setImportOpen(false);
+    setShopItemsTab("selected");
     setImportSearch("");
+    setSelectedImportIds(new Set());
   }, [setStoredShopId]);
 
   const navigateCreate = useCallback((scope: AdminItemFormScope) => {
@@ -211,6 +271,7 @@ function AdminItemsRoute({
       workspace: editingCatalogue ? AdminItemWorkspace.Catalogue : AdminItemWorkspace.Shop,
       itemId: item.id,
       shopId: selectedShopId ?? undefined,
+      initialItem: item,
     });
   }, [navigation, selectedShopId, workspace]);
 
@@ -252,20 +313,70 @@ function AdminItemsRoute({
     );
   }, [catalogueState, shopItemsState, showToast, workspace]);
 
-  const importCatalogueItem = useCallback((item: ShopItemRead) => {
+  const openAvailableCatalogue = useCallback(() => {
+    setShopItemsTab("available");
+  }, []);
+
+  const showSelectedItems = useCallback(() => {
+    setShopItemsTab("selected");
+    setImportSearch("");
+    setSelectedImportIds(new Set());
+  }, []);
+
+  const toggleImportSelection = useCallback((itemId: UUID) => {
+    setSelectedImportIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }, []);
+
+  const changeImportSearch = useCallback((value: string) => {
+    setImportSearch(value);
+    setSelectedImportIds(new Set());
+  }, []);
+
+  const importCatalogueItemIds = useCallback((itemIds: UUID[]) => {
     if (!selectedShopId) {
       triggerHaptic();
-      showToast("error", "Select an import target shop first.");
+      showToast("error", "Select a shop before importing items.");
+      return;
+    }
+    if (itemIds.length === 0) {
+      triggerHaptic();
+      showToast("error", "Select at least one catalogue item.");
       return;
     }
 
-    void importItemsState.allocate(item.id)
-      .then(() => {
-        showToast("success", `${item.name} imported${selectedShop?.name ? ` to ${selectedShop.name}` : ""}.`);
+    void availableCatalogueState.importItems(itemIds)
+      .then((result) => {
+        setSelectedImportIds((current) => {
+          const next = new Set(current);
+          result.item_ids.forEach((itemId) => next.delete(itemId));
+          return next;
+        });
         void shopItemsState.refresh().catch(() => undefined);
+        const importedTotal = result.allocated_count + result.already_allocated_count;
+        const shopSuffix = selectedShop?.name ? ` to ${selectedShop.name}` : "";
+        showToast(
+          "success",
+          `${importedTotal} item${importedTotal === 1 ? "" : "s"} imported${shopSuffix}.`,
+        );
       })
-      .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to import item."));
-  }, [importItemsState, selectedShop?.name, selectedShopId, shopItemsState, showToast]);
+      .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to import items."));
+  }, [availableCatalogueState, selectedShop?.name, selectedShopId, shopItemsState, showToast]);
+
+  const importCatalogueItem = useCallback((item: ShopItemRead) => {
+    importCatalogueItemIds([item.id]);
+  }, [importCatalogueItemIds]);
+
+  const importSelectedCatalogueItems = useCallback(() => {
+    importCatalogueItemIds([...selectedImportIds]);
+  }, [importCatalogueItemIds, selectedImportIds]);
 
   const itemActions = useCallback((item: ShopItemRead): { primary: RowAction; secondary: RowAction[] } => {
     const isCatalogueWorkspace = workspace === AdminItemWorkspace.Catalogue;
@@ -291,21 +402,13 @@ function AdminItemsRoute({
         : {
             label: "Edit",
             icon: "pencil-outline",
-          onPress: () => navigateEdit(item),
-        };
+            onPress: () => navigateEdit(item),
+          };
 
-    const secondary: RowAction[] = isCatalogueWorkspace
-      ? [
-          {
-            label: "Import",
-            icon: "tray-arrow-down",
-            onPress: () => importCatalogueItem(item),
-          },
-        ]
-      : [];
+    const secondary: RowAction[] = [];
 
     return { primary, secondary };
-  }, [importCatalogueItem, navigateEdit, shopItemsState, showToast, workspace]);
+  }, [navigateEdit, shopItemsState, showToast, workspace]);
 
   const refreshCatalogue = useCallback(() => {
     void catalogueState.refresh().catch((error) => {
@@ -314,11 +417,10 @@ function AdminItemsRoute({
   }, [catalogueState, showToast]);
 
   const refreshShopItems = useCallback(() => {
-    void shopsState.reload().catch(() => undefined);
     void shopItemsState.refresh().catch((error) => {
       showToast("error", error instanceof Error ? error.message : "Unable to refresh shop items.");
     });
-  }, [shopItemsState, shopsState, showToast]);
+  }, [shopItemsState, showToast]);
 
   const refreshPrices = useCallback(() => {
     void priceState.load(true).catch((error) => {
@@ -327,15 +429,15 @@ function AdminItemsRoute({
   }, [priceState, showToast]);
 
   const refreshImportItems = useCallback(() => {
-    void importItemsState.refresh().catch((error) => {
+    void availableCatalogueState.refresh().catch((error) => {
       showToast("error", error instanceof Error ? error.message : "Unable to refresh catalogue items.");
     });
-  }, [importItemsState, showToast]);
+  }, [availableCatalogueState, showToast]);
 
   const savePriceRow = useCallback((item: ItemPriceRead, rawValue: string) => {
-    if (!isNonNegativeNumber(rawValue)) {
+    if (!isPositiveNumber(rawValue)) {
       triggerHaptic();
-      showToast("error", "Enter a valid price.");
+      showToast("error", "Enter a price greater than 0.");
       return;
     }
     void priceState.saveRow(item.item_id, toMoneyString(rawValue))
@@ -351,7 +453,7 @@ function AdminItemsRoute({
       showToast("error", "Edit at least one price before saving.");
       return;
     }
-    if (entries.some((entry) => !isNonNegativeNumber(entry.price_per_unit))) {
+    if (entries.some((entry) => !isPositiveNumber(entry.price_per_unit))) {
       triggerHaptic();
       showToast("error", "Fix invalid edited prices before saving.");
       return;
@@ -365,9 +467,9 @@ function AdminItemsRoute({
   }, [priceState, shopItemsState, showToast]);
 
   const completeTodayPrices = useCallback((entries: DailyPriceCreate["entries"], _staleCarryCount: number) => {
-    if (entries.some((entry) => !isNonNegativeNumber(entry.price_per_unit))) {
+    if (entries.some((entry) => !isPositiveNumber(entry.price_per_unit))) {
       triggerHaptic();
-      showToast("error", "Add valid prices before completing today.");
+      showToast("error", "Add prices greater than 0 before completing today.");
       return;
     }
     void priceState.saveAll(entries)
@@ -380,10 +482,20 @@ function AdminItemsRoute({
 
   const commonHeader = (
     <YStack gap={10}>
-      <ErrorState message={shopsState.error} palette={palette} onRetry={() => void shopsState.reload().catch(() => undefined)} />
+      <ErrorState
+        message={
+          apiConnection.status === "offline"
+            ? `Backend offline at ${apiConnection.baseUrl || "configured API URL"}. ${apiConnection.message}`
+            : null
+        }
+        palette={palette}
+        onRetry={() => void apiConnection.retry()}
+      />
+      {workspace !== AdminItemWorkspace.Catalogue ? (
+        <ErrorState message={shopsState.error} palette={palette} onRetry={() => void shopsState.reload().catch(() => undefined)} />
+      ) : null}
       <WorkspaceTabs
         workspace={workspace}
-        selectedShopId={selectedShopId}
         palette={palette}
         onCatalogue={() => navigation.navigate("AdminItemsCatalogue")}
         onShopItems={() => navigation.navigate("AdminShopItems", { shopId: selectedShopId ?? undefined })}
@@ -432,23 +544,11 @@ function AdminItemsRoute({
           {commonHeader}
           <ErrorState message={catalogueState.error} palette={palette} onRetry={refreshCatalogue} />
           <StatsStrip counts={catalogueState.counts} totalCount={catalogueState.totalCount} palette={palette} />
-          <ShopPicker
-            shops={shopsState.shops}
-            selectedShop={selectedShop}
-            loading={shopsState.loading}
-            palette={palette}
-            eyebrow="Import target"
-            sheetSubtitle="Choose the shop that should receive catalogue imports."
-            onSelectShop={selectShop}
-          />
           <FilterBar
             workspace={AdminItemWorkspace.Catalogue}
             search={search}
-            filter={filter}
-            counts={catalogueState.counts}
             palette={palette}
             onChangeSearch={setSearch}
-            onChangeFilter={setFilter}
             onCreate={() => navigateCreate(AdminItemFormScope.Catalogue)}
           />
         </YStack>
@@ -484,82 +584,148 @@ function AdminItemsRoute({
         </ScrollView>
       );
     }
-    return (
-      <>
-        <ItemList
-          items={shopItemsState.items}
-          loading={shopItemsState.loading}
-          refreshing={shopItemsState.refreshing}
-          loadingMore={shopItemsState.loadingMore}
-          hasMore={shopItemsState.hasMore}
-          palette={palette}
-          bottomPadding={42 + insets.bottom}
-          onRefresh={refreshShopItems}
-          onLoadMore={() => {
-            void shopItemsState.loadMore().catch((error) => {
-              showToast("error", error instanceof Error ? error.message : "Unable to load more items.");
-            });
-          }}
-          emptyTitle={search.trim() ? "No selected items match" : "No items selected"}
-          emptyMessage={
-            search.trim()
-              ? "Clear search or import more catalogue items."
-              : "Import catalogue items to make them available for this shop."
-          }
-          emptyAction={{
-            label: "Import catalogue",
-            icon: "tray-arrow-down",
-            onPress: () => setImportOpen(true),
-          }}
-          header={
-            <YStack gap={12}>
+    if (shopItemsTab === "available") {
+      return (
+        <View style={{ flex: 1, backgroundColor: palette.background }}>
+          <View style={[styles.fixedHeader, { backgroundColor: palette.background }]}>
+            <YStack gap={10}>
               {commonHeader}
-              <ErrorState message={shopItemsState.error} palette={palette} onRetry={refreshShopItems} />
-              <StatsStrip counts={shopItemsState.counts} totalCount={shopItemsState.totalCount} palette={palette} />
-              <FilterBar
-                workspace={AdminItemWorkspace.Shop}
-                search={search}
-                filter={filter}
-                counts={shopItemsState.counts}
+              <ErrorState message={availableCatalogueState.error} palette={palette} onRetry={refreshImportItems} />
+              <ShopItemsInlineTabs
+                activeTab={shopItemsTab}
+                selectedCount={shopItemsState.totalCount}
+                availableCount={availableCatalogueState.totalCount}
                 palette={palette}
-                onChangeSearch={setSearch}
-                onChangeFilter={setFilter}
-                onCreate={() => setImportOpen(true)}
+                onChangeTab={setShopItemsTab}
+              />
+              <ImportCatalogueToolbar
+                search={importSearch}
+                selectedCount={selectedImportCount}
+                importing={availableCatalogueState.importing}
+                palette={palette}
+                onChangeSearch={changeImportSearch}
+                onImportSelected={importSelectedCatalogueItems}
+                onClearSelection={() => setSelectedImportIds(new Set())}
+                onDone={showSelectedItems}
               />
             </YStack>
-          }
-          renderItem={(item) => {
-            const actions = itemActions(item);
-            return (
-              <ItemRow
-                item={item}
-                palette={palette}
-                primaryAction={actions.primary}
-                secondaryActions={actions.secondary}
-              />
-            );
-          }}
-        />
-        <ImportCatalogueModal
-          open={importOpen}
-          items={importItemsState.items}
-          loading={importItemsState.loading}
-          refreshing={importItemsState.refreshing}
-          loadingMore={importItemsState.loadingMore}
-          hasMore={importItemsState.hasMore}
-          search={importSearch}
-          palette={palette}
-          onClose={() => setImportOpen(false)}
-          onChangeSearch={setImportSearch}
-          onRefresh={refreshImportItems}
-          onLoadMore={() => {
-            void importItemsState.loadMore().catch((error) => {
-              showToast("error", error instanceof Error ? error.message : "Unable to load more catalogue items.");
-            });
-          }}
-          onImport={importCatalogueItem}
-        />
-      </>
+          </View>
+          <ItemList
+            items={availableCatalogueState.items}
+            loading={availableCatalogueState.loading}
+            refreshing={availableCatalogueState.refreshing}
+            loadingMore={availableCatalogueState.loadingMore}
+            hasMore={availableCatalogueState.hasMore}
+            palette={palette}
+            bottomPadding={42 + insets.bottom}
+            extraData={`${selectedImportKey}:${importingImportKey}`}
+            onRefresh={refreshImportItems}
+            onLoadMore={() => {
+              void availableCatalogueState.loadMore().catch((error) => {
+                showToast("error", error instanceof Error ? error.message : "Unable to load more catalogue items.");
+              });
+            }}
+            emptyTitle={importSearch.trim() ? "No available matches" : "No catalogue items available"}
+            emptyMessage={
+              importSearch.trim()
+                ? "Clear search to see more available catalogue items."
+                : "All active global catalogue items are already selected for this shop."
+            }
+            emptyAction={{
+              label: "Done",
+              icon: "check",
+              onPress: showSelectedItems,
+            }}
+            header={<StatsStrip counts={availableCatalogueState.counts} totalCount={availableCatalogueState.totalCount} palette={palette} />}
+            renderItem={(item) => {
+              const selected = selectedImportIds.has(item.id);
+              const importing = availableCatalogueState.importingIds.has(item.id);
+              return (
+                <ItemRow
+                  item={item}
+                  palette={palette}
+                  primaryAction={{
+                    label: "Import",
+                    icon: "tray-arrow-down",
+                    disabled: importing,
+                    loading: importing,
+                    onPress: () => importCatalogueItem(item),
+                  }}
+                  secondaryActions={[
+                    {
+                      label: selected ? "Selected" : "Select",
+                      icon: selected ? "checkbox-marked-outline" : "checkbox-blank-outline",
+                      tone: selected ? "primary" : "neutral",
+                      disabled: importing,
+                      onPress: () => toggleImportSelection(item.id),
+                    },
+                  ]}
+                />
+              );
+            }}
+          />
+        </View>
+      );
+    }
+    return (
+      <ItemList
+        items={shopItemsState.items}
+        loading={shopItemsState.loading}
+        refreshing={shopItemsState.refreshing}
+        loadingMore={shopItemsState.loadingMore}
+        hasMore={shopItemsState.hasMore}
+        palette={palette}
+        bottomPadding={42 + insets.bottom}
+        onRefresh={refreshShopItems}
+        onLoadMore={() => {
+          void shopItemsState.loadMore().catch((error) => {
+            showToast("error", error instanceof Error ? error.message : "Unable to load more items.");
+          });
+        }}
+        emptyTitle={search.trim() ? "No selected items match" : "No items selected"}
+        emptyMessage={
+          search.trim()
+            ? "Clear search or import more catalogue items."
+            : "Import catalogue items to make them available for this shop."
+        }
+        emptyAction={{
+          label: "Import catalogue",
+          icon: "tray-arrow-down",
+          onPress: openAvailableCatalogue,
+        }}
+        header={
+          <YStack gap={12}>
+            {commonHeader}
+            <ErrorState message={shopItemsState.error} palette={palette} onRetry={refreshShopItems} />
+            <ShopItemsInlineTabs
+              activeTab={shopItemsTab}
+              selectedCount={shopItemsState.totalCount}
+              availableCount={null}
+              palette={palette}
+              onChangeTab={setShopItemsTab}
+            />
+            <StatsStrip counts={shopItemsState.counts} totalCount={shopItemsState.totalCount} palette={palette} />
+            <FilterBar
+              workspace={AdminItemWorkspace.Shop}
+              search={search}
+              palette={palette}
+              onChangeSearch={setSearch}
+              onCreate={openAvailableCatalogue}
+            />
+          </YStack>
+        }
+        renderItem={(item) => {
+          const actions = itemActions(item);
+          return (
+            <ItemRow
+              item={item}
+              palette={palette}
+              primaryAction={actions.primary}
+              secondaryActions={actions.secondary}
+            />
+          );
+        }}
+      />
     );
   };
 
@@ -589,7 +755,6 @@ function AdminItemsRoute({
           items={priceState.bootstrap?.items ?? []}
           loading={priceState.loading}
           refreshing={priceState.refreshing}
-          filter={priceFilter}
           draftPrices={priceState.draftPrices}
           savingAll={priceState.savingAll}
           savingItemId={priceState.savingItemId}
@@ -599,7 +764,6 @@ function AdminItemsRoute({
           bottomPadding={42 + insets.bottom}
           onRefresh={refreshPrices}
           onBackToItems={() => navigation.navigate("AdminShopItems", { shopId: selectedShop.id })}
-          onChangeFilter={setPriceFilter}
           onChangeDraftPrice={priceState.setDraftPrice}
           onSaveRow={savePriceRow}
           onSaveEdited={saveEditedPrices}

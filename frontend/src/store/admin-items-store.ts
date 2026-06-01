@@ -7,19 +7,26 @@ import { secureStorage } from "@/utils/secure-storage";
 
 type AdminItemsState = {
   selectedShopId: UUID | null;
+  hydrated: boolean;
   setSelectedShopId: (selectedShopId: UUID | null) => void;
+  setHydrated: (hydrated: boolean) => void;
 };
 
 export const useAdminItemsStore = create<AdminItemsState>()(
   persist(
     (set) => ({
       selectedShopId: null,
+      hydrated: false,
       setSelectedShopId: (selectedShopId) => set({ selectedShopId }),
+      setHydrated: (hydrated) => set({ hydrated }),
     }),
     {
       name: ADMIN_ITEMS_STORAGE_KEY,
       storage: createJSONStorage(() => secureStorage),
       partialize: (state) => ({ selectedShopId: state.selectedShopId }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated(true);
+      },
     },
   ),
 );

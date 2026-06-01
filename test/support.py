@@ -25,9 +25,39 @@ from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
-from app.db.database import Base, seed_default_item_images, seed_defaults  # noqa: E402
+from app.db.database import Base  # noqa: E402
 from app.core.security import get_password_hash  # noqa: E402
 from app.models import BaseUnit, DailyPrice, Item, Shop, UnitType, User, UserRole  # noqa: E402
+
+TEST_ITEM_DEFINITIONS = {
+    "Chicken": {
+        "tamil_name": "தோலுடன்",
+        "unit_type": UnitType.WEIGHT,
+        "base_unit": BaseUnit.KG,
+        "sort_order": 10,
+        "category": "Chicken",
+    },
+    "Duck": {
+        "tamil_name": "வாத்து",
+        "unit_type": UnitType.COUNT,
+        "base_unit": BaseUnit.UNIT,
+        "sort_order": 40,
+        "category": "Duck",
+    },
+}
+
+
+def _test_item_attributes(item_name: str) -> dict[str, object]:
+    return TEST_ITEM_DEFINITIONS.get(
+        item_name,
+        {
+            "tamil_name": item_name,
+            "unit_type": UnitType.WEIGHT,
+            "base_unit": BaseUnit.KG,
+            "sort_order": 0,
+            "category": None,
+        },
+    )
 
 
 class AsyncSessionAdapter:
@@ -95,12 +125,6 @@ class DatabaseHarness:
             table.drop(self.engine, checkfirst=True)
         for table in Base.metadata.sorted_tables:
             table.create(self.engine, checkfirst=True)
-        session = self.session_factory()
-        try:
-            self.run(seed_defaults(AsyncSessionAdapter(session)))
-            self.run(seed_default_item_images(AsyncSessionAdapter(session)))
-        finally:
-            session.close()
 
     def start(self) -> None:
         self.reset_database()
@@ -112,27 +136,38 @@ class DatabaseHarness:
     def run(self, coro):
         return asyncio.run(coro)
 
-    async def fetch_items(self) -> list[Item]:
+    async def create_catalogue_items(
+        self,
+        item_names: tuple[str, ...] = ("Chicken", "Duck"),
+    ) -> list[Item]:
         with self.session_factory() as session:
-            result = session.scalars(
-                select(Item).where(Item.is_active.is_(True)).order_by(Item.id)
-            )
-            return result.all()
+            existing_items = session.scalars(
+                select(Item).where(Item.name.in_(item_names), Item.shop_id.is_(None))
+            ).all()
+            items_by_name = {item.name: item for item in existing_items}
 
-    def build_price_entries(
-        self, base_price: str = "100.00"
-    ) -> list[dict[str, str | UUID]]:
-        items = self.run(self.fetch_items())
-        start = Decimal(base_price)
-        entries: list[dict[str, str | UUID]] = []
-        for index, item in enumerate(items):
-            entries.append(
-                {
-                    "item_id": item.id,
-                    "price_per_unit": str(start + Decimal(index)),
-                }
-            )
-        return entries
+            for item_name in item_names:
+                if item_name in items_by_name:
+                    continue
+
+                attributes = _test_item_attributes(item_name)
+                item = Item(
+                    name=item_name,
+                    tamil_name=str(attributes["tamil_name"]),
+                    unit_type=attributes["unit_type"],
+                    base_unit=attributes["base_unit"],
+                    sort_order=int(attributes["sort_order"]),
+                    category=attributes["category"],
+                    is_active=True,
+                )
+                session.add(item)
+                items_by_name[item_name] = item
+
+            session.commit()
+            for item in items_by_name.values():
+                session.refresh(item)
+
+            return [items_by_name[item_name] for item_name in item_names]
 
     async def create_items_for_shop(
         self,
@@ -155,12 +190,15 @@ class DatabaseHarness:
                     continue
 
                 template = templates_by_name.get(item_name)
+                attributes = _test_item_attributes(item_name)
                 item = Item(
                     shop_id=shop_id,
                     name=item_name,
-                    tamil_name=template.tamil_name if template else item_name,
-                    unit_type=template.unit_type if template else UnitType.WEIGHT,
-                    base_unit=template.base_unit if template else BaseUnit.KG,
+                    tamil_name=template.tamil_name if template else str(attributes["tamil_name"]),
+                    unit_type=template.unit_type if template else attributes["unit_type"],
+                    base_unit=template.base_unit if template else attributes["base_unit"],
+                    sort_order=template.sort_order if template else int(attributes["sort_order"]),
+                    category=template.category if template else attributes["category"],
                     is_active=True,
                 )
                 session.add(item)

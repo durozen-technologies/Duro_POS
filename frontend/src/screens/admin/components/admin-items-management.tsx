@@ -1,6 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Image } from "expo-image";
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   FlatList,
   Modal,
@@ -13,24 +12,22 @@ import {
 } from "react-native";
 import { Button as TButton, Input, Spinner, XStack, YStack } from "tamagui";
 
-import { resolveApiUrl } from "@/api/client";
+import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import type {
   DailyPriceCreate,
   ItemPriceRead,
-  PriceStatus as ApiPriceStatus,
   ShopItemCounts,
   ShopItemRead,
   ShopRead,
   UUID,
 } from "@/types/api";
-import { isNonNegativeNumber, toMoneyString } from "@/utils/decimal";
+import { isPositiveNumber, toMoneyString } from "@/utils/decimal";
+import { getItemThumbnailUri } from "@/utils/item-images";
 
 import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
 import {
-  AdminItemFilter,
   AdminItemWorkspace,
   ItemScope,
-  PriceStatus,
 } from "../admin-items-model";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -40,62 +37,11 @@ export type RowAction = {
   icon: IconName;
   tone?: "primary" | "neutral" | "danger";
   disabled?: boolean;
+  loading?: boolean;
   onPress: () => void;
 };
 
-export type PriceFilter = "all" | ApiPriceStatus;
-
-const CATALOGUE_FILTERS = [
-  AdminItemFilter.All,
-  AdminItemFilter.Allocated,
-  AdminItemFilter.Available,
-  AdminItemFilter.Paused,
-];
-
-const SHOP_FILTERS = [
-  AdminItemFilter.All,
-  AdminItemFilter.Allocated,
-  AdminItemFilter.Available,
-  AdminItemFilter.Catalogue,
-  AdminItemFilter.Shop,
-  AdminItemFilter.NeedsPrice,
-  AdminItemFilter.StalePrice,
-  AdminItemFilter.Priced,
-  AdminItemFilter.Paused,
-];
-
-const FILTER_META: Record<AdminItemFilter, { label: string; icon: IconName; countKey?: keyof ShopItemCounts }> = {
-  [AdminItemFilter.All]: { label: "All", icon: "format-list-bulleted", countKey: "all" },
-  [AdminItemFilter.Allocated]: { label: "Allocated", icon: "link-variant", countKey: "allocated" },
-  [AdminItemFilter.Available]: { label: "Available", icon: "link-variant-off", countKey: "available" },
-  [AdminItemFilter.Catalogue]: { label: "Catalogue", icon: "shape-outline", countKey: "catalogue" },
-  [AdminItemFilter.Shop]: { label: "Shop", icon: "storefront-outline", countKey: "shop" },
-  [AdminItemFilter.Priced]: { label: "Priced", icon: "cash-check", countKey: "priced" },
-  [AdminItemFilter.NeedsPrice]: { label: "Needs price", icon: "cash-clock", countKey: "needs_price" },
-  [AdminItemFilter.StalePrice]: { label: "Stale", icon: "calendar-alert", countKey: "stale_price" },
-  [AdminItemFilter.Paused]: { label: "Paused", icon: "pause-circle-outline", countKey: "paused" },
-};
-
-const PRICE_FILTERS: { value: PriceFilter; label: string; icon: IconName }[] = [
-  { value: "all", label: "All", icon: "format-list-bulleted" },
-  { value: PriceStatus.Missing, label: "Missing", icon: "cash-clock" },
-  { value: PriceStatus.Stale, label: "Stale", icon: "calendar-alert" },
-  { value: PriceStatus.Current, label: "Current", icon: "cash-check" },
-];
-
-function priceStatusFor(item: ItemPriceRead): ApiPriceStatus {
-  return item.price_status ?? (item.latest_price_date ? PriceStatus.Stale : PriceStatus.Missing);
-}
-
-function priceStatusTone(status: ApiPriceStatus): "primary" | "neutral" | "danger" {
-  if (status === PriceStatus.Current) {
-    return "primary";
-  }
-  if (status === PriceStatus.Stale) {
-    return "danger";
-  }
-  return "neutral";
-}
+export type ShopItemsTab = "selected" | "available";
 
 function buttonColors(palette: ThemePalette, tone: "primary" | "neutral" | "danger" = "neutral", active = false) {
   if (tone === "danger") {
@@ -251,14 +197,12 @@ export function ErrorState({
 
 export function WorkspaceTabs({
   workspace,
-  selectedShopId,
   palette,
   onCatalogue,
   onShopItems,
   onPrices,
 }: {
   workspace: AdminItemWorkspace;
-  selectedShopId: UUID | null;
   palette: ThemePalette;
   onCatalogue: () => void;
   onShopItems: () => void;
@@ -273,19 +217,16 @@ export function WorkspaceTabs({
     <View style={[styles.tabs, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
       {items.map((item) => {
         const active = item.value === workspace;
-        const disabled = item.value !== AdminItemWorkspace.Catalogue && !selectedShopId;
         return (
           <Pressable
             key={item.value}
             accessibilityRole="button"
-            accessibilityState={{ selected: active, disabled }}
-            disabled={disabled}
+            accessibilityState={{ selected: active }}
             onPress={item.onPress}
             style={[
               styles.tab,
               {
                 backgroundColor: active ? palette.card : "transparent",
-                opacity: disabled ? 0.5 : 1,
               },
             ]}
           >
@@ -431,20 +372,14 @@ export function ShopPicker({
 export function FilterBar({
   workspace,
   search,
-  filter,
-  counts,
   palette,
   onChangeSearch,
-  onChangeFilter,
   onCreate,
 }: {
   workspace: AdminItemWorkspace.Catalogue | AdminItemWorkspace.Shop;
   search: string;
-  filter: AdminItemFilter;
-  counts: ShopItemCounts | null;
   palette: ThemePalette;
   onChangeSearch: (value: string) => void;
-  onChangeFilter: (value: AdminItemFilter) => void;
   onCreate: () => void;
 }) {
   return (
@@ -474,6 +409,136 @@ export function FilterBar({
           onPress={onCreate}
         />
       </XStack>
+    </YStack>
+  );
+}
+
+export function ShopItemsInlineTabs({
+  activeTab,
+  selectedCount,
+  availableCount,
+  palette,
+  onChangeTab,
+}: {
+  activeTab: ShopItemsTab;
+  selectedCount: number;
+  availableCount: number | null;
+  palette: ThemePalette;
+  onChangeTab: (tab: ShopItemsTab) => void;
+}) {
+  const tabs: { value: ShopItemsTab; label: string; icon: IconName; count: number | null }[] = [
+    { value: "selected", label: "Selected items", icon: "playlist-check", count: selectedCount },
+    { value: "available", label: "Available catalogue", icon: "playlist-plus", count: availableCount },
+  ];
+
+  return (
+    <View style={[styles.inlineTabs, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+      {tabs.map((tab) => {
+        const active = tab.value === activeTab;
+        return (
+          <Pressable
+            key={tab.value}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            onPress={() => onChangeTab(tab.value)}
+            style={[styles.inlineTab, { backgroundColor: active ? palette.card : "transparent" }]}
+          >
+            <MaterialCommunityIcons
+              name={tab.icon}
+              size={16}
+              color={active ? palette.emeraldDark : palette.textMuted}
+            />
+            <Text
+              numberOfLines={1}
+              style={[styles.inlineTabText, { color: active ? palette.emeraldDark : palette.textMuted }]}
+            >
+              {tab.label}
+            </Text>
+            <Text style={[styles.inlineTabCount, { color: active ? palette.emeraldDark : palette.textMuted }]}>
+              {tab.count ?? "..."}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+export function ImportCatalogueToolbar({
+  search,
+  selectedCount,
+  importing,
+  palette,
+  onChangeSearch,
+  onImportSelected,
+  onClearSelection,
+  onDone,
+}: {
+  search: string;
+  selectedCount: number;
+  importing: boolean;
+  palette: ThemePalette;
+  onChangeSearch: (value: string) => void;
+  onImportSelected: () => void;
+  onClearSelection: () => void;
+  onDone: () => void;
+}) {
+  return (
+    <YStack gap={10}>
+      <XStack gap={8} alignItems="center">
+        <View style={[styles.searchWrap, { borderColor: palette.border, backgroundColor: palette.card }]}>
+          <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
+          <Input
+            value={search}
+            onChangeText={onChangeSearch}
+            placeholder="Search available catalogue"
+            placeholderTextColor={palette.textMuted as never}
+            flex={1}
+            borderWidth={0}
+            paddingHorizontal={0}
+            backgroundColor="transparent"
+            color={palette.textPrimary}
+            fontSize={14}
+            fontWeight="700"
+          />
+        </View>
+        <ActionButton
+          label="Done"
+          icon="check"
+          palette={palette}
+          tone="neutral"
+          disabled={importing}
+          onPress={onDone}
+        />
+      </XStack>
+      <View style={[styles.importSelectionBar, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+        <Text numberOfLines={1} style={[styles.importSelectionText, { color: palette.textPrimary }]}>
+          {selectedCount === 0 ? "Select items to import" : `${selectedCount} selected`}
+        </Text>
+        <XStack gap={8} flexShrink={0}>
+          {selectedCount > 0 ? (
+            <ActionButton
+              label="Clear"
+              icon="close-circle-outline"
+              palette={palette}
+              tone="neutral"
+              disabled={importing}
+              compact
+              onPress={onClearSelection}
+            />
+          ) : null}
+          <ActionButton
+            label="Import selected"
+            icon="tray-arrow-down"
+            palette={palette}
+            tone="primary"
+            disabled={selectedCount === 0}
+            loading={importing && selectedCount > 0}
+            compact
+            onPress={onImportSelected}
+          />
+        </XStack>
+      </View>
     </YStack>
   );
 }
@@ -511,7 +576,17 @@ export function StatsStrip({
   );
 }
 
-export function ItemRow({
+function rowActionChanged(previous?: RowAction, next?: RowAction) {
+  return (
+    previous?.label !== next?.label ||
+    previous?.icon !== next?.icon ||
+    previous?.tone !== next?.tone ||
+    previous?.disabled !== next?.disabled ||
+    previous?.loading !== next?.loading
+  );
+}
+
+export const ItemRow = memo(function ItemRow({
   item,
   palette,
   primaryAction,
@@ -522,20 +597,22 @@ export function ItemRow({
   primaryAction: RowAction;
   secondaryActions: RowAction[];
 }) {
-  const imageUri = item.image_path ? resolveApiUrl(item.image_path) : "";
+  const imageUri = getItemThumbnailUri(item);
   const unitLabel = `${item.unit_type === "weight" ? "Weight" : "Count"} · ${item.base_unit.toUpperCase()}`;
   const categoryLabel = item.category?.trim() ? item.category.trim() : "Uncategorized";
 
   return (
     <View style={[styles.itemRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
       <View style={styles.itemMain}>
-        <View style={[styles.thumb, { backgroundColor: palette.surfaceMuted }]}>
-          {imageUri ? (
-            <Image source={{ uri: imageUri }} contentFit="cover" style={StyleSheet.absoluteFill} />
-          ) : (
-            <MaterialCommunityIcons name="image-outline" size={19} color={palette.textMuted} />
-          )}
-        </View>
+        <ItemThumbnail
+          uri={imageUri}
+          recyclingKey={item.id}
+          size={44}
+          borderRadius={10}
+          backgroundColor={palette.surfaceMuted}
+          iconColor={palette.textMuted}
+          iconSize={19}
+        />
         <View style={styles.itemText}>
           <Text style={[styles.itemName, { color: palette.textPrimary }]}>
             {item.name}
@@ -557,6 +634,7 @@ export function ItemRow({
             palette={palette}
             tone={action.tone ?? "neutral"}
             disabled={action.disabled}
+            loading={action.loading}
             onPress={action.onPress}
             compact
           />
@@ -567,13 +645,34 @@ export function ItemRow({
           palette={palette}
           tone={primaryAction.tone ?? "primary"}
           disabled={primaryAction.disabled}
+          loading={primaryAction.loading}
           onPress={primaryAction.onPress}
           compact
         />
       </View>
     </View>
   );
-}
+}, (previous, next) => {
+  if (
+    previous.palette !== next.palette ||
+    previous.item.id !== next.item.id ||
+    previous.item.name !== next.item.name ||
+    previous.item.tamil_name !== next.item.tamil_name ||
+    previous.item.updated_at !== next.item.updated_at ||
+    previous.item.image_path !== next.item.image_path ||
+    previous.item.image_thumb_path !== next.item.image_thumb_path ||
+    previous.item.is_active !== next.item.is_active ||
+    previous.item.allocated !== next.item.allocated ||
+    previous.secondaryActions.length !== next.secondaryActions.length ||
+    rowActionChanged(previous.primaryAction, next.primaryAction)
+  ) {
+    return false;
+  }
+
+  return previous.secondaryActions.every(
+    (action, index) => !rowActionChanged(action, next.secondaryActions[index]),
+  );
+});
 
 export function ItemList({
   items,
@@ -590,6 +689,7 @@ export function ItemList({
   renderItem,
   header,
   bottomPadding,
+  extraData,
 }: {
   items: ShopItemRead[];
   loading: boolean;
@@ -605,12 +705,19 @@ export function ItemList({
   renderItem: (item: ShopItemRead) => React.ReactElement;
   header: React.ReactElement;
   bottomPadding: number;
+  extraData?: unknown;
 }) {
   return (
     <FlatList
       data={loading && items.length === 0 ? [] : items}
+      extraData={extraData}
       keyExtractor={(item) => item.id}
       renderItem={({ item }) => renderItem(item)}
+      initialNumToRender={12}
+      maxToRenderPerBatch={10}
+      updateCellsBatchingPeriod={40}
+      windowSize={7}
+      removeClippedSubviews
       ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
       style={{ flex: 1, backgroundColor: palette.background }}
       contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
@@ -663,11 +770,100 @@ function LoadingRow({ palette }: { palette: ThemePalette }) {
   );
 }
 
+const PriceRow = memo(function PriceRow({
+  item,
+  value,
+  dirty,
+  valid,
+  saving,
+  palette,
+  onChangeDraftPrice,
+  onSaveRow,
+}: {
+  item: ItemPriceRead;
+  value: string;
+  dirty: boolean;
+  valid: boolean;
+  saving: boolean;
+  palette: ThemePalette;
+  onChangeDraftPrice: (itemId: UUID, value: string) => void;
+  onSaveRow: (item: ItemPriceRead, value: string) => void;
+}) {
+  const imageUri = getItemThumbnailUri(item);
+  return (
+    <View style={[styles.priceRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+      <ItemThumbnail
+        uri={imageUri}
+        recyclingKey={item.item_id}
+        size={44}
+        borderRadius={10}
+        backgroundColor={palette.surfaceMuted}
+        iconColor={palette.textMuted}
+        iconSize={19}
+      />
+      <View style={styles.priceText}>
+        <Text style={[styles.itemName, { color: palette.textPrimary }]}>
+          {item.item_name}
+        </Text>
+        <Text style={[styles.itemTamilName, { color: palette.textSecondary }]}>
+          {item.item_tamil_name ?? "Tamil missing"}
+        </Text>
+        <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
+          {item.base_unit.toUpperCase()}
+        </Text>
+      </View>
+      <View style={styles.priceEdit}>
+        <Input
+          value={value}
+          onChangeText={(nextValue) => onChangeDraftPrice(item.item_id, nextValue)}
+          placeholder="0.00"
+          placeholderTextColor={palette.textMuted as never}
+          keyboardType="decimal-pad"
+          minHeight={40}
+          borderRadius={10}
+          borderWidth={1}
+          borderColor={valid || !value ? palette.border : palette.danger}
+          backgroundColor={palette.surfaceMuted}
+          color={palette.textPrimary}
+          fontSize={15}
+          fontWeight="900"
+          textAlign="right"
+        />
+        <ActionButton
+          label="Save"
+          icon="cash-check"
+          palette={palette}
+          tone={dirty ? "primary" : "neutral"}
+          compact
+          disabled={!valid || !dirty}
+          loading={saving}
+          onPress={() => onSaveRow(item, value)}
+        />
+      </View>
+    </View>
+  );
+}, (previous, next) => (
+  previous.item.item_id === next.item.item_id &&
+  previous.item.item_name === next.item.item_name &&
+  previous.item.item_tamil_name === next.item.item_tamil_name &&
+  previous.item.unit_type === next.item.unit_type &&
+  previous.item.base_unit === next.item.base_unit &&
+  previous.item.current_price === next.item.current_price &&
+  previous.item.latest_price_date === next.item.latest_price_date &&
+  previous.item.price_status === next.item.price_status &&
+  previous.item.image_path === next.item.image_path &&
+  previous.item.image_thumb_path === next.item.image_thumb_path &&
+  previous.value === next.value &&
+  previous.dirty === next.dirty &&
+  previous.valid === next.valid &&
+  previous.saving === next.saving &&
+  previous.palette === next.palette
+));
+
 export function PriceGrid({
   items,
   loading,
   refreshing,
-  filter,
   draftPrices,
   savingAll,
   savingItemId,
@@ -677,7 +873,6 @@ export function PriceGrid({
   bottomPadding,
   onRefresh,
   onBackToItems,
-  onChangeFilter,
   onChangeDraftPrice,
   onSaveRow,
   onSaveEdited,
@@ -686,7 +881,6 @@ export function PriceGrid({
   items: ItemPriceRead[];
   loading: boolean;
   refreshing: boolean;
-  filter: PriceFilter;
   draftPrices: Record<UUID, string>;
   savingAll: boolean;
   savingItemId: UUID | null;
@@ -696,147 +890,154 @@ export function PriceGrid({
   bottomPadding: number;
   onRefresh: () => void;
   onBackToItems: () => void;
-  onChangeFilter: (filter: PriceFilter) => void;
   onChangeDraftPrice: (itemId: UUID, value: string) => void;
   onSaveRow: (item: ItemPriceRead, value: string) => void;
   onSaveEdited: (entries: DailyPriceCreate["entries"]) => void;
   onCompleteToday: (entries: DailyPriceCreate["entries"], staleCarryCount: number) => void;
 }) {
-  const entries = items.map((item) => ({
-    item_id: item.item_id,
-    price_per_unit: toMoneyString(draftPrices[item.item_id] ?? item.current_price ?? "0"),
-  }));
-  const dirtyItems = items.filter((item) => {
-    const draftValue = draftPrices[item.item_id];
-    return draftValue !== undefined && draftValue !== (item.current_price ?? "");
-  });
-  const dirtyEntries = dirtyItems.map((item) => ({
-    item_id: item.item_id,
-    price_per_unit: toMoneyString(draftPrices[item.item_id] ?? ""),
-  }));
-  const invalidCount = items.filter(
-    (item) => !isNonNegativeNumber(draftPrices[item.item_id] ?? item.current_price ?? "0"),
-  ).length;
-  const invalidDirtyCount = dirtyItems.filter(
-    (item) => !isNonNegativeNumber(draftPrices[item.item_id] ?? ""),
-  ).length;
-  const dirtyCount = dirtyEntries.length;
+  const itemsById = useMemo(
+    () => new Map(items.map((item) => [item.item_id, item])),
+    [items],
+  );
+  const priceState = useMemo(() => {
+    const dirtyEntries: DailyPriceCreate["entries"] = [];
+    const completeEntries: DailyPriceCreate["entries"] = [];
+    let dirtyCount = 0;
+    let invalidDirtyCount = 0;
+    let incompleteCount = 0;
 
-  const completeToday = () => {
-    onCompleteToday(entries, 0);
-  };
+    for (const [itemId, draftValue] of Object.entries(draftPrices)) {
+      const item = itemsById.get(itemId);
+      if (!item) {
+        continue;
+      }
+      const currentValue = item.current_price ?? "";
+      if (draftValue === currentValue) {
+        continue;
+      }
+      dirtyCount += 1;
+      if (!isPositiveNumber(draftValue)) {
+        invalidDirtyCount += 1;
+        continue;
+      }
+      dirtyEntries.push({
+        item_id: item.item_id,
+        price_per_unit: toMoneyString(draftValue),
+      });
+    }
+
+    for (const item of items) {
+      const value = (draftPrices[item.item_id] ?? item.current_price ?? "").trim();
+      if (!isPositiveNumber(value)) {
+        incompleteCount += 1;
+        continue;
+      }
+      completeEntries.push({
+        item_id: item.item_id,
+        price_per_unit: toMoneyString(value),
+      });
+    }
+
+    return {
+      completeEntries,
+      dirtyEntries,
+      dirtyCount,
+      incompleteCount,
+      invalidDirtyCount,
+    };
+  }, [draftPrices, items, itemsById]);
+
+  const completeToday = useCallback(() => {
+    if (priceState.incompleteCount > 0) {
+      return;
+    }
+    onCompleteToday(priceState.completeEntries, 0);
+  }, [onCompleteToday, priceState.completeEntries, priceState.incompleteCount]);
+  const priceSummaryText = `${selectedShop?.name ?? "Select a shop"} · ${items.length} items · ${priceState.dirtyCount} unsaved${
+    priceState.incompleteCount > 0 ? ` · ${priceState.incompleteCount} need price` : ""
+  }`;
+
+  const renderPriceRow = useCallback(({ item }: { item: ItemPriceRead }) => {
+    const draftValue = draftPrices[item.item_id];
+    const currentValue = item.current_price ?? "";
+    const value = draftValue ?? currentValue;
+    const dirty = draftValue !== undefined && draftValue !== currentValue;
+    const valid = isPositiveNumber(value);
+    return (
+      <PriceRow
+        item={item}
+        value={value}
+        dirty={dirty}
+        valid={valid}
+        saving={savingItemId === item.item_id}
+        palette={palette}
+        onChangeDraftPrice={onChangeDraftPrice}
+        onSaveRow={onSaveRow}
+      />
+    );
+  }, [draftPrices, onChangeDraftPrice, onSaveRow, palette, savingItemId]);
+  const priceListExtraData = useMemo(() => ({ draftPrices, savingItemId }), [draftPrices, savingItemId]);
 
   return (
-      <FlatList
-        data={loading ? [] : items}
-        keyExtractor={(item) => item.item_id}
-        keyboardShouldPersistTaps="handled"
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-        style={{ flex: 1, backgroundColor: palette.background }}
-        contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.emerald} />}
-        ListHeaderComponent={
-          <YStack gap={12} marginBottom={4}>
-            <ErrorState message={error} palette={palette} onRetry={onRefresh} />
-            <View style={[styles.priceSummary, { borderColor: palette.border, backgroundColor: palette.card }]}>
-              <XStack alignItems="center" justifyContent="space-between" gap={10}>
-                <YStack flex={1} minWidth={0}>
-                  <Text numberOfLines={1} style={[styles.sectionTitle, { color: palette.textPrimary }]}>
-                    Daily prices
-                  </Text>
-                  <Text numberOfLines={1} style={[styles.sectionSubtitle, { color: palette.textMuted }]}>
-                    {selectedShop?.name ?? "Select a shop"} · {items.length} items · {dirtyCount} unsaved
-                  </Text>
-                </YStack>
-                <ActionButton
-                  label="Items"
-                  icon="arrow-left"
-                  palette={palette}
-                  tone="neutral"
-                  onPress={onBackToItems}
-                  compact
-                />
-              </XStack>
-              <XStack gap={8} flexWrap="wrap">
-                <ActionButton
-                  label={savingAll ? "Saving..." : "Save edited prices"}
-                  icon="content-save-outline"
-                  palette={palette}
-                  tone="primary"
-                  loading={savingAll}
-                  disabled={dirtyCount === 0 || invalidDirtyCount > 0}
-                  onPress={() => onSaveEdited(dirtyEntries)}
-                />
-                <ActionButton
-                  label="Complete today"
-                  icon="calendar-check-outline"
-                  palette={palette}
-                  tone="neutral"
-                  disabled={items.length === 0 || invalidCount > 0}
-                  onPress={completeToday}
-                />
-              </XStack>
-            </View>
-          </YStack>
-        }
-      renderItem={({ item }) => {
-        const draftValue = draftPrices[item.item_id];
-        const currentValue = item.current_price ?? "";
-        const value = draftValue ?? currentValue;
-        const dirty = draftValue !== undefined && draftValue !== currentValue;
-        const valid = isNonNegativeNumber(value);
-        const imageUri = item.image_path ? resolveApiUrl(item.image_path) : "";
-        return (
-          <View style={[styles.priceRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
-            <View style={[styles.thumb, { backgroundColor: palette.surfaceMuted }]}>
-              {imageUri ? (
-                <Image source={{ uri: imageUri }} contentFit="cover" style={StyleSheet.absoluteFill} />
-              ) : (
-                <MaterialCommunityIcons name="image-outline" size={19} color={palette.textMuted} />
-              )}
-            </View>
-            <View style={styles.priceText}>
-              <Text style={[styles.itemName, { color: palette.textPrimary }]}>
-                {item.item_name}
-              </Text>
-              <Text style={[styles.itemTamilName, { color: palette.textSecondary }]}>
-                {item.item_tamil_name ?? "Tamil missing"}
-              </Text>
-              <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
-                {item.base_unit.toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.priceEdit}>
-              <Input
-                value={value}
-                onChangeText={(nextValue) => onChangeDraftPrice(item.item_id, nextValue)}
-                placeholder="0.00"
-                placeholderTextColor={palette.textMuted as never}
-                keyboardType="decimal-pad"
-                minHeight={40}
-                borderRadius={10}
-                borderWidth={1}
-                borderColor={valid || !value ? palette.border : palette.danger}
-                backgroundColor={palette.surfaceMuted}
-                color={palette.textPrimary}
-                fontSize={15}
-                fontWeight="900"
-                textAlign="right"
+    <FlatList
+      data={loading ? [] : items}
+      extraData={priceListExtraData}
+      keyExtractor={(item) => item.item_id}
+      keyboardShouldPersistTaps="handled"
+      initialNumToRender={12}
+      maxToRenderPerBatch={10}
+      updateCellsBatchingPeriod={40}
+      windowSize={7}
+      removeClippedSubviews
+      ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+      style={{ flex: 1, backgroundColor: palette.background }}
+      contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.emerald} />}
+      ListHeaderComponent={
+        <YStack gap={12} marginBottom={4}>
+          <ErrorState message={error} palette={palette} onRetry={onRefresh} />
+          <View style={[styles.priceSummary, { borderColor: palette.border, backgroundColor: palette.card }]}>
+            <XStack alignItems="center" justifyContent="space-between" gap={10}>
+              <YStack flex={1} minWidth={0}>
+                <Text numberOfLines={1} style={[styles.sectionTitle, { color: palette.textPrimary }]}>
+                  Daily prices
+                </Text>
+                <Text numberOfLines={1} style={[styles.sectionSubtitle, { color: palette.textMuted }]}>
+                  {priceSummaryText}
+                </Text>
+              </YStack>
+              <ActionButton
+                label="Items"
+                icon="arrow-left"
+                palette={palette}
+                tone="neutral"
+                onPress={onBackToItems}
+                compact
+              />
+            </XStack>
+            <XStack gap={8} flexWrap="wrap">
+              <ActionButton
+                label={savingAll ? "Saving..." : "Save edited prices"}
+                icon="content-save-outline"
+                palette={palette}
+                tone="primary"
+                loading={savingAll}
+                disabled={priceState.dirtyCount === 0 || priceState.invalidDirtyCount > 0}
+                onPress={() => onSaveEdited(priceState.dirtyEntries)}
               />
               <ActionButton
-                label="Save"
-                icon="cash-check"
+                label="Complete today"
+                icon="calendar-check-outline"
                 palette={palette}
-                tone={dirty ? "primary" : "neutral"}
-                compact
-                disabled={!valid || !dirty}
-                loading={savingItemId === item.item_id}
-                onPress={() => onSaveRow(item, value)}
+                tone="neutral"
+                disabled={items.length === 0 || priceState.incompleteCount > 0 || savingAll}
+                onPress={completeToday}
               />
-            </View>
+            </XStack>
           </View>
-        );
-      }}
+        </YStack>
+      }
+      renderItem={renderPriceRow}
       ListEmptyComponent={
         loading ? (
           <YStack gap={8}>
@@ -846,131 +1047,15 @@ export function PriceGrid({
           </YStack>
         ) : (
           <EmptyState
-            title={items.length === 0 ? "No allocated items" : "No prices match"}
-            message={
-              items.length === 0
-                ? "Allocate items to this shop before setting daily prices."
-                : "Refresh the page to check the latest prices."
-            }
-            icon={items.length === 0 ? "link-variant-off" : "cash-clock"}
-            action={items.length === 0 ? { label: "Back to items", icon: "arrow-left", onPress: onBackToItems } : undefined}
+            title="No allocated items"
+            message="Allocate items to this shop before setting daily prices."
+            icon="link-variant-off"
+            action={{ label: "Back to items", icon: "arrow-left", onPress: onBackToItems }}
             palette={palette}
           />
         )
       }
-      />
-  );
-}
-
-export function ImportCatalogueModal({
-  open,
-  items,
-  loading,
-  refreshing,
-  loadingMore,
-  hasMore,
-  search,
-  palette,
-  onClose,
-  onChangeSearch,
-  onRefresh,
-  onLoadMore,
-  onImport,
-}: {
-  open: boolean;
-  items: ShopItemRead[];
-  loading: boolean;
-  refreshing: boolean;
-  loadingMore: boolean;
-  hasMore: boolean;
-  search: string;
-  palette: ThemePalette;
-  onClose: () => void;
-  onChangeSearch: (value: string) => void;
-  onRefresh: () => void;
-  onLoadMore: () => void;
-  onImport: (item: ShopItemRead) => void;
-}) {
-  return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={[styles.modalOverlay, styles.centeredModalOverlay, { backgroundColor: palette.overlay }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.importSheet, { backgroundColor: palette.card, borderColor: palette.border }]}>
-          <XStack alignItems="center" justifyContent="space-between" gap={10}>
-            <YStack flex={1} minWidth={0}>
-              <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Import catalogue items</Text>
-              <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
-                Select global catalogue items for this shop.
-              </Text>
-            </YStack>
-            <Pressable accessibilityRole="button" onPress={onClose} style={styles.iconButton}>
-              <MaterialCommunityIcons name="close" size={20} color={palette.textPrimary} />
-            </Pressable>
-          </XStack>
-          <View style={[styles.searchWrap, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
-            <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
-            <Input
-              value={search}
-              onChangeText={onChangeSearch}
-              placeholder="Search catalogue"
-              placeholderTextColor={palette.textMuted as never}
-              flex={1}
-              borderWidth={0}
-              paddingHorizontal={0}
-              backgroundColor="transparent"
-              color={palette.textPrimary}
-              fontSize={14}
-              fontWeight="700"
-            />
-          </View>
-          <FlatList
-            data={loading ? [] : items}
-            keyExtractor={(item) => item.id}
-            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.emerald} />}
-            renderItem={({ item }) => (
-              <ItemRow
-                item={item}
-                palette={palette}
-                primaryAction={{
-                  label: "Import",
-                  icon: "tray-arrow-down",
-                  onPress: () => onImport(item),
-                }}
-                secondaryActions={[]}
-              />
-            )}
-            ListEmptyComponent={
-              loading ? (
-                <YStack gap={8}>
-                  <LoadingRow palette={palette} />
-                  <LoadingRow palette={palette} />
-                </YStack>
-              ) : (
-                <EmptyState
-                  title="No catalogue items"
-                  message="All matching catalogue items are already selected for this shop."
-                  icon="playlist-check"
-                  palette={palette}
-                />
-              )
-            }
-            ListFooterComponent={
-              hasMore ? (
-                <ActionButton
-                  label="Load more"
-                  icon="chevron-down-circle-outline"
-                  palette={palette}
-                  tone="neutral"
-                  loading={loadingMore}
-                  onPress={onLoadMore}
-                />
-              ) : null
-            }
-          />
-        </View>
-      </View>
-    </Modal>
+    />
   );
 }
 
@@ -1048,6 +1133,35 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     flexShrink: 1,
   },
+  inlineTabs: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 4,
+    flexDirection: "row",
+    gap: 4,
+  },
+  inlineTab: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 6,
+  },
+  inlineTabText: {
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+    flexShrink: 1,
+  },
+  inlineTabCount: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+  },
   shopPicker: {
     minHeight: 54,
     borderWidth: 1,
@@ -1082,16 +1196,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   shopSheet: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
-    gap: 12,
-    ...adminShadow("#000000", 0.22, 18, 18),
-  },
-  importSheet: {
-    flex: 1,
-    width: "100%",
-    maxHeight: "86%",
     borderWidth: 1,
     borderRadius: 18,
     padding: 14,
@@ -1189,6 +1293,24 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "800",
   },
+  importSelectionBar: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  importSelectionText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "900",
+  },
   searchWrap: {
     flex: 1,
     minHeight: 44,
@@ -1263,14 +1385,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-  },
-  thumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
   },
   itemText: {
     flex: 1,

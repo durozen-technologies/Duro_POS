@@ -1,9 +1,12 @@
 from app.db.storage import (
+    backfill_item_image_thumbnails,
     build_item_image_path,
+    build_item_image_thumb_path,
     delete_item_image,
     delete_item_image_storage,
     ensure_bucket_exists,
     get_item_image_response_payload,
+    image_response_headers,
     migrate_item_image_data_to_rustfs,
     save_item_image_content,
     save_item_image_upload,
@@ -12,11 +15,14 @@ from app.db.storage import (
 )
 
 __all__ = [
+    "backfill_item_image_thumbnails",
     "build_item_image_path",
+    "build_item_image_thumb_path",
     "delete_item_image",
     "delete_item_image_storage",
     "ensure_bucket_exists",
     "get_item_image_response_payload",
+    "image_response_headers",
     "migrate_item_image_data_to_rustfs",
     "save_item_image_content",
     "save_item_image_upload",

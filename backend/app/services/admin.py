@@ -1,14 +1,17 @@
+import json
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import and_, case, distinct, func, or_, select, text
+from sqlalchemy import and_, case, cast, distinct, func, null, or_, select, text, union_all
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
 from app.core.security import get_password_hash
 from app.db.storage import (
     build_item_image_path,
+    build_item_image_thumb_path,
     delete_item_image_storage,
     save_item_image_upload,
 )
@@ -32,6 +35,7 @@ from app.schemas.admin import (
     AdminBillShopStat,
     AdminBillSummary,
     AdminDashboardBootstrap,
+    AdminItemRowsPage,
     AnalyticsPeriod,
     ItemCategoryCreate,
     ItemCategoryRead,
@@ -44,6 +48,7 @@ from app.schemas.admin import (
     PaymentSplitSummary,
     PriceStatus,
     ShopCreate,
+    ShopItemAllocationBulkRead,
     ShopItemAllocationUpdate,
     ShopItemCounts,
     ShopItemPage,
@@ -82,20 +87,38 @@ def _item_to_read(item: Item) -> ItemRead:
         updated_at=item.updated_at,
         custom_attributes=item.custom_attributes or {},
         image_path=build_item_image_path(item.id, item.image_object_key, item.image_content_type),
+        image_thumb_path=build_item_image_thumb_path(
+            item.id,
+            item.image_thumbnail_object_key,
+            item.image_thumbnail_content_type,
+            original_object_key=item.image_object_key,
+        ),
         image_content_type=item.image_content_type,
     )
 
 
 def _merge_custom_attributes(
-    item_attributes: dict[str, object | None] | None,
-    allocation_attributes: dict[str, object | None] | None,
+    item_attributes: dict[str, object | None] | str | None,
+    allocation_attributes: dict[str, object | None] | str | None,
     *,
     is_allocated: bool,
 ) -> dict[str, object | None]:
-    attributes = dict(item_attributes or {})
+    attributes = _custom_attributes_dict(item_attributes)
     if is_allocated:
-        attributes.update(allocation_attributes or {})
+        attributes.update(_custom_attributes_dict(allocation_attributes))
     return attributes
+
+
+def _custom_attributes_dict(value: dict[str, object | None] | str | None) -> dict[str, object | None]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return dict(decoded) if isinstance(decoded, dict) else {}
+    return {}
 
 
 def _coalesce_text(*values: str | None) -> str | None:
@@ -140,6 +163,8 @@ def _json_safe_item_state(item: Item | None) -> dict[str, object | None]:
         "custom_attributes": dict(item.custom_attributes or {}),
         "image_object_key": item.image_object_key,
         "image_content_type": item.image_content_type,
+        "image_thumbnail_object_key": item.image_thumbnail_object_key,
+        "image_thumbnail_content_type": item.image_thumbnail_content_type,
     }
 
 
@@ -371,6 +396,8 @@ async def list_shop_items(
             Item.custom_attributes,
             Item.image_object_key,
             Item.image_content_type,
+            Item.image_thumbnail_object_key,
+            Item.image_thumbnail_content_type,
             ShopItemAllocation.id.label("allocation_id"),
             ShopItemAllocation.display_name.label("allocation_display_name"),
             ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
@@ -608,6 +635,12 @@ async def list_shop_items(
                 image_path=build_item_image_path(
                     row.id, row.image_object_key, row.image_content_type
                 ),
+                image_thumb_path=build_item_image_thumb_path(
+                    row.id,
+                    row.image_thumbnail_object_key,
+                    row.image_thumbnail_content_type,
+                    original_object_key=row.image_object_key,
+                ),
                 image_content_type=row.image_content_type,
                 current_price=row.price_per_unit if is_allocated else None,
                 price_date=row.price_date if is_allocated else None,
@@ -658,10 +691,736 @@ async def list_shop_items(
 
 
 async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItemRead:
-    page = await list_shop_items(db, shop, limit=1, item_id=item_id)
-    if not page.items:
+    latest_price_sq = (
+        select(DailyPrice.price_per_unit)
+        .where(DailyPrice.shop_id == shop.id, DailyPrice.item_id == Item.id)
+        .order_by(DailyPrice.price_date.desc(), DailyPrice.created_at.desc(), DailyPrice.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    latest_price_date_sq = (
+        select(DailyPrice.price_date)
+        .where(DailyPrice.shop_id == shop.id, DailyPrice.item_id == Item.id)
+        .order_by(DailyPrice.price_date.desc(), DailyPrice.created_at.desc(), DailyPrice.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    bill_count_sq = (
+        select(func.count(BillItem.id))
+        .where(BillItem.item_id == Item.id)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    price_count_sq = (
+        select(func.count(DailyPrice.id))
+        .where(DailyPrice.item_id == Item.id)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    allocated_shop_count_sq = (
+        select(func.count(ShopItemAllocation.id))
+        .where(ShopItemAllocation.item_id == Item.id)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    row = (
+        await db.execute(
+            select(
+                Item.id,
+                Item.shop_id,
+                Item.name,
+                Item.tamil_name,
+                Item.unit_type,
+                Item.base_unit,
+                Item.sort_order,
+                Item.category_id,
+                Item.category,
+                Item.is_active,
+                Item.created_at,
+                Item.updated_at,
+                Item.custom_attributes,
+                Item.image_object_key,
+                Item.image_content_type,
+                Item.image_thumbnail_object_key,
+                Item.image_thumbnail_content_type,
+                ShopItemAllocation.id.label("allocation_id"),
+                ShopItemAllocation.display_name.label("allocation_display_name"),
+                ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
+                ShopItemAllocation.is_active.label("allocation_is_active"),
+                ShopItemAllocation.sort_order.label("allocation_sort_order"),
+                ShopItemAllocation.custom_attributes.label("allocation_custom_attributes"),
+                latest_price_sq.label("price_per_unit"),
+                latest_price_date_sq.label("price_date"),
+                bill_count_sq.label("bill_count"),
+                price_count_sq.label("price_count"),
+                allocated_shop_count_sq.label("allocated_shop_count"),
+            )
+            .outerjoin(
+                ShopItemAllocation,
+                and_(
+                    ShopItemAllocation.item_id == Item.id,
+                    ShopItemAllocation.shop_id == shop.id,
+                ),
+            )
+            .where(
+                Item.id == item_id,
+                _shop_item_visibility_filter(shop.id),
+            )
+        )
+    ).one_or_none()
+    if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
-    return page.items[0]
+
+    is_shop_item = row.shop_id == shop.id
+    is_allocated = is_shop_item or row.allocation_id is not None
+    effective_active = row.is_active and (row.allocation_id is None or row.allocation_is_active)
+    available_for_billing = effective_active and is_allocated
+    effective_name = _coalesce_text(row.allocation_display_name, row.name) or row.name
+    effective_tamil_name = _coalesce_text(row.allocation_tamil_name, row.tamil_name)
+    effective_sort_order = (
+        row.allocation_sort_order if row.allocation_sort_order is not None else row.sort_order
+    )
+    bill_count = int(row.bill_count or 0)
+    price_count = int(row.price_count or 0)
+    allocated_shop_count = int(row.allocated_shop_count or 0)
+
+    return ShopItemRead(
+        id=row.id,
+        shop_id=row.shop_id,
+        name=effective_name,
+        tamil_name=effective_tamil_name,
+        unit_type=row.unit_type,
+        base_unit=row.base_unit,
+        sort_order=effective_sort_order,
+        category_id=row.category_id,
+        category=row.category,
+        is_active=effective_active,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        custom_attributes=_merge_custom_attributes(
+            row.custom_attributes,
+            row.allocation_custom_attributes,
+            is_allocated=is_allocated,
+        ),
+        image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
+        image_thumb_path=build_item_image_thumb_path(
+            row.id,
+            row.image_thumbnail_object_key,
+            row.image_thumbnail_content_type,
+            original_object_key=row.image_object_key,
+        ),
+        image_content_type=row.image_content_type,
+        current_price=row.price_per_unit if is_allocated else None,
+        price_date=row.price_date if is_allocated else None,
+        latest_price_date=row.price_date if is_allocated else None,
+        price_status=_price_status_for(row.price_date, is_required=available_for_billing),
+        scope=ItemScope.SHOP if is_shop_item else ItemScope.GLOBAL,
+        allocated=is_allocated,
+        available_for_billing=available_for_billing,
+        can_delete=(
+            bill_count == 0
+            and price_count == 0
+            and (is_shop_item or allocated_shop_count == 0)
+        ),
+        can_deallocate=not is_shop_item and is_allocated,
+        bill_count=bill_count,
+        price_count=price_count,
+        allocated_shop_count=allocated_shop_count,
+    )
+
+
+def _compact_shop_item_from_row(row, shop: Shop, *, allocated: bool) -> ShopItemRead:
+    is_shop_item = row.shop_id == shop.id
+    effective_name = _coalesce_text(
+        getattr(row, "allocation_display_name", None),
+        row.name,
+    ) or row.name
+    effective_tamil_name = _coalesce_text(
+        getattr(row, "allocation_tamil_name", None),
+        row.tamil_name,
+    )
+    allocation_is_active = getattr(row, "allocation_is_active", None)
+    effective_active = row.is_active and (allocation_is_active is None or allocation_is_active)
+    effective_sort_order = getattr(row, "allocation_sort_order", None)
+    if effective_sort_order is None:
+        effective_sort_order = row.sort_order
+
+    return ShopItemRead(
+        id=row.id,
+        shop_id=row.shop_id,
+        name=effective_name,
+        tamil_name=effective_tamil_name,
+        unit_type=row.unit_type,
+        base_unit=row.base_unit,
+        sort_order=effective_sort_order,
+        category_id=row.category_id,
+        category=row.category,
+        is_active=effective_active,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        custom_attributes=_merge_custom_attributes(
+            row.custom_attributes,
+            getattr(row, "allocation_custom_attributes", None),
+            is_allocated=allocated,
+        ),
+        image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
+        image_thumb_path=build_item_image_thumb_path(
+            row.id,
+            row.image_thumbnail_object_key,
+            row.image_thumbnail_content_type,
+            original_object_key=row.image_object_key,
+        ),
+        image_content_type=row.image_content_type,
+        price_status=PriceStatus.MISSING,
+        scope=ItemScope.SHOP if is_shop_item else ItemScope.GLOBAL,
+        allocated=allocated,
+        available_for_billing=effective_active and allocated,
+        can_delete=False,
+        can_deallocate=not is_shop_item and allocated,
+        bill_count=0,
+        price_count=0,
+        allocated_shop_count=1 if allocated and not is_shop_item else 0,
+    )
+
+
+def _cursor_filter(
+    sort_order_expr,
+    sort_name_expr,
+    cursor_sort_order,
+    cursor_name,
+    cursor_id,
+    id_expr=Item.id,
+):
+    if cursor_name is None or cursor_id is None:
+        return None
+    if cursor_sort_order is None:
+        return or_(
+            sort_name_expr > cursor_name.lower(),
+            and_(sort_name_expr == cursor_name.lower(), id_expr > cursor_id),
+        )
+    return or_(
+        sort_order_expr > cursor_sort_order,
+        and_(sort_order_expr == cursor_sort_order, sort_name_expr > cursor_name.lower()),
+        and_(
+            sort_order_expr == cursor_sort_order,
+            sort_name_expr == cursor_name.lower(),
+            id_expr > cursor_id,
+        ),
+    )
+
+
+def _selected_shop_items_source(shop: Shop):
+    shop_owned = select(
+        Item.id.label("id"),
+        Item.shop_id.label("shop_id"),
+        Item.name.label("name"),
+        Item.tamil_name.label("tamil_name"),
+        Item.unit_type.label("unit_type"),
+        Item.base_unit.label("base_unit"),
+        Item.sort_order.label("sort_order"),
+        Item.category_id.label("category_id"),
+        Item.category.label("category"),
+        Item.is_active.label("is_active"),
+        Item.created_at.label("created_at"),
+        Item.updated_at.label("updated_at"),
+        Item.custom_attributes.label("custom_attributes"),
+        Item.image_object_key.label("image_object_key"),
+        Item.image_content_type.label("image_content_type"),
+        Item.image_thumbnail_object_key.label("image_thumbnail_object_key"),
+        Item.image_thumbnail_content_type.label("image_thumbnail_content_type"),
+        cast(null(), ShopItemAllocation.id.type).label("allocation_id"),
+        cast(null(), ShopItemAllocation.display_name.type).label("allocation_display_name"),
+        cast(null(), ShopItemAllocation.tamil_name.type).label("allocation_tamil_name"),
+        cast(null(), ShopItemAllocation.is_active.type).label("allocation_is_active"),
+        cast(null(), ShopItemAllocation.sort_order.type).label("allocation_sort_order"),
+        cast(null(), ShopItemAllocation.custom_attributes.type).label(
+            "allocation_custom_attributes"
+        ),
+    ).where(Item.shop_id == shop.id)
+    allocated_catalogue = (
+        select(
+            Item.id.label("id"),
+            Item.shop_id.label("shop_id"),
+            Item.name.label("name"),
+            Item.tamil_name.label("tamil_name"),
+            Item.unit_type.label("unit_type"),
+            Item.base_unit.label("base_unit"),
+            Item.sort_order.label("sort_order"),
+            Item.category_id.label("category_id"),
+            Item.category.label("category"),
+            Item.is_active.label("is_active"),
+            Item.created_at.label("created_at"),
+            Item.updated_at.label("updated_at"),
+            Item.custom_attributes.label("custom_attributes"),
+            Item.image_object_key.label("image_object_key"),
+            Item.image_content_type.label("image_content_type"),
+            Item.image_thumbnail_object_key.label("image_thumbnail_object_key"),
+            Item.image_thumbnail_content_type.label("image_thumbnail_content_type"),
+            ShopItemAllocation.id.label("allocation_id"),
+            ShopItemAllocation.display_name.label("allocation_display_name"),
+            ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
+            ShopItemAllocation.is_active.label("allocation_is_active"),
+            ShopItemAllocation.sort_order.label("allocation_sort_order"),
+            ShopItemAllocation.custom_attributes.label("allocation_custom_attributes"),
+        )
+        .join(ShopItemAllocation, ShopItemAllocation.item_id == Item.id)
+        .where(
+            ShopItemAllocation.shop_id == shop.id,
+            Item.shop_id.is_(None),
+        )
+    )
+    return union_all(shop_owned, allocated_catalogue).subquery()
+
+
+def _filter_selected_shop_source(source, q: str | None):
+    query = select(source)
+    search = q.strip() if q else ""
+    if search:
+        like_search = f"%{search.lower()}%"
+        query = query.where(
+            or_(
+                func.lower(source.c.name).like(like_search),
+                func.lower(func.coalesce(source.c.tamil_name, "")).like(like_search),
+                func.lower(func.coalesce(source.c.allocation_display_name, "")).like(
+                    like_search
+                ),
+                func.lower(func.coalesce(source.c.allocation_tamil_name, "")).like(
+                    like_search
+                ),
+            )
+        )
+    return query
+
+
+async def list_selected_shop_item_rows(
+    db: AsyncSession,
+    shop: Shop,
+    *,
+    q: str | None = None,
+    limit: int = 100,
+    cursor_sort_order: int | None = None,
+    cursor_name: str | None = None,
+    cursor_id: UUID | None = None,
+) -> AdminItemRowsPage:
+    source = _selected_shop_items_source(shop)
+    sort_order_expr = func.coalesce(source.c.allocation_sort_order, source.c.sort_order)
+    sort_name_expr = func.lower(func.coalesce(source.c.allocation_display_name, source.c.name))
+    query = _filter_selected_shop_source(source, q)
+
+    cursor_condition = _cursor_filter(
+        sort_order_expr,
+        sort_name_expr,
+        cursor_sort_order,
+        cursor_name,
+        cursor_id,
+        source.c.id,
+    )
+    if cursor_condition is not None:
+        query = query.where(cursor_condition)
+
+    rows = await db.execute(
+        query.order_by(sort_order_expr.asc(), sort_name_expr.asc(), source.c.id.asc()).limit(
+            limit + 1
+        )
+    )
+    result_rows = rows.all()
+    page_rows = result_rows[:limit]
+    has_more = len(result_rows) > limit
+    items = [_compact_shop_item_from_row(row, shop, allocated=True) for row in page_rows]
+
+    next_cursor_sort_order = next_cursor_name = next_cursor_id = None
+    if has_more and page_rows:
+        last_row = page_rows[-1]
+        next_cursor_sort_order = (
+            last_row.allocation_sort_order
+            if last_row.allocation_sort_order is not None
+            else last_row.sort_order
+        )
+        next_cursor_name = (
+            _coalesce_text(last_row.allocation_display_name, last_row.name) or last_row.name
+        ).lower()
+        next_cursor_id = last_row.id
+
+    return AdminItemRowsPage(
+        items=items,
+        limit=limit,
+        has_more=has_more,
+        next_cursor_sort_order=next_cursor_sort_order,
+        next_cursor_name=next_cursor_name,
+        next_cursor_id=next_cursor_id,
+    )
+
+
+async def count_selected_shop_items(
+    db: AsyncSession,
+    shop: Shop,
+    *,
+    q: str | None = None,
+) -> ShopItemCounts:
+    source = _selected_shop_items_source(shop)
+    count_source = _filter_selected_shop_source(source, q).subquery()
+    count_row = (
+        await db.execute(
+            select(
+                func.count().label("all"),
+                _sum_if(count_source.c.shop_id == shop.id).label("shop"),
+                _sum_if(count_source.c.shop_id.is_(None)).label("catalogue"),
+                _sum_if(
+                    or_(
+                        count_source.c.is_active.is_(False),
+                        count_source.c.allocation_is_active.is_(False),
+                    )
+                ).label("paused"),
+            ).select_from(count_source)
+        )
+    ).mappings().one()
+    total_count = _zero_if_null(count_row["all"])
+    return ShopItemCounts(
+        all=total_count,
+        allocated=total_count,
+        catalogue=_zero_if_null(count_row["catalogue"]),
+        shop=_zero_if_null(count_row["shop"]),
+        paused=_zero_if_null(count_row["paused"]),
+    )
+
+
+async def list_selected_shop_items(
+    db: AsyncSession,
+    shop: Shop,
+    *,
+    q: str | None = None,
+    limit: int = 100,
+    cursor_sort_order: int | None = None,
+    cursor_name: str | None = None,
+    cursor_id: UUID | None = None,
+) -> ShopItemPage:
+    rows_page = await list_selected_shop_item_rows(
+        db,
+        shop,
+        q=q,
+        limit=limit,
+        cursor_sort_order=cursor_sort_order,
+        cursor_name=cursor_name,
+        cursor_id=cursor_id,
+    )
+    counts = await count_selected_shop_items(db, shop, q=q)
+    return ShopItemPage(
+        items=rows_page.items,
+        limit=rows_page.limit,
+        total_count=counts.all,
+        counts=counts,
+        has_more=rows_page.has_more,
+        next_cursor_sort_order=rows_page.next_cursor_sort_order,
+        next_cursor_name=rows_page.next_cursor_name,
+        next_cursor_id=rows_page.next_cursor_id,
+    )
+
+
+def _shop_item_import_candidates_query(shop: Shop, q: str | None = None):
+    allocation_exists = (
+        select(ShopItemAllocation.id)
+        .where(
+            ShopItemAllocation.item_id == Item.id,
+            ShopItemAllocation.shop_id == shop.id,
+        )
+        .exists()
+    )
+    query = (
+        select(
+            Item.id,
+            Item.shop_id,
+            Item.name,
+            Item.tamil_name,
+            Item.unit_type,
+            Item.base_unit,
+            Item.sort_order,
+            Item.category_id,
+            Item.category,
+            Item.is_active,
+            Item.created_at,
+            Item.updated_at,
+            Item.custom_attributes,
+            Item.image_object_key,
+            Item.image_content_type,
+            Item.image_thumbnail_object_key,
+            Item.image_thumbnail_content_type,
+        )
+        .where(
+            Item.shop_id.is_(None),
+            Item.is_active.is_(True),
+            ~allocation_exists,
+        )
+    )
+
+    search = q.strip() if q else ""
+    if search:
+        like_search = f"%{search.lower()}%"
+        query = query.where(
+            or_(
+                func.lower(Item.name).like(like_search),
+                func.lower(func.coalesce(Item.tamil_name, "")).like(like_search),
+            )
+        )
+    return query
+
+
+async def list_shop_item_import_candidate_rows(
+    db: AsyncSession,
+    shop: Shop,
+    *,
+    q: str | None = None,
+    limit: int = 100,
+    cursor_sort_order: int | None = None,
+    cursor_name: str | None = None,
+    cursor_id: UUID | None = None,
+) -> AdminItemRowsPage:
+    sort_name_expr = func.lower(Item.name)
+    query = _shop_item_import_candidates_query(shop, q)
+    cursor_condition = _cursor_filter(
+        Item.sort_order,
+        sort_name_expr,
+        cursor_sort_order,
+        cursor_name,
+        cursor_id,
+    )
+    if cursor_condition is not None:
+        query = query.where(cursor_condition)
+
+    rows = await db.execute(
+        query.order_by(Item.sort_order.asc(), sort_name_expr.asc(), Item.id.asc()).limit(limit + 1)
+    )
+    result_rows = rows.all()
+    page_rows = result_rows[:limit]
+    has_more = len(result_rows) > limit
+    items = [
+        _compact_shop_item_from_row(row, shop, allocated=False)
+        for row in page_rows
+    ]
+
+    next_cursor_sort_order = next_cursor_name = next_cursor_id = None
+    if has_more and page_rows:
+        last_row = page_rows[-1]
+        next_cursor_sort_order = last_row.sort_order
+        next_cursor_name = last_row.name.lower()
+        next_cursor_id = last_row.id
+
+    return AdminItemRowsPage(
+        items=items,
+        limit=limit,
+        has_more=has_more,
+        next_cursor_sort_order=next_cursor_sort_order,
+        next_cursor_name=next_cursor_name,
+        next_cursor_id=next_cursor_id,
+    )
+
+
+async def count_shop_item_import_candidates(
+    db: AsyncSession,
+    shop: Shop,
+    *,
+    q: str | None = None,
+) -> ShopItemCounts:
+    total_count = await _count_query_rows(db, _shop_item_import_candidates_query(shop, q))
+    return ShopItemCounts(all=total_count, available=total_count, catalogue=total_count)
+
+
+async def list_shop_item_import_candidates(
+    db: AsyncSession,
+    shop: Shop,
+    *,
+    q: str | None = None,
+    limit: int = 100,
+    cursor_sort_order: int | None = None,
+    cursor_name: str | None = None,
+    cursor_id: UUID | None = None,
+) -> ShopItemPage:
+    rows_page = await list_shop_item_import_candidate_rows(
+        db,
+        shop,
+        q=q,
+        limit=limit,
+        cursor_sort_order=cursor_sort_order,
+        cursor_name=cursor_name,
+        cursor_id=cursor_id,
+    )
+    counts = await count_shop_item_import_candidates(db, shop, q=q)
+    return ShopItemPage(
+        items=rows_page.items,
+        limit=rows_page.limit,
+        total_count=counts.all,
+        counts=counts,
+        has_more=rows_page.has_more,
+        next_cursor_sort_order=rows_page.next_cursor_sort_order,
+        next_cursor_name=rows_page.next_cursor_name,
+        next_cursor_id=rows_page.next_cursor_id,
+    )
+
+
+def _catalogue_rows_query(q: str | None = None, active: bool | None = None):
+    query = select(
+        Item.id,
+        Item.shop_id,
+        Item.name,
+        Item.tamil_name,
+        Item.unit_type,
+        Item.base_unit,
+        Item.sort_order,
+        Item.category_id,
+        Item.category,
+        Item.is_active,
+        Item.created_at,
+        Item.updated_at,
+        Item.custom_attributes,
+        Item.image_object_key,
+        Item.image_content_type,
+        Item.image_thumbnail_object_key,
+        Item.image_thumbnail_content_type,
+    ).where(Item.shop_id.is_(None))
+
+    search = q.strip() if q else ""
+    if search:
+        like_search = f"%{search.lower()}%"
+        query = query.where(
+            or_(
+                func.lower(Item.name).like(like_search),
+                func.lower(func.coalesce(Item.tamil_name, "")).like(like_search),
+            )
+        )
+    if active is not None:
+        query = query.where(Item.is_active.is_(active))
+    return query
+
+
+def _catalogue_row_to_shop_item(row) -> ShopItemRead:
+    return ShopItemRead(
+        id=row.id,
+        shop_id=None,
+        name=row.name,
+        tamil_name=row.tamil_name,
+        unit_type=row.unit_type,
+        base_unit=row.base_unit,
+        sort_order=row.sort_order,
+        category_id=row.category_id,
+        category=row.category,
+        is_active=row.is_active,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        custom_attributes=row.custom_attributes or {},
+        image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
+        image_thumb_path=build_item_image_thumb_path(
+            row.id,
+            row.image_thumbnail_object_key,
+            row.image_thumbnail_content_type,
+            original_object_key=row.image_object_key,
+        ),
+        image_content_type=row.image_content_type,
+        price_status=PriceStatus.MISSING,
+        scope=ItemScope.GLOBAL,
+        allocated=False,
+        available_for_billing=False,
+        can_delete=False,
+        can_deallocate=False,
+    )
+
+
+async def list_catalogue_item_rows(
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    active: bool | None = None,
+    limit: int = 100,
+    cursor_sort_order: int | None = None,
+    cursor_name: str | None = None,
+    cursor_id: UUID | None = None,
+) -> AdminItemRowsPage:
+    sort_name_expr = func.lower(Item.name)
+    query = _catalogue_rows_query(q, active)
+    cursor_condition = _cursor_filter(
+        Item.sort_order,
+        sort_name_expr,
+        cursor_sort_order,
+        cursor_name,
+        cursor_id,
+    )
+    if cursor_condition is not None:
+        query = query.where(cursor_condition)
+
+    rows = await db.execute(
+        query.order_by(Item.sort_order.asc(), sort_name_expr.asc(), Item.id.asc()).limit(limit + 1)
+    )
+    result_rows = rows.all()
+    page_rows = result_rows[:limit]
+    has_more = len(result_rows) > limit
+    items = [_catalogue_row_to_shop_item(row) for row in page_rows]
+
+    next_cursor_sort_order = next_cursor_name = next_cursor_id = None
+    if has_more and page_rows:
+        last_row = page_rows[-1]
+        next_cursor_sort_order = last_row.sort_order
+        next_cursor_name = last_row.name.lower()
+        next_cursor_id = last_row.id
+
+    return AdminItemRowsPage(
+        items=items,
+        limit=limit,
+        has_more=has_more,
+        next_cursor_sort_order=next_cursor_sort_order,
+        next_cursor_name=next_cursor_name,
+        next_cursor_id=next_cursor_id,
+    )
+
+
+async def count_catalogue_items(
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    active: bool | None = None,
+) -> ShopItemCounts:
+    allocation_exists = (
+        select(ShopItemAllocation.id)
+        .where(ShopItemAllocation.item_id == Item.id)
+        .exists()
+    )
+    query = select(
+        Item.id,
+        Item.is_active,
+        allocation_exists.label("is_allocated"),
+    ).where(
+        Item.shop_id.is_(None)
+    )
+    search = q.strip() if q else ""
+    if search:
+        like_search = f"%{search.lower()}%"
+        query = query.where(
+            or_(
+                func.lower(Item.name).like(like_search),
+                func.lower(func.coalesce(Item.tamil_name, "")).like(like_search),
+            )
+        )
+    if active is not None:
+        query = query.where(Item.is_active.is_(active))
+
+    count_source = query.subquery()
+    count_row = (
+        await db.execute(
+            select(
+                func.count().label("all"),
+                _sum_if(count_source.c.is_allocated.is_(True)).label("allocated"),
+                _sum_if(count_source.c.is_allocated.is_(False)).label("available"),
+                _sum_if(count_source.c.is_active.is_(False)).label("paused"),
+            ).select_from(count_source)
+        )
+    ).mappings().one()
+    total_count = _zero_if_null(count_row["all"])
+    return ShopItemCounts(
+        all=total_count,
+        catalogue=total_count,
+        allocated=_zero_if_null(count_row["allocated"]),
+        available=_zero_if_null(count_row["available"]),
+        paused=_zero_if_null(count_row["paused"]),
+    )
 
 
 async def list_catalogue_items(
@@ -709,6 +1468,8 @@ async def list_catalogue_items(
         Item.custom_attributes,
         Item.image_object_key,
         Item.image_content_type,
+        Item.image_thumbnail_object_key,
+        Item.image_thumbnail_content_type,
         func.coalesce(bill_counts.c.bill_count, 0).label("bill_count"),
         func.coalesce(price_counts.c.price_count, 0).label("price_count"),
         func.coalesce(allocation_counts.c.allocated_shop_count, 0).label(
@@ -804,6 +1565,12 @@ async def list_catalogue_items(
             updated_at=row.updated_at,
             custom_attributes=row.custom_attributes or {},
             image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
+            image_thumb_path=build_item_image_thumb_path(
+                row.id,
+                row.image_thumbnail_object_key,
+                row.image_thumbnail_content_type,
+                original_object_key=row.image_object_key,
+            ),
             image_content_type=row.image_content_type,
             current_price=None,
             price_date=None,
@@ -879,6 +1646,8 @@ async def get_catalogue_item(db: AsyncSession, item_id: UUID) -> ShopItemRead:
                 Item.custom_attributes,
                 Item.image_object_key,
                 Item.image_content_type,
+                Item.image_thumbnail_object_key,
+                Item.image_thumbnail_content_type,
                 bill_count_sq.label("bill_count"),
                 price_count_sq.label("price_count"),
                 allocated_shop_count_sq.label("allocated_shop_count"),
@@ -903,6 +1672,12 @@ async def get_catalogue_item(db: AsyncSession, item_id: UUID) -> ShopItemRead:
         updated_at=row.updated_at,
         custom_attributes=row.custom_attributes or {},
         image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
+        image_thumb_path=build_item_image_thumb_path(
+            row.id,
+            row.image_thumbnail_object_key,
+            row.image_thumbnail_content_type,
+            original_object_key=row.image_object_key,
+        ),
         image_content_type=row.image_content_type,
         current_price=None,
         price_date=None,
@@ -957,6 +1732,100 @@ async def allocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID) -
         )
         await db.commit()
     return await get_shop_item(db, shop, item_id)
+
+
+async def _existing_allocation_item_ids(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+) -> set[UUID]:
+    if not item_ids:
+        return set()
+    return set(
+        (
+            await db.scalars(
+                select(ShopItemAllocation.item_id).where(
+                    ShopItemAllocation.shop_id == shop_id,
+                    ShopItemAllocation.item_id.in_(item_ids),
+                )
+            )
+        ).all()
+    )
+
+
+def _add_catalogue_item_allocations(db: AsyncSession, shop: Shop, item_ids: list[UUID]) -> None:
+    for item_id in item_ids:
+        db.add(ShopItemAllocation(shop_id=shop.id, item_id=item_id))
+        _record_item_event(
+            db,
+            item_id=item_id,
+            shop_id=shop.id,
+            event_type="allocation.created",
+            after={"shop_id": str(shop.id), "item_id": str(item_id)},
+        )
+
+
+async def allocate_catalogue_items(
+    db: AsyncSession,
+    shop: Shop,
+    item_ids: list[UUID],
+) -> ShopItemAllocationBulkRead:
+    unique_item_ids = list(dict.fromkeys(item_ids))
+    items = (
+        await db.scalars(select(Item).where(Item.id.in_(unique_item_ids)).with_for_update())
+    ).all()
+    items_by_id = {item.id: item for item in items}
+
+    for item_id in unique_item_ids:
+        item = items_by_id.get(item_id)
+        if item is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        if item.shop_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Only catalogue items can be allocated to a shop",
+            )
+        if not item.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Inactive catalogue items cannot be allocated to a shop",
+            )
+
+    existing_item_ids = await _existing_allocation_item_ids(db, shop.id, unique_item_ids)
+    new_item_ids = [item_id for item_id in unique_item_ids if item_id not in existing_item_ids]
+    allocated_count = len(new_item_ids)
+
+    if new_item_ids:
+        _add_catalogue_item_allocations(db, shop, new_item_ids)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing_after_conflict = await _existing_allocation_item_ids(
+                db, shop.id, unique_item_ids
+            )
+            retry_item_ids = [
+                item_id for item_id in unique_item_ids if item_id not in existing_after_conflict
+            ]
+            allocated_count = len(retry_item_ids)
+            if retry_item_ids:
+                _add_catalogue_item_allocations(db, shop, retry_item_ids)
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+                    final_existing_item_ids = await _existing_allocation_item_ids(
+                        db, shop.id, unique_item_ids
+                    )
+                    if not set(unique_item_ids).issubset(final_existing_item_ids):
+                        raise
+                    allocated_count = 0
+
+    return ShopItemAllocationBulkRead(
+        item_ids=unique_item_ids,
+        allocated_count=allocated_count,
+        already_allocated_count=len(unique_item_ids) - allocated_count,
+    )
 
 
 async def deallocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItemRead:
@@ -1346,6 +2215,7 @@ async def create_item(
         custom_attributes=dict(payload.custom_attributes),
     )
     uploaded_image_object_key: str | None = None
+    uploaded_thumbnail_object_key: str | None = None
 
     try:
         db.add(item)
@@ -1353,6 +2223,7 @@ async def create_item(
         if image is not None:
             await save_item_image_upload(db, item, image, commit=False)
             uploaded_image_object_key = item.image_object_key
+            uploaded_thumbnail_object_key = item.image_thumbnail_object_key
         _record_item_event(
             db,
             item_id=item.id,
@@ -1364,7 +2235,7 @@ async def create_item(
         return _item_to_read(item)
     except Exception:
         await db.rollback()
-        await delete_item_image_storage(uploaded_image_object_key)
+        await delete_item_image_storage(uploaded_image_object_key, uploaded_thumbnail_object_key)
         raise
 
 
@@ -1410,12 +2281,16 @@ async def update_item(
             exclude_item_id=item_id,
         )
 
-    should_remove_image = remove_image and image is None and bool(item.image_object_key)
+    should_remove_image = remove_image and image is None and bool(
+        item.image_object_key or item.image_thumbnail_object_key
+    )
     if not configuration_changed and image is None and not should_remove_image:
         return _item_to_read(item)
 
     previous_image_object_key = item.image_object_key
+    previous_thumbnail_object_key = item.image_thumbnail_object_key
     uploaded_image_object_key: str | None = None
+    uploaded_thumbnail_object_key: str | None = None
     previous_state = _json_safe_item_state(item)
 
     try:
@@ -1432,10 +2307,13 @@ async def update_item(
         if should_remove_image:
             item.image_object_key = None
             item.image_content_type = None
+            item.image_thumbnail_object_key = None
+            item.image_thumbnail_content_type = None
         await db.flush()
         if image is not None:
             await save_item_image_upload(db, item, image, commit=False)
             uploaded_image_object_key = item.image_object_key
+            uploaded_thumbnail_object_key = item.image_thumbnail_object_key
         _record_item_event(
             db,
             item_id=item.id,
@@ -1451,11 +2329,22 @@ async def update_item(
             and previous_image_object_key != item.image_object_key
         ):
             await delete_item_image_storage(previous_image_object_key)
+        if (
+            (image is not None or should_remove_image)
+            and previous_thumbnail_object_key
+            and previous_thumbnail_object_key != item.image_thumbnail_object_key
+        ):
+            await delete_item_image_storage(previous_thumbnail_object_key)
         return _item_to_read(item)
     except Exception:
         await db.rollback()
         if uploaded_image_object_key and uploaded_image_object_key != previous_image_object_key:
             await delete_item_image_storage(uploaded_image_object_key)
+        if (
+            uploaded_thumbnail_object_key
+            and uploaded_thumbnail_object_key != previous_thumbnail_object_key
+        ):
+            await delete_item_image_storage(uploaded_thumbnail_object_key)
         raise
 
 
@@ -1480,15 +2369,29 @@ async def update_item_metadata(
         if payload.tamil_name is not None
         else item.tamil_name
     )
+    category_fields_set = "category_id" in payload.model_fields_set or "category" in payload.model_fields_set
     next_category = (
         await _resolve_item_category(
             db, category_id=payload.category_id, category_name=payload.category
         )
-        if "category_id" in payload.model_fields_set or "category" in payload.model_fields_set
-        else item.__dict__.get("category_ref")
+        if category_fields_set
+        else None
     )
+    next_category_id = (
+        next_category.id if next_category is not None else None
+    ) if category_fields_set else item.category_id
+    next_category_name = (
+        next_category.name if next_category is not None else None
+    ) if category_fields_set else item.category
     next_unit_type = payload.unit_type if payload.unit_type is not None else item.unit_type
     next_base_unit = payload.base_unit if payload.base_unit is not None else item.base_unit
+    next_is_active = payload.is_active if payload.is_active is not None else item.is_active
+    next_sort_order = payload.sort_order if payload.sort_order is not None else item.sort_order
+    next_custom_attributes = (
+        dict(payload.custom_attributes)
+        if payload.custom_attributes is not None
+        else dict(item.custom_attributes or {})
+    )
 
     if next_unit_type == UnitType.WEIGHT and next_base_unit != BaseUnit.KG:
         raise HTTPException(
@@ -1509,20 +2412,31 @@ async def update_item_metadata(
             exclude_item_id=item_id,
         )
 
+    configuration_changed = (
+        item.name != next_name
+        or item.tamil_name != next_tamil_name
+        or item.unit_type != next_unit_type
+        or item.base_unit != next_base_unit
+        or item.category_id != next_category_id
+        or item.category != next_category_name
+        or item.is_active != next_is_active
+        or item.sort_order != next_sort_order
+        or dict(item.custom_attributes or {}) != next_custom_attributes
+    )
+    if not configuration_changed:
+        return _item_to_read(item)
+
     item.name = next_name
     item.tamil_name = next_tamil_name
     item.unit_type = next_unit_type
     item.base_unit = next_base_unit
-    if payload.is_active is not None:
-        item.is_active = payload.is_active
-    if payload.sort_order is not None:
-        item.sort_order = payload.sort_order
-    if "category_id" in payload.model_fields_set or "category" in payload.model_fields_set:
+    item.is_active = next_is_active
+    item.sort_order = next_sort_order
+    if category_fields_set:
         item.category_ref = next_category
-        item.category_id = next_category.id if next_category is not None else None
-        item.category = next_category.name if next_category is not None else None
-    if payload.custom_attributes is not None:
-        item.custom_attributes = dict(payload.custom_attributes)
+        item.category_id = next_category_id
+        item.category = next_category_name
+    item.custom_attributes = next_custom_attributes
 
     await db.flush()
     _record_item_event(
@@ -1582,6 +2496,7 @@ async def delete_item(db: AsyncSession, item_id: UUID, shop_id: UUID | None = No
         )
 
     image_object_key = item.image_object_key
+    image_thumbnail_object_key = item.image_thumbnail_object_key
     _record_item_event(
         db,
         item_id=item.id,
@@ -1591,7 +2506,7 @@ async def delete_item(db: AsyncSession, item_id: UUID, shop_id: UUID | None = No
     )
     await db.delete(item)
     await db.commit()
-    await delete_item_image_storage(image_object_key)
+    await delete_item_image_storage(image_object_key, image_thumbnail_object_key)
 
 
 async def set_shop_active_state(db: AsyncSession, shop_id: UUID, is_active: bool) -> ShopRead:

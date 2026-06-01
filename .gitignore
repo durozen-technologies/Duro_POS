@@ -1,44 +1,97 @@
-# General
+# OS / filesystem
 .DS_Store
+.Spotlight-V100/
+.Trashes/
 Thumbs.db
-*.log
-*.pyc
-__pycache__/
+ehthumbs.db
+Desktop.ini
 
-# Editors
+# Editors and local assistant state
 .vscode/
 .idea/
-
-# Root-level local files
+.history/
+*.swp
+*.swo
+*~
 .agents
 .agents/
 .codex
 .codex/
+.trae
+.trae/
+.git.backup/
+
+# Environment and secrets
 .env
-.env.local
 .env.*
 !.env.example
 !.env.sample
+.env.local
+.envrc
+.direnv/
 
-# Python backend
+# Logs and local process files
+logs/
+*.log
+*.pid
+*.pid.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python caches, virtualenvs, and reports
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.python-version
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.hypothesis/
+.nox/
+.tox/
+.cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.ipynb_checkpoints/
+pip-wheel-metadata/
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Backend
 backend/.env
 backend/.env.*
 !backend/.env.example
 backend/.env.local
+backend/.envrc
+backend/.direnv/
 backend/.git.backup/
 backend/.agents
 backend/.agents/
 backend/.codex
 backend/.codex/
+backend/.trae
+backend/.trae/
 backend/.python-version
 backend/.venv/
 backend/__pycache__/
-.pytest_cache/
-.python-version
-.venv/
-.coverage
-.coverage.*
-htmlcov/
 backend/.pytest_cache/
 backend/.mypy_cache/
 backend/.ruff_cache/
@@ -49,7 +102,13 @@ backend/.tox/
 backend/.cache/
 backend/.coverage
 backend/.coverage.*
+backend/coverage.xml
 backend/htmlcov/
+backend/build/
+backend/dist/
+backend/wheels/
+backend/*.egg-info/
+backend/*.sqlite
 backend/*.sqlite3
 backend/*.db
 backend/*.log
@@ -60,17 +119,48 @@ backend/*.pid.lock
 WhatsApp Bot/.env
 WhatsApp Bot/.env.*
 !WhatsApp Bot/.env.example
+WhatsApp Bot/.env.local
+WhatsApp Bot/.envrc
+WhatsApp Bot/.direnv/
 WhatsApp Bot/.agents
 WhatsApp Bot/.agents/
+WhatsApp Bot/.codex
+WhatsApp Bot/.codex/
+WhatsApp Bot/.trae
+WhatsApp Bot/.trae/
+WhatsApp Bot/.python-version
 WhatsApp Bot/.venv/
 WhatsApp Bot/__pycache__/
+WhatsApp Bot/.pytest_cache/
+WhatsApp Bot/.mypy_cache/
 WhatsApp Bot/.ruff_cache/
+WhatsApp Bot/.pyre/
+WhatsApp Bot/.hypothesis/
+WhatsApp Bot/.nox/
+WhatsApp Bot/.tox/
+WhatsApp Bot/.cache/
+WhatsApp Bot/.coverage
+WhatsApp Bot/.coverage.*
+WhatsApp Bot/coverage.xml
+WhatsApp Bot/htmlcov/
+WhatsApp Bot/build/
+WhatsApp Bot/dist/
+WhatsApp Bot/wheels/
+WhatsApp Bot/*.egg-info/
+WhatsApp Bot/*.sqlite
+WhatsApp Bot/*.sqlite3
+WhatsApp Bot/*.db
+WhatsApp Bot/*.log
+WhatsApp Bot/*.pid
+WhatsApp Bot/*.pid.lock
 
-# Node/Expo frontend
+# Node / Expo frontend
 frontend/.env
 frontend/.env.*
 !frontend/.env.example
 frontend/.env.local
+frontend/.envrc
+frontend/.direnv/
 frontend/.expo/
 frontend/.expo-shared/
 frontend/.git.backup/
@@ -78,16 +168,41 @@ frontend/.agents
 frontend/.agents/
 frontend/.codex
 frontend/.codex/
+frontend/.trae
+frontend/.trae/
 frontend/.vscode/
 frontend/node_modules/
-frontend/android/
-frontend/ios/
-frontend/dist/
+frontend/.npm/
+frontend/.yarn/
+frontend/.pnp.*
 frontend/.cache/
 frontend/.parcel-cache/
+frontend/.metro-cache/
+frontend/.tamagui/
 frontend/.eslintcache
 frontend/*.tsbuildinfo
+frontend/coverage/
+frontend/.nyc_output/
+frontend/dist/
 frontend/web-build/
+frontend/android/
+frontend/ios/
+frontend/*.apk
+frontend/*.aab
+frontend/*.ipa
+
+# Native build outputs if Android/iOS folders are temporarily unignored
+frontend/android/.gradle/
+frontend/android/.kotlin/
+frontend/android/local.properties
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/app/.cxx/
+frontend/ios/Pods/
+frontend/ios/build/
+frontend/ios/DerivedData/
+frontend/ios/**/*.xcuserstate
+frontend/ios/**/*.xcuserdata/
 
 # Service runtime data
 caddy/config/*
@@ -101,5 +216,7 @@ rustfs/data/*
 !rustfs/data/.gitkeep
 duckdns/
 
-# Test caches outside backend
+# Test caches outside app folders
 test/__pycache__/
+test/**/__pycache__/
+test/.pytest_cache/

@@ -11,7 +11,7 @@ from .common import ORMModel
 
 class DailyPriceEntry(BaseModel):
     item_id: UUID
-    price_per_unit: Decimal = Field(ge=0)
+    price_per_unit: Decimal = Field(gt=0)
 
 
 class DailyPriceCreate(BaseModel):
@@ -19,7 +19,7 @@ class DailyPriceCreate(BaseModel):
 
 
 class DailyPriceUpdate(BaseModel):
-    price_per_unit: Decimal = Field(ge=0)
+    price_per_unit: Decimal = Field(gt=0)
 
 
 class DailyPriceRead(ORMModel):
@@ -44,6 +44,7 @@ class ItemPriceRead(BaseModel):
     category_id: UUID | None = None
     category: str | None = None
     image_path: str | None = None
+    image_thumb_path: str | None = None
 
 
 class ItemImageRead(BaseModel):
@@ -51,6 +52,7 @@ class ItemImageRead(BaseModel):
     item_name: str
     item_tamil_name: str | None = None
     image_path: str | None = None
+    image_thumb_path: str | None = None
     image_content_type: str | None = None
 
 

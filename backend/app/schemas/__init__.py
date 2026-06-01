@@ -1,5 +1,6 @@
 from .admin import (
     AdminBillSummary,
+    AdminItemRowsPage,
     AnalyticsPeriod,
     ItemCategoryCreate,
     ItemCategoryRead,
@@ -51,6 +52,7 @@ from .whatsapp import (
 __all__ = [
     "AdminBillSummary",
     "AnalyticsPeriod",
+    "AdminItemRowsPage",
     "BillCheckoutCommitRequest",
     "BillCheckoutPreviewRead",
     "BillCheckoutRequest",

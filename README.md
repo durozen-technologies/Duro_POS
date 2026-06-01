@@ -201,7 +201,7 @@ flowchart TB
   Admin -->|HTTPS API| Caddy
   Caddy -->|reverse proxy| Backend
   Backend -->|DATABASE_URL postgres:5432| Postgres
-  Backend -.->|RustFS disabled in prod override| RustFS
+  Backend -->|RustFS S3 API| RustFS
   DBA -->|TCP 5432 public| Postgres
 
   Postgres --- PGData
@@ -222,7 +222,7 @@ flowchart TB
 1. Clients hit `https://<CADDY_PUBLIC_HOST>/api/v1/...`
 2. **Caddy** terminates TLS and proxies to `backend:8000` on the internal network
 3. **Backend** connects to **Postgres** at `postgres:5432` (Docker DNS name, not `localhost`)
-4. **RustFS** runs for object storage; backend RustFS is currently disabled via [`docker-compose.prod.override.yml`](docker-compose.prod.override.yml) (images stored in Postgres until S3 API is fixed)
+4. **RustFS** runs for object storage; item image bytes are stored in RustFS and referenced from Postgres metadata
 
 **What lives where**
 
@@ -425,10 +425,9 @@ EXPO_PUBLIC_API_BASE_URL=https://<CADDY_PUBLIC_HOST>
 
 ### Database migrations
 
-Schema updates are Alembic-based. [`backend/migrate.py`](backend/migrate.py) runs `alembic upgrade head`, then calls idempotent data/startup tasks in [`backend/app/db/database.py`](backend/app/db/database.py), which:
+Schema updates are Alembic-based. [`backend/migrate.py`](backend/migrate.py) runs `alembic upgrade head`, then calls idempotent data/startup tasks in [`backend/app/db/startup.py`](backend/app/db/startup.py), which:
 
-- seeds default catalog data
-- syncs bundled item images to RustFS when RustFS is configured
+- leaves item catalog creation to admin users
 - migrates legacy `items.image_data` bytes to RustFS and drops the old DB byte column
 
 When you change models or migration logic, commit under `backend/` and push to `main` — CI/CD applies migrations on the production VM automatically.

@@ -82,9 +82,13 @@ RUSTFS_ACCESS_KEY_ID=
 RUSTFS_SECRET_ACCESS_KEY=
 RUSTFS_REGION_NAME=us-east-1
 RUSTFS_BUCKET_NAME=pos-mlb-items
+RUSTFS_PUBLIC_BASE_URL=
+RUSTFS_PUBLIC_READ_ENABLED=False
 RUSTFS_CONNECT_TIMEOUT_SECONDS=5
 RUSTFS_READ_TIMEOUT_SECONDS=15
 ITEM_IMAGE_MAX_BYTES=5242880
+ITEM_IMAGE_THUMBNAIL_SIZE=192
+ITEM_IMAGE_FULL_MAX_SIZE=1024
 ```
 
 Important backend defaults from [`app/core/config.py`](app/core/config.py):
@@ -172,7 +176,7 @@ In production, startup fails fast if database initialization fails.
 
 ## Database migrations
 
-Schema migrations are Alembic-based. [`migrate.py`](migrate.py) first migrates any legacy `items.image_data` bytes to RustFS, then runs `alembic upgrade head`, then runs idempotent data tasks from [`app/db/database.py`](app/db/database.py).
+Schema migrations are Alembic-based. [`migrate.py`](migrate.py) first migrates any legacy `items.image_data` bytes to RustFS, then runs `alembic upgrade head`, then runs idempotent data tasks from [`app/db/startup.py`](app/db/startup.py).
 
 | Environment | Command / trigger |
 |-------------|-------------------|

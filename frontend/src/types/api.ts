@@ -57,6 +57,7 @@ export interface ItemPriceRead {
   category_id?: UUID | null;
   category?: string | null;
   image_path?: string | null;
+  image_thumb_path?: string | null;
 }
 
 export interface ItemCategoryRead {
@@ -85,6 +86,16 @@ export interface ItemRead {
   updated_at?: string | null;
   custom_attributes: Record<string, string | number | boolean | null>;
   image_path?: string | null;
+  image_thumb_path?: string | null;
+  image_content_type?: string | null;
+}
+
+export interface ItemImageRead {
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name?: string | null;
+  image_path?: string | null;
+  image_thumb_path?: string | null;
   image_content_type?: string | null;
 }
 
@@ -106,6 +117,16 @@ export interface ShopItemAllocationUpdate {
   is_active?: boolean;
   sort_order?: number;
   custom_attributes?: Record<string, string | number | boolean | null>;
+}
+
+export interface ShopItemAllocationBulkCreate {
+  item_ids: UUID[];
+}
+
+export interface ShopItemAllocationBulkRead {
+  item_ids: UUID[];
+  allocated_count: number;
+  already_allocated_count: number;
 }
 
 export interface ShopItemRead extends ItemRead {
@@ -140,6 +161,16 @@ export interface ShopItemPage {
   limit: number;
   total_count: number;
   counts: ShopItemCounts;
+  has_more: boolean;
+  next_cursor_group?: number | null;
+  next_cursor_sort_order?: number | null;
+  next_cursor_name?: string | null;
+  next_cursor_id?: UUID | null;
+}
+
+export interface AdminItemRowsPage {
+  items: ShopItemRead[];
+  limit: number;
   has_more: boolean;
   next_cursor_group?: number | null;
   next_cursor_sort_order?: number | null;

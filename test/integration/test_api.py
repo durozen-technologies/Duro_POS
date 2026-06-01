@@ -1,50 +1,66 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-
-from test.support import AsyncSessionAdapter, BackendTestCase
+from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.models import BaseUnit, DailyPrice, Item, Shop, UnitType, User
+from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
+
+from app.db.storage import StoredImagePayload
+from app.models import BaseUnit, DailyPrice, Item, ItemChangeEvent, Shop, UnitType, User
 from app.routers.admin import (
     allocate_shop_catalogue_item,
+    allocate_shop_catalogue_items,
+    bill_detail,
     bills,
     create_admin_item_category,
     create_inventory_item,
     create_shop,
+    deallocate_shop_catalogue_item,
     delete_admin_item_category,
     delete_inventory_item,
-    deallocate_shop_catalogue_item,
     delete_inventory_item_image,
-    get_catalogue_items,
+    get_catalogue_item_counts,
     get_catalogue_item_detail,
+    get_catalogue_item_rows,
+    get_catalogue_items,
     get_item_categories,
-    bill_detail,
+    get_selected_shop_item_counts,
+    get_selected_shop_item_rows,
+    get_selected_shop_items,
     get_shop_item_detail,
+    get_shop_item_import_candidate_counts,
+    get_shop_item_import_candidate_rows,
+    get_shop_item_import_candidates,
     get_shop_items,
     get_shops,
+    patch_inventory_item_metadata,
     payment_summary,
     sales_summary,
+    shop_daily_price,
     shop_daily_prices,
     shop_daily_prices_partial,
-    shop_daily_price,
     shop_prices_bootstrap,
+    update_inventory_item,
     update_shop_catalogue_item_allocation,
     update_shop_status,
-    update_inventory_item,
 )
 from app.routers.auth import login, me, register
+from app.routers.catalog import get_item_image as get_catalog_item_image
 from app.routers.health import health_check
 from app.routers.shop import bootstrap, checkout, preview_checkout, save_daily_prices, today_prices
 from app.schemas.admin import (
-    ItemScope,
     ItemCategoryCreate,
+    ItemMetadataUpdate,
+    ItemScope,
     PriceStatus,
     ShopCreate,
+    ShopItemAllocationBulkCreate,
     ShopItemAllocationUpdate,
     ShopStatusUpdate,
 )
@@ -60,8 +76,9 @@ from app.schemas.pricing import DailyPriceCreate, DailyPriceEntry, DailyPriceUpd
 
 class BackendApiIntegrationTests(BackendTestCase):
     def test_health_endpoint(self) -> None:
-        from fastapi import Request
         from unittest.mock import Mock
+
+        from fastapi import Request
 
         mock_request = Mock(spec=Request)
         mock_request.app.state.database_ready = True
@@ -106,6 +123,7 @@ class BackendApiIntegrationTests(BackendTestCase):
 
     def test_catalogue_item_allocation_controls_shop_visibility(self) -> None:
         _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
@@ -193,8 +211,267 @@ class BackendApiIntegrationTests(BackendTestCase):
 
         self.run_async(scenario())
 
+    def test_bulk_catalogue_item_allocation_is_idempotent(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken", "Duck")))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                catalogue_items = session.scalars(
+                    select(Item).where(
+                        Item.name.in_(("Chicken", "Duck")),
+                        Item.shop_id.is_(None),
+                    )
+                ).all()
+                item_ids = [item.id for item in catalogue_items]
+
+                bulk_result = await allocate_shop_catalogue_items(
+                    ShopItemAllocationBulkCreate(item_ids=item_ids),
+                    current_shop,
+                    db,
+                )
+                self.assertEqual(bulk_result.allocated_count, 2)
+                self.assertEqual(bulk_result.already_allocated_count, 0)
+                self.assertEqual(set(bulk_result.item_ids), set(item_ids))
+
+                listed_items = (
+                    await get_shop_items(
+                        current_shop,
+                        db,
+                        scope=ItemScope.GLOBAL,
+                        allocated=True,
+                    )
+                ).items
+                self.assertEqual({item.id for item in listed_items}, set(item_ids))
+
+                repeated_result = await allocate_shop_catalogue_items(
+                    ShopItemAllocationBulkCreate(item_ids=item_ids),
+                    current_shop,
+                    db,
+                )
+                self.assertEqual(repeated_result.allocated_count, 0)
+                self.assertEqual(repeated_result.already_allocated_count, 2)
+                self.assertEqual(set(repeated_result.item_ids), set(item_ids))
+
+        self.run_async(scenario())
+
+    def test_compact_shop_item_lists_support_import_workflow(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(
+            self.harness.create_catalogue_items(("Chicken", "Duck", "Quail"))
+        )
+        self.run_async(self.harness.create_items_for_shop(shop.id, ("Shop Only",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                catalogue_items = session.scalars(
+                    select(Item).where(
+                        Item.name.in_(("Chicken", "Duck", "Quail")),
+                        Item.shop_id.is_(None),
+                    )
+                ).all()
+                catalogue_by_name = {item.name: item for item in catalogue_items}
+
+                await allocate_shop_catalogue_items(
+                    ShopItemAllocationBulkCreate(item_ids=[catalogue_by_name["Chicken"].id]),
+                    current_shop,
+                    db,
+                )
+
+                selected_rows = await get_selected_shop_item_rows(current_shop, db, limit=10)
+                self.assertEqual(
+                    {item.name for item in selected_rows.items},
+                    {"Chicken", "Shop Only"},
+                )
+                selected_counts = await get_selected_shop_item_counts(current_shop, db)
+                self.assertEqual(selected_counts.all, 2)
+                self.assertEqual(selected_counts.catalogue, 1)
+                self.assertEqual(selected_counts.shop, 1)
+
+                selected_page = await get_selected_shop_items(current_shop, db, limit=10)
+                self.assertEqual(
+                    {item.name for item in selected_page.items},
+                    {"Chicken", "Shop Only"},
+                )
+                self.assertEqual(selected_page.total_count, 2)
+                self.assertTrue(all(item.allocated for item in selected_page.items))
+
+                selected_search = await get_selected_shop_items(
+                    current_shop,
+                    db,
+                    q="shop only",
+                    limit=10,
+                )
+                self.assertEqual([item.name for item in selected_search.items], ["Shop Only"])
+
+                candidate_rows = await get_shop_item_import_candidate_rows(
+                    current_shop,
+                    db,
+                    limit=1,
+                )
+                self.assertTrue(candidate_rows.has_more)
+                self.assertEqual(len(candidate_rows.items), 1)
+                candidate_counts = await get_shop_item_import_candidate_counts(current_shop, db)
+                self.assertEqual(candidate_counts.all, 2)
+                self.assertEqual(candidate_counts.available, 2)
+
+                candidates = await get_shop_item_import_candidates(
+                    current_shop,
+                    db,
+                    limit=1,
+                )
+                self.assertEqual(candidates.total_count, 2)
+                self.assertTrue(candidates.has_more)
+                self.assertEqual(len(candidates.items), 1)
+
+                next_candidates = await get_shop_item_import_candidates(
+                    current_shop,
+                    db,
+                    limit=10,
+                    cursor_sort_order=candidates.next_cursor_sort_order,
+                    cursor_name=candidates.next_cursor_name,
+                    cursor_id=candidates.next_cursor_id,
+                )
+                self.assertEqual(len(next_candidates.items), 1)
+                self.assertEqual(
+                    {item.name for item in candidates.items + next_candidates.items},
+                    {"Duck", "Quail"},
+                )
+
+                duck_search = await get_shop_item_import_candidates(
+                    current_shop,
+                    db,
+                    q="duck",
+                    limit=10,
+                )
+                self.assertEqual([item.name for item in duck_search.items], ["Duck"])
+
+                catalogue_by_name["Duck"].is_active = False
+                session.commit()
+                active_candidates = await get_shop_item_import_candidates(
+                    current_shop,
+                    db,
+                    limit=10,
+                )
+                self.assertEqual([item.name for item in active_candidates.items], ["Quail"])
+
+        self.run_async(scenario())
+
+    def test_catalogue_row_and_count_endpoints_are_split(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(
+            self.harness.create_catalogue_items(("Chicken", "Duck", "Quail"))
+        )
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                catalogue_items = session.scalars(
+                    select(Item).where(
+                        Item.name.in_(("Chicken", "Duck", "Quail")),
+                        Item.shop_id.is_(None),
+                    )
+                ).all()
+                catalogue_by_name = {item.name: item for item in catalogue_items}
+                catalogue_by_name["Duck"].is_active = False
+                session.commit()
+
+                await allocate_shop_catalogue_items(
+                    ShopItemAllocationBulkCreate(item_ids=[catalogue_by_name["Chicken"].id]),
+                    current_shop,
+                    db,
+                )
+
+                first_page = await get_catalogue_item_rows(db, limit=1)
+                self.assertEqual(len(first_page.items), 1)
+                self.assertTrue(first_page.has_more)
+                self.assertFalse(first_page.items[0].allocated)
+                self.assertEqual(first_page.items[0].bill_count, 0)
+
+                next_page = await get_catalogue_item_rows(
+                    db,
+                    limit=10,
+                    cursor_sort_order=first_page.next_cursor_sort_order,
+                    cursor_name=first_page.next_cursor_name,
+                    cursor_id=first_page.next_cursor_id,
+                )
+                self.assertEqual(
+                    {item.name for item in first_page.items + next_page.items},
+                    {"Chicken", "Duck", "Quail"},
+                )
+
+                search_page = await get_catalogue_item_rows(db, q="qua", limit=10)
+                self.assertEqual([item.name for item in search_page.items], ["Quail"])
+
+                counts = await get_catalogue_item_counts(db)
+                self.assertEqual(counts.all, 3)
+                self.assertEqual(counts.allocated, 1)
+                self.assertEqual(counts.available, 2)
+                self.assertEqual(counts.paused, 1)
+
+        self.run_async(scenario())
+
+    def test_bulk_catalogue_item_allocation_rejects_invalid_items(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+        self.run_async(self.harness.create_items_for_shop(shop.id, ("Shop Only",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                inactive_item = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
+                )
+                inactive_item.is_active = False
+                shop_item = session.scalar(
+                    select(Item).where(Item.name == "Shop Only", Item.shop_id == shop.id)
+                )
+                session.commit()
+
+                with self.assertRaises(HTTPException) as inactive_context:
+                    await allocate_shop_catalogue_items(
+                        ShopItemAllocationBulkCreate(item_ids=[inactive_item.id]),
+                        current_shop,
+                        db,
+                    )
+                self.assertEqual(inactive_context.exception.status_code, 422)
+                self.assertEqual(
+                    inactive_context.exception.detail,
+                    "Inactive catalogue items cannot be allocated to a shop",
+                )
+
+                with self.assertRaises(HTTPException) as shop_item_context:
+                    await allocate_shop_catalogue_items(
+                        ShopItemAllocationBulkCreate(item_ids=[shop_item.id]),
+                        current_shop,
+                        db,
+                    )
+                self.assertEqual(shop_item_context.exception.status_code, 422)
+                self.assertEqual(
+                    shop_item_context.exception.detail,
+                    "Only catalogue items can be allocated to a shop",
+                )
+
+                with self.assertRaises(HTTPException) as missing_context:
+                    await allocate_shop_catalogue_items(
+                        ShopItemAllocationBulkCreate(item_ids=[uuid4()]),
+                        current_shop,
+                        db,
+                    )
+                self.assertEqual(missing_context.exception.status_code, 404)
+                self.assertEqual(missing_context.exception.detail, "Item not found")
+
+        self.run_async(scenario())
+
     def test_shop_items_support_pagination_search_and_custom_attributes(self) -> None:
         _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken", "Duck")))
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
@@ -299,6 +576,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 self.assertEqual(catalogue_page.total_count, 1)
                 self.assertEqual(catalogue_page.counts.catalogue, 1)
                 self.assertEqual(catalogue_page.items[0].id, created_item.id)
+                self.assertTrue(catalogue_page.items[0].image_thumb_path.endswith("variant=thumb"))
                 self.assertTrue(catalogue_page.items[0].can_delete)
                 self.assertFalse(catalogue_page.items[0].allocated)
 
@@ -356,6 +634,61 @@ class BackendApiIntegrationTests(BackendTestCase):
 
         self.run_async(scenario())
 
+    def test_catalogue_image_proxy_uses_cache_headers_and_304(self) -> None:
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
+                chicken.image_object_key = "items/chicken/original/image.jpg"
+                chicken.image_content_type = "image/jpeg"
+                session.commit()
+
+                payload = StoredImagePayload(
+                    content=b"x" * 2048,
+                    content_type="image/jpeg",
+                    object_key="items/chicken/thumb/image.jpg",
+                    etag='"thumb-etag"',
+                    last_modified=datetime(2026, 5, 31, tzinfo=UTC),
+                    cache_control="public, max-age=3600",
+                )
+
+                async def fake_image_payload(item, *, db=None, variant="original", request_id=None):
+                    self.assertEqual(item.id, chicken.id)
+                    self.assertEqual(variant, "thumb")
+                    return payload
+
+                with patch(
+                    "app.routers.catalog.get_item_image_response_payload",
+                    fake_image_payload,
+                ):
+                    request = Mock()
+                    request.headers = {}
+                    response = await get_catalog_item_image(
+                        chicken.id,
+                        request,
+                        "thumb",
+                        db,
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.headers["etag"], '"thumb-etag"')
+                    self.assertEqual(response.headers["cache-control"], "public, max-age=3600")
+                    self.assertEqual(response.headers["content-type"], "image/jpeg")
+                    self.assertNotIn("content-encoding", response.headers)
+
+                    request.headers = {"if-none-match": '"thumb-etag"'}
+                    not_modified = await get_catalog_item_image(
+                        chicken.id,
+                        request,
+                        "thumb",
+                        db,
+                    )
+                    self.assertEqual(not_modified.status_code, 304)
+                    self.assertEqual(not_modified.headers["etag"], '"thumb-etag"')
+
+        self.run_async(scenario())
+
     def test_item_categories_can_be_created_and_deleted_from_items(self) -> None:
         async def scenario() -> None:
             with self.harness.session_factory() as session:
@@ -388,6 +721,47 @@ class BackendApiIntegrationTests(BackendTestCase):
                 cleared_item = session.scalar(select(Item).where(Item.id == created_item.id))
                 self.assertIsNone(cleared_item.category_id)
                 self.assertIsNone(cleared_item.category)
+
+        self.run_async(scenario())
+
+    def test_item_metadata_noop_update_skips_change_event(self) -> None:
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+
+                created_item = await create_inventory_item(
+                    name="Noop Metadata Trial",
+                    unit_type=UnitType.WEIGHT,
+                    base_unit=BaseUnit.KG,
+                    tamil_name="மாற்றமில்லை சோதனை",
+                    db=db,
+                    is_active=True,
+                    custom_attributes='{"grade":"A"}',
+                    sort_order=7,
+                    category=None,
+                    image=None,
+                )
+                before_events = session.scalars(select(ItemChangeEvent)).all()
+
+                result = await patch_inventory_item_metadata(
+                    created_item.id,
+                    ItemMetadataUpdate(
+                        name="Noop Metadata Trial",
+                        tamil_name="மாற்றமில்லை சோதனை",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        is_active=True,
+                        sort_order=7,
+                        category_id=None,
+                        category=None,
+                        custom_attributes={"grade": "A"},
+                    ),
+                    db,
+                )
+
+                after_events = session.scalars(select(ItemChangeEvent)).all()
+                self.assertEqual(result.id, created_item.id)
+                self.assertEqual(len(after_events), len(before_events))
 
         self.run_async(scenario())
 
@@ -429,7 +803,7 @@ class BackendApiIntegrationTests(BackendTestCase):
 
         self.run_async(scenario())
 
-    def test_partial_shop_price_save_and_zero_price_checkout_guard(self) -> None:
+    def test_partial_shop_price_save_and_zero_price_rejection(self) -> None:
         _actor, shop = self.run_async(self.harness.create_shop_user())
 
         async def scenario() -> None:
@@ -461,48 +835,34 @@ class BackendApiIntegrationTests(BackendTestCase):
                     None,
                 )
 
-                completed_prices = await shop_daily_prices(
-                    DailyPriceCreate(
-                        entries=[
-                            DailyPriceEntry(
-                                item_id=chicken.id,
-                                price_per_unit=Decimal("111.00"),
-                            ),
-                            DailyPriceEntry(
-                                item_id=duck.id,
-                                price_per_unit=Decimal("0.00"),
-                            ),
-                        ]
-                    ),
-                    current_shop,
-                    db,
-                )
-                self.assertEqual(len(completed_prices), 2)
-                bootstrap_response = await shop_prices_bootstrap(current_shop, db)
-                self.assertTrue(bootstrap_response.prices_set)
-
                 with self.assertRaises(HTTPException) as context:
-                    await preview_checkout(
-                        BillCheckoutRequest(
-                            items=[BillItemInput(item_id=duck.id, quantity=Decimal("1"))],
-                            payment=CheckoutPaymentInput(
-                                cash_amount=Decimal("0.00"),
-                                upi_amount=Decimal("0.00"),
-                            ),
+                    await shop_daily_prices(
+                        DailyPriceCreate.model_construct(
+                            entries=[
+                                DailyPriceEntry(
+                                    item_id=chicken.id,
+                                    price_per_unit=Decimal("111.00"),
+                                ),
+                                DailyPriceEntry.model_construct(
+                                    item_id=duck.id,
+                                    price_per_unit=Decimal("0.00"),
+                                ),
+                            ]
                         ),
-                        db,
                         current_shop,
+                        db,
                     )
-                self.assertEqual(context.exception.status_code, 409)
-                self.assertEqual(
-                    context.exception.detail,
-                    "Today's price for Duck must be greater than 0",
-                )
+                self.assertEqual(context.exception.status_code, 422)
+                self.assertEqual(context.exception.detail, "Prices must be greater than 0")
+
+                bootstrap_response = await shop_prices_bootstrap(current_shop, db)
+                self.assertFalse(bootstrap_response.prices_set)
 
         self.run_async(scenario())
 
     def test_item_detail_endpoints_and_row_price_save(self) -> None:
         _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
