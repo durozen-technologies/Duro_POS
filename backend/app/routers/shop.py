@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_shop, require_roles
@@ -15,6 +15,7 @@ from app.schemas.billing import (
 from app.schemas.inventory import (
     InventoryAddRequest,
     InventoryMovementCreateResult,
+    InventoryMovementPage,
     InventoryMovementSplitCreateResult,
     InventorySummaryRead,
     InventoryUseRequest,
@@ -25,6 +26,7 @@ from app.services.billing import create_bill, preview_bill
 from app.services.inventory import (
     add_shop_inventory_stock,
     get_inventory_summary,
+    list_inventory_movements,
     use_shop_inventory_stock,
     use_shop_inventory_stock_split,
 )
@@ -89,6 +91,21 @@ async def shop_inventory(
 ) -> InventorySummaryRead:
     """Return allocated inventory items and stock totals for the signed-in shop."""
     return await get_inventory_summary(db, shop, active_allocations_only=True)
+
+
+@router.get(
+    "/inventory/movements",
+    response_model=InventoryMovementPage,
+    response_model_exclude_unset=True,
+    summary="List Shop Inventory Movements",
+)
+async def shop_inventory_movements(
+    limit: int = Query(30, ge=1, le=100),
+    shop: Shop = Depends(get_current_shop),
+    db: AsyncSession = Depends(get_db),
+) -> InventoryMovementPage:
+    """Return recent inventory movements for the signed-in shop."""
+    return await list_inventory_movements(db, shop_id=shop.id, limit=limit)
 
 
 @router.post(

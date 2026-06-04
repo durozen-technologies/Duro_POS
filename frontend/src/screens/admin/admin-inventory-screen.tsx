@@ -96,6 +96,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [summary, setSummary] = useState<InventorySummaryRead | null>(null);
   const [movements, setMovements] = useState<InventoryMovementRead[]>([]);
+  const [movementHistoryOpen, setMovementHistoryOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -158,7 +159,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     try {
       const [nextSummary, nextMovements] = await Promise.all([
         fetchShopInventoryAllocations(shopId),
-        fetchAdminInventoryMovements({ shop_id: shopId, limit: 30 }),
+        fetchAdminInventoryMovements({ shop_id: shopId, limit: 100 }),
       ]);
       setSummary(nextSummary);
       setMovements(nextMovements.items);
@@ -209,7 +210,12 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
 
   useEffect(() => {
     setBranchDropdownOpen(false);
+    setMovementHistoryOpen(false);
   }, [activeTab]);
+
+  useEffect(() => {
+    setMovementHistoryOpen(false);
+  }, [selectedShopId]);
 
   useEffect(() => {
     if (!selectedShopId || !baseLoaded) {
@@ -641,22 +647,56 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           </View>
         );
       })}
-      <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Recent movement</Text>
-      {movements.map((movement) => (
-        <View key={movement.id} style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+      <View style={styles.historyToggleRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: movementHistoryOpen }}
+          onPress={() => setMovementHistoryOpen((current) => !current)}
+          style={[
+            styles.historyButton,
+            {
+              backgroundColor: movementHistoryOpen ? "#FFFFFF" : palette.success,
+              borderColor: palette.success,
+            },
+          ]}
+        >
           <MaterialCommunityIcons
-            name={movement.movement_type === InventoryMovementType.ADD ? "plus-circle-outline" : "minus-circle-outline"}
+            name={movementHistoryOpen ? "chevron-up" : "history"}
             size={20}
-            color={movement.movement_type === InventoryMovementType.ADD ? palette.success : palette.danger}
+            color={movementHistoryOpen ? palette.success : "#FFFFFF"}
           />
-          <View style={styles.itemText}>
-            <Text style={[styles.itemName, { color: palette.textPrimary }]}>{movement.inventory_item_name}</Text>
-            <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
-              {movement.movement_type === InventoryMovementType.ADD ? "Added" : `Used for ${movement.category_name ?? "category"}`} · {formatInventoryQuantity(movement.quantity, movement.unit)}
-            </Text>
-          </View>
-        </View>
-      ))}
+          <Text style={[styles.historyButtonText, { color: movementHistoryOpen ? palette.success : "#FFFFFF" }]}>
+            {movementHistoryOpen ? "Hide history" : "History"}
+          </Text>
+        </Pressable>
+      </View>
+      {movementHistoryOpen ? (
+        <>
+          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Recent movement</Text>
+          {movements.length === 0 ? (
+            <View style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+              <MaterialCommunityIcons name="history" size={20} color={palette.textMuted} />
+              <Text style={[styles.itemMeta, { color: palette.textMuted }]}>No recent stock movement yet.</Text>
+            </View>
+          ) : (
+            movements.map((movement) => (
+              <View key={movement.id} style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+                <MaterialCommunityIcons
+                  name={movement.movement_type === InventoryMovementType.ADD ? "plus-circle-outline" : "minus-circle-outline"}
+                  size={20}
+                  color={movement.movement_type === InventoryMovementType.ADD ? palette.success : palette.danger}
+                />
+                <View style={styles.itemText}>
+                  <Text style={[styles.itemName, { color: palette.textPrimary }]}>{movement.inventory_item_name}</Text>
+                  <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
+                    {movement.movement_type === InventoryMovementType.ADD ? "Added" : `Used for ${movement.category_name ?? "category"}`} · {formatInventoryQuantity(movement.quantity, movement.unit)}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
+        </>
+      ) : null}
     </View>
   );
 
@@ -782,6 +822,19 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, fontWeight: "800", letterSpacing: 0 },
   section: { gap: 10 },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
+  historyToggleRow: { flexDirection: "row", justifyContent: "center", marginTop: 8 },
+  historyButton: {
+    width: "100%",
+    minHeight: 52,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  historyButtonText: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
   search: { minHeight: 46, flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   input: { flex: 1, minHeight: 42, fontSize: 14, fontWeight: "700" },
   itemRow: { borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },

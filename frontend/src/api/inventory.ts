@@ -2,6 +2,7 @@ import { apiClient } from "@/api/client";
 import {
   InventoryAddRequest,
   InventoryMovementCreateResult,
+  InventoryMovementPage,
   InventoryMovementSplitCreateResult,
   InventorySummaryRead,
   InventoryUseRequest,
@@ -11,6 +12,13 @@ import {
 
 export async function fetchShopInventory() {
   const { data } = await apiClient.get<InventorySummaryRead>("/api/v1/shop/inventory");
+  return data;
+}
+
+export async function fetchShopInventoryMovements(limit = 30) {
+  const { data } = await apiClient.get<InventoryMovementPage>("/api/v1/shop/inventory/movements", {
+    params: { limit },
+  });
   return data;
 }
 

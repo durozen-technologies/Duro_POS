@@ -21,10 +21,10 @@ export type SeverityMeta = {
 
 export const NAV_ITEMS: { key: AdminNavTab; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "view-dashboard-outline" },
-  { key: "items", label: "Items", icon: "playlist-edit" },
   { key: "sales", label: "Sales", icon: "chart-line" },
-  { key: "inventory", label: "Inventory", icon: "warehouse" },
   { key: "billing", label: "Billing", icon: "receipt-text-outline" },
+  { key: "items", label: "Items", icon: "playlist-edit" },
+  { key: "inventory", label: "Inventory", icon: "warehouse" },
   { key: "settings", label: "Settings", icon: "cog-outline" },
 ];
 

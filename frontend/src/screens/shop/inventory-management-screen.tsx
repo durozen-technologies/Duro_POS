@@ -17,6 +17,7 @@ import {
 import {
   addShopInventoryStock,
   fetchShopInventory,
+  fetchShopInventoryMovements,
   useShopInventoryStockSplit,
 } from "@/api/inventory";
 import { toApiError } from "@/api/client";
@@ -35,14 +36,17 @@ import {
   BaseUnit,
   InventoryMovementType,
   type InventoryItemStockRead,
+  type InventoryMovementRead,
   type InventorySummaryRead,
   type UUID,
 } from "@/types/api";
 import { money } from "@/utils/decimal";
+import { formatDateTime } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 import type { InventoryManagementScreenProps } from "@/navigation/types";
 
 type MovementMode = InventoryMovementType.ADD | InventoryMovementType.USE;
+const HISTORY_BUTTON_GREEN = "#147D52";
 
 function formatQuantity(value: string | number, unit?: BaseUnit) {
   const numeric = money(value).toNumber();
@@ -75,9 +79,24 @@ function isWholeDecimalValue(value: ReturnType<typeof money>) {
   return value.equals(value.toDecimalPlaces(0));
 }
 
+function mergeRecentMovements(current: InventoryMovementRead[], nextMovements: InventoryMovementRead[]) {
+  const seen = new Set<UUID>();
+  return [...nextMovements, ...current]
+    .filter((movement) => {
+      if (seen.has(movement.id)) {
+        return false;
+      }
+      seen.add(movement.id);
+      return true;
+    })
+    .slice(0, 100);
+}
+
 export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const { language, t } = useShopTranslation();
   const [summary, setSummary] = useState<InventorySummaryRead | null>(null);
+  const [movements, setMovements] = useState<InventoryMovementRead[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -95,7 +114,12 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     }
     setErrorMessage(null);
     try {
-      setSummary(await fetchShopInventory());
+      const [nextSummary, nextMovements] = await Promise.all([
+        fetchShopInventory(),
+        fetchShopInventoryMovements(100),
+      ]);
+      setSummary(nextSummary);
+      setMovements(nextMovements.items);
     } catch (error) {
       setErrorMessage(toApiError(error).message || t("inventory.loadFailed"));
     } finally {
@@ -198,16 +222,25 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     }
     setSaving(true);
     try {
-      const result = mode === InventoryMovementType.ADD
-        ? await addShopInventoryStock(selectedItem.id, { quantity: rawQuantity })
-        : await useShopInventoryStockSplit(selectedItem.id, {
-            total_quantity: rawQuantity,
-            categories: selectedItem.category_usage.map((category) => ({
-              category_id: category.category_id,
-              quantity: categoryQuantities[category.category_id]?.trim() || "0",
-            })),
-          });
-      setSummary(result.summary);
+      let nextSummary: InventorySummaryRead;
+      let nextMovements: InventoryMovementRead[];
+      if (mode === InventoryMovementType.ADD) {
+        const result = await addShopInventoryStock(selectedItem.id, { quantity: rawQuantity });
+        nextSummary = result.summary;
+        nextMovements = [result.movement];
+      } else {
+        const result = await useShopInventoryStockSplit(selectedItem.id, {
+          total_quantity: rawQuantity,
+          categories: selectedItem.category_usage.map((category) => ({
+            category_id: category.category_id,
+            quantity: categoryQuantities[category.category_id]?.trim() || "0",
+          })),
+        });
+        nextSummary = result.summary;
+        nextMovements = result.movements;
+      }
+      setSummary(nextSummary);
+      setMovements((current) => mergeRecentMovements(current, nextMovements));
       closeMovement();
     } catch (error) {
       const apiError = toApiError(error);
@@ -271,59 +304,137 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           {sortedItems.length === 0 ? (
             <EmptyState title={t("inventory.emptyTitle")} description={t("inventory.emptyDescription")} />
           ) : (
-            sortedItems.map((item) => {
-              const itemName = getLocalizedItemName(language, item.name, item.tamil_name);
-              return (
-                <Card key={item.id} className="gap-4">
-                  <View className="flex-row gap-3">
-                    <ItemThumbnail
-                      uri={getItemThumbnailUri(item)}
-                      recyclingKey={item.id}
-                      size={58}
-                      borderRadius={14}
-                      backgroundColor="#F4F7F2"
-                      icon="warehouse"
-                      iconColor="#6C7A70"
-                    />
-                    <View className="min-w-0 flex-1">
-                      <Text className="text-base font-extrabold text-ink" numberOfLines={2}>{itemName}</Text>
-                      <Text className="mt-1 text-sm font-semibold text-muted">
-                        {formatQuantity(item.available_quantity, item.base_unit)} {t("inventory.available")}
-                      </Text>
-                      <Text className="mt-1 text-xs font-semibold text-muted">
-                        {t("inventory.used")} {formatQuantity(item.used_quantity, item.base_unit)}
-                      </Text>
-                    </View>
-                  </View>
-                  <View className="flex-row gap-2">
-                    <Button
-                      label={t("inventory.addStock")}
-                      onPress={() => openMovement(item, InventoryMovementType.ADD)}
-                      className="flex-1"
-                    />
-                    <Button
-                      label={t("inventory.useStock")}
-                      onPress={() => openMovement(item, InventoryMovementType.USE)}
-                      variant="secondary"
-                      disabled={item.category_usage.length === 0}
-                      className="flex-1"
-                    />
-                  </View>
-                  <View className="gap-2 border-t border-border/70 pt-3">
-                    {item.category_usage.map((category) => (
-                      <View key={category.category_id} className="flex-row items-center justify-between gap-3">
-                        <Text className="min-w-0 flex-1 text-sm font-semibold text-ink" numberOfLines={1}>
-                          {category.category_name}
+            <>
+              {sortedItems.map((item) => {
+                const itemName = getLocalizedItemName(language, item.name, item.tamil_name);
+                return (
+                  <Card key={item.id} className="gap-4">
+                    <View className="flex-row gap-3">
+                      <ItemThumbnail
+                        uri={getItemThumbnailUri(item)}
+                        recyclingKey={item.id}
+                        size={58}
+                        borderRadius={14}
+                        backgroundColor="#F4F7F2"
+                        icon="warehouse"
+                        iconColor="#6C7A70"
+                      />
+                      <View className="min-w-0 flex-1">
+                        <Text className="text-base font-extrabold text-ink" numberOfLines={2}>{itemName}</Text>
+                        <Text className="mt-1 text-sm font-semibold text-muted">
+                          {formatQuantity(item.available_quantity, item.base_unit)} {t("inventory.available")}
                         </Text>
-                        <Text className="text-xs font-semibold text-muted">
-                          {t("inventory.used")} {formatQuantity(category.used_quantity, item.base_unit)}
+                        <Text className="mt-1 text-xs font-semibold text-muted">
+                          {t("inventory.used")} {formatQuantity(item.used_quantity, item.base_unit)}
                         </Text>
                       </View>
-                    ))}
-                  </View>
-                </Card>
-              );
-            })
+                    </View>
+                    <View className="flex-row gap-2">
+                      <Button
+                        label={t("inventory.addStock")}
+                        onPress={() => openMovement(item, InventoryMovementType.ADD)}
+                        className="flex-1"
+                      />
+                      <Button
+                        label={t("inventory.useStock")}
+                        onPress={() => openMovement(item, InventoryMovementType.USE)}
+                        variant="secondary"
+                        disabled={item.category_usage.length === 0}
+                        className="flex-1"
+                      />
+                    </View>
+                    <View className="gap-2 border-t border-border/70 pt-3">
+                      {item.category_usage.map((category) => (
+                        <View key={category.category_id} className="flex-row items-center justify-between gap-3">
+                          <Text className="min-w-0 flex-1 text-sm font-semibold text-ink" numberOfLines={1}>
+                            {category.category_name}
+                          </Text>
+                          <Text className="text-xs font-semibold text-muted">
+                            {t("inventory.used")} {formatQuantity(category.used_quantity, item.base_unit)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </Card>
+                );
+              })}
+
+              <View className="gap-3 pt-1">
+                <View className="w-full items-center">
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: historyOpen }}
+                    onPress={() => setHistoryOpen((current) => !current)}
+                    className="flex-row items-center justify-center gap-2"
+                    style={{
+                      width: "100%",
+                      minHeight: 52,
+                      borderWidth: 1,
+                      borderRadius: 14,
+                      paddingHorizontal: 22,
+                      backgroundColor: historyOpen ? "#FFFFFF" : HISTORY_BUTTON_GREEN,
+                      borderColor: HISTORY_BUTTON_GREEN,
+                    }}
+                  >
+                    <MaterialCommunityIcons
+                      name={historyOpen ? "chevron-up" : "history"}
+                      size={20}
+                      color={historyOpen ? HISTORY_BUTTON_GREEN : "#FFFFFF"}
+                    />
+                    <Text
+                      className="text-sm font-extrabold"
+                      style={{ color: historyOpen ? HISTORY_BUTTON_GREEN : "#FFFFFF" }}
+                    >
+                      {historyOpen ? t("inventory.hideHistory") : t("inventory.history")}
+                    </Text>
+                  </Pressable>
+                </View>
+                {historyOpen ? (
+                  <>
+                    <Text className="text-base font-extrabold text-ink">{t("inventory.recentMovement")}</Text>
+                    {movements.length === 0 ? (
+                      <Card className="border-border bg-card">
+                        <Text className="text-sm font-semibold text-muted">{t("inventory.noRecentMovement")}</Text>
+                      </Card>
+                    ) : (
+                      movements.map((movement) => {
+                        const movementItemName = getLocalizedItemName(
+                          language,
+                          movement.inventory_item_name,
+                          movement.inventory_item_tamil_name,
+                        );
+                        const isAdd = movement.movement_type === InventoryMovementType.ADD;
+                        const movementLabel = isAdd
+                          ? t("inventory.movementAdded")
+                          : t("inventory.movementUsedFor", {
+                              categoryName: movement.category_name ?? t("inventory.unknownCategory"),
+                            });
+                        return (
+                          <Card key={movement.id} className="flex-row items-center gap-3">
+                            <MaterialCommunityIcons
+                              name={isAdd ? "plus-circle-outline" : "minus-circle-outline"}
+                              size={22}
+                              color={isAdd ? "#168A5B" : "#9F4335"}
+                            />
+                            <View className="min-w-0 flex-1">
+                              <Text className="text-sm font-extrabold text-ink" numberOfLines={1}>
+                                {movementItemName}
+                              </Text>
+                              <Text className="mt-0.5 text-xs font-semibold text-muted" numberOfLines={1}>
+                                {movementLabel} · {formatQuantity(movement.quantity, movement.unit)}
+                              </Text>
+                              <Text className="mt-0.5 text-[11px] font-semibold text-muted">
+                                {formatDateTime(movement.created_at)}
+                              </Text>
+                            </View>
+                          </Card>
+                        );
+                      })
+                    )}
+                  </>
+                ) : null}
+              </View>
+            </>
           )}
         </ScrollView>
       </Screen>
