@@ -15,7 +15,7 @@ export function formatCurrency(value?: string | number | null) {
 }
 
 export function formatUnit(unit: BaseUnit) {
-  return unit === "kg" ? "kg" : "unit";
+  return unit === BaseUnit.KG ? "kg" : "unit";
 }
 
 export function formatDateTime(value: string) {

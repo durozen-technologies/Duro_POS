@@ -3,7 +3,6 @@ import { Controller } from "react-hook-form";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -28,8 +27,6 @@ import {
 import { WebView } from "react-native-webview";
 
 import { buildReceiptHtml } from "@/api/receipts";
-import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
-import { usePrinterStore } from "@/store/printer-store";
 import type { BillRead } from "@/types/api";
 
 import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
@@ -343,8 +340,8 @@ export function ShopEditorSheet({
                   minHeight={50}
                   borderRadius={16}
                   borderWidth={1}
-                  borderColor={palette.upi}
-                  backgroundColor={palette.upiSoft}
+                  borderColor={palette.settings}
+                  backgroundColor={palette.settingsSoft}
                   disabled={loading || deleting || statusLoading}
                   opacity={loading || deleting || statusLoading ? 0.72 : 1}
                   pressStyle={{ scale: 0.985, backgroundColor: palette.backgroundElevated }}
@@ -352,11 +349,11 @@ export function ShopEditorSheet({
                 >
                   <XStack alignItems="center" justifyContent="center" gap={8}>
                     {loading ? (
-                      <Spinner color={palette.upi} />
+                      <Spinner color={palette.settings} />
                     ) : (
-                      <MaterialCommunityIcons name="content-save-outline" size={18} color={palette.upi} />
+                      <MaterialCommunityIcons name="content-save-outline" size={18} color={palette.settings} />
                     )}
-                    <TText color={palette.upi} fontSize={14} fontWeight="800">
+                    <TText color={palette.settingsStrong} fontSize={14} fontWeight="800">
                       {loading ? "Saving..." : "Save Changes"}
                     </TText>
                   </XStack>
@@ -370,8 +367,8 @@ export function ShopEditorSheet({
                       minHeight={48}
                       borderRadius={16}
                       borderWidth={1}
-                      borderColor={isActive ? palette.cash : palette.emerald}
-                      backgroundColor={isActive ? palette.cashSoft : palette.emeraldSoft}
+                      borderColor={isActive ? palette.cash : palette.success}
+                      backgroundColor={isActive ? palette.cashSoft : palette.successSoft}
                       disabled={loading || deleting || statusLoading}
                       opacity={statusLoading ? 0.72 : 1}
                       pressStyle={{ scale: 0.985, backgroundColor: palette.backgroundElevated }}
@@ -379,16 +376,16 @@ export function ShopEditorSheet({
                     >
                       <XStack alignItems="center" justifyContent="center" gap={8}>
                         {statusLoading ? (
-                          <Spinner color={isActive ? "#8A5A11" : palette.emeraldDark} />
+                          <Spinner color={isActive ? palette.cash : palette.success} />
                         ) : (
                           <MaterialCommunityIcons
                             name={isActive ? "pause-circle-outline" : "check-circle-outline"}
                             size={18}
-                            color={isActive ? "#8A5A11" : palette.emeraldDark}
+                            color={isActive ? palette.cash : palette.success}
                           />
                         )}
                         <TText
-                          color={isActive ? "#8A5A11" : palette.emeraldDark}
+                          color={isActive ? palette.cash : palette.success}
                           fontSize={13}
                           fontWeight="800"
                         >
@@ -592,9 +589,9 @@ export function ShopEditorSheet({
                   variant="secondary"
                   fullWidth
                   palette={palette}
-                  backgroundColorOverride={palette.upiSoft}
-                  borderColorOverride={palette.upi}
-                  textColorOverride={palette.upi}
+                  backgroundColorOverride={palette.settingsSoft}
+                  borderColorOverride={palette.settings}
+                  textColorOverride={palette.settingsStrong}
                 />
 
                 <View style={styles.actionsRow}>
@@ -609,9 +606,9 @@ export function ShopEditorSheet({
                         icon={isActive ? "pause-circle-outline" : "check-circle-outline"}
                         fullWidth
                         palette={palette}
-                        backgroundColorOverride={isActive ? palette.cashSoft : palette.emeraldSoft}
-                        borderColorOverride={isActive ? palette.cash : palette.emerald}
-                        textColorOverride={isActive ? "#8A5A11" : palette.emeraldDark}
+                        backgroundColorOverride={isActive ? palette.cashSoft : palette.successSoft}
+                        borderColorOverride={isActive ? palette.cash : palette.success}
+                        textColorOverride={isActive ? palette.cash : palette.success}
                       />
                     </View>
                   ) : null}
@@ -666,9 +663,9 @@ export function ShopEditorSheet({
                       variant="secondary"
                       fullWidth
                       palette={palette}
-                      backgroundColorOverride={palette.emeraldSoft}
-                      borderColorOverride={palette.emerald}
-                      textColorOverride={palette.emeraldDark}
+                      backgroundColorOverride={palette.settingsSoft}
+                      borderColorOverride={palette.settings}
+                      textColorOverride={palette.settingsStrong}
                     />
                   </View>
                 </View>
@@ -690,33 +687,12 @@ export function BillPreviewSheet({
   bill,
 }: BillPreviewSheetProps) {
   const { panResponder, translateY } = useSwipeToClose(onClose);
-  const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const [receiptPreviewHeight, setReceiptPreviewHeight] = useState(320);
-  const [printing, setPrinting] = useState(false);
   const receiptHtml = useMemo(() => (bill ? buildReceiptHtml(bill) : ""), [bill]);
-  const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
   useEffect(() => {
     setReceiptPreviewHeight(320);
   }, [bill?.id]);
-
-  async function handlePrint() {
-    if (!bill) return;
-
-    if (!preferredPrinter) {
-      Alert.alert("Printer Not Configured", "Connect a saved printer on this device before printing receipts.");
-      return;
-    }
-
-    try {
-      setPrinting(true);
-      await startReceiptImagePrintJob([bill], preferredPrinter);
-    } catch (error) {
-      Alert.alert("Unable to Print", error instanceof Error ? error.message : "The saved printer could not print this receipt.");
-    } finally {
-      setPrinting(false);
-    }
-  }
 
   const receiptPreviewScript = useMemo(
     () => `
@@ -792,7 +768,7 @@ export function BillPreviewSheet({
 
             {loading ? (
               <View style={styles.loadingWrap}>
-                <ActivityIndicator color={palette.emerald} />
+                <ActivityIndicator color={palette.billing} />
                 <Text style={[styles.loadingText, { color: palette.textSecondary }]}>Loading bill preview...</Text>
               </View>
             ) : bill ? (
@@ -834,52 +810,6 @@ export function BillPreviewSheet({
                     </View>
                   </View>
                 </ScrollView>
-
-                {/* Print footer */}
-                <View
-                  style={[
-                    styles.printFooter,
-                    {
-                      backgroundColor: palette.card,
-                      borderTopColor: palette.border,
-                    },
-                  ]}
-                >
-                  <View style={styles.printFooterActionsRow}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Print receipt"
-                      accessibilityState={{ disabled: printing }}
-                      disabled={printing}
-                      onPress={() => void handlePrint()}
-                      style={({ pressed }) => [
-                        styles.footerButton,
-                        {
-                          backgroundColor: palette.emerald,
-                          borderColor: palette.emerald,
-                          opacity: printing ? 0.72 : pressed ? 0.94 : 1,
-                        },
-                      ]}
-                    >
-                      <View style={styles.footerButtonContent}>
-                        <View style={styles.footerButtonIconSlot}>
-                          {printing ? (
-                            <ActivityIndicator size="small" color={palette.emeraldDark} />
-                          ) : (
-                            <MaterialCommunityIcons
-                              name="printer-outline"
-                              size={18}
-                              color={palette.emeraldDark}
-                            />
-                          )}
-                        </View>
-                        <Text style={[styles.footerButtonPrimaryText, { color: palette.emeraldDark }]}>
-                          {printing ? "Opening..." : "Print Receipt"}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  </View>
-                </View>
               </>
             ) : (
               <EmptyStateCard
@@ -893,7 +823,6 @@ export function BillPreviewSheet({
             )}
           </Animated.View>
         </KeyboardAvoidingView>
-        {receiptImagePrintBridge}
       </View>
     </Modal>
   );
@@ -1117,59 +1046,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderWidth: 1,
     borderRadius: 18,
-  },
-  printFooter: {
-    marginTop: 10,
-    marginHorizontal: -18,
-    marginBottom: -18,
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 20,
-    borderTopWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  printFooterActionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  footerButton: {
-    width: "72%",
-    maxWidth: 320,
-    height: 48,
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  footerButtonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  footerButtonIconSlot: {
-    width: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  footerButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-  },
-  footerButtonPrimaryText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    lineHeight: 20,
   },
   createActionsWrap: {
     marginTop: 8,

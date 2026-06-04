@@ -15,7 +15,15 @@ import {
 } from "tamagui";
 
 import { resolveApiUrl } from "@/api/client";
-import type { BaseUnit, ShopBootstrapResponse, ShopItemCounts, ShopItemRead, ShopRead, UnitType, UUID } from "@/types/api";
+import {
+  BaseUnit,
+  UnitType,
+  type ShopBootstrapResponse,
+  type ShopItemCounts,
+  type ShopItemRead,
+  type ShopRead,
+  type UUID,
+} from "@/types/api";
 import { toMoneyString } from "@/utils/decimal";
 
 import {
@@ -110,20 +118,20 @@ type AdminItemsTabProps = {
 
 export type ItemFilter = AdminItemFilter;
 export type ItemWorkspaceMode = AdminItemWorkspace;
-type Tone = "emerald" | "gold" | "danger" | "neutral";
+type Tone = "primary" | "gold" | "danger" | "neutral";
 
 const unitTypeOptions: {
   value: UnitType;
   label: string;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 }[] = [
-  { value: "weight", label: "Weight", icon: "scale-balance" },
-  { value: "count", label: "Count", icon: "counter" },
+  { value: UnitType.WEIGHT, label: "Weight", icon: "scale-balance" },
+  { value: UnitType.COUNT, label: "Count", icon: "counter" },
 ];
 
 const baseUnitOptions: { value: BaseUnit; label: string }[] = [
-  { value: "kg", label: "KG" },
-  { value: "unit", label: "Unit" },
+  { value: BaseUnit.KG, label: "KG" },
+  { value: BaseUnit.UNIT, label: "Unit" },
 ];
 
 const filterOptions: {
@@ -161,8 +169,8 @@ const catalogueFilterSet = new Set<ItemFilter>([
 ]);
 
 function toneColor(palette: ThemePalette, tone: Tone) {
-  if (tone === "emerald") {
-    return { fg: palette.emeraldDark, bg: palette.emeraldSoft, border: palette.emerald };
+  if (tone === "primary") {
+    return { fg: palette.itemsStrong, bg: palette.itemsSoft, border: palette.items };
   }
   if (tone === "gold") {
     return { fg: palette.cash, bg: palette.goldSoft, border: palette.gold };
@@ -237,7 +245,7 @@ function ActionButton({
 }) {
   const backgroundColor =
     variant === "primary"
-      ? palette.emerald
+      ? palette.items
       : variant === "danger"
         ? palette.danger
         : variant === "ghost"
@@ -245,14 +253,18 @@ function ActionButton({
           : palette.card;
   const borderColor =
     variant === "primary"
-      ? palette.emerald
+      ? palette.items
       : variant === "danger"
         ? palette.danger
         : variant === "ghost"
           ? "rgba(255,255,255,0.42)"
           : palette.border;
   const textColor =
-    variant === "primary" || variant === "danger" || variant === "ghost" ? "#FFFFFF" : palette.textPrimary;
+    variant === "primary"
+      ? palette.onPrimary
+      : variant === "danger" || variant === "ghost"
+        ? "#FFFFFF"
+        : palette.textPrimary;
 
   return (
     <TButton
@@ -302,7 +314,7 @@ function Chip({
   palette: ThemePalette;
   onPress?: () => void;
 }) {
-  const colors = active ? toneColor(palette, tone === "neutral" ? "emerald" : tone) : toneColor(palette, "neutral");
+  const colors = active ? toneColor(palette, tone === "neutral" ? "primary" : tone) : toneColor(palette, "neutral");
   const content = (
     <XStack alignItems="center" justifyContent="center" gap={6} minWidth={0}>
       {icon ? <MaterialCommunityIcons name={icon} size={14} color={colors.fg} /> : null}
@@ -697,15 +709,15 @@ function ToggleButton({
       borderRadius={99}
       paddingHorizontal={12}
       borderWidth={1}
-      borderColor={active ? palette.emerald : palette.border}
-      backgroundColor={active ? palette.emeraldSoft : palette.surfaceMuted}
+      borderColor={active ? palette.items : palette.border}
+      backgroundColor={active ? palette.itemsSoft : palette.surfaceMuted}
       pressStyle={{ opacity: 0.9, scale: 0.98 }}
     >
       <XStack alignItems="center" justifyContent="center" gap={6} minWidth={0}>
-        {icon ? <MaterialCommunityIcons name={icon} size={15} color={active ? palette.emeraldDark : palette.textMuted} /> : null}
+        {icon ? <MaterialCommunityIcons name={icon} size={15} color={active ? palette.itemsStrong : palette.textMuted} /> : null}
         <Text
           numberOfLines={1}
-          style={{ color: active ? palette.emeraldDark : palette.textSecondary, fontSize: 12, fontWeight: "900" }}
+          style={{ color: active ? palette.itemsStrong : palette.textSecondary, fontSize: 12, fontWeight: "900" }}
         >
           {label}
         </Text>
@@ -732,8 +744,8 @@ function EmptyPanel({
   return (
     <Card borderRadius={22} padding={18} borderWidth={1} borderColor={palette.border} backgroundColor={palette.card}>
       <YStack gap={12} alignItems="flex-start">
-        <Stack width={48} height={48} borderRadius={18} alignItems="center" justifyContent="center" backgroundColor={palette.emeraldSoft}>
-          <MaterialCommunityIcons name={icon} size={24} color={palette.emeraldDark} />
+        <Stack width={48} height={48} borderRadius={18} alignItems="center" justifyContent="center" backgroundColor={palette.itemsSoft}>
+          <MaterialCommunityIcons name={icon} size={24} color={palette.itemsStrong} />
         </Stack>
         <YStack gap={4}>
           <TitleText color={palette.textPrimary} size="sm">{title}</TitleText>
@@ -819,24 +831,24 @@ function ShopItemCard({
             <YStack flex={1} minWidth={0} gap={2}>
               <TitleText color={palette.textPrimary} size="sm" numberOfLines={1}>{item.name}</TitleText>
               <SmallText color={palette.textMuted} numberOfLines={1}>
-                {item.tamil_name || "Tamil name missing"} · {item.unit_type === "weight" ? "Weight" : "Count"} · {item.base_unit}
+                {item.tamil_name || "Tamil name missing"} · {item.unit_type === UnitType.WEIGHT ? "Weight" : "Count"} · {item.base_unit}
               </SmallText>
             </YStack>
-            <Chip label={statusLabel} tone={isAllocated ? "emerald" : "gold"} active palette={palette} />
+            <Chip label={statusLabel} tone={isAllocated ? "primary" : "gold"} active palette={palette} />
           </XStack>
 
           <XStack flexWrap="wrap" gap={8}>
             <Chip
               label={priceLabel}
               icon={priceIcon}
-              tone={isAllocated && item.price_status === PriceStatus.Current ? "emerald" : item.price_status === PriceStatus.Stale ? "danger" : "gold"}
+              tone={isAllocated && item.price_status === PriceStatus.Current ? "primary" : item.price_status === PriceStatus.Stale ? "danger" : "gold"}
               active
               palette={palette}
             />
             <Chip
               label={item.is_active ? "Active" : "Paused"}
               icon={item.is_active ? "check-circle-outline" : "pause-circle-outline"}
-              tone={item.is_active ? "emerald" : "danger"}
+              tone={item.is_active ? "primary" : "danger"}
               active
               palette={palette}
             />
@@ -1001,7 +1013,7 @@ function AdminItemsPriceView({
           </XStack>
 
           <XStack flexWrap="wrap" gap={8}>
-            <Chip label="1. Allocate" icon="link-variant" active tone="emerald" palette={palette} />
+            <Chip label="1. Allocate" icon="link-variant" active tone="primary" palette={palette} />
             <Chip label="2. Price" icon="cash-edit" active tone="gold" palette={palette} />
             <Chip label="3. Billing" icon="receipt-text-outline" active tone="neutral" palette={palette} />
           </XStack>
@@ -1011,7 +1023,7 @@ function AdminItemsPriceView({
       {priceLoading ? (
         <Card borderRadius={22} padding={18} borderWidth={1} borderColor={palette.border} backgroundColor={palette.card}>
           <XStack alignItems="center" justifyContent="center" gap={10}>
-            <Spinner color={palette.emerald} />
+            <Spinner color={palette.items} />
             <SmallText color={palette.textMuted}>Loading allocated items...</SmallText>
           </XStack>
         </Card>
@@ -1033,7 +1045,7 @@ function AdminItemsPriceView({
                   <TitleText color={palette.textPrimary} size="sm">Choose item</TitleText>
                   <SmallText color={palette.textMuted}>All allocated active items must have valid prices.</SmallText>
                 </YStack>
-                <Chip label={`${priceBootstrap.items.length} items`} active tone="emerald" palette={palette} />
+                <Chip label={`${priceBootstrap.items.length} items`} active tone="primary" palette={palette} />
               </XStack>
 
               <Stack height={Math.min(420, Math.max(96, priceBootstrap.items.length * 78))}>
@@ -1052,8 +1064,8 @@ function AdminItemsPriceView({
                       borderRadius={18}
                       padding={12}
                       borderWidth={1}
-                      borderColor={selected ? palette.emerald : palette.border}
-                      backgroundColor={selected ? palette.emeraldSoft : palette.surfaceMuted}
+                      borderColor={selected ? palette.items : palette.border}
+                      backgroundColor={selected ? palette.itemsSoft : palette.surfaceMuted}
                       onPress={() => onSelectPriceItem(item.item_id, item.current_price)}
                       pressStyle={{ opacity: 0.9, scale: 0.99 }}
                     >
@@ -1068,7 +1080,7 @@ function AdminItemsPriceView({
                           label={resolvedPrice ? `Rs. ${toMoneyString(resolvedPrice)}` : "No price"}
                           icon={resolvedPrice ? "cash-check" : "cash-clock"}
                           active
-                          tone={resolvedPrice ? "emerald" : "gold"}
+                          tone={resolvedPrice ? "primary" : "gold"}
                           palette={palette}
                         />
                       </XStack>
@@ -1176,14 +1188,14 @@ function WorkspaceNav({
             {viewMode === AdminItemWorkspace.Catalogue ? "Global catalogue" : selectedShop?.name ?? "Select a shop"}
           </SmallText>
         </YStack>
-        <Chip label={`${totalCount || filterCounts.all} total`} active tone="emerald" palette={palette} />
+        <Chip label={`${totalCount || filterCounts.all} total`} active tone="primary" palette={palette} />
       </XStack>
 
       <XStack flexWrap="wrap" gap={9}>
         {workspacePageOptions.map((option) => {
           const active = viewMode === option.value;
           const disabled = option.value === AdminItemWorkspace.Prices && !selectedShop;
-          const colors = active ? toneColor(palette, "emerald") : toneColor(palette, "neutral");
+          const colors = active ? toneColor(palette, "primary") : toneColor(palette, "neutral");
           return (
             <TButton
               key={option.value}
@@ -1257,7 +1269,7 @@ function ShopSelectorPanel({
     <YStack gap={8}>
       <XStack alignItems="center" justifyContent="space-between" gap={10}>
         <TitleText color={palette.textPrimary} size="sm">Shop</TitleText>
-        <Chip label={selectedShop?.name ?? "Required"} active tone={selectedShop ? "emerald" : "gold"} palette={palette} />
+        <Chip label={selectedShop?.name ?? "Required"} active tone={selectedShop ? "primary" : "gold"} palette={palette} />
       </XStack>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
         {shops.map((shop) => (
@@ -1290,9 +1302,9 @@ function ItemsStatsRow({
 }) {
   return (
     <XStack flexWrap="wrap" gap={10}>
-      <StatCard label="Allocated" value={allocatedCount} icon="link-variant" tone="emerald" palette={palette} />
-      <StatCard label="Need price" value={missingPriceCount} icon="cash-clock" tone={missingPriceCount ? "danger" : "emerald"} palette={palette} />
-      <StatCard label="Stale" value={stalePriceCount} icon="calendar-alert" tone={stalePriceCount ? "danger" : "emerald"} palette={palette} />
+      <StatCard label="Allocated" value={allocatedCount} icon="link-variant" tone="primary" palette={palette} />
+      <StatCard label="Need price" value={missingPriceCount} icon="cash-clock" tone={missingPriceCount ? "danger" : "primary"} palette={palette} />
+      <StatCard label="Stale" value={stalePriceCount} icon="calendar-alert" tone={stalePriceCount ? "danger" : "primary"} palette={palette} />
       <StatCard label="Available" value={availableCount} icon="link-variant-off" tone="gold" palette={palette} />
     </XStack>
   );
@@ -1422,7 +1434,7 @@ function ItemEditorPanel({
                         onChangeForm({
                           ...form,
                           unitType: option.value,
-                          baseUnit: option.value === "weight" ? "kg" : "unit",
+                          baseUnit: option.value === UnitType.WEIGHT ? BaseUnit.KG : BaseUnit.UNIT,
                         })
                       }
                       palette={palette}
@@ -1440,7 +1452,7 @@ function ItemEditorPanel({
                         onChangeForm({
                           ...form,
                           baseUnit: option.value,
-                          unitType: option.value === "kg" ? "weight" : "count",
+                          unitType: option.value === BaseUnit.KG ? UnitType.WEIGHT : UnitType.COUNT,
                         })
                       }
                       palette={palette}
@@ -1713,7 +1725,7 @@ export function AdminItemsTab({
       ItemSeparatorComponent={() => <Stack height={12} />}
       style={{ flex: 1, backgroundColor: palette.background }}
       contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomPadding }}
-      refreshControl={<RefreshControl refreshing={refreshing || itemsLoading} onRefresh={onRefresh} tintColor={palette.emerald} />}
+      refreshControl={<RefreshControl refreshing={refreshing || itemsLoading} onRefresh={onRefresh} tintColor={palette.items} />}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       ListHeaderComponent={(
@@ -1842,7 +1854,7 @@ export function AdminItemsTab({
                   ) : itemsLoading ? (
                     <Card borderRadius={18} padding={12} backgroundColor={palette.surfaceMuted} borderWidth={0}>
                       <XStack justifyContent="center" alignItems="center" gap={10}>
-                        <Spinner color={palette.emerald} />
+                        <Spinner color={palette.items} />
                         <SmallText color={palette.textMuted}>Refreshing items...</SmallText>
                       </XStack>
                     </Card>

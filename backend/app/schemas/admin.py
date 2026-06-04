@@ -10,7 +10,7 @@ from ..models import BaseUnit, UnitType
 from .auth import normalize_username, require_non_blank_password
 from .common import ORMModel
 
-AnalyticsPeriod = Literal["date", "week", "month", "year"]
+AnalyticsPeriod = Literal["date", "week", "month", "year", "range"]
 JsonScalar = str | int | float | bool | None
 JsonObject = dict[str, JsonScalar]
 

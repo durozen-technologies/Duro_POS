@@ -1,5 +1,4 @@
 from decimal import Decimal
-from enum import Enum
 from uuid import UUID
 
 from sqlalchemy import Enum as SqlEnum
@@ -9,12 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..core.ids import UUID_SQL_TYPE, uuid7
 from ..db.database import Base
 from .base import BaseModelMixin
-from .enums import BaseUnit, UnitType
-
-
-class BillStatus(str, Enum):
-    PENDING_PAYMENT = "pending_payment"
-    PAID = "paid"
+from .enums import BaseUnit, BillStatus, UnitType
 
 
 class Bill(Base, BaseModelMixin):

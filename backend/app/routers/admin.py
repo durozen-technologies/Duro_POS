@@ -160,11 +160,19 @@ router = APIRouter(tags=["Admin"], dependencies=[Depends(require_roles(UserRole.
 
 AnalyticsPeriodParam = Annotated[
     AnalyticsPeriod,
-    Query(description="Aggregation window: `date`, `month`, `week`, or `year`."),
+    Query(description="Aggregation window: `date`, `month`, `week`, `year`, or `range`."),
 ]
 ReferenceDateParam = Annotated[
     date | None,
     Query(description="Anchor date used to resolve the selected period."),
+]
+RangeStartDateParam = Annotated[
+    date | None,
+    Query(description="Inclusive start date when period is `range`."),
+]
+RangeEndDateParam = Annotated[
+    date | None,
+    Query(description="Inclusive end date when period is `range`."),
 ]
 ShopIdParam = Annotated[
     UUID | None,
@@ -1447,6 +1455,8 @@ async def delete_shop(
 async def sales_summary(
     period: AnalyticsPeriodParam = "date",
     reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
     shop_id: ShopIdParam = None,
     db: DBSession = None,
 ) -> list[ShopSalesSummary]:
@@ -1455,7 +1465,9 @@ async def sales_summary(
     Available as a standalone reporting endpoint. The admin dashboard
     bootstrap already includes this data via ``GET /dashboard/bootstrap``.
     """
-    return await get_shop_sales_summary(db, period, reference_date, shop_id)
+    return await get_shop_sales_summary(
+        db, period, reference_date, shop_id, range_start_date, range_end_date
+    )
 
 
 @router.get(
@@ -1467,6 +1479,8 @@ async def sales_summary(
 async def payment_summary(
     period: AnalyticsPeriodParam = "date",
     reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
     shop_id: ShopIdParam = None,
     db: DBSession = None,
 ) -> list[PaymentSplitSummary]:
@@ -1475,7 +1489,9 @@ async def payment_summary(
     Available as a standalone reporting endpoint. The admin dashboard
     bootstrap already includes this data via ``GET /dashboard/bootstrap``.
     """
-    return await get_payment_split_summary(db, period, reference_date, shop_id)
+    return await get_payment_split_summary(
+        db, period, reference_date, shop_id, range_start_date, range_end_date
+    )
 
 
 @router.get(
@@ -1487,6 +1503,8 @@ async def payment_summary(
 async def item_sales(
     period: AnalyticsPeriodParam = "date",
     reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
     shop_id: ShopIdParam = None,
     limit: ItemsLimitParam = 100,
     db: DBSession = None,
@@ -1497,7 +1515,9 @@ async def item_sales(
     Available as a standalone reporting endpoint. The admin dashboard
     bootstrap already includes this data via ``GET /dashboard/bootstrap``.
     """
-    return await get_item_sales_summary(db, period, reference_date, shop_id, limit)
+    return await get_item_sales_summary(
+        db, period, reference_date, shop_id, limit, range_start_date, range_end_date
+    )
 
 
 # ── Bills ─────────────────────────────────────────────────────────────────────
@@ -1509,6 +1529,8 @@ async def item_sales(
 async def bills(
     period: AnalyticsPeriodParam = "date",
     reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
     shop_id: ShopIdParam = None,
     limit: BillsLimitParam = 100,
     cursor_created_at: CursorCreatedAtParam = None,
@@ -1529,6 +1551,8 @@ async def bills(
         limit=limit,
         cursor_created_at=cursor_created_at,
         cursor_id=cursor_id,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
     )
 
 
@@ -1656,6 +1680,8 @@ async def global_daily_prices(
 async def dashboard_bootstrap(
     period: AnalyticsPeriodParam = "date",
     reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
     shop_id: Annotated[
         UUID | None, Query(description="Optionally scope the dashboard to one shop branch.")
     ] = None,
@@ -1668,5 +1694,11 @@ async def dashboard_bootstrap(
     metadata, chart summaries, the first page of bills, and item-sales data.
     """
     return await get_dashboard_bootstrap(
-        db, period, reference_date, shop_id, bills_limit=bills_limit
+        db,
+        period,
+        reference_date,
+        shop_id,
+        bills_limit=bills_limit,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
     )

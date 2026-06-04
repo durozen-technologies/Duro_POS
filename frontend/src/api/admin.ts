@@ -65,6 +65,20 @@ export type InventoryItemMetadataPayload = {
   category_ids: UUID[];
 };
 
+export type AnalyticsDateRange = {
+  startDate?: string | null;
+  endDate?: string | null;
+};
+
+function analyticsParams(period: AnalyticsPeriod, referenceDate?: string, range?: AnalyticsDateRange) {
+  return {
+    period,
+    reference_date: referenceDate,
+    range_start_date: range?.startDate ?? undefined,
+    range_end_date: range?.endDate ?? undefined,
+  };
+}
+
 function parseUploadResponseBody(body: string) {
   if (!body.trim()) {
     return null;
@@ -704,16 +718,16 @@ export async function fetchAdminInventoryMovements(
   return data;
 }
 
-export async function fetchSalesSummary(period: AnalyticsPeriod, referenceDate?: string) {
+export async function fetchSalesSummary(period: AnalyticsPeriod, referenceDate?: string, range?: AnalyticsDateRange) {
   const { data } = await apiClient.get<ShopSalesSummary[]>("/api/v1/admin/sales-summary", {
-    params: { period, reference_date: referenceDate },
+    params: analyticsParams(period, referenceDate, range),
   });
   return data;
 }
 
-export async function fetchPaymentSummary(period: AnalyticsPeriod, referenceDate?: string) {
+export async function fetchPaymentSummary(period: AnalyticsPeriod, referenceDate?: string, range?: AnalyticsDateRange) {
   const { data } = await apiClient.get<PaymentSplitSummary[]>("/api/v1/admin/payment-summary", {
-    params: { period, reference_date: referenceDate },
+    params: analyticsParams(period, referenceDate, range),
   });
   return data;
 }
@@ -725,11 +739,11 @@ export async function fetchDailyBills(
   limit = 100,
   cursorCreatedAt?: string | null,
   cursorId?: UUID | null,
+  range?: AnalyticsDateRange,
 ) {
   const { data } = await apiClient.get<AdminBillPage>("/api/v1/admin/bills", {
     params: {
-      period,
-      reference_date: referenceDate,
+      ...analyticsParams(period, referenceDate, range),
       shop_id: shopId ?? undefined,
       limit,
       cursor_created_at: cursorCreatedAt ?? undefined,
@@ -739,9 +753,14 @@ export async function fetchDailyBills(
   return data;
 }
 
-export async function fetchItemSales(period: AnalyticsPeriod, referenceDate?: string, shopId?: UUID | null) {
+export async function fetchItemSales(
+  period: AnalyticsPeriod,
+  referenceDate?: string,
+  shopId?: UUID | null,
+  range?: AnalyticsDateRange,
+) {
   const { data } = await apiClient.get<ItemSalesSummary[]>("/api/v1/admin/item-sales", {
-    params: { period, reference_date: referenceDate, shop_id: shopId ?? undefined },
+    params: { ...analyticsParams(period, referenceDate, range), shop_id: shopId ?? undefined },
   });
   return data;
 }
@@ -787,11 +806,11 @@ export async function fetchDashboardBootstrap(
   referenceDate?: string,
   shopId?: UUID | null,
   limit = 50,
+  range?: AnalyticsDateRange,
 ) {
   const { data } = await apiClient.get<AdminDashboardBootstrap>("/api/v1/admin/dashboard/bootstrap", {
     params: {
-      period,
-      reference_date: referenceDate,
+      ...analyticsParams(period, referenceDate, range),
       shop_id: shopId ?? undefined,
       bills_limit: limit,
     },

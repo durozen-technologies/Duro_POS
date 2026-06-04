@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { YStack } from "tamagui";
 
@@ -26,7 +26,7 @@ import type {
   AdminShopItemsScreenProps,
 } from "@/navigation/types";
 
-import { getAdminPalette } from "./admin-dashboard-theme";
+import { useAdminTheme } from "./use-admin-theme";
 import {
   AdminItemEditorMode,
   AdminItemFormScope,
@@ -51,6 +51,7 @@ import {
   WorkspaceTabs,
 } from "./components/admin-items-management";
 import { ToastBanner } from "./components/admin-dashboard-primitives";
+import { AdminHeaderActions } from "./components/admin-header-actions";
 import {
   useAdminItemShops,
   useAvailableCatalogueItems,
@@ -95,8 +96,7 @@ function AdminItemsRoute({
   route,
   workspace,
 }: ItemsRouteProps & { workspace: AdminItemWorkspace }) {
-  const colorScheme = useColorScheme();
-  const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
+  const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const storedShopId = useAdminItemsStore((state) => state.selectedShopId);
@@ -507,6 +507,42 @@ function AdminItemsRoute({
     });
   }, [availableCatalogueState, showToast]);
 
+  const refreshCurrentItemsPage = useCallback(() => {
+    if (workspace !== AdminItemWorkspace.Catalogue) {
+      void shopsState.reload().catch(() => undefined);
+    }
+    if (workspace === AdminItemWorkspace.Catalogue) {
+      refreshCatalogue();
+      return;
+    }
+    if (workspace === AdminItemWorkspace.Prices) {
+      refreshPrices();
+      return;
+    }
+    if (shopItemsTab === "available") {
+      refreshImportItems();
+      return;
+    }
+    refreshShopItems();
+  }, [
+    refreshCatalogue,
+    refreshImportItems,
+    refreshPrices,
+    refreshShopItems,
+    shopItemsTab,
+    shopsState,
+    workspace,
+  ]);
+
+  const headerRefreshing =
+    workspace === AdminItemWorkspace.Catalogue
+      ? catalogueState.refreshing
+      : workspace === AdminItemWorkspace.Prices
+        ? priceState.refreshing || shopsState.loading
+        : shopItemsTab === "available"
+          ? availableCatalogueState.refreshing || shopsState.loading
+          : shopItemsState.refreshing || shopsState.loading;
+
   const savePriceRow = useCallback((item: ItemPriceRead, rawValue: string) => {
     if (!isPositiveNumber(rawValue)) {
       triggerHaptic();
@@ -634,6 +670,8 @@ function AdminItemsRoute({
             palette={palette}
             primaryAction={actions.primary}
             secondaryActions={actions.secondary}
+            thumbnailSize={60}
+            actionsPlacement="side"
           />
         );
       }}
@@ -733,6 +771,7 @@ function AdminItemsRoute({
                       onPress: () => toggleImportSelection(item.id),
                     },
                   ]}
+                  thumbnailSize={60}
                 />
               );
             }}
@@ -804,6 +843,8 @@ function AdminItemsRoute({
               palette={palette}
               primaryAction={actions.primary}
               secondaryActions={actions.secondary}
+              thumbnailSize={60}
+              actionsPlacement="side"
             />
           );
         }}
@@ -881,6 +922,10 @@ function AdminItemsRoute({
             {subtitle}
           </Text>
         </View>
+        <AdminHeaderActions
+          refreshing={headerRefreshing}
+          onRefresh={refreshCurrentItemsPage}
+        />
       </View>
       {workspace === AdminItemWorkspace.Catalogue
         ? renderCatalogue()

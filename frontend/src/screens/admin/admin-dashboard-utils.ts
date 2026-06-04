@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 
-import type { AnalyticsPeriod, BaseUnit, ShopRead } from "@/types/api";
+import { AnalyticsPeriod, BaseUnit, type ShopRead } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatDate } from "@/utils/format";
 
@@ -225,18 +225,31 @@ export function buildYearOptions() {
   });
 }
 
-export function formatAnalyticsReference(period: AnalyticsPeriod, value: string) {
+export function formatAnalyticsReference(
+  period: AnalyticsPeriod,
+  value: string,
+  range?: { startDate?: string | null; endDate?: string | null },
+) {
+  if (period === AnalyticsPeriod.RANGE && range?.startDate && range.endDate) {
+    const startDate = parseLocalDateValue(range.startDate);
+    const endDate = parseLocalDateValue(range.endDate);
+    if (range.startDate === range.endDate) {
+      return fullAnalyticsDateFormatter.format(startDate);
+    }
+    return `${shortWeekFormatter.format(startDate)} - ${weekRangeEndFormatter.format(endDate)}`;
+  }
+
   const date = parseLocalDateValue(value);
 
-  if (period === "date") {
+  if (period === AnalyticsPeriod.DATE) {
     return fullAnalyticsDateFormatter.format(date);
   }
 
-  if (period === "month") {
+  if (period === AnalyticsPeriod.MONTH) {
     return monthYearFormatter.format(date);
   }
 
-  if (period === "year") {
+  if (period === AnalyticsPeriod.YEAR) {
     return analyticsYearFormatter.format(date);
   }
 
@@ -249,7 +262,7 @@ export function formatAnalyticsReference(period: AnalyticsPeriod, value: string)
 export function getUnitLabel(unit: BaseUnit, quantity: string) {
   const numericQuantity = money(quantity).toNumber();
   const normalizedQuantity = Number.isInteger(numericQuantity) ? `${numericQuantity}` : `${numericQuantity.toFixed(2)}`;
-  return `${normalizedQuantity} ${unit === "kg" ? "Kg" : numericQuantity === 1 ? "Unit" : "Units"}`;
+  return `${normalizedQuantity} ${unit === BaseUnit.KG ? "Kg" : numericQuantity === 1 ? "Unit" : "Units"}`;
 }
 
 export function groupBillsByDate<T extends { created_at: string }>(items: T[]) {

@@ -7,7 +7,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,8 +22,10 @@ import { isApiRequestCanceled, toApiError } from "@/api/client";
 import type { AdminItemCategoriesScreenProps } from "@/navigation/types";
 import type { ItemCategoryRead, UUID } from "@/types/api";
 
-import { getAdminPalette, type ThemePalette } from "./admin-dashboard-theme";
+import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
+import { AdminHeaderActions } from "./components/admin-header-actions";
+import { useAdminTheme } from "./use-admin-theme";
 
 function sortedCategories(categories: ItemCategoryRead[]) {
   return [...categories].sort((left, right) => left.name.localeCompare(right.name));
@@ -36,8 +37,7 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
 }
 
 export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScreenProps) {
-  const colorScheme = useColorScheme();
-  const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
+  const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const [categories, setCategories] = useState<ItemCategoryRead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -237,11 +237,15 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
             Manage catalogue groups
           </Text>
         </View>
+        <AdminHeaderActions
+          refreshing={refreshing}
+          onRefresh={() => loadCategories(undefined, true)}
+        />
       </View>
 
       {loading ? (
         <View style={styles.center}>
-          <Spinner color={palette.emerald} />
+          <Spinner color={palette.items} />
           <Text style={[styles.helper, { color: palette.textMuted }]}>Loading categories...</Text>
         </View>
       ) : (
@@ -289,7 +293,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                     <IconAction
                       icon="check"
                       label="Save category name"
-                      color={palette.emerald}
+                      color={palette.items}
                       disabled={rowBusy}
                       loading={savingId === item.id}
                       onPress={() => void saveRename(item)}
@@ -305,7 +309,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                 ) : (
                   <>
                     <View style={styles.categoryMain}>
-                      <MaterialCommunityIcons name="shape-outline" size={18} color={palette.emerald} />
+                      <MaterialCommunityIcons name="shape-outline" size={18} color={palette.items} />
                       <Text numberOfLines={1} style={[styles.categoryName, { color: palette.textPrimary }]}>
                         {item.name}
                       </Text>
@@ -355,9 +359,9 @@ function CategoryButton({
   palette: ThemePalette;
   onPress: () => void;
 }) {
-  const backgroundColor = active ? palette.emerald : palette.card;
-  const borderColor = active ? palette.emerald : palette.border;
-  const textColor = active ? "#FFFFFF" : palette.textPrimary;
+  const backgroundColor = active ? palette.items : palette.card;
+  const borderColor = active ? palette.items : palette.border;
+  const textColor = active ? palette.onPrimary : palette.textPrimary;
   return (
     <TButton
       accessibilityRole="button"

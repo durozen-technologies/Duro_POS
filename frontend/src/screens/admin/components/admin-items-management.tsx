@@ -13,13 +13,14 @@ import {
 import { Button as TButton, Input, Spinner, XStack, YStack } from "tamagui";
 
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
-import type {
-  DailyPriceCreate,
-  ItemPriceRead,
-  ShopItemCounts,
-  ShopItemRead,
-  ShopRead,
-  UUID,
+import {
+  UnitType,
+  type DailyPriceCreate,
+  type ItemPriceRead,
+  type ShopItemCounts,
+  type ShopItemRead,
+  type ShopRead,
+  type UUID,
 } from "@/types/api";
 import { isPositiveNumber, toMoneyString } from "@/utils/decimal";
 import { getItemThumbnailUri } from "@/utils/item-images";
@@ -57,9 +58,9 @@ function buttonColors(palette: ThemePalette, tone: "primary" | "neutral" | "dang
   }
   if (tone === "primary") {
     return {
-      fg: active ? "#FFFFFF" : palette.emeraldDark,
-      bg: active ? palette.emerald : palette.emeraldSoft,
-      border: palette.emerald,
+      fg: active ? palette.onPrimary : palette.itemsStrong,
+      bg: active ? palette.items : palette.itemsSoft,
+      border: palette.items,
     };
   }
   return {
@@ -103,6 +104,8 @@ function ActionButton({
       borderColor={colors.border}
       backgroundColor={colors.bg}
       opacity={disabled ? 0.55 : 1}
+      flex={compact ? 1 : undefined}
+      minWidth={compact ? 0 : undefined}
       pressStyle={{ opacity: 0.9, scale: 0.99 }}
     >
       {loading ? (
@@ -237,11 +240,11 @@ export function WorkspaceTabs({
             <MaterialCommunityIcons
               name={item.icon}
               size={16}
-              color={active ? palette.emeraldDark : palette.textMuted}
+              color={active ? palette.itemsStrong : palette.textMuted}
             />
             <Text
               numberOfLines={1}
-              style={[styles.tabText, { color: active ? palette.emeraldDark : palette.textMuted }]}
+              style={[styles.tabText, { color: active ? palette.itemsStrong : palette.textMuted }]}
             >
               {item.label}
             </Text>
@@ -341,15 +344,15 @@ export function ShopPicker({
                     style={[
                       styles.shopOption,
                       {
-                        borderColor: selected ? palette.emerald : palette.border,
-                        backgroundColor: selected ? palette.emeraldSoft : palette.surfaceMuted,
+                        borderColor: selected ? palette.items : palette.border,
+                        backgroundColor: selected ? palette.itemsSoft : palette.surfaceMuted,
                       },
                     ]}
                   >
                     <MaterialCommunityIcons
                       name={selected ? "store-check-outline" : "storefront-outline"}
                       size={18}
-                      color={selected ? palette.emeraldDark : palette.textSecondary}
+                      color={selected ? palette.itemsStrong : palette.textSecondary}
                     />
                     <Text numberOfLines={1} style={[styles.shopOptionText, { color: palette.textPrimary }]}>
                       {item.name}
@@ -450,15 +453,15 @@ export function ShopItemsInlineTabs({
             <MaterialCommunityIcons
               name={tab.icon}
               size={16}
-              color={active ? palette.emeraldDark : palette.textMuted}
+              color={active ? palette.itemsStrong : palette.textMuted}
             />
             <Text
               numberOfLines={1}
-              style={[styles.inlineTabText, { color: active ? palette.emeraldDark : palette.textMuted }]}
+              style={[styles.inlineTabText, { color: active ? palette.itemsStrong : palette.textMuted }]}
             >
               {tab.label}
             </Text>
-            <Text style={[styles.inlineTabCount, { color: active ? palette.emeraldDark : palette.textMuted }]}>
+            <Text style={[styles.inlineTabCount, { color: active ? palette.itemsStrong : palette.textMuted }]}>
               {tab.count ?? "..."}
             </Text>
           </Pressable>
@@ -617,15 +620,15 @@ export function ShopItemsCategoryToolbar({
                   style={[
                     styles.categoryMenuOption,
                     {
-                      borderColor: selected ? palette.emerald : palette.border,
-                      backgroundColor: selected ? palette.emeraldSoft : palette.surfaceMuted,
+                      borderColor: selected ? palette.items : palette.border,
+                      backgroundColor: selected ? palette.itemsSoft : palette.surfaceMuted,
                     },
                   ]}
                 >
                   <MaterialCommunityIcons
                     name={selected ? "tag-check-outline" : "tag-outline"}
                     size={17}
-                    color={selected ? palette.emeraldDark : palette.textMuted}
+                    color={selected ? palette.itemsStrong : palette.textMuted}
                   />
                   <Text numberOfLines={1} style={[styles.categoryMenuText, { color: palette.textPrimary }]}>
                     {option.label}
@@ -688,41 +691,54 @@ export const ItemRow = memo(function ItemRow({
   palette,
   primaryAction,
   secondaryActions,
+  thumbnailSize = 44,
+  actionsPlacement = "footer",
 }: {
   item: ShopItemRead;
   palette: ThemePalette;
   primaryAction: RowAction;
   secondaryActions: RowAction[];
+  thumbnailSize?: number;
+  actionsPlacement?: "footer" | "side";
 }) {
   const imageUri = getItemThumbnailUri(item);
-  const unitLabel = `${item.unit_type === "weight" ? "Weight" : "Count"} · ${item.base_unit.toUpperCase()}`;
+  const unitLabel = `${item.unit_type === UnitType.WEIGHT ? "Weight" : "Count"} · ${item.base_unit.toUpperCase()}`;
   const categoryLabel = item.category?.trim() ? item.category.trim() : "Uncategorized";
+  const thumbnailRadius = Math.round(thumbnailSize * 0.24);
+  const thumbnailIconSize = Math.round(thumbnailSize * 0.43);
+  const actionsCompact = actionsPlacement === "footer";
 
   return (
-    <View style={[styles.itemRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
-      <View style={styles.itemMain}>
+    <View
+      style={[
+        styles.itemRow,
+        actionsPlacement === "side" && styles.itemRowWithSideActions,
+        { borderColor: palette.border, backgroundColor: palette.card },
+      ]}
+    >
+      <View style={[styles.itemMain, actionsPlacement === "side" && styles.itemMainWithSideActions]}>
         <ItemThumbnail
           uri={imageUri}
           recyclingKey={item.id}
-          size={44}
-          borderRadius={10}
+          size={thumbnailSize}
+          borderRadius={thumbnailRadius}
           backgroundColor={palette.surfaceMuted}
           iconColor={palette.textMuted}
-          iconSize={19}
+          iconSize={thumbnailIconSize}
         />
         <View style={styles.itemText}>
-          <Text style={[styles.itemName, { color: palette.textPrimary }]}>
+          <Text numberOfLines={2} style={[styles.itemName, { color: palette.textPrimary }]}>
             {item.name}
           </Text>
-          <Text style={[styles.itemTamilName, { color: palette.textSecondary }]}>
+          <Text numberOfLines={1} style={[styles.itemTamilName, { color: palette.textSecondary }]}>
             {item.tamil_name || "Tamil missing"}
           </Text>
-          <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
+          <Text numberOfLines={1} style={[styles.itemMeta, { color: palette.textMuted }]}>
             {unitLabel} · {categoryLabel}
           </Text>
         </View>
       </View>
-      <View style={styles.rowActions}>
+      <View style={actionsPlacement === "side" ? styles.rowActionsSide : styles.rowActions}>
         {secondaryActions.map((action) => (
           <ActionButton
             key={action.label}
@@ -733,7 +749,7 @@ export const ItemRow = memo(function ItemRow({
             disabled={action.disabled}
             loading={action.loading}
             onPress={action.onPress}
-            compact
+            compact={actionsCompact}
           />
         ))}
         <ActionButton
@@ -744,7 +760,7 @@ export const ItemRow = memo(function ItemRow({
           disabled={primaryAction.disabled}
           loading={primaryAction.loading}
           onPress={primaryAction.onPress}
-          compact
+          compact={actionsCompact}
         />
       </View>
     </View>
@@ -760,6 +776,8 @@ export const ItemRow = memo(function ItemRow({
     previous.item.image_thumb_path !== next.item.image_thumb_path ||
     previous.item.is_active !== next.item.is_active ||
     previous.item.allocated !== next.item.allocated ||
+    previous.thumbnailSize !== next.thumbnailSize ||
+    previous.actionsPlacement !== next.actionsPlacement ||
     previous.secondaryActions.length !== next.secondaryActions.length ||
     rowActionChanged(previous.primaryAction, next.primaryAction)
   ) {
@@ -818,7 +836,7 @@ export function ItemList({
       ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
       style={{ flex: 1, backgroundColor: palette.background }}
       contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.emerald} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.items} />}
       keyboardShouldPersistTaps="handled"
       ListHeaderComponent={<View style={styles.listHeader}>{header}</View>}
       ListEmptyComponent={
@@ -874,6 +892,7 @@ const PriceRow = memo(function PriceRow({
   valid,
   saving,
   palette,
+  thumbnailSize = 60,
   onChangeDraftPrice,
   onSaveRow,
 }: {
@@ -883,20 +902,23 @@ const PriceRow = memo(function PriceRow({
   valid: boolean;
   saving: boolean;
   palette: ThemePalette;
+  thumbnailSize?: number;
   onChangeDraftPrice: (itemId: UUID, value: string) => void;
   onSaveRow: (item: ItemPriceRead, value: string) => void;
 }) {
   const imageUri = getItemThumbnailUri(item);
+  const thumbnailRadius = Math.round(thumbnailSize * 0.24);
+  const thumbnailIconSize = Math.round(thumbnailSize * 0.43);
   return (
     <View style={[styles.priceRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
       <ItemThumbnail
         uri={imageUri}
         recyclingKey={item.item_id}
-        size={44}
-        borderRadius={10}
+        size={thumbnailSize}
+        borderRadius={thumbnailRadius}
         backgroundColor={palette.surfaceMuted}
         iconColor={palette.textMuted}
-        iconSize={19}
+        iconSize={thumbnailIconSize}
       />
       <View style={styles.priceText}>
         <Text style={[styles.itemName, { color: palette.textPrimary }]}>
@@ -954,6 +976,7 @@ const PriceRow = memo(function PriceRow({
   previous.dirty === next.dirty &&
   previous.valid === next.valid &&
   previous.saving === next.saving &&
+  previous.thumbnailSize === next.thumbnailSize &&
   previous.palette === next.palette
 ));
 
@@ -1089,7 +1112,7 @@ export function PriceGrid({
       ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
       style={{ flex: 1, backgroundColor: palette.background }}
       contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.emerald} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.items} />}
       ListHeaderComponent={
         <YStack gap={12} marginBottom={4}>
           <ErrorState message={error} palette={palette} onRetry={onRefresh} />
@@ -1518,19 +1541,24 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 10,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 10,
+    borderRadius: 14,
+    padding: 12,
+    gap: 12,
   },
-  itemMain: {
-    flex: 1,
-    minWidth: 0,
+  itemRowWithSideActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
+  },
+  itemMain: {
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  itemMainWithSideActions: {
+    flex: 1,
+    alignItems: "center",
   },
   itemText: {
     flex: 1,
@@ -1538,9 +1566,17 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   rowActions: {
-    minWidth: 84,
-    gap: 6,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
     alignItems: "stretch",
+  },
+  rowActionsSide: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
   },
   itemName: {
     flex: 1,

@@ -2127,8 +2127,36 @@ def _bill_to_read(bill: Bill) -> BillRead:
 
 
 def _get_period_bounds(
-    period: AnalyticsPeriod, reference_date: date | None = None
+    period: AnalyticsPeriod,
+    reference_date: date | None = None,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
 ) -> tuple[datetime, datetime]:
+    if period == "range":
+        if range_start_date is None or range_end_date is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="range_start_date and range_end_date are required for custom ranges.",
+            )
+        if range_end_date < range_start_date:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="range_end_date must be on or after range_start_date.",
+            )
+        start = datetime(
+            range_start_date.year,
+            range_start_date.month,
+            range_start_date.day,
+            tzinfo=UTC,
+        )
+        end = datetime(
+            range_end_date.year,
+            range_end_date.month,
+            range_end_date.day,
+            tzinfo=UTC,
+        ) + timedelta(days=1)
+        return start, end
+
     base_date = reference_date or datetime.now(UTC).date()
     now = datetime(base_date.year, base_date.month, base_date.day, tzinfo=UTC)
 
@@ -2724,6 +2752,8 @@ async def get_shop_sales_summary(
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
     shop_id: UUID | None = None,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
 ) -> list[ShopSalesSummary]:
     """Return total sales grouped by shop for the given time period.
 
@@ -2732,11 +2762,11 @@ async def get_shop_sales_summary(
 
     Args:
         db: Async database session.
-        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, or ``"year"``.
+        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, ``"year"``, or ``"range"``.
         reference_date: Anchor date for the period window (defaults to today).
         shop_id: When provided, restricts results to a single shop.
     """
-    start, end = _get_period_bounds(period, reference_date)
+    start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     filters = [Bill.created_at >= start, Bill.created_at < end]
     if shop_id is not None:
         filters.append(Bill.shop_id == shop_id)
@@ -2770,6 +2800,8 @@ async def get_payment_split_summary(
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
     shop_id: UUID | None = None,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
 ) -> list[PaymentSplitSummary]:
     """Return cash/UPI payment totals grouped by shop for the given time period.
 
@@ -2779,11 +2811,11 @@ async def get_payment_split_summary(
 
     Args:
         db: Async database session.
-        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, or ``"year"``.
+        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, ``"year"``, or ``"range"``.
         reference_date: Anchor date for the period window (defaults to today).
         shop_id: When provided, restricts results to a single shop.
     """
-    start, end = _get_period_bounds(period, reference_date)
+    start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     filters = [Bill.created_at >= start, Bill.created_at < end]
     if shop_id is not None:
         filters.append(Bill.shop_id == shop_id)
@@ -2823,6 +2855,8 @@ async def get_daily_bills(
     limit: int = 100,
     cursor_created_at: datetime | None = None,
     cursor_id: UUID | None = None,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
     # Inject stats if precalculated to avoid redundant queries
     precalculated_stats: list[AdminBillShopStat] | None = None,
     precalculated_largest_bill: AdminBillSummary | None = None,
@@ -2841,7 +2875,7 @@ async def get_daily_bills(
 
     Args:
         db: Async database session.
-        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, or ``"year"``.
+        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, ``"year"``, or ``"range"``.
         reference_date: Anchor date for the period window (defaults to today).
         shop_id: When provided, restricts results to a single shop.
         limit: Maximum bills per page.
@@ -2857,7 +2891,7 @@ async def get_daily_bills(
             detail="cursor_created_at and cursor_id must both be provided or both omitted.",
         )
 
-    start, end = _get_period_bounds(period, reference_date)
+    start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     base_filters = [Bill.created_at >= start, Bill.created_at < end]
     if shop_id is not None:
         base_filters.append(Bill.shop_id == shop_id)
@@ -2970,6 +3004,8 @@ async def get_item_sales_summary(
     reference_date: date | None = None,
     shop_id: UUID | None = None,
     limit: int = 100,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
 ) -> list[ItemSalesSummary]:
     """Return quantity sold and revenue grouped by item for the given time period.
 
@@ -2983,12 +3019,12 @@ async def get_item_sales_summary(
 
     Args:
         db: Async database session.
-        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, or ``"year"``.
+        period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, ``"year"``, or ``"range"``.
         reference_date: Anchor date for the period window (defaults to today).
         shop_id: When provided, restricts results to bills from a single shop.
         limit: Maximum number of items to return (default 100, max 500).
     """
-    start, end = _get_period_bounds(period, reference_date)
+    start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
 
     # Build all filters upfront so the query is constructed in one pass.
     filters = [Bill.created_at >= start, Bill.created_at < end]
@@ -3039,6 +3075,8 @@ async def get_dashboard_bootstrap(
     reference_date: date | None = None,
     shop_id: UUID | None = None,
     bills_limit: int = 50,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
 ) -> AdminDashboardBootstrap:
     """Return the admin dashboard payload with minimal duplicate work.
 
@@ -3047,7 +3085,7 @@ async def get_dashboard_bootstrap(
     period has no bills, the expensive largest-bill, bill-page, and item-sales
     queries are skipped entirely.
     """
-    start, end = _get_period_bounds(period, reference_date)
+    start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     shops = await list_shops(db)
     base_filters = [
         Bill.created_at >= start,
@@ -3151,10 +3189,19 @@ async def get_dashboard_bootstrap(
         reference_date,
         shop_id,
         bills_limit,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
         precalculated_stats=shop_stats,
         precalculated_largest_bill=largest_bill,
     )
-    item_sales = await get_item_sales_summary(db, period, reference_date, shop_id)
+    item_sales = await get_item_sales_summary(
+        db,
+        period,
+        reference_date,
+        shop_id,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+    )
 
     return AdminDashboardBootstrap(
         shops=shops,

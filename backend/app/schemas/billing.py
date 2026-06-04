@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..models.enums import BaseUnit, UnitType
+from ..models.enums import BaseUnit, BillStatus, UnitType
 from .common import ORMModel
 
 
@@ -66,7 +66,7 @@ class BillRead(ORMModel):
     shop_id: UUID
     shop_name: str
     total_amount: Decimal
-    status: str
+    status: BillStatus
     created_at: datetime
     items: list[BillLineRead]
     payment: PaymentRead

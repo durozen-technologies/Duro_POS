@@ -1492,6 +1492,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 )
                 self.assertEqual(created_bill.status, "paid")
                 self.assertTrue(created_bill.payment.is_settled)
+                bill_day = created_bill.created_at.date()
 
                 sales_rows = await sales_summary(
                     period="date", reference_date=None, shop_id=None, db=db
@@ -1508,6 +1509,16 @@ class BackendApiIntegrationTests(BackendTestCase):
                 )
                 self.assertEqual(yearly_sales_rows[0].shop_name, current_shop.name)
 
+                range_sales_rows = await sales_summary(
+                    period="range",
+                    reference_date=None,
+                    range_start_date=bill_day,
+                    range_end_date=bill_day,
+                    shop_id=None,
+                    db=db,
+                )
+                self.assertEqual(range_sales_rows[0].total_sales, total_amount)
+
                 payment_rows = await payment_summary(
                     period="date", reference_date=None, shop_id=None, db=db
                 )
@@ -1522,6 +1533,16 @@ class BackendApiIntegrationTests(BackendTestCase):
                     period="year", reference_date=None, shop_id=None, db=db
                 )
                 self.assertEqual(yearly_payment_rows[0].cash_total, total_amount)
+
+                range_payment_rows = await payment_summary(
+                    period="range",
+                    reference_date=None,
+                    range_start_date=bill_day,
+                    range_end_date=bill_day,
+                    shop_id=None,
+                    db=db,
+                )
+                self.assertEqual(range_payment_rows[0].cash_total, total_amount)
 
                 bill_rows = await bills(
                     period="date",
@@ -1555,6 +1576,19 @@ class BackendApiIntegrationTests(BackendTestCase):
                     db=db,
                 )
                 self.assertEqual(len(yearly_bill_rows.items), 1)
+
+                range_bill_rows = await bills(
+                    period="range",
+                    reference_date=None,
+                    range_start_date=bill_day,
+                    range_end_date=bill_day,
+                    shop_id=None,
+                    limit=50,
+                    cursor_created_at=None,
+                    cursor_id=None,
+                    db=db,
+                )
+                self.assertEqual(len(range_bill_rows.items), 1)
 
                 disabled_shop = await update_shop_status(
                     shop_id, ShopStatusUpdate(is_active=False), db

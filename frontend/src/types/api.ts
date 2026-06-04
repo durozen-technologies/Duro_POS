@@ -1,9 +1,32 @@
-export type UserRole = "admin" | "shop_account";
-export type BaseUnit = "kg" | "unit";
-export type UnitType = "weight" | "count";
-export type InventoryMovementType = "add" | "use";
-export type AnalyticsPeriod = "date" | "month" | "week" | "year";
 export type UUID = string;
+
+export enum UserRole {
+  ADMIN = "admin",
+  SHOP_ACCOUNT = "shop_account",
+}
+
+export enum BaseUnit {
+  KG = "kg",
+  UNIT = "unit",
+}
+
+export enum UnitType {
+  WEIGHT = "weight",
+  COUNT = "count",
+}
+
+export enum InventoryMovementType {
+  ADD = "add",
+  USE = "use",
+}
+
+export enum AnalyticsPeriod {
+  DATE = "date",
+  MONTH = "month",
+  WEEK = "week",
+  YEAR = "year",
+  RANGE = "range",
+}
 
 export enum PriceStatus {
   Missing = "missing",
@@ -14,6 +37,11 @@ export enum PriceStatus {
 export enum ItemScope {
   Global = "global",
   Shop = "shop",
+}
+
+export enum BillStatus {
+  PENDING_PAYMENT = "pending_payment",
+  PAID = "paid",
 }
 
 export interface UserSession {
@@ -407,7 +435,7 @@ export interface BillRead {
   shop_id: UUID;
   shop_name: string;
   total_amount: string;
-  status: string;
+  status: BillStatus;
   created_at: string;
   items: BillLineRead[];
   payment: PaymentRead;
@@ -471,7 +499,7 @@ export interface AdminBillSummary {
   shop_id: UUID;
   shop_name: string;
   total_amount: string;
-  status: string;
+  status: BillStatus;
   created_at: string;
 }
 

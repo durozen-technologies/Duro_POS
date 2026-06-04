@@ -20,6 +20,7 @@ import { AppStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/auth-store";
 import { useCartStore } from "@/store/cart-store";
 import { usePriceStore } from "@/store/price-store";
+import { UserRole } from "@/types/api";
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
 const LOGO_IMAGE = require("../../assets/Logo.png");
@@ -473,7 +474,7 @@ export function AppNavigator() {
   }
 
   // Admin route
-  if (user.role === "admin") {
+  if (user.role === UserRole.ADMIN) {
     return <AdminStack />;
   }
 

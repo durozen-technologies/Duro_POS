@@ -19,6 +19,7 @@ import {
 } from "@/services/printer-service";
 import { getCartTotal, useCartStore } from "@/store/cart-store";
 import { usePrinterStore } from "@/store/printer-store";
+import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
 
@@ -214,7 +215,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
       const checkoutPayload = {
         items: cartItems.map((item) => ({
           item_id: item.item_id,
-          quantity: item.base_unit === "unit" ? money(item.quantity).toFixed(0) : money(item.quantity).toString(),
+          quantity: item.base_unit === BaseUnit.UNIT ? money(item.quantity).toFixed(0) : money(item.quantity).toString(),
         })),
         payment: {
           cash_amount: toMoneyString(values.cashAmount),

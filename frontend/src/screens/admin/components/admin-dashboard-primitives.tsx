@@ -102,6 +102,25 @@ type TopAppBarProps = {
   onRefresh?: () => void;
 };
 
+function adminNavAccent(key: string, palette: ThemePalette) {
+  if (key === "items") {
+    return { accent: palette.items, accentSoft: palette.itemsSoft };
+  }
+  if (key === "sales") {
+    return { accent: palette.analytics, accentSoft: palette.analyticsSoft };
+  }
+  if (key === "inventory") {
+    return { accent: palette.inventory, accentSoft: palette.inventorySoft };
+  }
+  if (key === "billing") {
+    return { accent: palette.billing, accentSoft: palette.billingSoft };
+  }
+  if (key === "settings") {
+    return { accent: palette.settings, accentSoft: palette.settingsSoft };
+  }
+  return { accent: palette.primary, accentSoft: palette.primarySoft };
+}
+
 type DashboardErrorBannerProps = {
   dashboardError: string | null;
   hasShops: boolean;
@@ -113,6 +132,8 @@ type TabSectionHeaderProps = {
   title: string;
   palette: ThemePalette;
   badgeLabel?: string;
+  badgeBackgroundColor?: string;
+  badgeTextColor?: string;
 };
 
 type SectionHintProps = {
@@ -340,13 +361,13 @@ export const ChipButton = memo(function ChipButton({
       style={[
         styles.chipButton,
         {
-          backgroundColor: active ? palette.emeraldSoft : palette.surfaceMuted,
-          borderColor: active ? palette.emerald : palette.border,
+          backgroundColor: active ? palette.primarySoft : palette.surfaceMuted,
+          borderColor: active ? palette.primary : palette.border,
         },
       ]}
     >
-      {icon ? <MaterialCommunityIcons name={icon} size={14} color={active ? palette.emeraldDark : palette.textMuted} /> : null}
-      <Text style={[styles.chipText, { color: active ? palette.emeraldDark : palette.textSecondary }]}>{label}</Text>
+      {icon ? <MaterialCommunityIcons name={icon} size={14} color={active ? palette.primaryStrong : palette.textMuted} /> : null}
+      <Text style={[styles.chipText, { color: active ? palette.primaryStrong : palette.textSecondary }]}>{label}</Text>
     </Pressable>
   );
 });
@@ -374,7 +395,7 @@ export const PrimaryButton = memo(function PrimaryButton({
   const isSolid = isPrimary || isDanger || isAccent || isWarning || isContrast;
 
   const buttonBackground = backgroundColorOverride ?? (isPrimary
-    ? palette.emerald
+    ? palette.primary
     : isDanger
       ? palette.danger
       : isAccent
@@ -385,7 +406,7 @@ export const PrimaryButton = memo(function PrimaryButton({
             ? palette.textPrimary
             : palette.card);
   const buttonBorder = borderColorOverride ?? (isPrimary
-    ? palette.emerald
+    ? palette.primary
     : isDanger
       ? palette.danger
       : isAccent
@@ -396,13 +417,13 @@ export const PrimaryButton = memo(function PrimaryButton({
             ? palette.textPrimary
             : palette.border);
   const textColor = textColorOverride ?? (isPrimary
-    ? "#FFFFFF"
+    ? palette.onPrimary
     : isDanger
       ? "#FFFFFF"
       : isAccent
         ? "#FFFFFF"
-        : isWarning
-          ? "#201505"
+      : isWarning
+          ? palette.onCash
           : isContrast
             ? palette.background
             : palette.textPrimary);
@@ -455,7 +476,7 @@ export const EmptyStateCard = memo(function EmptyStateCard({
   return (
     <View style={[styles.emptyCard, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
       <View style={[styles.emptyIconWrap, { backgroundColor: palette.card }]}>
-        <MaterialCommunityIcons name={icon} size={24} color={palette.emerald} />
+        <MaterialCommunityIcons name={icon} size={24} color={palette.primary} />
       </View>
       <Text style={[styles.emptyTitle, { color: palette.textPrimary }]}>{title}</Text>
       <Text style={[styles.emptySubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
@@ -493,6 +514,8 @@ export const TabSectionHeader = memo(function TabSectionHeader({
   title,
   palette,
   badgeLabel,
+  badgeBackgroundColor,
+  badgeTextColor,
 }: TabSectionHeaderProps) {
   return (
     <View style={styles.tabSectionHeader}>
@@ -502,7 +525,10 @@ export const TabSectionHeader = memo(function TabSectionHeader({
           <Text
             style={[
               styles.sectionBadgeText,
-              { color: palette.emeraldDark, backgroundColor: palette.emeraldSoft },
+              {
+                color: badgeTextColor ?? palette.primaryStrong,
+                backgroundColor: badgeBackgroundColor ?? palette.primarySoft,
+              },
             ]}
           >
             {badgeLabel}
@@ -652,6 +678,7 @@ export const BottomNav = memo(function BottomNav({
     >
       {items.map((item) => {
         const active = item.key === activeKey;
+        const navAccent = adminNavAccent(item.key, palette);
         return (
           <Pressable
             key={item.key}
@@ -664,15 +691,31 @@ export const BottomNav = memo(function BottomNav({
             }}
             style={styles.bottomNavItem}
           >
-            {active ? <View style={[styles.activeNavIndicator, { backgroundColor: palette.emeraldSoft }]} /> : null}
+            <View
+              style={[
+                styles.activeNavIndicator,
+                {
+                  backgroundColor: active ? navAccent.accentSoft : "transparent",
+                  borderColor: active ? navAccent.accent : "transparent",
+                },
+              ]}
+            />
             <MaterialCommunityIcons
               name={item.icon}
-              size={22}
-              color={active ? palette.emerald : palette.textMuted}
+              size={active ? 21 : 20}
+              color={active ? navAccent.accent : palette.textMuted}
             />
-            {active ? (
-              <Text style={[styles.bottomNavLabel, { color: palette.emerald }]}>{item.label}</Text>
-            ) : null}
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.78}
+              style={[
+                styles.bottomNavLabel,
+                { color: active ? navAccent.accent : palette.textMuted },
+              ]}
+            >
+              {item.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -704,7 +747,7 @@ export const TopAppBar = memo(function TopAppBar({
       {/* LEFT: Shop + Period stacked */}
       <View style={styles.topAppLeft}>
         <Pressable onPress={onShopPress} style={styles.topAppShopRow} accessibilityRole="button" accessibilityLabel="Switch branch">
-          <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.emerald} />
+          <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.primary} />
           <Text style={[styles.topAppShopName, { color: palette.textPrimary }]} numberOfLines={1}>{shopName}</Text>
           <MaterialCommunityIcons name="chevron-down" size={18} color={palette.textMuted} />
         </Pressable>
@@ -1029,12 +1072,12 @@ const styles = StyleSheet.create({
   },
   bottomNavWrap: {
     position: "absolute",
-    left: 20,
-    right: 20,
-    borderRadius: 999,
+    left: 14,
+    right: 14,
+    borderRadius: 24,
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 7,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1044,24 +1087,27 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
-    minHeight: 56,
-    paddingHorizontal: 4,
-    borderRadius: 999,
+    gap: 4,
+    minHeight: 58,
+    paddingHorizontal: 2,
+    borderRadius: 18,
   },
   activeNavIndicator: {
     position: "absolute",
-    top: 4,
-    bottom: 4,
-    left: 6,
-    right: 6,
-    borderRadius: 999,
+    top: 3,
+    bottom: 3,
+    left: 3,
+    right: 3,
+    borderRadius: 17,
+    borderWidth: 1,
   },
   bottomNavLabel: {
-    fontSize: 10,
-    fontWeight: "700",
+    maxWidth: "100%",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "800",
     textAlign: "center",
-    letterSpacing: 0.2,
+    letterSpacing: 0,
   },
   // Top App Bar
   topAppBar: {

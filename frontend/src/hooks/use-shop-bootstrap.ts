@@ -4,7 +4,7 @@ import { toApiError } from "@/api/client";
 import { fetchShopBootstrap } from "@/api/prices";
 import { useAuthStore } from "@/store/auth-store";
 import { usePriceStore } from "@/store/price-store";
-import { DailyPriceRead, ShopBootstrapResponse, UUID } from "@/types/api";
+import { DailyPriceRead, ShopBootstrapResponse, UserRole, UUID } from "@/types/api";
 
 type ShopBootstrapBundle = {
   bootstrap: ShopBootstrapResponse;
@@ -44,7 +44,7 @@ export function useShopBootstrap() {
   const bootstrap = usePriceStore((state) => state.bootstrap);
   const setBootstrap = usePriceStore((state) => state.setBootstrap);
   const setTodayPrices = usePriceStore((state) => state.setTodayPrices);
-  const [loading, setLoading] = useState(user?.role === "shop_account" && !bootstrap);
+  const [loading, setLoading] = useState(user?.role === UserRole.SHOP_ACCOUNT && !bootstrap);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const mountedRef = useRef(true);
@@ -58,7 +58,7 @@ export function useShopBootstrap() {
   }, []);
 
   const refresh = useCallback(async (options?: { forceRefresh?: boolean; showLoading?: boolean }) => {
-    if (user?.role !== "shop_account") {
+    if (user?.role !== UserRole.SHOP_ACCOUNT) {
       if (mountedRef.current) {
         setLoading(false);
       }
@@ -101,7 +101,7 @@ export function useShopBootstrap() {
   }, [setBootstrap, setTodayPrices, user]);
 
   useEffect(() => {
-    if (user?.role !== "shop_account") {
+    if (user?.role !== UserRole.SHOP_ACCOUNT) {
       setLoading(false);
       return;
     }

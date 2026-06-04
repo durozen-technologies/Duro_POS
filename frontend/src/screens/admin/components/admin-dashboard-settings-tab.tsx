@@ -58,11 +58,11 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         style={[
           styles.createShopBtn,
           adminShadow(palette.shadow, 0.06, 8, 14),
-          { backgroundColor: palette.emerald },
+          { backgroundColor: palette.settings },
         ]}
       >
-        <MaterialCommunityIcons name="store-plus-outline" size={20} color="#FFFFFF" />
-        <Text style={styles.createShopBtnText}>+ Create New Branch</Text>
+        <MaterialCommunityIcons name="store-plus-outline" size={20} color={palette.background} />
+        <Text style={[styles.createShopBtnText, { color: palette.background }]}>+ Create New Branch</Text>
       </Pressable>
     </View>
   );
@@ -99,8 +99,8 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor={palette.emerald}
-          colors={[palette.emerald]}
+          tintColor={palette.settings}
+          colors={[palette.settings]}
         />
       }
       removeClippedSubviews={Platform.OS === "android"}
@@ -130,6 +130,5 @@ const styles = StyleSheet.create({
   createShopBtnText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#FFFFFF",
   },
 });

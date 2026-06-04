@@ -106,24 +106,19 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
   const subtitle = selectedShopId
     ? `${selectedShopName} · ${analyticsReferenceLabel}`
     : `All branches · ${analyticsReferenceLabel}`;
-  const isDark = palette.background === "#0E141A";
   const snapshotColors = {
     scope: {
-      backgroundColor: isDark ? "rgba(168,85,247,0.18)" : "#F0E7FF",
-      borderColor: isDark ? "rgba(168,85,247,0.34)" : "#D8B4FE",
-      iconColor: isDark ? "#D8B4FE" : "#7C3AED",
-      textColor: isDark ? "#F3E8FF" : "#581C87",
+      backgroundColor: palette.primarySoft,
+      borderColor: palette.primary,
+      iconColor: palette.primary,
+      textColor: palette.primaryStrong,
     },
     period: {
-      backgroundColor: isDark ? "rgba(245,158,11,0.18)" : "#FFF1D6",
-      borderColor: isDark ? "rgba(245,158,11,0.34)" : "#FCD88A",
-      iconColor: isDark ? "#FCD34D" : "#B45309",
-      textColor: isDark ? "#FEF3C7" : "#78350F",
+      backgroundColor: palette.billingSoft,
+      borderColor: palette.billing,
+      iconColor: palette.billing,
+      textColor: palette.billingStrong,
     },
-  };
-  const cashCollectionColors = {
-    accent: isDark ? "#22D3EE" : "#0891B2",
-    accentSoft: isDark ? "rgba(34,211,238,0.16)" : "#D9F4FA",
   };
 
   return (
@@ -134,8 +129,8 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor={palette.emerald}
-          colors={[palette.emerald]}
+          tintColor={palette.primary}
+          colors={[palette.primary]}
         />
       }
     >
@@ -160,7 +155,7 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
             height={4}
             width={76}
             borderRadius={99}
-            backgroundColor={cashCollectionColors.accent}
+            backgroundColor={palette.primary}
           />
 
           <YStack gap={12}>
@@ -202,8 +197,8 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
                   note={metric.note}
                   noteIcon={metric.noteIcon}
                   icon={metric.icon}
-                  accent={metric.key === "cash" ? cashCollectionColors.accent : metric.accent}
-                  accentSoft={metric.key === "cash" ? cashCollectionColors.accentSoft : metric.accentSoft}
+                  accent={metric.accent}
+                  accentSoft={metric.accentSoft}
                   sparklineLabel={metric.sparklineLabel}
                   sparklineValues={metric.sparklineValues}
                   fullWidth={useCompactMetricCards}

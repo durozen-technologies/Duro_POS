@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { type ComponentProps, useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import DraggableFlatList, { type RenderItemParams } from "react-native-draggable-flatlist";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button as TButton, Spinner, XStack, YStack } from "tamagui";
@@ -14,12 +14,14 @@ import {
 import { toApiError } from "@/api/client";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import type { AdminShopItemsOrderScreenProps } from "@/navigation/types";
-import type { ShopItemRead, UUID } from "@/types/api";
+import { UnitType, type ShopItemRead, type UUID } from "@/types/api";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
-import { getAdminPalette, type ThemePalette } from "./admin-dashboard-theme";
+import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
+import { AdminHeaderActions } from "./components/admin-header-actions";
 import { EmptyState, ErrorState } from "./components/admin-items-management";
+import { useAdminTheme } from "./use-admin-theme";
 
 const UNCATEGORIZED_ORDER_KEY = "uncategorized";
 const PAGE_LIMIT = 500;
@@ -127,23 +129,23 @@ function ActionButton({
       borderRadius={10}
       paddingHorizontal={12}
       borderWidth={1}
-      borderColor={palette.emerald}
-      backgroundColor={disabled ? palette.card : palette.emerald}
+      borderColor={palette.items}
+      backgroundColor={disabled ? palette.card : palette.items}
       opacity={disabled ? 0.55 : 1}
       pressStyle={{ opacity: 0.9, scale: 0.99 }}
     >
       {loading ? (
-        <Spinner color="#FFFFFF" size="small" />
+        <Spinner color={palette.onPrimary} size="small" />
       ) : (
         <XStack alignItems="center" justifyContent="center" gap={6}>
           <MaterialCommunityIcons
             name={icon}
             size={17}
-            color={disabled ? palette.textMuted : "#FFFFFF"}
+            color={disabled ? palette.textMuted : palette.onPrimary}
           />
           <Text
             numberOfLines={1}
-            style={[styles.actionButtonText, { color: disabled ? palette.textMuted : "#FFFFFF" }]}
+            style={[styles.actionButtonText, { color: disabled ? palette.textMuted : palette.onPrimary }]}
           >
             {label}
           </Text>
@@ -160,7 +162,7 @@ function OrderItemRow({
   palette,
 }: RenderItemParams<ShopItemRead> & { palette: ThemePalette }) {
   const imageUri = getItemThumbnailUri(item);
-  const unitLabel = `${item.unit_type === "weight" ? "Weight" : "Count"} · ${item.base_unit.toUpperCase()}`;
+  const unitLabel = `${item.unit_type === UnitType.WEIGHT ? "Weight" : "Count"} · ${item.base_unit.toUpperCase()}`;
 
   return (
     <Pressable
@@ -172,8 +174,8 @@ function OrderItemRow({
       style={[
         styles.orderRow,
         {
-          borderColor: isActive ? palette.emerald : palette.border,
-          backgroundColor: isActive ? palette.emeraldSoft : palette.card,
+          borderColor: isActive ? palette.items : palette.border,
+          backgroundColor: isActive ? palette.itemsSoft : palette.card,
         },
       ]}
     >
@@ -206,8 +208,7 @@ export function AdminShopItemsOrderScreen({
   navigation,
   route,
 }: AdminShopItemsOrderScreenProps) {
-  const colorScheme = useColorScheme();
-  const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
+  const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const { shopId, shopName } = route.params;
   const [groups, setGroups] = useState<OrderGroup[]>([]);
@@ -296,6 +297,11 @@ export function AdminShopItemsOrderScreen({
             {(shopName || "Selected shop")} · {itemCount} items
           </Text>
         </View>
+        <AdminHeaderActions
+          refreshing={loading}
+          refreshDisabled={saving}
+          onRefresh={loadItems}
+        />
         <ActionButton
           label="Save order"
           icon="content-save-outline"
@@ -325,21 +331,21 @@ export function AdminShopItemsOrderScreen({
                   style={[
                     styles.categoryChip,
                     {
-                      borderColor: selected ? palette.emerald : palette.border,
-                      backgroundColor: selected ? palette.emeraldSoft : palette.card,
+                      borderColor: selected ? palette.items : palette.border,
+                      backgroundColor: selected ? palette.itemsSoft : palette.card,
                     },
                   ]}
                 >
                   <MaterialCommunityIcons
                     name={selected ? "tag-check-outline" : "tag-outline"}
                     size={15}
-                    color={selected ? palette.emeraldDark : palette.textMuted}
+                    color={selected ? palette.itemsStrong : palette.textMuted}
                   />
                   <Text
                     numberOfLines={1}
                     style={[
                       styles.categoryChipText,
-                      { color: selected ? palette.emeraldDark : palette.textPrimary },
+                      { color: selected ? palette.itemsStrong : palette.textPrimary },
                     ]}
                   >
                     {group.label}

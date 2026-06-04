@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  type AnalyticsDateRange,
   createShop,
   deleteShop,
   fetchAdminBillDetail,
@@ -47,12 +48,14 @@ type UpdateBranchInput = ShopUpdate;
 type UseAdminDashboardDataOptions = {
   analyticsPeriod: AnalyticsPeriod;
   analyticsReferenceDate: string;
+  analyticsRange?: AnalyticsDateRange;
   selectedShopId: UUID | null;
 };
 
 export function useAdminDashboardData({
   analyticsPeriod,
   analyticsReferenceDate,
+  analyticsRange,
   selectedShopId,
 }: UseAdminDashboardDataOptions) {
   const [loading, setLoading] = useState(true);
@@ -109,7 +112,13 @@ export function useAdminDashboardData({
     }
 
     try {
-      const data = await fetchDashboardBootstrap(analyticsPeriod, analyticsReferenceDate, selectedShopId, BILL_PAGE_SIZE);
+      const data = await fetchDashboardBootstrap(
+        analyticsPeriod,
+        analyticsReferenceDate,
+        selectedShopId,
+        BILL_PAGE_SIZE,
+        analyticsRange,
+      );
 
       if (!mountedRef.current || requestId !== dashboardRequestIdRef.current) {
         return;
@@ -155,7 +164,7 @@ export function useAdminDashboardData({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [analyticsPeriod, analyticsReferenceDate, selectedShopId]);
+  }, [analyticsPeriod, analyticsRange, analyticsReferenceDate, selectedShopId]);
 
   useEffect(() => {
     void loadDashboard();
@@ -182,6 +191,7 @@ export function useAdminDashboardData({
         BILL_PAGE_SIZE,
         dailyBillsCursor.createdAt,
         dailyBillsCursor.id,
+        analyticsRange,
       );
 
       setDailyBills((current) => {
@@ -202,6 +212,7 @@ export function useAdminDashboardData({
     }
   }, [
     analyticsPeriod,
+    analyticsRange,
     analyticsReferenceDate,
     dailyBillsCursor.createdAt,
     dailyBillsCursor.id,

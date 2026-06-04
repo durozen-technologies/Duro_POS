@@ -14,7 +14,6 @@ import {
   StyleSheet,
   Text,
   UIManager,
-  useColorScheme,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -25,13 +24,13 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import type { AdminDashboardScreenProps } from "@/navigation/types";
 import { useAuthStore } from "@/store/auth-store";
-import { useAdminThemeStore } from "@/store/admin-theme-store";
 import { useCartStore } from "@/store/cart-store";
 import { usePrinterStore } from "@/store/printer-store";
 import { usePriceStore } from "@/store/price-store";
-import type { AnalyticsPeriod, BillRead, ShopRead, UUID } from "@/types/api";
+import { AnalyticsPeriod, type BillRead, type ShopRead, type UUID } from "@/types/api";
 
-import { adminShadow, getAdminPalette } from "./admin-dashboard-theme";
+import { adminShadow } from "./admin-dashboard-theme";
+import { useAdminTheme } from "./use-admin-theme";
 import {
   AdminBillingTab,
 } from "./components/admin-dashboard-billing-tab";
@@ -99,13 +98,64 @@ const editShopSchema = z.object({
 type CreateShopFormValues = z.infer<typeof createShopSchema>;
 type EditShopFormValues = z.infer<typeof editShopSchema>;
 const PERIOD_OPTIONS: { key: AnalyticsPeriod; label: string }[] = [
-  { key: "date", label: "Date" },
-  { key: "month", label: "Month" },
-  { key: "week", label: "Week" },
-  { key: "year", label: "Year" },
+  { key: AnalyticsPeriod.DATE, label: "Day" },
+  { key: AnalyticsPeriod.RANGE, label: "Range" },
+  { key: AnalyticsPeriod.WEEK, label: "Week" },
+  { key: AnalyticsPeriod.MONTH, label: "Month" },
+  { key: AnalyticsPeriod.YEAR, label: "Year" },
 ];
 
 const PRINT_ALL_CHUNK_SIZE = 8;
+const CALENDAR_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const calendarMonthFormatter = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" });
+const calendarDateFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+function toLocalDateValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateValue(value: string) {
+  const [yearText, monthText, dayText] = value.split("-");
+  return new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
+}
+
+function addMonths(value: string, offset: number) {
+  const date = parseLocalDateValue(value);
+  return toLocalDateValue(new Date(date.getFullYear(), date.getMonth() + offset, 1));
+}
+
+function buildCalendarDays(monthValue: string) {
+  const monthDate = parseLocalDateValue(monthValue);
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const mondayOffset = (monthStart.getDay() + 6) % 7;
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(monthStart.getDate() - mondayOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    return {
+      value: toLocalDateValue(date),
+      day: date.getDate(),
+      inMonth: date.getMonth() === monthStart.getMonth(),
+    };
+  });
+}
+
+function isDateBetween(value: string, start?: string | null, end?: string | null) {
+  return Boolean(start && end && value >= start && value <= end);
+}
+
+function formatCalendarDateLabel(value?: string | null) {
+  return value ? calendarDateFormatter.format(parseLocalDateValue(value)) : "Select date";
+}
 
 function isNewArchitectureEnabled() {
   return Boolean((globalThis as typeof globalThis & { nativeFabricUIManager?: unknown }).nativeFabricUIManager);
@@ -113,12 +163,8 @@ function isNewArchitectureEnabled() {
 
 export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) {
   const insets = useSafeAreaInsets();
-  const systemColorScheme = useColorScheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const themePreference = useAdminThemeStore((state) => state.themePreference);
-  const setThemePreference = useAdminThemeStore((state) => state.setThemePreference);
-  const colorScheme = themePreference === "system" ? systemColorScheme ?? "light" : themePreference;
-  const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const { colorScheme, palette, setThemePreference } = useAdminTheme();
   const bottomNavItems = useMemo(() => NAV_ITEMS.map((item) => ({ ...item, icon: item.icon as never })), []);
   const dateOptions = useMemo(() => buildDateOptions(), []);
   const monthOptions = useMemo(() => buildMonthOptions(), []);
@@ -130,8 +176,23 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<AnalyticsPeriod>("date");
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<AnalyticsPeriod>(AnalyticsPeriod.DATE);
   const [analyticsReferenceDate, setAnalyticsReferenceDate] = useState(
+    dateOptions[0]?.value ?? new Date().toISOString().slice(0, 10),
+  );
+  const [analyticsRangeStartDate, setAnalyticsRangeStartDate] = useState(
+    dateOptions[6]?.value ?? dateOptions[0]?.value ?? new Date().toISOString().slice(0, 10),
+  );
+  const [analyticsRangeEndDate, setAnalyticsRangeEndDate] = useState(
+    dateOptions[0]?.value ?? new Date().toISOString().slice(0, 10),
+  );
+  const [calendarMonthValue, setCalendarMonthValue] = useState(
+    dateOptions[0]?.value ?? new Date().toISOString().slice(0, 10),
+  );
+  const [draftRangeStartDate, setDraftRangeStartDate] = useState<string | null>(
+    dateOptions[6]?.value ?? dateOptions[0]?.value ?? new Date().toISOString().slice(0, 10),
+  );
+  const [draftRangeEndDate, setDraftRangeEndDate] = useState<string | null>(
     dateOptions[0]?.value ?? new Date().toISOString().slice(0, 10),
   );
   const [selectedShopId, setSelectedShopId] = useState<UUID | null>(null);
@@ -155,6 +216,20 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const debouncedItemSearch = useDebouncedValue(itemSearch.trim().toLowerCase());
   const toastAnimation = useRef(new Animated.Value(0)).current;
   const latestDashboardError = useRef<string | null>(null);
+  const todayValue = dateOptions[0]?.value ?? toLocalDateValue(new Date());
+  const calendarDays = useMemo(() => buildCalendarDays(calendarMonthValue), [calendarMonthValue]);
+  const calendarMonthLabel = useMemo(
+    () => calendarMonthFormatter.format(parseLocalDateValue(calendarMonthValue)),
+    [calendarMonthValue],
+  );
+  const analyticsRange = useMemo(
+    () => (
+      analyticsPeriod === AnalyticsPeriod.RANGE
+        ? { startDate: analyticsRangeStartDate, endDate: analyticsRangeEndDate }
+        : undefined
+    ),
+    [analyticsPeriod, analyticsRangeEndDate, analyticsRangeStartDate],
+  );
 
   const createForm = useForm<CreateShopFormValues>({
     resolver: zodResolver(createShopSchema),
@@ -190,6 +265,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   } = useAdminDashboardData({
     analyticsPeriod,
     analyticsReferenceDate,
+    analyticsRange,
     selectedShopId,
   });
 
@@ -258,6 +334,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   } = useAdminDashboardAnalytics({
     analyticsPeriod,
     analyticsReferenceDate,
+    analyticsRange,
     selectedShopId,
     dateOptions,
     monthOptions,
@@ -277,6 +354,11 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const fabOffset = 100 + insets.bottom;
   const bottomSpacer = 160 + insets.bottom;
   const inventoryContentPadding = 16 + bottomSpacer;
+  const floatingDropdownMaxHeight = Math.min(
+    560,
+    Math.max(320, windowHeight - insets.top - insets.bottom - 112),
+  );
+  const canApplyDraftRange = Boolean(draftRangeStartDate && draftRangeEndDate);
 
   const handleSelectPeriod = useCallback((period: AnalyticsPeriod) => {
     if (period === analyticsPeriod) {
@@ -286,33 +368,106 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     triggerHaptic();
     setAnalyticsPeriod(period);
-    setReferencePickerOpen(false);
+
+    if (period === AnalyticsPeriod.DATE) {
+      setCalendarMonthValue(analyticsReferenceDate);
+      return;
+    }
+
+    if (period === AnalyticsPeriod.RANGE) {
+      setDraftRangeStartDate(analyticsRangeStartDate);
+      setDraftRangeEndDate(analyticsRangeEndDate);
+      setCalendarMonthValue(analyticsRangeStartDate);
+      return;
+    }
 
     const nextReferenceDate =
-      period === "date"
-        ? dateOptions[0]?.value
-        : period === "month"
-          ? monthOptions[0]?.value
-          : period === "week"
-            ? weekOptions[0]?.value
-            : yearOptions[0]?.value;
+      period === AnalyticsPeriod.MONTH
+        ? monthOptions[0]?.value
+        : period === AnalyticsPeriod.WEEK
+          ? weekOptions[0]?.value
+          : yearOptions[0]?.value;
 
     if (nextReferenceDate) {
       setAnalyticsReferenceDate(nextReferenceDate);
     }
-  }, [analyticsPeriod, dateOptions, monthOptions, weekOptions, yearOptions]);
+  }, [
+    analyticsPeriod,
+    analyticsRangeEndDate,
+    analyticsRangeStartDate,
+    analyticsReferenceDate,
+    monthOptions,
+    weekOptions,
+    yearOptions,
+  ]);
 
   const toggleReferencePicker = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     triggerHaptic();
     setShopSelectorOpen(false);
-    setReferencePickerOpen((current) => !current);
-  }, []);
+    setReferencePickerOpen((current) => {
+      const nextOpen = !current;
+      if (nextOpen) {
+        setCalendarMonthValue(
+          analyticsPeriod === AnalyticsPeriod.RANGE ? analyticsRangeStartDate : analyticsReferenceDate,
+        );
+        setDraftRangeStartDate(analyticsRangeStartDate);
+        setDraftRangeEndDate(analyticsRangeEndDate);
+      }
+      return nextOpen;
+    });
+  }, [analyticsPeriod, analyticsRangeEndDate, analyticsRangeStartDate, analyticsReferenceDate]);
 
   const handleSelectReferenceDate = useCallback((value: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setAnalyticsReferenceDate(value);
     setReferencePickerOpen(false);
+  }, []);
+
+  const handleSelectCalendarDate = useCallback((value: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    triggerHaptic();
+    setAnalyticsReferenceDate(value);
+    setCalendarMonthValue(value);
+    setReferencePickerOpen(false);
+  }, []);
+
+  const handleSelectRangeDate = useCallback((value: string) => {
+    triggerHaptic();
+    setDraftRangeStartDate((currentStart) => {
+      if (!currentStart || draftRangeEndDate) {
+        setDraftRangeEndDate(null);
+        return value;
+      }
+
+      if (value < currentStart) {
+        setDraftRangeEndDate(currentStart);
+        return value;
+      }
+
+      setDraftRangeEndDate(value);
+      return currentStart;
+    });
+  }, [draftRangeEndDate]);
+
+  const applyCustomRange = useCallback(() => {
+    if (!draftRangeStartDate || !draftRangeEndDate) {
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    triggerHaptic(Haptics.ImpactFeedbackStyle.Light);
+    setAnalyticsRangeStartDate(draftRangeStartDate);
+    setAnalyticsRangeEndDate(draftRangeEndDate);
+    setAnalyticsReferenceDate(draftRangeStartDate);
+    setReferencePickerOpen(false);
+  }, [draftRangeEndDate, draftRangeStartDate]);
+
+  const handleShowPreviousCalendarMonth = useCallback(() => {
+    setCalendarMonthValue((current) => addMonths(current, -1));
+  }, []);
+
+  const handleShowNextCalendarMonth = useCallback(() => {
+    setCalendarMonthValue((current) => addMonths(current, 1));
   }, []);
 
   const toggleShopSelector = useCallback(() => {
@@ -603,7 +758,12 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
           style={[
             styles.floatingDropdown,
             adminShadow(palette.shadow, 0.08, 12, 18),
-            { backgroundColor: palette.card, borderColor: palette.border, top: insets.top + 82 },
+            {
+              backgroundColor: palette.card,
+              borderColor: palette.border,
+              maxHeight: floatingDropdownMaxHeight,
+              top: insets.top + 82,
+            },
           ]}
         >
           <ScrollView
@@ -615,7 +775,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
             <Pressable onPress={() => handleSelectShop(null)} style={styles.selectorOption}>
               <View style={styles.selectorOptionContent}>
                 <View style={[styles.selectorOptionIcon, { backgroundColor: palette.surfaceMuted }]}>
-                  <MaterialCommunityIcons name="domain" size={16} color={palette.emerald} />
+                  <MaterialCommunityIcons name="domain" size={16} color={palette.primary} />
                 </View>
                 <View style={styles.selectorOptionText}>
                   <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>All Branches</Text>
@@ -625,14 +785,14 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                 </View>
               </View>
               {!selectedShopId ? (
-                <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} />
+                <MaterialCommunityIcons name="check-circle" size={18} color={palette.primary} />
               ) : null}
             </Pressable>
             {shops.map((shop) => (
               <Pressable key={shop.id} onPress={() => handleSelectShop(shop.id)} style={styles.selectorOption}>
                 <View style={styles.selectorOptionContent}>
                   <View style={[styles.selectorOptionIcon, { backgroundColor: palette.surfaceMuted }]}>
-                    <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.emerald} />
+                    <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.primary} />
                   </View>
                   <View style={styles.selectorOptionText}>
                     <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>{shop.name}</Text>
@@ -657,7 +817,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                   </Text>
                 </View>
                 {selectedShopId === shop.id ? (
-                  <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} />
+                  <MaterialCommunityIcons name="check-circle" size={18} color={palette.primary} />
                 ) : null}
               </Pressable>
             ))}
@@ -670,7 +830,12 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
           style={[
             styles.floatingDropdown,
             adminShadow(palette.shadow, 0.08, 12, 18),
-            { backgroundColor: palette.card, borderColor: palette.border, top: insets.top + 82 },
+            {
+              backgroundColor: palette.card,
+              borderColor: palette.border,
+              maxHeight: floatingDropdownMaxHeight,
+              top: insets.top + 82,
+            },
           ]}
         >
           <View style={[styles.segmentRow, { padding: 12 }]}>
@@ -685,42 +850,197 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                   style={[
                     styles.segmentButton,
                     {
-                      backgroundColor: active ? palette.emerald : palette.surfaceMuted,
-                      borderColor: active ? palette.emerald : palette.border,
+                      backgroundColor: active ? palette.primary : palette.surfaceMuted,
+                      borderColor: active ? palette.primary : palette.border,
                     },
                   ]}
                 >
-                  <Text style={[styles.segmentText, { color: active ? "#FFFFFF" : palette.textSecondary }]}>
+                  <Text style={[styles.segmentText, { color: active ? palette.onPrimary : palette.textSecondary }]}>
                     {option.label}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-          <ScrollView
-            style={styles.floatingDropdownScroll}
-            contentContainerStyle={styles.floatingDropdownContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {analyticsReferenceOptions.map((option) => (
-              <Pressable
-                key={option.value}
-                accessibilityRole="button"
-                accessibilityState={{ selected: option.value === analyticsReferenceDate }}
-                onPress={() => handleSelectReferenceDate(option.value)}
-                style={[
-                  styles.referenceOption,
-                  option.value === analyticsReferenceDate && { backgroundColor: palette.emeraldSoft },
-                ]}
-              >
-                <Text style={[styles.referenceOptionText, { color: palette.textPrimary }]}>{option.label}</Text>
-                {option.value === analyticsReferenceDate ? (
-                  <MaterialCommunityIcons name="check-circle" size={18} color={palette.emerald} />
-                ) : null}
-              </Pressable>
-            ))}
-          </ScrollView>
+          {analyticsPeriod === AnalyticsPeriod.DATE || analyticsPeriod === AnalyticsPeriod.RANGE ? (
+            <ScrollView
+              style={styles.floatingDropdownScroll}
+              contentContainerStyle={styles.calendarContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.calendarHeader}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous month"
+                  onPress={handleShowPreviousCalendarMonth}
+                  style={[
+                    styles.calendarIconButton,
+                    { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
+                  ]}
+                >
+                  <MaterialCommunityIcons name="chevron-left" size={22} color={palette.textSecondary} />
+                </Pressable>
+                <View style={styles.calendarTitleWrap}>
+                  <Text style={[styles.calendarModeLabel, { color: palette.textMuted }]}>
+                    {analyticsPeriod === AnalyticsPeriod.RANGE ? "Custom range" : "Select day"}
+                  </Text>
+                  <Text style={[styles.calendarMonthTitle, { color: palette.textPrimary }]}>
+                    {calendarMonthLabel}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Next month"
+                  onPress={handleShowNextCalendarMonth}
+                  style={[
+                    styles.calendarIconButton,
+                    { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
+                  ]}
+                >
+                  <MaterialCommunityIcons name="chevron-right" size={22} color={palette.textSecondary} />
+                </Pressable>
+              </View>
+
+              <View style={styles.weekdayRow}>
+                {CALENDAR_WEEKDAYS.map((weekday) => (
+                  <Text key={weekday} style={[styles.weekdayText, { color: palette.textMuted }]}>
+                    {weekday}
+                  </Text>
+                ))}
+              </View>
+
+              <View style={styles.calendarGrid}>
+                {calendarDays.map((day) => {
+                  const isDaySelected =
+                    analyticsPeriod === AnalyticsPeriod.DATE && day.value === analyticsReferenceDate;
+                  const isRangeStart = analyticsPeriod === AnalyticsPeriod.RANGE && day.value === draftRangeStartDate;
+                  const isRangeEnd = analyticsPeriod === AnalyticsPeriod.RANGE && day.value === draftRangeEndDate;
+                  const isRangeEdge = isRangeStart || isRangeEnd;
+                  const isRangeMiddle =
+                    analyticsPeriod === AnalyticsPeriod.RANGE &&
+                    isDateBetween(day.value, draftRangeStartDate, draftRangeEndDate) &&
+                    !isRangeEdge;
+                  const selected = isDaySelected || isRangeEdge;
+                  const isToday = day.value === todayValue;
+
+                  return (
+                    <View key={day.value} style={styles.calendarDayCell}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        accessibilityLabel={formatCalendarDateLabel(day.value)}
+                        onPress={() => {
+                          if (analyticsPeriod === AnalyticsPeriod.DATE) {
+                            handleSelectCalendarDate(day.value);
+                            return;
+                          }
+                          handleSelectRangeDate(day.value);
+                        }}
+                        style={[
+                          styles.calendarDayButton,
+                          {
+                            backgroundColor: selected
+                              ? palette.primary
+                              : isRangeMiddle
+                                ? palette.primarySoft
+                                : "transparent",
+                            borderColor: isToday ? palette.primary : "transparent",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.calendarDayText,
+                            {
+                              color: selected
+                                ? palette.onPrimary
+                                : !day.inMonth
+                                  ? palette.textMuted
+                                  : isRangeMiddle || isToday
+                                    ? palette.primaryStrong
+                                    : palette.textPrimary,
+                              opacity: day.inMonth || selected || isRangeMiddle ? 1 : 0.5,
+                            },
+                          ]}
+                        >
+                          {day.day}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {analyticsPeriod === AnalyticsPeriod.RANGE ? (
+                <View
+                  style={[
+                    styles.rangeFooter,
+                    { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
+                  ]}
+                >
+                  <View style={styles.rangeDatesRow}>
+                    <View style={styles.rangeDateBlock}>
+                      <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>Start</Text>
+                      <Text style={[styles.rangeDateValue, { color: palette.textPrimary }]} numberOfLines={1}>
+                        {formatCalendarDateLabel(draftRangeStartDate)}
+                      </Text>
+                    </View>
+                    <View style={[styles.rangeDivider, { backgroundColor: palette.border }]} />
+                    <View style={styles.rangeDateBlock}>
+                      <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>End</Text>
+                      <Text style={[styles.rangeDateValue, { color: palette.textPrimary }]} numberOfLines={1}>
+                        {formatCalendarDateLabel(draftRangeEndDate)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={!canApplyDraftRange}
+                    onPress={applyCustomRange}
+                    style={[
+                      styles.rangeApplyButton,
+                      { backgroundColor: canApplyDraftRange ? palette.primary : palette.border },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.rangeApplyText,
+                        { color: canApplyDraftRange ? palette.onPrimary : palette.textMuted },
+                      ]}
+                    >
+                      Apply Range
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </ScrollView>
+          ) : (
+            <ScrollView
+              style={styles.floatingDropdownScroll}
+              contentContainerStyle={styles.floatingDropdownContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {analyticsReferenceOptions.map((option) => (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: option.value === analyticsReferenceDate }}
+                  onPress={() => handleSelectReferenceDate(option.value)}
+                  style={[
+                    styles.referenceOption,
+                    option.value === analyticsReferenceDate && { backgroundColor: palette.primarySoft },
+                  ]}
+                >
+                  <Text style={[styles.referenceOptionText, { color: palette.textPrimary }]}>{option.label}</Text>
+                  {option.value === analyticsReferenceDate ? (
+                    <MaterialCommunityIcons name="check-circle" size={18} color={palette.primary} />
+                  ) : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
         </View>
       ) : null}
 
@@ -811,11 +1131,11 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
           style={[
             styles.fab,
             adminShadow(palette.shadow, 0.12, 14, 20),
-            { backgroundColor: palette.emerald, bottom: fabOffset },
+            { backgroundColor: palette.success, bottom: fabOffset },
           ]}
         >
-          <MaterialCommunityIcons name="cash-edit" size={18} color="#FFFFFF" />
-          <Text style={styles.fabLabel}>Update Price </Text>
+          <MaterialCommunityIcons name="cash-edit" size={18} color={palette.background} />
+          <Text style={[styles.fabLabel, { color: palette.background }]}>Update Price </Text>
         </Pressable>
       ) : null}
 
@@ -954,6 +1274,110 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
+  calendarContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 10,
+  },
+  calendarHeader: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  calendarIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarTitleWrap: {
+    minWidth: 0,
+    flex: 1,
+    alignItems: "center",
+  },
+  calendarModeLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  calendarMonthTitle: {
+    marginTop: 3,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  weekdayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  weekdayText: {
+    width: "14.2857%",
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  calendarDayCell: {
+    width: "14.2857%",
+    padding: 2,
+  },
+  calendarDayButton: {
+    height: 38,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarDayText: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  rangeFooter: {
+    marginTop: 4,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 10,
+    gap: 10,
+  },
+  rangeDatesRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 10,
+  },
+  rangeDateBlock: {
+    minWidth: 0,
+    flex: 1,
+  },
+  rangeDateLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  rangeDateValue: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  rangeDivider: {
+    width: 1,
+  },
+  rangeApplyButton: {
+    minHeight: 44,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rangeApplyText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
   fab: {
     position: "absolute",
     right: 16,
@@ -969,7 +1393,6 @@ const styles = StyleSheet.create({
   fabLabel: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#FFFFFF",
   },
   emptyWrap: {
     flex: 1,

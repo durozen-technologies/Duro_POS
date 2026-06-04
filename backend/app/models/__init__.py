@@ -1,8 +1,8 @@
 from ..db.database import Base
 from .base import BaseModelMixin
-from .bill import Bill, BillItem, BillStatus, MonthlyBillSequence
+from .bill import Bill, BillItem, MonthlyBillSequence
 from .daily_price import DailyPrice
-from .enums import BaseUnit, InventoryMovementType, UnitType, UserRole
+from .enums import BaseUnit, BillStatus, InventoryMovementType, UnitType, UserRole
 from .inventory import (
     InventoryCategory,
     InventoryItem,

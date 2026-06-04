@@ -47,7 +47,13 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
       ListHeaderComponent={
         <View style={styles.header}>
           <DashboardErrorBanner dashboardError={dashboardError} hasShops={hasShops} palette={palette} />
-          <TabSectionHeader title="Items Sold" badgeLabel={`${filteredItemSales.length} items`} palette={palette} />
+          <TabSectionHeader
+            title="Items Sold"
+            badgeLabel={`${filteredItemSales.length} items`}
+            badgeBackgroundColor={palette.analyticsSoft}
+            badgeTextColor={palette.analyticsStrong}
+            palette={palette}
+          />
           <SearchField
             value={itemSearch}
             onChangeText={onChangeSearch}
@@ -74,8 +80,8 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor={palette.emerald}
-          colors={[palette.emerald]}
+          tintColor={palette.analytics}
+          colors={[palette.analytics]}
         />
       }
       removeClippedSubviews={Platform.OS === "android"}

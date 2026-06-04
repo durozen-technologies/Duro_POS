@@ -37,7 +37,7 @@ import {
 import { useAuthStore } from "@/store/auth-store";
 import { usePrinterStore } from "@/store/printer-store";
 import { usePriceStore } from "@/store/price-store";
-import { ItemPriceRead, UUID } from "@/types/api";
+import { BaseUnit, ItemPriceRead, UUID } from "@/types/api";
 
 import { money, toQuantityString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
@@ -520,7 +520,7 @@ export function BillingScreen({
         unit_type: item.unit_type,
         price_per_unit: item.current_price,
         quantity:
-          item.base_unit === "unit"
+          item.base_unit === BaseUnit.UNIT
             ? toQuantityString(rawQuantity, true)
             : rawQuantity,
       };
@@ -581,11 +581,11 @@ export function BillingScreen({
     useCallback(
       ({ item }) => {
         const quantityLabel =
-          item.base_unit === "kg"
+          item.base_unit === BaseUnit.KG
             ? t("common.quantityKg")
             : t("common.quantityUnits");
         const quantityPlaceholder =
-          item.base_unit === "kg"
+          item.base_unit === BaseUnit.KG
             ? t("common.exampleKg")
             : t("common.exampleUnits");
 

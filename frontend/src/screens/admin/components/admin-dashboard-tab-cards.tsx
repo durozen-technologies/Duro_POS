@@ -36,8 +36,8 @@ export const InventoryItemCard = memo(function InventoryItemCard({
         { backgroundColor: palette.card, borderColor: palette.border },
       ]}
     >
-      <View style={[styles.itemIconWrap, { backgroundColor: palette.emeraldSoft }]}>
-        <MaterialCommunityIcons name="cart-outline" size={18} color={palette.emerald} />
+      <View style={[styles.itemIconWrap, { backgroundColor: palette.analyticsSoft }]}>
+        <MaterialCommunityIcons name="chart-line" size={18} color={palette.analytics} />
       </View>
       <View style={styles.itemContent}>
         <View style={styles.itemHeader}>
@@ -47,18 +47,18 @@ export const InventoryItemCard = memo(function InventoryItemCard({
               {getUnitLabel(item.base_unit, item.quantity_sold)} · {item.bill_count} bills
             </Text>
           </View>
-          <View style={[styles.stateChip, { backgroundColor: isHot ? palette.successSoft : palette.goldSoft }]}>
+          <View style={[styles.stateChip, { backgroundColor: isHot ? palette.successSoft : palette.billingSoft }]}>
             <MaterialCommunityIcons
               name={isHot ? "trending-up" : "trending-neutral"}
               size={14}
-              color={isHot ? palette.success : palette.cash}
+              color={isHot ? palette.success : palette.billing}
             />
-            <Text style={[styles.stateChipText, { color: isHot ? palette.success : palette.cash }]}>
+            <Text style={[styles.stateChipText, { color: isHot ? palette.success : palette.billingStrong }]}>
               {isHot ? "Hot" : "Steady"}
             </Text>
           </View>
         </View>
-        <Text style={[styles.itemAmount, { color: palette.emerald }]}>{formatCurrency(item.total_amount)}</Text>
+        <Text style={[styles.itemAmount, { color: palette.billing }]}>{formatCurrency(item.total_amount)}</Text>
       </View>
     </View>
   );
@@ -100,13 +100,13 @@ export const BranchControlCard = memo(function BranchControlCard({
     >
       <View style={styles.branchHeader}>
         <View style={styles.branchIdentity}>
-          <View style={[styles.branchIconWrap, { backgroundColor: palette.emeraldSoft, borderColor: palette.border }]}>
-            <MaterialCommunityIcons name="storefront-outline" size={20} color={palette.emerald} />
+          <View style={[styles.branchIconWrap, { backgroundColor: palette.settingsSoft, borderColor: palette.border }]}>
+            <MaterialCommunityIcons name="storefront-outline" size={20} color={palette.settings} />
           </View>
           <View style={styles.branchTextWrap}>
             <View style={styles.branchTitleRow}>
-              <View style={[styles.rankBadge, { backgroundColor: palette.emeraldSoft }]}>
-                <Text style={[styles.rankBadgeText, { color: palette.emeraldDark }]}>#{rank}</Text>
+              <View style={[styles.rankBadge, { backgroundColor: palette.settingsSoft }]}>
+                <Text style={[styles.rankBadgeText, { color: palette.settingsStrong }]}>#{rank}</Text>
               </View>
               <Text style={[styles.branchName, { color: palette.textPrimary }]}>{row.shop.name}</Text>
             </View>
@@ -122,7 +122,7 @@ export const BranchControlCard = memo(function BranchControlCard({
       <View style={styles.branchMetricsRow}>
         <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
           <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Revenue</Text>
-          <Text style={[styles.branchMetricValue, { color: palette.emerald }]}>
+          <Text style={[styles.branchMetricValue, { color: palette.billing }]}>
             {formatCompactCurrency(row.totalSales)}
           </Text>
         </View>
@@ -148,9 +148,9 @@ export const BranchControlCard = memo(function BranchControlCard({
               icon="pencil-box-outline"
               fullWidth
               palette={palette}
-              backgroundColorOverride={palette.upiSoft}
-              borderColorOverride={palette.upi}
-              textColorOverride={palette.textPrimary}
+              backgroundColorOverride={palette.settingsSoft}
+              borderColorOverride={palette.settings}
+              textColorOverride={palette.settingsStrong}
             />
           </View>
           <View style={styles.branchActionButton}>
@@ -162,9 +162,9 @@ export const BranchControlCard = memo(function BranchControlCard({
               icon={row.shop.is_active ? "pause-circle-outline" : "check-circle-outline"}
               fullWidth
               palette={palette}
-              backgroundColorOverride={row.shop.is_active ? palette.cashSoft : palette.emeraldSoft}
-              borderColorOverride={row.shop.is_active ? palette.cash : palette.emerald}
-              textColorOverride={palette.textPrimary}
+              backgroundColorOverride={row.shop.is_active ? palette.cashSoft : palette.successSoft}
+              borderColorOverride={row.shop.is_active ? palette.cash : palette.success}
+              textColorOverride={row.shop.is_active ? palette.cash : palette.success}
             />
           </View>
         </View>

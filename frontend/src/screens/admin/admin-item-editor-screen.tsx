@@ -5,7 +5,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button as TButton, Input, Spinner, XStack, YStack } from "tamagui";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -30,15 +30,24 @@ import {
   updateShopItemMetadata,
 } from "@/api/admin";
 import { isApiRequestCanceled, resolveApiUrl, toApiError } from "@/api/client";
-import type { ItemCategoryRead, ItemMetadataUpdate, ShopItemRead, UUID } from "@/types/api";
+import {
+  BaseUnit,
+  UnitType,
+  type ItemCategoryRead,
+  type ItemMetadataUpdate,
+  type ShopItemRead,
+  type UUID,
+} from "@/types/api";
 import type { AdminItemEditorScreenProps } from "@/navigation/types";
 
-import { getAdminPalette, type ThemePalette } from "./admin-dashboard-theme";
+import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import {
   AdminItemEditorMode,
   AdminItemWorkspace,
 } from "./admin-items-model";
+import { AdminHeaderActions } from "./components/admin-header-actions";
+import { useAdminTheme } from "./use-admin-theme";
 
 type ExpoImagePickerModule = typeof import("expo-image-picker");
 type ImageDraft = {
@@ -83,8 +92,8 @@ const editorSchema = z
   .object({
     name: z.string().trim().min(2, "Enter at least 2 characters.").max(120, "Name is too long."),
     tamilName: z.string().trim().min(1, "Tamil name is required.").max(120, "Tamil name is too long."),
-    unitType: z.enum(["weight", "count"]),
-    baseUnit: z.enum(["kg", "unit"]),
+    unitType: z.nativeEnum(UnitType),
+    baseUnit: z.nativeEnum(BaseUnit),
     isActive: z.boolean(),
     sortOrder: z.string().trim().regex(/^-?\d+$/, "Use a whole number."),
     categoryId: z.string(),
@@ -92,14 +101,14 @@ const editorSchema = z
     attributes: z.array(attributeSchema),
   })
   .superRefine((values, context) => {
-    if (values.unitType === "weight" && values.baseUnit !== "kg") {
+    if (values.unitType === UnitType.WEIGHT && values.baseUnit !== BaseUnit.KG) {
       context.addIssue({
         code: "custom",
         path: ["baseUnit"],
         message: "Weight items must use KG.",
       });
     }
-    if (values.unitType === "count" && values.baseUnit !== "unit") {
+    if (values.unitType === UnitType.COUNT && values.baseUnit !== BaseUnit.UNIT) {
       context.addIssue({
         code: "custom",
         path: ["baseUnit"],
@@ -130,8 +139,8 @@ type EditorValues = z.infer<typeof editorSchema>;
 const EMPTY_EDITOR: EditorValues = {
   name: "",
   tamilName: "",
-  unitType: "weight",
-  baseUnit: "kg",
+  unitType: UnitType.WEIGHT,
+  baseUnit: BaseUnit.KG,
   isActive: true,
   sortOrder: "0",
   categoryId: "",
@@ -381,8 +390,7 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
 }
 
 export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScreenProps) {
-  const colorScheme = useColorScheme();
-  const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
+  const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const { mode, workspace, itemId, shopId, initialItem } = route.params;
   const isCreate = mode === AdminItemEditorMode.Create;
@@ -573,6 +581,14 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     hasImageChange &&
     !isDirty;
   const saveDisabled = saving || customizationBlocked || (!isCreate && !hasPendingChanges) || (isCreate && !isValid);
+  const refreshEditor = useCallback(() => {
+    if (!isCustomize) {
+      void loadCategories();
+    }
+    if (!isCreate && itemId) {
+      setItemReloadKey((value) => value + 1);
+    }
+  }, [isCreate, isCustomize, itemId, loadCategories]);
 
   useEffect(() => {
     setStoredImageFailed(false);
@@ -833,11 +849,16 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             {isCustomize ? "Shop-only overrides" : "Names, units, image, and category"}
           </Text>
         </View>
+        <AdminHeaderActions
+          refreshing={loading || categoriesLoading}
+          refreshDisabled={saving}
+          onRefresh={refreshEditor}
+        />
       </View>
 
       {loading ? (
         <View style={styles.center}>
-          <Spinner color={palette.emerald} />
+          <Spinner color={palette.items} />
           <Text style={[styles.helper, { color: palette.textMuted }]}>Loading item...</Text>
         </View>
       ) : (
@@ -956,10 +977,10 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                 <EditorButton
                   label="Weight"
                   icon="scale-balance"
-                  active={unitType === "weight"}
+                  active={unitType === UnitType.WEIGHT}
                   onPress={() => {
-                    setValue("unitType", "weight", { shouldDirty: true, shouldValidate: true });
-                    setValue("baseUnit", "kg", { shouldDirty: true, shouldValidate: true });
+                    setValue("unitType", UnitType.WEIGHT, { shouldDirty: true, shouldValidate: true });
+                    setValue("baseUnit", BaseUnit.KG, { shouldDirty: true, shouldValidate: true });
                   }}
                   palette={palette}
                   flex
@@ -967,10 +988,10 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                 <EditorButton
                   label="Count"
                   icon="counter"
-                  active={unitType === "count"}
+                  active={unitType === UnitType.COUNT}
                   onPress={() => {
-                    setValue("unitType", "count", { shouldDirty: true, shouldValidate: true });
-                    setValue("baseUnit", "unit", { shouldDirty: true, shouldValidate: true });
+                    setValue("unitType", UnitType.COUNT, { shouldDirty: true, shouldValidate: true });
+                    setValue("baseUnit", BaseUnit.UNIT, { shouldDirty: true, shouldValidate: true });
                   }}
                   palette={palette}
                   flex
@@ -1115,7 +1136,7 @@ function CategoryManager({
           </Text>
         </YStack>
         <XStack alignItems="center" gap={4}>
-          {loading ? <Spinner color={palette.emerald} size="small" /> : null}
+          {loading ? <Spinner color={palette.items} size="small" /> : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Manage categories"
@@ -1194,7 +1215,7 @@ function CategoryManager({
 
             {loading ? (
               <View style={styles.categoryPickerLoading}>
-                <Spinner color={palette.emerald} size="small" />
+                <Spinner color={palette.items} size="small" />
                 <Text style={[styles.sectionHint, { color: palette.textMuted }]}>Loading categories...</Text>
               </View>
             ) : (
@@ -1257,16 +1278,16 @@ function CategoryOption({
       style={[
         styles.categoryOption,
         {
-          borderColor: selected ? palette.emerald : palette.border,
-          backgroundColor: selected ? palette.emeraldSoft : palette.surfaceMuted,
+          borderColor: selected ? palette.items : palette.border,
+          backgroundColor: selected ? palette.itemsSoft : palette.surfaceMuted,
         },
       ]}
     >
-      <MaterialCommunityIcons name={icon} size={18} color={selected ? palette.emeraldDark : palette.textMuted} />
+      <MaterialCommunityIcons name={icon} size={18} color={selected ? palette.itemsStrong : palette.textMuted} />
       <Text numberOfLines={1} style={[styles.categoryOptionText, { color: palette.textPrimary }]}>
         {label}
       </Text>
-      {selected ? <MaterialCommunityIcons name="check" size={18} color={palette.emeraldDark} /> : null}
+      {selected ? <MaterialCommunityIcons name="check" size={18} color={palette.itemsStrong} /> : null}
     </Pressable>
   );
 }
@@ -1346,9 +1367,9 @@ function AttributeEditor({
                   <Pressable
                     accessibilityRole="button"
                     onPress={() => onToggleBoolean(index, value)}
-                    style={[styles.booleanButton, { borderColor: palette.emerald, backgroundColor: palette.emeraldSoft }]}
+                    style={[styles.booleanButton, { borderColor: palette.items, backgroundColor: palette.itemsSoft }]}
                   >
-                    <Text style={[styles.typeText, { color: palette.emeraldDark }]}>
+                    <Text style={[styles.typeText, { color: palette.itemsStrong }]}>
                       {value === "false" ? "False" : "True"}
                     </Text>
                   </Pressable>
@@ -1417,9 +1438,9 @@ function EditorButton({
   palette: ThemePalette;
   onPress: () => void;
 }) {
-  const backgroundColor = active ? palette.emerald : danger ? palette.dangerSoft : palette.card;
-  const borderColor = active ? palette.emerald : danger ? palette.danger : palette.border;
-  const textColor = active ? "#FFFFFF" : danger ? palette.danger : palette.textPrimary;
+  const backgroundColor = active ? palette.items : danger ? palette.dangerSoft : palette.card;
+  const borderColor = active ? palette.items : danger ? palette.danger : palette.border;
+  const textColor = active ? palette.onPrimary : danger ? palette.danger : palette.textPrimary;
   return (
     <TButton
       accessibilityRole="button"

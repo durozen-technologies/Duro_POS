@@ -31,22 +31,28 @@ import {
   getLocalizedItemName,
   useShopTranslation,
 } from "@/hooks/use-shop-translation";
-import type { InventoryItemStockRead, InventorySummaryRead, UUID } from "@/types/api";
+import {
+  BaseUnit,
+  InventoryMovementType,
+  type InventoryItemStockRead,
+  type InventorySummaryRead,
+  type UUID,
+} from "@/types/api";
 import { money } from "@/utils/decimal";
 import { getItemThumbnailUri } from "@/utils/item-images";
 import type { InventoryManagementScreenProps } from "@/navigation/types";
 
-type MovementMode = "add" | "use";
+type MovementMode = InventoryMovementType.ADD | InventoryMovementType.USE;
 
-function formatQuantity(value: string | number, unit?: "kg" | "unit") {
+function formatQuantity(value: string | number, unit?: BaseUnit) {
   const numeric = money(value).toNumber();
-  const display = unit === "unit" && Number.isInteger(numeric)
+  const display = unit === BaseUnit.UNIT && Number.isInteger(numeric)
     ? `${numeric}`
-    : numeric.toFixed(unit === "unit" ? 0 : 3).replace(/\.?0+$/, "");
+    : numeric.toFixed(unit === BaseUnit.UNIT ? 0 : 3).replace(/\.?0+$/, "");
   if (!unit) {
     return display || "0";
   }
-  return `${display || "0"} ${unit === "kg" ? "kg" : numeric === 1 ? "unit" : "units"}`;
+  return `${display || "0"} ${unit === BaseUnit.KG ? "kg" : numeric === 1 ? "unit" : "units"}`;
 }
 
 function isWholeQuantity(value: string) {
@@ -77,7 +83,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryItemStockRead | null>(null);
-  const [mode, setMode] = useState<MovementMode>("add");
+  const [mode, setMode] = useState<MovementMode>(InventoryMovementType.ADD);
   const [quantity, setQuantity] = useState("");
   const [categoryQuantities, setCategoryQuantities] = useState<Record<UUID, string>>({});
 
@@ -135,7 +141,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     const hasValidTotal = Boolean(
       total &&
         total.greaterThan(0) &&
-        (selectedItem.base_unit !== "unit" || isWholeDecimalValue(total)),
+        (selectedItem.base_unit !== BaseUnit.UNIT || isWholeDecimalValue(total)),
     );
     let hasInvalidSplit = false;
     const splitTotal = selectedItem.category_usage.reduce((currentTotal, category) => {
@@ -143,7 +149,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       if (
         !parsed ||
         parsed.lessThan(0) ||
-        (selectedItem.base_unit === "unit" && !isWholeDecimalValue(parsed))
+        (selectedItem.base_unit === BaseUnit.UNIT && !isWholeDecimalValue(parsed))
       ) {
         hasInvalidSplit = true;
         return currentTotal;
@@ -167,7 +173,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       hasValidTotal,
       hasValidSplit,
       splitMatchesTotal,
-      canSave: mode === "add" ? hasValidTotal : hasValidSplit && withinAvailable,
+      canSave: mode === InventoryMovementType.ADD ? hasValidTotal : hasValidSplit && withinAvailable,
     };
   }, [categoryQuantities, mode, quantity, selectedItem]);
 
@@ -180,19 +186,19 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidQuantityMessage"));
       return;
     }
-    if (selectedItem.base_unit === "unit" && !isWholeQuantity(rawQuantity)) {
+    if (selectedItem.base_unit === BaseUnit.UNIT && !isWholeQuantity(rawQuantity)) {
       Alert.alert(t("inventory.invalidQuantityTitle"), t("billing.alertInvalidUnitQuantityMessage", {
         itemName: getLocalizedItemName(language, selectedItem.name, selectedItem.tamil_name),
       }));
       return;
     }
-    if (mode === "use" && !splitState.canSave) {
+    if (mode === InventoryMovementType.USE && !splitState.canSave) {
       Alert.alert(t("inventory.categoryRequiredTitle"), t("inventory.categoryRequiredMessage"));
       return;
     }
     setSaving(true);
     try {
-      const result = mode === "add"
+      const result = mode === InventoryMovementType.ADD
         ? await addShopInventoryStock(selectedItem.id, { quantity: rawQuantity })
         : await useShopInventoryStockSplit(selectedItem.id, {
             total_quantity: rawQuantity,
@@ -292,12 +298,12 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                   <View className="flex-row gap-2">
                     <Button
                       label={t("inventory.addStock")}
-                      onPress={() => openMovement(item, "add")}
+                      onPress={() => openMovement(item, InventoryMovementType.ADD)}
                       className="flex-1"
                     />
                     <Button
                       label={t("inventory.useStock")}
-                      onPress={() => openMovement(item, "use")}
+                      onPress={() => openMovement(item, InventoryMovementType.USE)}
                       variant="secondary"
                       disabled={item.category_usage.length === 0}
                       className="flex-1"
@@ -336,7 +342,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                 <View className="flex-row items-start justify-between gap-3">
                   <View className="min-w-0 flex-1">
                     <Text className="text-lg font-extrabold text-ink">
-                      {mode === "add" ? t("inventory.addStock") : t("inventory.useStock")}
+                      {mode === InventoryMovementType.ADD ? t("inventory.addStock") : t("inventory.useStock")}
                     </Text>
                     <Text className="mt-1 text-sm font-semibold text-muted" numberOfLines={2}>
                       {getLocalizedItemName(language, selectedItem.name, selectedItem.tamil_name)}
@@ -352,7 +358,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={{ gap: 12, paddingTop: 10, paddingBottom: 2 }}
                 >
-                  {mode === "use" ? (
+                  {mode === InventoryMovementType.USE ? (
                     <View className="items-center rounded-[16px] border border-accent bg-accentSoft px-4 py-3">
                       <Text className="text-[11px] font-semibold uppercase tracking-[1px] text-muted">
                         {t("inventory.available")}
@@ -363,23 +369,23 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                     </View>
                   ) : null}
                   <TextField
-                    label={mode === "use"
-                      ? selectedItem.base_unit === "kg"
+                    label={mode === InventoryMovementType.USE
+                      ? selectedItem.base_unit === BaseUnit.KG
                         ? "Total to use (kg)"
                         : "Total to use (units)"
-                      : selectedItem.base_unit === "kg"
+                      : selectedItem.base_unit === BaseUnit.KG
                         ? t("common.quantityKg")
                         : t("common.quantityUnits")}
                     keyboardType="decimal-pad"
-                    placeholder={selectedItem.base_unit === "kg" ? t("common.exampleKg") : t("common.exampleUnits")}
+                    placeholder={selectedItem.base_unit === BaseUnit.KG ? t("common.exampleKg") : t("common.exampleUnits")}
                     value={quantity}
                     onChangeText={setQuantity}
                     suffix={selectedItem.base_unit}
-                    autoFocus={mode === "use"}
+                    autoFocus={mode === InventoryMovementType.USE}
                     selectTextOnFocus
-                    className={mode === "use" ? "text-center text-2xl font-extrabold" : undefined}
+                    className={mode === InventoryMovementType.USE ? "text-center text-2xl font-extrabold" : undefined}
                   />
-                  {mode === "use" ? (
+                  {mode === InventoryMovementType.USE ? (
                     <View className="gap-2">
                       <View className="flex-row items-center justify-between gap-3">
                         <Text className="text-[11px] font-semibold uppercase text-muted">{t("inventory.category")}</Text>
@@ -402,7 +408,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                             <View className="h-11 w-32 flex-row items-center rounded-[12px] border border-border bg-card px-2">
                               <TextInput
                                 keyboardType="decimal-pad"
-                                placeholder={selectedItem.base_unit === "kg" ? t("common.exampleKg") : t("common.exampleUnits")}
+                                placeholder={selectedItem.base_unit === BaseUnit.KG ? t("common.exampleKg") : t("common.exampleUnits")}
                                 placeholderTextColor="#95A293"
                                 value={categoryQuantities[category.category_id] ?? ""}
                                 onChangeText={(nextQuantity) =>

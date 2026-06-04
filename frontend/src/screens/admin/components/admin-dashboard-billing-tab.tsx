@@ -17,7 +17,6 @@ import type { BillingSection } from "../hooks/use-admin-dashboard-view-model";
 import {
   DashboardErrorBanner,
   EmptyStateCard,
-  SectionHint,
   TabSectionHeader,
 } from "./admin-dashboard-primitives";
 
@@ -40,6 +39,115 @@ type AdminBillingTabProps = {
   onLoadMore: () => void;
 };
 
+type BillingItem = BillingSection["data"][number];
+
+function BillingStat({
+  icon,
+  label,
+  value,
+  palette,
+  tone = "billing",
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+  label: string;
+  value: string;
+  palette: ThemePalette;
+  tone?: "billing" | "neutral";
+}) {
+  const isBilling = tone === "billing";
+  return (
+    <View
+      style={[
+        styles.statChip,
+        {
+          backgroundColor: isBilling ? palette.billingSoft : palette.surfaceMuted,
+          borderColor: isBilling ? palette.billing : palette.border,
+        },
+      ]}
+    >
+      <MaterialCommunityIcons
+        name={icon}
+        size={15}
+        color={isBilling ? palette.billing : palette.textMuted}
+      />
+      <View style={styles.statTextWrap}>
+        <Text style={[styles.statLabel, { color: palette.textMuted }]} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text
+          style={[styles.statValue, { color: isBilling ? palette.billingStrong : palette.textPrimary }]}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function BillCard({
+  bill,
+  palette,
+  onPress,
+}: {
+  bill: BillingItem;
+  palette: ThemePalette;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open bill ${bill.bill_no}, ${bill.formattedAmount}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.billCard,
+        adminShadow(palette.shadow, 0.05, 6, 12),
+        {
+          backgroundColor: palette.card,
+          borderColor: pressed ? palette.billing : palette.border,
+          opacity: pressed ? 0.9 : 1,
+          transform: [{ scale: pressed ? 0.99 : 1 }],
+        },
+      ]}
+    >
+      <View style={[styles.billIconWrap, { backgroundColor: palette.billingSoft }]}>
+        <MaterialCommunityIcons name="receipt-text-outline" size={20} color={palette.billing} />
+      </View>
+
+      <View style={styles.billCardBody}>
+        <View style={styles.billCardTopRow}>
+          <View style={styles.billTitleWrap}>
+            <Text style={[styles.billCardNo, { color: palette.textPrimary }]} numberOfLines={1}>
+              {bill.bill_no}
+            </Text>
+            <View style={styles.billMetaRow}>
+              <MaterialCommunityIcons name="clock-outline" size={12} color={palette.textMuted} />
+              <Text style={[styles.billCardDate, { color: palette.textMuted }]} numberOfLines={1}>
+                {bill.formattedDateTime}
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.amountPill, { backgroundColor: palette.cashSoft, borderColor: palette.cash }]}>
+            <Text
+              style={[styles.billCardAmount, { color: palette.cash }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.76}
+            >
+              {bill.formattedAmount}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.billCardBottomRow}>
+          <Text style={[styles.billActionText, { color: palette.billingStrong }]}>Open receipt</Text>
+          <MaterialCommunityIcons name="chevron-right" size={18} color={palette.billing} />
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 export const AdminBillingTab = memo(function AdminBillingTab({
   dashboardError,
   hasShops,
@@ -58,86 +166,80 @@ export const AdminBillingTab = memo(function AdminBillingTab({
   onPrintAll,
   onLoadMore,
 }: AdminBillingTabProps) {
+  const hasBills = visibleBillsLength > 0;
+
   return (
-    <SectionList<BillingSection["data"][number], BillingSection>
+    <SectionList<BillingItem, BillingSection>
       sections={billingSections}
       keyExtractor={(item) => `${item.bill_id}`}
       renderSectionHeader={({ section }) => (
-        <Text style={[styles.billGroupTitle, { color: palette.textMuted }]}>{section.title}</Text>
+        <View style={styles.billGroupHeader}>
+          <Text style={[styles.billGroupTitle, { color: palette.textMuted }]}>{section.title}</Text>
+          <View style={[styles.billGroupLine, { backgroundColor: palette.border }]} />
+        </View>
       )}
       renderItem={({ item: bill }) => (
-        <Pressable
-          onPress={() => onOpenBill(bill.bill_id)}
-          style={({ pressed }) => [
-            styles.billCard,
-            adminShadow(palette.shadow, 0.06, 3, 10),
-            {
-              backgroundColor: palette.card,
-              borderColor: palette.border,
-              opacity: pressed ? 0.82 : 1,
-              transform: [{ scale: pressed ? 0.985 : 1 }],
-            },
-          ]}
-        >
-          <View style={[styles.billCardAccent, { backgroundColor: palette.emerald }]} />
-
-          <View style={styles.billCardBody}>
-            <View style={styles.billCardTopRow}>
-              <Text style={[styles.billCardNo, { color: palette.textPrimary }]} numberOfLines={1}>
-                {bill.bill_no}
-              </Text>
-              <Text style={[styles.billCardAmount, { color: palette.emerald }]}>
-                {bill.formattedAmount}
-              </Text>
-            </View>
-            <View style={styles.billCardBottomRow}>
-              <MaterialCommunityIcons name="clock-outline" size={12} color={palette.textMuted} />
-              <Text style={[styles.billCardDate, { color: palette.textMuted }]}>
-                {bill.formattedDateTime}
-              </Text>
-              <View style={styles.spacer} />
-              <MaterialCommunityIcons name="chevron-right" size={16} color={palette.textMuted} />
-            </View>
-          </View>
-        </Pressable>
+        <BillCard bill={bill} palette={palette} onPress={() => onOpenBill(bill.bill_id)} />
       )}
       ListHeaderComponent={
         <View style={styles.billingListHeader}>
           <DashboardErrorBanner dashboardError={dashboardError} hasShops={hasShops} palette={palette} />
-          <TabSectionHeader title="Billing Feed" badgeLabel={`${visibleBillCount} bills`} palette={palette} />
-          {visibleBillsLength > 0 ? (
+          <View style={styles.headerTitleRow}>
+            <View style={styles.headerTitle}>
+              <TabSectionHeader
+                title="Billing Feed"
+                badgeLabel={`${visibleBillCount} bills`}
+                badgeBackgroundColor={palette.billingSoft}
+                badgeTextColor={palette.billingStrong}
+                palette={palette}
+              />
+            </View>
+          </View>
+          {hasBills ? (
+            <View style={styles.statRow}>
+              <BillingStat icon="receipt-text-outline" label="Total" value={`${visibleBillCount}`} palette={palette} />
+              <BillingStat icon="playlist-check" label="Shown" value={`${visibleBillsLength}`} palette={palette} tone="neutral" />
+              <BillingStat
+                icon={dailyBillsHasMore ? "history" : "check-circle-outline"}
+                label="Older"
+                value={dailyBillsHasMore ? "More" : "Done"}
+                palette={palette}
+                tone="neutral"
+              />
+            </View>
+          ) : null}
+          {hasBills ? (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Print ${visibleBillsLength} visible bills`}
+              accessibilityState={{ disabled: printingAll }}
+              disabled={printingAll}
               onPress={onPrintAll}
               style={[
                 styles.printAllBtn,
                 adminShadow(palette.shadow, 0.04, 4, 8),
                 {
-                  backgroundColor: printingAll ? palette.surfaceMuted : palette.emeraldSoft,
-                  borderColor: palette.emerald,
+                  backgroundColor: printingAll ? palette.surfaceMuted : palette.billingSoft,
+                  borderColor: palette.billing,
                 },
               ]}
             >
-              <MaterialCommunityIcons name="printer-outline" size={16} color={palette.emerald} />
-              <Text style={[styles.printAllBtnText, { color: palette.emeraldDark }]}>
-                {printingAll ? "Opening printer..." : `Print All (${visibleBillsLength})`}
+              {printingAll ? (
+                <ActivityIndicator size="small" color={palette.billing} />
+              ) : (
+                <MaterialCommunityIcons name="printer-outline" size={18} color={palette.billing} />
+              )}
+              <Text style={[styles.printAllBtnText, { color: palette.billingStrong }]}>
+                {printingAll ? "Opening printer..." : `Print ${visibleBillsLength} receipts`}
               </Text>
             </Pressable>
-          ) : null}
-          {visibleBillsLength > 0 ? (
-            <SectionHint text="Tap any bill to open the preview and print the receipt." palette={palette} />
-          ) : null}
-          {dailyBillsHasMore ? (
-            <SectionHint
-              text={`Showing the latest ${dailyBillsLength} bills in this range. Scroll to load older entries.`}
-              palette={palette}
-            />
           ) : null}
         </View>
       }
       ListEmptyComponent={
         <EmptyStateCard
-          title="No bills found"
-          subtitle="No bills are available for this branch and date range yet."
+          title="No bills in this range"
+          subtitle="This branch and period have no receipts yet."
           actionLabel="Refresh"
           onAction={onRefresh}
           icon="receipt-text-remove-outline"
@@ -146,17 +248,19 @@ export const AdminBillingTab = memo(function AdminBillingTab({
       }
       ListFooterComponent={
         dailyBillsLoadingMore ? (
-          <View style={styles.billingListFooter}>
-            <ActivityIndicator color={palette.emerald} />
-            <SectionHint text="Loading older bills..." palette={palette} />
+          <View style={[styles.billingListFooter, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+            <ActivityIndicator color={palette.billing} />
+            <Text style={[styles.footerText, { color: palette.textMuted }]}>Loading older bills...</Text>
           </View>
         ) : dailyBillsHasMore ? (
-          <View style={styles.billingListFooter}>
-            <SectionHint text="Scroll to load older bills." palette={palette} />
+          <View style={[styles.billingListFooter, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+            <MaterialCommunityIcons name="history" size={16} color={palette.billing} />
+            <Text style={[styles.footerText, { color: palette.textMuted }]}>More bills available</Text>
           </View>
         ) : dailyBillsLength > 0 ? (
-          <View style={styles.billingListFooter}>
-            <SectionHint text="Reached the end of this billing feed." palette={palette} />
+          <View style={[styles.billingListFooter, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+            <MaterialCommunityIcons name="check-circle-outline" size={16} color={palette.success} />
+            <Text style={[styles.footerText, { color: palette.textMuted }]}>End of billing feed</Text>
           </View>
         ) : null
       }
@@ -168,8 +272,8 @@ export const AdminBillingTab = memo(function AdminBillingTab({
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor={palette.emerald}
-          colors={[palette.emerald]}
+          tintColor={palette.billing}
+          colors={[palette.billing]}
         />
       }
       showsVerticalScrollIndicator={false}
@@ -179,82 +283,185 @@ export const AdminBillingTab = memo(function AdminBillingTab({
 });
 
 const styles = StyleSheet.create({
-  spacer: {
-    flex: 1,
-  },
   billingListHeader: {
     gap: 12,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   billingListFooter: {
+    minHeight: 42,
+    alignSelf: "center",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 16,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  footerText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerTitle: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  statChip: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 54,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  statTextWrap: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  statLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0,
+  },
+  statValue: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "900",
+    letterSpacing: 0,
   },
   printAllBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    minHeight: 48,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingVertical: 11,
     paddingHorizontal: 16,
   },
   printAllBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "900",
+  },
+  billGroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 8,
   },
   billGroupTitle: {
-    marginTop: 6,
-    marginBottom: 8,
     fontSize: 10,
-    fontWeight: "600",
+    lineHeight: 13,
+    fontWeight: "900",
     textTransform: "uppercase",
-    letterSpacing: 0.6,
+    letterSpacing: 0,
+  },
+  billGroupLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
   },
   billCard: {
     flexDirection: "row",
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     marginBottom: 10,
-    overflow: "hidden",
+    padding: 12,
+    gap: 12,
+    alignItems: "center",
   },
-  billCardAccent: {
-    width: 4,
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
+  billIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
   },
   billCardBody: {
     flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 6,
+    minWidth: 0,
+    gap: 8,
   },
   billCardTopRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
+  },
+  billTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   billCardNo: {
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-    flex: 1,
-  },
-  billCardAmount: {
     fontSize: 15,
-    fontWeight: "800",
+    lineHeight: 20,
+    fontWeight: "900",
+    letterSpacing: 0,
   },
-  billCardBottomRow: {
+  billMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
-  billCardDate: {
+  amountPill: {
+    minWidth: 88,
+    maxWidth: 132,
+    minHeight: 32,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  billCardAmount: {
+    maxWidth: "100%",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "900",
+    letterSpacing: 0,
+  },
+  billCardBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 3,
+  },
+  billActionText: {
     fontSize: 11,
-    fontWeight: "400",
+    lineHeight: 15,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0,
+  },
+  billCardDate: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
+    letterSpacing: 0,
   },
 });

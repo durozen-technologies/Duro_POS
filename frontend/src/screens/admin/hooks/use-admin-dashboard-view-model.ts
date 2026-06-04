@@ -1,12 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useMemo } from "react";
 
-import type {
-  AdminBillSummary,
+import {
   AnalyticsPeriod,
-  ItemSalesSummary,
-  ShopBootstrapResponse,
-  UUID,
+  type AdminBillSummary,
+  type ItemSalesSummary,
+  type ShopBootstrapResponse,
+  type UUID,
 } from "@/types/api";
 import { isPositiveNumber, money } from "@/utils/decimal";
 import { formatCurrency, formatDate, formatDateTime } from "@/utils/format";
@@ -119,6 +119,7 @@ export function useAdminPriceEditorModel({
 type UseAdminDashboardAnalyticsOptions = {
   analyticsPeriod: AnalyticsPeriod;
   analyticsReferenceDate: string;
+  analyticsRange?: { startDate?: string | null; endDate?: string | null };
   selectedShopId: UUID | null;
   dateOptions: Option[];
   monthOptions: Option[];
@@ -136,6 +137,7 @@ type UseAdminDashboardAnalyticsOptions = {
 export function useAdminDashboardAnalytics({
   analyticsPeriod,
   analyticsReferenceDate,
+  analyticsRange,
   selectedShopId,
   dateOptions,
   monthOptions,
@@ -228,15 +230,15 @@ export function useAdminDashboardAnalytics({
   }, [visibleBills]);
 
   const analyticsReferenceOptions = useMemo(() => {
-    if (analyticsPeriod === "date") {
+    if (analyticsPeriod === AnalyticsPeriod.DATE) {
       return dateOptions;
     }
 
-    if (analyticsPeriod === "month") {
+    if (analyticsPeriod === AnalyticsPeriod.MONTH) {
       return monthOptions;
     }
 
-    if (analyticsPeriod === "week") {
+    if (analyticsPeriod === AnalyticsPeriod.WEEK) {
       return weekOptions;
     }
 
@@ -244,8 +246,8 @@ export function useAdminDashboardAnalytics({
   }, [analyticsPeriod, dateOptions, monthOptions, weekOptions, yearOptions]);
 
   const analyticsReferenceLabel = useMemo(
-    () => formatAnalyticsReference(analyticsPeriod, analyticsReferenceDate),
-    [analyticsPeriod, analyticsReferenceDate],
+    () => formatAnalyticsReference(analyticsPeriod, analyticsReferenceDate, analyticsRange),
+    [analyticsPeriod, analyticsRange, analyticsReferenceDate],
   );
 
   const metricSparklineValues = useMemo(() => {
@@ -288,8 +290,8 @@ export function useAdminDashboardAnalytics({
         note: `${analyticsReferenceLabel} revenue`,
         noteIcon: "calendar-range",
         icon: "cash-multiple",
-        accent: palette.emerald,
-        accentSoft: palette.emeraldSoft,
+        accent: palette.billing,
+        accentSoft: palette.billingSoft,
         sparklineLabel: "Top branches",
         sparklineValues: metricSparklineValues.revenue,
       },
@@ -301,8 +303,8 @@ export function useAdminDashboardAnalytics({
         note: largestBill ? `Largest ${formatCurrency(largestBill.total_amount)}` : `No bills in ${analyticsReferenceLabel}`,
         noteIcon: largestBill ? "arrow-top-right" : "receipt-text-remove-outline",
         icon: "receipt-text-outline",
-        accent: palette.gold,
-        accentSoft: palette.goldSoft,
+        accent: palette.analytics,
+        accentSoft: palette.analyticsSoft,
         sparklineLabel: "Branch volume",
         sparklineValues: metricSparklineValues.bills,
       },
@@ -314,8 +316,8 @@ export function useAdminDashboardAnalytics({
         note: `${cashShare.toFixed(0)}% of collections`,
         noteIcon: "percent-outline",
         icon: "wallet-outline",
-        accent: palette.cash,
-        accentSoft: palette.cashSoft,
+        accent: palette.success,
+        accentSoft: palette.successSoft,
         sparklineLabel: "Cash share",
         sparklineValues: metricSparklineValues.cash,
       },
@@ -341,12 +343,12 @@ export function useAdminDashboardAnalytics({
       metricSparklineValues.cash,
       metricSparklineValues.revenue,
       metricSparklineValues.upi,
-      palette.cash,
-      palette.cashSoft,
-      palette.emerald,
-      palette.emeraldSoft,
-      palette.gold,
-      palette.goldSoft,
+      palette.success,
+      palette.successSoft,
+      palette.billing,
+      palette.billingSoft,
+      palette.analytics,
+      palette.analyticsSoft,
       palette.upi,
       palette.upiSoft,
       totalCash,

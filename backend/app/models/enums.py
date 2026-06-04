@@ -16,6 +16,11 @@ class BaseUnit(str, Enum):
     UNIT = "unit"
 
 
+class BillStatus(str, Enum):
+    PENDING_PAYMENT = "pending_payment"
+    PAID = "paid"
+
+
 class InventoryMovementType(str, Enum):
     ADD = "add"
     USE = "use"

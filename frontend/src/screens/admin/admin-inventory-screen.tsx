@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,21 +29,24 @@ import {
 } from "@/api/admin";
 import { toApiError } from "@/api/client";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
-import type {
+import {
   BaseUnit,
-  InventoryCategoryRead,
-  InventoryItemRead,
-  InventoryItemStockRead,
-  InventoryMovementRead,
-  InventorySummaryRead,
-  ShopRead,
-  UUID,
+  InventoryMovementType,
+  type InventoryCategoryRead,
+  type InventoryItemRead,
+  type InventoryItemStockRead,
+  type InventoryMovementRead,
+  type InventorySummaryRead,
+  type ShopRead,
+  type UUID,
 } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
-import { getAdminPalette, type ThemePalette } from "./admin-dashboard-theme";
+import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
+import { AdminHeaderActions } from "./components/admin-header-actions";
+import { useAdminTheme } from "./use-admin-theme";
 import type { AdminInventoryScreenProps } from "@/navigation/types";
 
 type InventoryTab = "items" | "categories" | "shops";
@@ -55,10 +57,10 @@ function getRequestMessage(error: unknown, fallback: string) {
 
 function formatInventoryQuantity(value: string | number, unit: BaseUnit) {
   const numeric = money(value).toNumber();
-  const display = unit === "unit" && Number.isInteger(numeric)
+  const display = unit === BaseUnit.UNIT && Number.isInteger(numeric)
     ? `${numeric}`
-    : numeric.toFixed(unit === "unit" ? 0 : 3).replace(/\.?0+$/, "");
-  return `${display || "0"} ${unit === "kg" ? "kg" : numeric === 1 ? "unit" : "units"}`;
+    : numeric.toFixed(unit === BaseUnit.UNIT ? 0 : 3).replace(/\.?0+$/, "");
+  return `${display || "0"} ${unit === BaseUnit.KG ? "kg" : numeric === 1 ? "unit" : "units"}`;
 }
 
 function markInventoryItemAllocated(
@@ -84,14 +86,14 @@ function markInventoryItemAllocated(
 }
 
 export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreenProps) {
-  const colorScheme = useColorScheme();
-  const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
+  const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<InventoryTab>("items");
   const [items, setItems] = useState<InventoryItemRead[]>([]);
   const [categories, setCategories] = useState<InventoryCategoryRead[]>([]);
   const [shops, setShops] = useState<ShopRead[]>([]);
   const [selectedShopId, setSelectedShopId] = useState<UUID | null>(route.params?.shopId ?? null);
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [summary, setSummary] = useState<InventorySummaryRead | null>(null);
   const [movements, setMovements] = useState<InventoryMovementRead[]>([]);
   const [search, setSearch] = useState("");
@@ -204,6 +206,10 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       });
     return () => controller.abort();
   }, [baseLoaded, debouncedSearch]);
+
+  useEffect(() => {
+    setBranchDropdownOpen(false);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!selectedShopId || !baseLoaded) {
@@ -362,9 +368,9 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
             <MaterialCommunityIcons
               name={tab.icon as never}
               size={16}
-              color={active ? palette.emeraldDark : palette.textMuted}
+              color={active ? palette.inventoryStrong : palette.textMuted}
             />
-            <Text style={[styles.tabText, { color: active ? palette.emeraldDark : palette.textMuted }]}>
+            <Text style={[styles.tabText, { color: active ? palette.inventoryStrong : palette.textMuted }]}>
               {tab.label}
             </Text>
           </Pressable>
@@ -434,7 +440,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
         const editing = editingCategoryId === category.id;
         return (
           <View key={category.id} style={[styles.itemRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
-            <MaterialCommunityIcons name="shape-outline" size={22} color={palette.emerald} />
+            <MaterialCommunityIcons name="shape-outline" size={22} color={palette.inventory} />
             {editing ? (
               <TextInput
                 value={editingCategoryName}
@@ -473,28 +479,76 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
 
   const renderShopStock = () => (
     <View style={styles.section}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shopChips}>
-        {shops.map((shop) => {
-          const active = shop.id === selectedShopId;
-          return (
-            <Pressable
-              key={shop.id}
-              onPress={() => setSelectedShopId(shop.id)}
-              style={[
-                styles.shopChip,
-                {
-                  borderColor: active ? palette.emerald : palette.border,
-                  backgroundColor: active ? palette.emeraldSoft : palette.card,
-                },
-              ]}
-            >
-              <Text style={[styles.chipText, { color: active ? palette.emeraldDark : palette.textPrimary }]}>
-                {shop.name}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <View style={styles.dropdownWrap}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Select branch stock"
+          accessibilityState={{ expanded: branchDropdownOpen, disabled: shops.length === 0 }}
+          disabled={shops.length === 0}
+          onPress={() => setBranchDropdownOpen((current) => !current)}
+          style={[
+            styles.branchSelect,
+            {
+              borderColor: branchDropdownOpen ? palette.inventory : palette.border,
+              backgroundColor: palette.card,
+              opacity: shops.length === 0 ? 0.65 : 1,
+            },
+          ]}
+        >
+          <View style={[styles.branchSelectIcon, { backgroundColor: palette.inventorySoft }]}>
+            <MaterialCommunityIcons name="storefront-outline" size={18} color={palette.inventory} />
+          </View>
+          <View style={styles.branchSelectText}>
+            <Text style={[styles.dropdownLabel, { color: palette.textMuted }]}>Branch</Text>
+            <Text numberOfLines={1} style={[styles.dropdownValue, { color: palette.textPrimary }]}>
+              {selectedShop?.name ?? "Select branch"}
+            </Text>
+          </View>
+          <MaterialCommunityIcons
+            name={branchDropdownOpen ? "chevron-up" : "chevron-down"}
+            size={20}
+            color={palette.textMuted}
+          />
+        </Pressable>
+        {branchDropdownOpen ? (
+          <View style={[styles.dropdownMenu, { borderColor: palette.border, backgroundColor: palette.card }]}>
+            {shops.map((shop) => {
+              const active = shop.id === selectedShopId;
+              return (
+                <Pressable
+                  key={shop.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => {
+                    setSelectedShopId(shop.id);
+                    setBranchDropdownOpen(false);
+                  }}
+                  style={[
+                    styles.dropdownOption,
+                    {
+                      backgroundColor: active ? palette.inventorySoft : "transparent",
+                      borderColor: active ? palette.inventory : "transparent",
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name={active ? "store-check-outline" : "storefront-outline"}
+                    size={17}
+                    color={active ? palette.inventory : palette.textMuted}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.dropdownOptionText, { color: active ? palette.inventoryStrong : palette.textPrimary }]}
+                  >
+                    {shop.name}
+                  </Text>
+                  {active ? <MaterialCommunityIcons name="check" size={18} color={palette.inventory} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
       <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>
         {selectedShop?.name ?? "Select branch"}
       </Text>
@@ -591,14 +645,14 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       {movements.map((movement) => (
         <View key={movement.id} style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
           <MaterialCommunityIcons
-            name={movement.movement_type === "add" ? "plus-circle-outline" : "minus-circle-outline"}
+            name={movement.movement_type === InventoryMovementType.ADD ? "plus-circle-outline" : "minus-circle-outline"}
             size={20}
-            color={movement.movement_type === "add" ? palette.success : palette.danger}
+            color={movement.movement_type === InventoryMovementType.ADD ? palette.success : palette.danger}
           />
           <View style={styles.itemText}>
             <Text style={[styles.itemName, { color: palette.textPrimary }]}>{movement.inventory_item_name}</Text>
             <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
-              {movement.movement_type === "add" ? "Added" : `Used for ${movement.category_name ?? "category"}`} · {formatInventoryQuantity(movement.quantity, movement.unit)}
+              {movement.movement_type === InventoryMovementType.ADD ? "Added" : `Used for ${movement.category_name ?? "category"}`} · {formatInventoryQuantity(movement.quantity, movement.unit)}
             </Text>
           </View>
         </View>
@@ -617,11 +671,15 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           <Text style={[styles.title, { color: palette.textPrimary }]}>Inventory</Text>
           <Text style={[styles.subtitle, { color: palette.textMuted }]}>Items, categories, and branch stock</Text>
         </View>
+        <AdminHeaderActions
+          refreshing={refreshing}
+          onRefresh={() => loadBaseData(true)}
+        />
       </View>
       <ScrollView
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void loadBaseData(true)} tintColor={palette.emerald} colors={[palette.emerald]} />
+          <RefreshControl refreshing={refreshing} onRefresh={() => void loadBaseData(true)} tintColor={palette.inventory} colors={[palette.inventory]} />
         }
         contentContainerStyle={[styles.content, { paddingBottom: 34 + insets.bottom }]}
       >
@@ -666,9 +724,9 @@ function ActionButton({
   disabled?: boolean;
   onPress: () => void;
 }) {
-  const fg = disabled ? palette.textMuted : danger ? palette.danger : active ? "#FFFFFF" : palette.textPrimary;
-  const bg = disabled ? palette.surfaceMuted : danger ? palette.dangerSoft : active ? palette.emerald : palette.card;
-  const border = disabled ? palette.border : danger ? palette.danger : active ? palette.emerald : palette.border;
+  const fg = disabled ? palette.textMuted : danger ? palette.danger : active ? palette.onPrimary : palette.textPrimary;
+  const bg = disabled ? palette.surfaceMuted : danger ? palette.dangerSoft : active ? palette.inventory : palette.card;
+  const border = disabled ? palette.border : danger ? palette.danger : active ? palette.inventory : palette.border;
   return (
     <Pressable
       accessibilityRole="button"
@@ -754,8 +812,14 @@ const styles = StyleSheet.create({
   loadingText: { paddingVertical: 24, textAlign: "center", fontSize: 14, fontWeight: "800" },
   flex: { flex: 1 },
   renameInput: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, fontSize: 14, fontWeight: "800" },
-  shopChips: { gap: 8, paddingBottom: 2 },
-  shopChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 9 },
-  chipText: { fontSize: 12, fontWeight: "900", letterSpacing: 0 },
+  dropdownWrap: { gap: 8 },
+  branchSelect: { minHeight: 58, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10 },
+  branchSelectIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  branchSelectText: { flex: 1, minWidth: 0, gap: 2 },
+  dropdownLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
+  dropdownValue: { fontSize: 15, fontWeight: "900", letterSpacing: 0 },
+  dropdownMenu: { borderWidth: 1, borderRadius: 14, padding: 6, gap: 4 },
+  dropdownOption: { minHeight: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 9 },
+  dropdownOptionText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "900", letterSpacing: 0 },
   sectionTitle: { fontSize: 15, fontWeight: "900", letterSpacing: 0, marginTop: 4 },
 });

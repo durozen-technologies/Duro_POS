@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,18 +25,20 @@ import {
   type ItemImageUploadFile,
 } from "@/api/admin";
 import { toApiError } from "@/api/client";
-import type {
+import {
   BaseUnit,
-  InventoryCategoryRead,
-  InventoryItemRead,
   UnitType,
-  UUID,
+  type InventoryCategoryRead,
+  type InventoryItemRead,
+  type UUID,
 } from "@/types/api";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
 import type { AdminInventoryItemEditorScreenProps } from "@/navigation/types";
-import { getAdminPalette, type ThemePalette } from "./admin-dashboard-theme";
+import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
+import { AdminHeaderActions } from "./components/admin-header-actions";
+import { useAdminTheme } from "./use-admin-theme";
 
 type ImageDraft = ItemImageUploadFile;
 
@@ -54,8 +55,8 @@ type InventoryEditorValues = {
 const EMPTY_VALUES: InventoryEditorValues = {
   name: "",
   tamilName: "",
-  unitType: "weight",
-  baseUnit: "kg",
+  unitType: UnitType.WEIGHT,
+  baseUnit: BaseUnit.KG,
   sortOrder: "0",
   isActive: true,
   categoryIds: new Set(),
@@ -100,8 +101,7 @@ export function AdminInventoryItemEditorScreen({
   navigation,
   route,
 }: AdminInventoryItemEditorScreenProps) {
-  const colorScheme = useColorScheme();
-  const palette = useMemo(() => getAdminPalette(colorScheme), [colorScheme]);
+  const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const initialItem = route.params?.initialItem ?? null;
   const itemId = route.params?.itemId ?? initialItem?.id ?? null;
@@ -265,12 +265,16 @@ export function AdminInventoryItemEditorScreen({
           </Text>
           <Text style={[styles.subtitle, { color: palette.textMuted }]}>Image, names, unit, and categories</Text>
         </View>
+        <AdminHeaderActions
+          refreshing={refreshing}
+          onRefresh={() => loadEditorData(true)}
+        />
       </View>
 
       <ScrollView
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void loadEditorData(true)} tintColor={palette.emerald} colors={[palette.emerald]} />
+          <RefreshControl refreshing={refreshing} onRefresh={() => void loadEditorData(true)} tintColor={palette.inventory} colors={[palette.inventory]} />
         }
         contentContainerStyle={[styles.content, { paddingBottom: 34 + insets.bottom }]}
       >
@@ -320,15 +324,15 @@ export function AdminInventoryItemEditorScreen({
                 label="Weight"
                 icon="scale-balance"
                 palette={palette}
-                active={values.unitType === "weight"}
-                onPress={() => setValues((current) => ({ ...current, unitType: "weight", baseUnit: "kg" }))}
+                active={values.unitType === UnitType.WEIGHT}
+                onPress={() => setValues((current) => ({ ...current, unitType: UnitType.WEIGHT, baseUnit: BaseUnit.KG }))}
               />
               <ActionButton
                 label="Count"
                 icon="counter"
                 palette={palette}
-                active={values.unitType === "count"}
-                onPress={() => setValues((current) => ({ ...current, unitType: "count", baseUnit: "unit" }))}
+                active={values.unitType === UnitType.COUNT}
+                onPress={() => setValues((current) => ({ ...current, unitType: UnitType.COUNT, baseUnit: BaseUnit.UNIT }))}
               />
             </View>
 
@@ -342,13 +346,13 @@ export function AdminInventoryItemEditorScreen({
                     style={[
                       styles.categoryChip,
                       {
-                        borderColor: active ? palette.emerald : palette.border,
-                        backgroundColor: active ? palette.emeraldSoft : palette.surfaceMuted,
+                        borderColor: active ? palette.inventory : palette.border,
+                        backgroundColor: active ? palette.inventorySoft : palette.surfaceMuted,
                       },
                     ]}
                   >
-                    <MaterialCommunityIcons name={active ? "check-circle" : "shape-outline"} size={15} color={active ? palette.emerald : palette.textMuted} />
-                    <Text style={[styles.chipText, { color: active ? palette.emeraldDark : palette.textPrimary }]}>{category.name}</Text>
+                    <MaterialCommunityIcons name={active ? "check-circle" : "shape-outline"} size={15} color={active ? palette.inventory : palette.textMuted} />
+                    <Text style={[styles.chipText, { color: active ? palette.inventoryStrong : palette.textPrimary }]}>{category.name}</Text>
                   </Pressable>
                 );
               })}
@@ -357,7 +361,7 @@ export function AdminInventoryItemEditorScreen({
               onPress={() => setValues((current) => ({ ...current, isActive: !current.isActive }))}
               style={[styles.toggleRow, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}
             >
-              <MaterialCommunityIcons name={values.isActive ? "toggle-switch" : "toggle-switch-off-outline"} size={28} color={values.isActive ? palette.emerald : palette.textMuted} />
+              <MaterialCommunityIcons name={values.isActive ? "toggle-switch" : "toggle-switch-off-outline"} size={28} color={values.isActive ? palette.inventory : palette.textMuted} />
               <Text style={[styles.itemName, { color: palette.textPrimary }]}>{values.isActive ? "Active" : "Inactive"}</Text>
             </Pressable>
 
@@ -387,9 +391,9 @@ function ActionButton({
   loading?: boolean;
   onPress: () => void;
 }) {
-  const fg = active ? "#FFFFFF" : palette.textPrimary;
-  const bg = active ? palette.emerald : palette.card;
-  const border = active ? palette.emerald : palette.border;
+  const fg = active ? palette.onPrimary : palette.textPrimary;
+  const bg = active ? palette.inventory : palette.card;
+  const border = active ? palette.inventory : palette.border;
   return (
     <Pressable
       accessibilityRole="button"
