@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from textwrap import shorten
+from textwrap import shorten, wrap
 from typing import BinaryIO, Iterable, Iterator
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from app.models import (
     ExpenseEntry,
     InventoryCategory,
     InventoryItem,
+    InventoryItemBillingMapping,
     InventoryItemCategory,
     InventoryMovement,
     InventoryMovementType,
@@ -51,7 +52,7 @@ SECTION_LABELS: dict[AdminReportSection, str] = {
     "items": "Items",
     "inventory": "Inventory",
     "assumptions": "Assumptions",
-    "over_report": "Over Report",
+    "over_report": "Overall Report",
 }
 SUMMARY_BILL_ROWS = 25
 SUMMARY_ITEM_ROWS = 50
@@ -267,14 +268,25 @@ class PdfReportWriter:
         widths: list[int],
         alignments: list[str] | None = None,
     ) -> None:
-        row_height = 18
+        font_size = 7
+        line_height = 8
+        padding = 5
+        row_values = list(row)
+        cell_lines = [
+            _pdf_text_lines(
+                _format_cell(value),
+                max(6, int((width - padding * 2) / 3.7)),
+            )
+            for value, width in zip(row_values, widths, strict=True)
+        ]
+        max_lines = max((len(lines) for lines in cell_lines), default=1)
+        row_height = max(18, padding * 2 + font_size + line_height * (max_lines - 1))
         self._ensure_space(row_height, repeat_table_header=True)
         row_y = self._y - row_height
         fill = self._row_alt_fill if self._table_row_index % 2 else (1, 1, 1)
         self._set_fill(fill)
         self._set_stroke((0.90, 0.92, 0.94))
         self._canvas.rect(self._margin, row_y, sum(widths), row_height, stroke=1, fill=1)
-        self._canvas.setFont(self._font_regular, 7)
         self._set_fill(self._text)
         x = self._margin
         if alignments is not None:
@@ -283,15 +295,11 @@ class PdfReportWriter:
             row_alignments = self._current_table.alignments
         else:
             row_alignments = ["left"] * len(widths)
-        for value, width, alignment in zip(row, widths, row_alignments, strict=True):
-            self._draw_cell_text(
-                _format_cell(value),
-                x,
-                row_y + 6,
-                width,
-                alignment,
-                font_size=7,
-            )
+        for lines, width, alignment in zip(cell_lines, widths, row_alignments, strict=True):
+            text_y = row_y + row_height - padding - font_size
+            for line in lines:
+                self._draw_cell_line(line, x, text_y, width, alignment, font_size=font_size)
+                text_y -= line_height
             x += width
         self._y -= row_height
         self._table_row_index += 1
@@ -338,6 +346,20 @@ class PdfReportWriter:
     ) -> None:
         padding = 5
         text = _pdf_text(value, max(6, int((width - padding * 2) / max_ratio)))
+        self._draw_cell_line(text, x, y, width, alignment, font_size=font_size, bold=bold)
+
+    def _draw_cell_line(
+        self,
+        text: str,
+        x: float,
+        y: float,
+        width: float,
+        alignment: str,
+        *,
+        font_size: int,
+        bold: bool = False,
+    ) -> None:
+        padding = 5
         self._set_text_font(text, font_size, bold=bold)
         if alignment == "right":
             self._canvas.drawRightString(x + width - padding, y, text)
@@ -925,15 +947,56 @@ async def _write_over_report_section(
     writer: PdfReportWriter,
     context: ReportContext,
 ) -> None:
-    writer.section("Over Report")
     if not context.shops:
+        writer.section("Overall Report")
         writer.note("No branch data available for the selected report scope.")
         return
 
-    for index, (shop_id, shop_name) in enumerate(context.shops):
-        if index > 0:
-            writer.section("Over Report")
-        await _write_over_report_branch(db, writer, context, shop_id, shop_name)
+    report_contexts = _over_report_section_contexts(context)
+    split_by_day = len(report_contexts) > 1
+    for report_context in report_contexts:
+        title = "Overall Report"
+        if split_by_day:
+            title = f"Overall Report - {report_context.period_label}"
+        for shop_id, shop_name in report_context.shops:
+            writer.section(title)
+            await _write_over_report_branch(db, writer, report_context, shop_id, shop_name)
+
+
+def _over_report_section_contexts(context: ReportContext) -> list[ReportContext]:
+    if context.detail_level != "full":
+        return [context]
+
+    days = _context_days(context)
+    if len(days) <= 1:
+        return [context]
+
+    return [_context_for_day(context, day) for day in days]
+
+
+def _context_days(context: ReportContext) -> list[date]:
+    start_date = context.start.date()
+    end_date = (context.end - timedelta(days=1)).date()
+    days: list[date] = []
+    current = start_date
+    while current <= end_date:
+        days.append(current)
+        current += timedelta(days=1)
+    return days
+
+
+def _context_for_day(context: ReportContext, day: date) -> ReportContext:
+    start = datetime(day.year, day.month, day.day, tzinfo=context.start.tzinfo)
+    end = start + timedelta(days=1)
+    return ReportContext(
+        sections=context.sections,
+        detail_level=context.detail_level,
+        period="date",
+        start=start,
+        end=end,
+        shops=context.shops,
+        shop_ids=context.shop_ids,
+    )
 
 
 async def _write_over_report_branch(
@@ -1132,10 +1195,9 @@ async def _over_report_item_rows(
         .group_by(BillItem.item_id)
         .subquery()
     )
-    used_totals = (
+    movement_totals = (
         select(
             InventoryMovement.inventory_item_id.label("inventory_item_id"),
-            InventoryMovement.category_id.label("category_id"),
             func.coalesce(func.sum(InventoryMovement.quantity), 0).label("used_stock"),
         )
         .where(
@@ -1144,7 +1206,53 @@ async def _over_report_item_rows(
             InventoryMovement.created_at < context.end,
             InventoryMovement.movement_type == InventoryMovementType.USE,
         )
-        .group_by(InventoryMovement.inventory_item_id, InventoryMovement.category_id)
+        .group_by(InventoryMovement.inventory_item_id)
+        .subquery()
+    )
+    mapping_sales = (
+        select(
+            movement_totals.c.inventory_item_id,
+            InventoryItemBillingMapping.billing_item_id,
+            movement_totals.c.used_stock,
+            func.coalesce(sales_totals.c.sales_kg, 0).label("mapped_sales_kg"),
+            func.sum(func.coalesce(sales_totals.c.sales_kg, 0))
+            .over(
+                partition_by=movement_totals.c.inventory_item_id
+            )
+            .label("item_sales_kg"),
+        )
+        .select_from(
+            movement_totals.join(
+                InventoryItemBillingMapping,
+                InventoryItemBillingMapping.inventory_item_id
+                == movement_totals.c.inventory_item_id,
+            )
+        )
+        .outerjoin(
+            sales_totals,
+            sales_totals.c.item_id == InventoryItemBillingMapping.billing_item_id,
+        )
+        .subquery()
+    )
+    used_totals = (
+        select(
+            mapping_sales.c.billing_item_id,
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            mapping_sales.c.item_sales_kg > 0,
+                            mapping_sales.c.used_stock
+                            * mapping_sales.c.mapped_sales_kg
+                            / mapping_sales.c.item_sales_kg,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("used_stock"),
+        )
+        .group_by(mapping_sales.c.billing_item_id)
         .subquery()
     )
     latest_prices = (
@@ -1179,10 +1287,7 @@ async def _over_report_item_rows(
             .outerjoin(sales_totals, sales_totals.c.item_id == Item.id)
             .outerjoin(
                 used_totals,
-                and_(
-                    used_totals.c.inventory_item_id == Item.assumption_inventory_item_id,
-                    used_totals.c.category_id == Item.assumption_inventory_category_id,
-                ),
+                used_totals.c.billing_item_id == Item.id,
             )
             .outerjoin(
                 latest_prices,
@@ -1305,7 +1410,7 @@ def _assumption_status(
     values = (assumption_percent, inventory_item_id, inventory_category_id)
     if all(value is None for value in values):
         return ItemAssumptionStatus.NOT_SET
-    if all(value is not None for value in values):
+    if assumption_percent is not None:
         return ItemAssumptionStatus.CONFIGURED
     return ItemAssumptionStatus.INCOMPLETE
 
@@ -1376,6 +1481,19 @@ def _has_tamil_text(value: str) -> bool:
 def _pdf_text(value: str, width: int) -> str:
     text = value.replace("\n", " ").replace("\r", " ")
     return shorten(text, width=max(4, width), placeholder="...")
+
+
+def _pdf_text_lines(value: str, width: int) -> list[str]:
+    text = value.replace("\n", " ").replace("\r", " ").strip()
+    if not text:
+        return [""]
+    return wrap(
+        text,
+        width=max(4, width),
+        break_long_words=True,
+        break_on_hyphens=False,
+        drop_whitespace=True,
+    ) or [text]
 
 
 def _decimal(value: object) -> Decimal:

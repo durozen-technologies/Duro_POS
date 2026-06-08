@@ -89,6 +89,11 @@ class InventoryItem(Base, BaseModelMixin):
         cascade="all, delete-orphan",
     )
     movements = relationship("InventoryMovement", back_populates="item")
+    billing_mappings = relationship(
+        "InventoryItemBillingMapping",
+        back_populates="inventory_item",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         CheckConstraint("length(trim(name)) >= 2", name="ck_inventory_items_name_not_blank"),
@@ -147,6 +152,37 @@ class InventoryItemCategory(Base, BaseModelMixin):
 
     item = relationship("InventoryItem", back_populates="category_links")
     category = relationship("InventoryCategory", back_populates="item_links")
+
+
+class InventoryItemBillingMapping(Base, BaseModelMixin):
+    __tablename__ = "inventory_item_billing_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "inventory_item_id",
+            "billing_item_id",
+            name="uq_inventory_item_billing_mappings",
+        ),
+        Index(
+            "ix_inventory_item_billing_mappings_billing_item",
+            "billing_item_id",
+            "inventory_item_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    inventory_item_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("inventory_items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    billing_item_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    inventory_item = relationship("InventoryItem", back_populates="billing_mappings")
+    billing_item = relationship("Item", foreign_keys=[billing_item_id])
 
 
 class ShopInventoryAllocation(Base, BaseModelMixin):

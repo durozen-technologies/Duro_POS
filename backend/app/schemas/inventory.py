@@ -23,6 +23,12 @@ class InventoryCategoryRead(ORMModel):
     updated_at: datetime | None = None
 
 
+class InventoryBillingItemMappingRead(BaseModel):
+    billing_item_id: UUID
+    billing_item_name: str
+    billing_item_tamil_name: str | None = None
+
+
 class InventoryItemCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     tamil_name: str = Field(min_length=1, max_length=120)
@@ -31,6 +37,7 @@ class InventoryItemCreate(BaseModel):
     is_active: bool = True
     sort_order: int = 0
     category_ids: list[UUID] = Field(default_factory=list)
+    billing_item_ids: list[UUID] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_unit_pair(self) -> "InventoryItemCreate":
@@ -53,6 +60,8 @@ class InventoryItemRead(ORMModel):
     base_unit: BaseUnit
     is_active: bool
     sort_order: int = 0
+    billing_item_ids: list[UUID] = Field(default_factory=list)
+    billing_items: list[InventoryBillingItemMappingRead] = Field(default_factory=list)
     category_ids: list[UUID] = Field(default_factory=list)
     categories: list[InventoryCategoryRead] = Field(default_factory=list)
     created_at: datetime

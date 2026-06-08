@@ -14,6 +14,7 @@ from .expense import ExpenseEntry, ExpenseItem, ShopExpenseAllocation
 from .inventory import (
     InventoryCategory,
     InventoryItem,
+    InventoryItemBillingMapping,
     InventoryItemCategory,
     InventoryMovement,
     ShopInventoryAllocation,
@@ -45,6 +46,7 @@ __all__ = [
     "ExpenseItem",
     "InventoryCategory",
     "InventoryItem",
+    "InventoryItemBillingMapping",
     "InventoryItemCategory",
     "InventoryMovement",
     "InventoryMovementType",

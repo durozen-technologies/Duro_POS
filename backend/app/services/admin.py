@@ -90,11 +90,7 @@ def _item_assumption_status(
         and assumption_inventory_category_id is None
     ):
         return ItemAssumptionStatus.NOT_SET
-    if (
-        assumption_percent is not None
-        and assumption_inventory_item_id is not None
-        and assumption_inventory_category_id is not None
-    ):
+    if assumption_percent is not None:
         return ItemAssumptionStatus.CONFIGURED
     return ItemAssumptionStatus.INCOMPLETE
 
@@ -2763,29 +2759,30 @@ async def update_item_assumption(
             detail="Assumptions can only be configured for kg items",
         )
 
-    inventory_item = await db.get(InventoryItem, payload.assumption_inventory_item_id)
-    if inventory_item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found",
-        )
-    if inventory_item.base_unit != BaseUnit.KG or inventory_item.unit_type != UnitType.WEIGHT:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Assumption inventory item must be a kg item",
-        )
+    if payload.assumption_inventory_item_id is not None:
+        inventory_item = await db.get(InventoryItem, payload.assumption_inventory_item_id)
+        if inventory_item is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Inventory item not found",
+            )
+        if inventory_item.base_unit != BaseUnit.KG or inventory_item.unit_type != UnitType.WEIGHT:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Assumption inventory item must be a kg item",
+            )
 
-    category_link = await db.scalar(
-        select(InventoryItemCategory.id).where(
-            InventoryItemCategory.inventory_item_id == inventory_item.id,
-            InventoryItemCategory.category_id == payload.assumption_inventory_category_id,
+        category_link = await db.scalar(
+            select(InventoryItemCategory.id).where(
+                InventoryItemCategory.inventory_item_id == inventory_item.id,
+                InventoryItemCategory.category_id == payload.assumption_inventory_category_id,
+            )
         )
-    )
-    if category_link is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Inventory category is not linked to this item",
-        )
+        if category_link is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Inventory category is not linked to this item",
+            )
 
     changed = (
         item.assumption_percent != payload.assumption_percent

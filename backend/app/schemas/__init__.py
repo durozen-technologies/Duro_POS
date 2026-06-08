@@ -63,6 +63,7 @@ from .expenses import (
 )
 from .inventory import (
     InventoryAddRequest,
+    InventoryBillingItemMappingRead,
     InventoryCategoryCreate,
     InventoryCategoryRead,
     InventoryCategoryUpdate,
@@ -166,6 +167,7 @@ __all__ = [
     "ItemSalesSummary",
     "ItemUpdate",
     "InventoryAddRequest",
+    "InventoryBillingItemMappingRead",
     "InventoryCategoryCreate",
     "InventoryCategoryRead",
     "InventoryCategoryUpdate",

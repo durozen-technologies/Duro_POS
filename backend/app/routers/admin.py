@@ -385,6 +385,30 @@ def _parse_inventory_category_ids(raw_value: str | None) -> list[UUID]:
         ) from exc
 
 
+def _parse_inventory_billing_item_ids(raw_value: str | None) -> list[UUID]:
+    if raw_value is None or not raw_value.strip():
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="billing_item_ids must be a valid JSON array",
+        ) from exc
+    if not isinstance(parsed, list):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="billing_item_ids must be a valid JSON array",
+        )
+    try:
+        return [UUID(str(value)) for value in parsed]
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="billing_item_ids must contain valid UUID values",
+        ) from exc
+
+
 # ── Shop CRUD ──────────────────────────────────────────────────────────────────
 
 
@@ -627,6 +651,7 @@ async def create_admin_inventory_management_item(
     is_active: Annotated[bool, Form()] = True,
     sort_order: Annotated[int, Form()] = 0,
     category_ids: Annotated[str, Form()] = "[]",
+    billing_item_ids: Annotated[str, Form()] = "[]",
     image: ItemImageUploadOptional = None,
 ) -> InventoryItemRead:
     payload = InventoryItemCreate(
@@ -637,6 +662,7 @@ async def create_admin_inventory_management_item(
         is_active=is_active,
         sort_order=sort_order,
         category_ids=_parse_inventory_category_ids(category_ids),
+        billing_item_ids=_parse_inventory_billing_item_ids(billing_item_ids),
     )
     return await create_inventory_management_item(db, payload, image=image)
 
@@ -671,6 +697,7 @@ async def update_admin_inventory_management_item(
     is_active: Annotated[bool, Form()] = True,
     sort_order: Annotated[int, Form()] = 0,
     category_ids: Annotated[str, Form()] = "[]",
+    billing_item_ids: Annotated[str, Form()] = "[]",
     remove_image: Annotated[bool, Form()] = False,
     image: ItemImageUploadOptional = None,
 ) -> InventoryItemRead:
@@ -682,6 +709,7 @@ async def update_admin_inventory_management_item(
         is_active=is_active,
         sort_order=sort_order,
         category_ids=_parse_inventory_category_ids(category_ids),
+        billing_item_ids=_parse_inventory_billing_item_ids(billing_item_ids),
     )
     return await update_inventory_management_item(
         db,
