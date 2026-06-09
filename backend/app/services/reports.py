@@ -10,7 +10,7 @@ from typing import BinaryIO, Iterable, Iterator
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
@@ -30,12 +30,21 @@ from app.models import (
     InventoryMovement,
     InventoryMovementType,
     Item,
-    ItemAssumptionStatus,
     Payment,
     Shop,
     ShopInventoryAllocation,
 )
-from app.schemas.admin import AdminReportDetailLevel, AdminReportSection, AnalyticsPeriod
+from app.schemas.admin import (
+    AdminReportDetailLevel,
+    AdminReportSection,
+    AnalyticsPeriod,
+    OverallReportBillingItem,
+    OverallReportInventoryItem,
+    OverallReportRead,
+    OverallReportStatement,
+    OverallReportUnitSummary,
+    OverallReportUsedStockBreakdown,
+)
 from app.services.admin import _get_period_bounds
 
 SECTION_ORDER: tuple[AdminReportSection, ...] = (
@@ -43,7 +52,6 @@ SECTION_ORDER: tuple[AdminReportSection, ...] = (
     "billing",
     "items",
     "inventory",
-    "assumptions",
     "over_report",
 )
 SECTION_LABELS: dict[AdminReportSection, str] = {
@@ -51,13 +59,45 @@ SECTION_LABELS: dict[AdminReportSection, str] = {
     "billing": "Billing",
     "items": "Items",
     "inventory": "Inventory",
-    "assumptions": "Assumptions",
     "over_report": "Overall Report",
 }
 SUMMARY_BILL_ROWS = 25
 SUMMARY_ITEM_ROWS = 50
 SUMMARY_INVENTORY_ROWS = 100
 FULL_QUERY_BATCH_SIZE = 500
+OVER_REPORT_SHEET_HEADERS = [
+    "Date",
+    "Inventory Item",
+    "Old Stock (kg / Unit)",
+    "Adding Stock (kg / Unit)",
+    "Total Available Stock (kg / Unit)",
+    "Used Stock (kg / Unit)",
+    "Remaining Stock (kg / Unit)",
+    "Billing Items",
+    "Assumption (kg / Unit)",
+    "Sales (kg / Unit)",
+    "Difference (kg / Unit)",
+    "Assumption Amount",
+    "Sales Amount",
+    "Difference Amount",
+]
+OVER_REPORT_SHEET_WIDTHS = [46, 58, 54, 56, 60, 62, 56, 68, 66, 52, 56, 58, 56, 56]
+OVER_REPORT_SHEET_ALIGNMENTS = [
+    "center",
+    "left",
+    "right",
+    "right",
+    "right",
+    "left",
+    "right",
+    "left",
+    "right",
+    "right",
+    "right",
+    "right",
+    "right",
+    "right",
+]
 TAMIL_FONT_REGULAR = "BillingReportNotoSansTamil"
 TAMIL_FONT_BOLD = "BillingReportNotoSansTamilBold"
 TAMIL_FONT_REGULAR_PATHS = (
@@ -114,21 +154,6 @@ class TableState:
 SoldItemCategoryKey = tuple[UUID, str, object]
 
 
-@dataclass(frozen=True)
-class OverReportItemRow:
-    category: str
-    item_name: str
-    assumption_percent: Decimal | None
-    used_stock: Decimal
-    sales_kg: Decimal
-    assumption_kg: Decimal
-    difference_kg: Decimal
-    today_price: Decimal | None
-    sales_amount: Decimal
-    assumption_amount: Decimal
-    difference_amount: Decimal
-
-
 class PdfReportWriter:
     def __init__(self, output: BinaryIO) -> None:
         self._canvas = Canvas(output, pagesize=A4, pageCompression=0)
@@ -140,7 +165,9 @@ class PdfReportWriter:
         self._bottom = 54
         self._y = self._height - self._margin
         self._current_table: TableState | None = None
+        self._current_table_is_sheet = False
         self._table_row_index = 0
+        self._page_has_content = False
         self._primary = (0.18, 0.24, 0.32)
         self._primary_soft = (0.91, 0.94, 0.97)
         self._section_fill = (0.96, 0.97, 0.98)
@@ -156,8 +183,11 @@ class PdfReportWriter:
 
     def title(self, title: str, lines: Iterable[str]) -> None:
         self._current_table = None
+        self._current_table_is_sheet = False
+        self._page_has_content = True
         card_height = 112
         self._ensure_space(card_height + 18, repeat_table_header=False)
+        self._page_has_content = True
         card_y = self._y - card_height
         self._set_fill(self._primary)
         self._canvas.roundRect(
@@ -193,7 +223,10 @@ class PdfReportWriter:
 
     def section(self, title: str) -> None:
         self._current_table = None
+        self._current_table_is_sheet = False
+        self._page_has_content = True
         self._ensure_space(44, repeat_table_header=False)
+        self._page_has_content = True
         band_height = 30
         band_y = self._y - band_height
         self._set_fill(self._section_fill)
@@ -216,7 +249,10 @@ class PdfReportWriter:
 
     def note(self, text: str) -> None:
         self._current_table = None
+        self._current_table_is_sheet = False
+        self._page_has_content = True
         self._ensure_space(28, repeat_table_header=False)
+        self._page_has_content = True
         box_height = 22
         box_y = self._y - box_height
         self._set_fill(self._note_fill)
@@ -249,6 +285,60 @@ class PdfReportWriter:
             row_count += 1
         self._y -= 8
         self._current_table = None
+        self._current_table_is_sheet = False
+        return row_count
+
+    def use_landscape_page(self) -> None:
+        self._current_table = None
+        self._current_table_is_sheet = False
+        if self._page_has_content:
+            self._draw_footer()
+            self._canvas.showPage()
+        self._canvas.setPageSize(landscape(A4))
+        self._width, self._height = landscape(A4)
+        self._margin = 18
+        self._bottom = 36
+        self._y = self._height - self._margin
+        self._page_has_content = False
+
+    def statement_header(self, company: str, branch: str, title: str, date_line: str) -> None:
+        self._current_table = None
+        self._current_table_is_sheet = False
+        self._ensure_space(82, repeat_table_header=False)
+        self._page_has_content = True
+        lines = [
+            (company, 16),
+            (branch, 13),
+            (title, 10),
+            (date_line, 9),
+        ]
+        y = self._y - 18
+        self._set_fill(self._text)
+        for text, font_size in lines:
+            self._canvas.setFont(self._font_bold, font_size)
+            self._canvas.drawCentredString(self._width / 2, y, _pdf_text(text, 120))
+            y -= font_size + 6
+        self._y = y - 8
+
+    def sheet_table(
+        self,
+        headers: list[str],
+        rows: Iterable[Iterable[object]],
+        widths: list[int],
+        alignments: list[str],
+    ) -> int:
+        state = TableState(headers=headers, widths=widths, alignments=alignments)
+        self._current_table = state
+        self._current_table_is_sheet = True
+        self._table_row_index = 0
+        self._draw_sheet_table_header(state)
+        row_count = 0
+        for row in rows:
+            self._draw_sheet_table_row(row, state)
+            row_count += 1
+        self._y -= 8
+        self._current_table = None
+        self._current_table_is_sheet = False
         return row_count
 
     def table_header(
@@ -259,6 +349,7 @@ class PdfReportWriter:
     ) -> None:
         state = TableState(headers=headers, widths=widths, alignments=alignments or ["left"] * len(headers))
         self._current_table = state
+        self._current_table_is_sheet = False
         self._table_row_index = 0
         self._draw_table_header(state)
 
@@ -268,6 +359,7 @@ class PdfReportWriter:
         widths: list[int],
         alignments: list[str] | None = None,
     ) -> None:
+        self._page_has_content = True
         font_size = 7
         line_height = 8
         padding = 5
@@ -282,6 +374,7 @@ class PdfReportWriter:
         max_lines = max((len(lines) for lines in cell_lines), default=1)
         row_height = max(18, padding * 2 + font_size + line_height * (max_lines - 1))
         self._ensure_space(row_height, repeat_table_header=True)
+        self._page_has_content = True
         row_y = self._y - row_height
         fill = self._row_alt_fill if self._table_row_index % 2 else (1, 1, 1)
         self._set_fill(fill)
@@ -309,8 +402,10 @@ class PdfReportWriter:
         return self._width - self._margin * 2
 
     def _draw_table_header(self, state: TableState) -> None:
+        self._page_has_content = True
         header_height = 22
         self._ensure_space(header_height, repeat_table_header=False)
+        self._page_has_content = True
         header_y = self._y - header_height
         self._set_fill(self._primary)
         self._set_stroke(self._primary)
@@ -331,6 +426,71 @@ class PdfReportWriter:
             )
             x += width
         self._y -= header_height
+
+    def _draw_sheet_table_header(self, state: TableState) -> None:
+        font_size = 5.4
+        line_height = 6.2
+        padding = 3
+        cell_lines = [
+            _pdf_text_lines(
+                header,
+                max(7, int((width - padding * 2) / 2.5)),
+            )
+            for header, width in zip(state.headers, state.widths, strict=True)
+        ]
+        max_lines = max((len(lines) for lines in cell_lines), default=1)
+        header_height = max(26, padding * 2 + font_size + line_height * (max_lines - 1))
+        self._ensure_space(int(header_height), repeat_table_header=False)
+        self._page_has_content = True
+        header_y = self._y - header_height
+        self._set_fill((0.90, 0.90, 0.90))
+        self._set_stroke((0.35, 0.35, 0.35))
+        self._canvas.rect(self._margin, header_y, sum(state.widths), header_height, stroke=1, fill=1)
+        x = self._margin
+        self._set_fill(self._text)
+        for lines, width, alignment in zip(cell_lines, state.widths, state.alignments, strict=True):
+            self._set_stroke((0.35, 0.35, 0.35))
+            self._canvas.rect(x, header_y, width, header_height, stroke=1, fill=0)
+            text_y = header_y + header_height - padding - font_size
+            for line in lines:
+                self._draw_cell_line(line, x, text_y, width, alignment, font_size=font_size, bold=True)
+                text_y -= line_height
+            x += width
+        self._y -= header_height
+
+    def _draw_sheet_table_row(self, row: Iterable[object], state: TableState) -> None:
+        font_size = 5.6
+        line_height = 6.4
+        padding = 3
+        row_values = list(row)
+        cell_lines = [
+            _pdf_text_lines(
+                _format_cell(value),
+                max(7, int((width - padding * 2) / 2.55)),
+            )
+            for value, width in zip(row_values, state.widths, strict=True)
+        ]
+        max_lines = max((len(lines) for lines in cell_lines), default=1)
+        row_height = max(20, padding * 2 + font_size + line_height * (max_lines - 1))
+        self._ensure_space(int(row_height), repeat_table_header=True)
+        self._page_has_content = True
+        row_y = self._y - row_height
+        fill = (0.98, 0.98, 0.98) if self._table_row_index % 2 else (1, 1, 1)
+        self._set_fill(fill)
+        self._set_stroke((0.78, 0.78, 0.78))
+        self._canvas.rect(self._margin, row_y, sum(state.widths), row_height, stroke=1, fill=1)
+        x = self._margin
+        self._set_fill(self._text)
+        for lines, width, alignment in zip(cell_lines, state.widths, state.alignments, strict=True):
+            self._set_stroke((0.78, 0.78, 0.78))
+            self._canvas.rect(x, row_y, width, row_height, stroke=1, fill=0)
+            text_y = row_y + row_height - padding - font_size
+            for line in lines:
+                self._draw_cell_line(line, x, text_y, width, alignment, font_size=font_size)
+                text_y -= line_height
+            x += width
+        self._y -= row_height
+        self._table_row_index += 1
 
     def _draw_cell_text(
         self,
@@ -373,12 +533,16 @@ class PdfReportWriter:
             return
         self._new_page()
         if repeat_table_header and self._current_table is not None:
-            self._draw_table_header(self._current_table)
+            if self._current_table_is_sheet:
+                self._draw_sheet_table_header(self._current_table)
+            else:
+                self._draw_table_header(self._current_table)
 
     def _new_page(self) -> None:
         self._draw_footer()
         self._canvas.showPage()
         self._y = self._height - self._margin
+        self._page_has_content = False
 
     def _draw_footer(self) -> None:
         self._set_stroke(self._border)
@@ -440,15 +604,16 @@ async def generate_admin_report_pdf(
 
     output = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     writer = PdfReportWriter(output)
-    writer.title(
-        "Admin PDF Report",
-        [
-            f"Period: {context.period_label}",
-            f"Branches: {context.branch_label}",
-            f"Detail level: {context.detail_level.title()}",
-            f"Sections: {', '.join(SECTION_LABELS[section] for section in context.sections)}",
-        ],
-    )
+    if context.sections != ["over_report"]:
+        writer.title(
+            "Admin PDF Report",
+            [
+                f"Period: {context.period_label}",
+                f"Branches: {context.branch_label}",
+                f"Detail level: {context.detail_level.title()}",
+                f"Sections: {', '.join(SECTION_LABELS[section] for section in context.sections)}",
+            ],
+        )
 
     for section in context.sections:
         if section == "sales":
@@ -459,8 +624,6 @@ async def generate_admin_report_pdf(
             await _write_items_section(db, writer, context)
         elif section == "inventory":
             await _write_inventory_section(db, writer, context)
-        elif section == "assumptions":
-            await _write_assumptions_section(db, writer, context)
         else:
             await _write_over_report_section(db, writer, context)
 
@@ -834,23 +997,312 @@ async def _write_inventory_section(
     )
 
 
-async def _write_assumptions_section(
+async def _write_over_report_section(
     db: AsyncSession,
     writer: PdfReportWriter,
     context: ReportContext,
 ) -> None:
-    writer.section("Assumptions")
-    category_label = func.coalesce(func.nullif(func.trim(Item.category), ""), "Uncategorized")
-    latest_price_filters = []
-    if context.shop_ids:
-        latest_price_filters.append(DailyPrice.shop_id.in_(context.shop_ids))
-    else:
-        latest_price_filters.append(Shop.is_active.is_(True))
+    report = await _build_overall_report_for_context(db, context)
+    if not report.statements:
+        writer.section("Overall Report")
+        writer.note("No branch data available for the selected report scope.")
+        return
+
+    for statement in report.statements:
+        writer.use_landscape_page()
+        _write_over_report_statement(writer, statement)
+
+
+async def build_overall_report(
+    db: AsyncSession,
+    *,
+    detail_level: AdminReportDetailLevel = "summary",
+    period: AnalyticsPeriod = "date",
+    reference_date: date | None = None,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
+    shop_ids: list[UUID] | None = None,
+) -> OverallReportRead:
+    context = await _build_report_context(
+        db,
+        sections=["over_report"],
+        detail_level=detail_level,
+        period=period,
+        reference_date=reference_date,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        shop_ids=shop_ids,
+    )
+    return await _build_overall_report_for_context(db, context)
+
+
+async def _build_overall_report_for_context(
+    db: AsyncSession,
+    context: ReportContext,
+) -> OverallReportRead:
+    statements: list[OverallReportStatement] = []
+    for report_context in _over_report_section_contexts(context):
+        for shop_id, shop_name in report_context.shops:
+            statements.append(
+                await _build_overall_report_statement(db, report_context, shop_id, shop_name)
+            )
+    return OverallReportRead(
+        period=context.period,
+        detail_level=context.detail_level,
+        period_label=context.period_label,
+        statements=statements,
+    )
+
+
+async def _build_overall_report_statement(
+    db: AsyncSession,
+    context: ReportContext,
+    shop_id: UUID,
+    shop_name: str,
+) -> OverallReportStatement:
+    inventory_items = await _overall_report_inventory_items(db, context, shop_id)
+    await _populate_overall_report_used_stock_breakdown(db, context, shop_id, inventory_items)
+    await _populate_overall_report_billing_items(db, context, shop_id, inventory_items)
+    unit_summaries = _overall_report_unit_summaries(inventory_items.values())
+    expense_amount = await _over_report_expense_amount(db, context, shop_id)
+    sales_amount = sum(
+        (_decimal(item.sales_amount) for item in inventory_items.values()),
+        Decimal("0"),
+    )
+    assumption_amount = sum(
+        (_decimal(item.assumption_amount) for item in inventory_items.values()),
+        Decimal("0"),
+    )
+    difference_amount = sum(
+        (_decimal(item.difference_amount) for item in inventory_items.values()),
+        Decimal("0"),
+    )
+    return OverallReportStatement(
+        shop_id=shop_id,
+        shop_name=shop_name,
+        start_date=context.start.date(),
+        end_date=(context.end - timedelta(days=1)).date(),
+        period_label=context.period_label,
+        unit_summaries=unit_summaries,
+        expense_amount=expense_amount,
+        sales_amount=sales_amount,
+        assumption_amount=assumption_amount,
+        difference_amount=difference_amount,
+        sales_minus_expense_amount=sales_amount - expense_amount,
+        sales_minus_assumption_amount=sales_amount - assumption_amount,
+        inventory_items=list(inventory_items.values()),
+    )
+
+
+async def _overall_report_inventory_items(
+    db: AsyncSession,
+    context: ReportContext,
+    shop_id: UUID,
+) -> dict[UUID, OverallReportInventoryItem]:
+    before_start = InventoryMovement.created_at < context.start
+    in_period = and_(
+        InventoryMovement.created_at >= context.start,
+        InventoryMovement.created_at < context.end,
+    )
+    stock_totals = (
+        select(
+            InventoryMovement.inventory_item_id.label("inventory_item_id"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                before_start,
+                                InventoryMovement.movement_type == InventoryMovementType.ADD,
+                            ),
+                            InventoryMovement.quantity,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("opening_added"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                before_start,
+                                InventoryMovement.movement_type == InventoryMovementType.USE,
+                            ),
+                            InventoryMovement.quantity,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("opening_used"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                in_period,
+                                InventoryMovement.movement_type == InventoryMovementType.ADD,
+                            ),
+                            InventoryMovement.quantity,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("adding_stock"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                in_period,
+                                InventoryMovement.movement_type == InventoryMovementType.USE,
+                            ),
+                            InventoryMovement.quantity,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("used_stock"),
+        )
+        .where(InventoryMovement.shop_id == shop_id)
+        .group_by(InventoryMovement.inventory_item_id)
+        .subquery()
+    )
+    rows = (
+        await db.execute(
+            select(
+                InventoryItem.id.label("inventory_item_id"),
+                InventoryItem.name.label("item_name"),
+                InventoryItem.tamil_name.label("item_tamil_name"),
+                InventoryItem.base_unit.label("unit"),
+                func.coalesce(stock_totals.c.opening_added, 0).label("opening_added"),
+                func.coalesce(stock_totals.c.opening_used, 0).label("opening_used"),
+                func.coalesce(stock_totals.c.adding_stock, 0).label("adding_stock"),
+                func.coalesce(stock_totals.c.used_stock, 0).label("used_stock"),
+            )
+            .select_from(ShopInventoryAllocation)
+            .join(InventoryItem, InventoryItem.id == ShopInventoryAllocation.inventory_item_id)
+            .outerjoin(
+                stock_totals,
+                stock_totals.c.inventory_item_id == InventoryItem.id,
+            )
+            .where(ShopInventoryAllocation.shop_id == shop_id)
+            .order_by(
+                ShopInventoryAllocation.sort_order,
+                func.lower(InventoryItem.name),
+                InventoryItem.id,
+            )
+        )
+    ).all()
+    category_labels = await _inventory_category_labels_by_item_id(
+        db,
+        [row.inventory_item_id for row in rows],
+    )
+    items: dict[UUID, OverallReportInventoryItem] = {}
+    for row in rows:
+        old_stock = _decimal(row.opening_added) - _decimal(row.opening_used)
+        adding_stock = _decimal(row.adding_stock)
+        total_available_stock = old_stock + adding_stock
+        used_stock = _decimal(row.used_stock)
+        items[row.inventory_item_id] = OverallReportInventoryItem(
+            inventory_item_id=row.inventory_item_id,
+            item_name=row.item_name,
+            item_tamil_name=row.item_tamil_name,
+            category=category_labels.get(row.inventory_item_id, "Uncategorized"),
+            unit=row.unit,
+            old_stock=old_stock,
+            adding_stock=adding_stock,
+            total_available_stock=total_available_stock,
+            used_stock=used_stock,
+            remaining_stock=total_available_stock - used_stock,
+        )
+    return items
+
+
+async def _populate_overall_report_used_stock_breakdown(
+    db: AsyncSession,
+    context: ReportContext,
+    shop_id: UUID,
+    inventory_items: dict[UUID, OverallReportInventoryItem],
+) -> None:
+    if not inventory_items:
+        return
+
+    rows = (
+        await db.execute(
+            select(
+                InventoryMovement.inventory_item_id,
+                InventoryMovement.category_id,
+                InventoryCategory.name.label("category_name"),
+                func.coalesce(func.sum(InventoryMovement.quantity), 0).label("quantity"),
+            )
+            .outerjoin(InventoryCategory, InventoryCategory.id == InventoryMovement.category_id)
+            .where(
+                InventoryMovement.shop_id == shop_id,
+                InventoryMovement.inventory_item_id.in_(list(inventory_items)),
+                InventoryMovement.created_at >= context.start,
+                InventoryMovement.created_at < context.end,
+                InventoryMovement.movement_type == InventoryMovementType.USE,
+            )
+            .group_by(
+                InventoryMovement.inventory_item_id,
+                InventoryMovement.category_id,
+                InventoryCategory.name,
+            )
+            .order_by(
+                InventoryMovement.inventory_item_id,
+                func.lower(func.coalesce(InventoryCategory.name, "Used")),
+                InventoryMovement.category_id,
+            )
+        )
+    ).all()
+    for row in rows:
+        inventory_item = inventory_items.get(row.inventory_item_id)
+        if inventory_item is None:
+            continue
+        label = row.category_name or "Used"
+        inventory_item.used_stock_breakdown.append(
+            OverallReportUsedStockBreakdown(
+                category_id=row.category_id,
+                category_name=row.category_name,
+                label=label,
+                quantity=_decimal(row.quantity),
+            )
+        )
+
+
+async def _populate_overall_report_billing_items(
+    db: AsyncSession,
+    context: ReportContext,
+    shop_id: UUID,
+    inventory_items: dict[UUID, OverallReportInventoryItem],
+) -> None:
+    if not inventory_items:
+        return
+
+    sales_totals = (
+        select(
+            BillItem.item_id.label("billing_item_id"),
+            func.coalesce(func.sum(BillItem.quantity), 0).label("sales_quantity"),
+            func.coalesce(func.sum(BillItem.line_total), 0).label("sales_amount"),
+        )
+        .join(Bill, Bill.id == BillItem.bill_id)
+        .where(
+            Bill.shop_id == shop_id,
+            Bill.created_at >= context.start,
+            Bill.created_at < context.end,
+        )
+        .group_by(BillItem.item_id)
+        .subquery()
+    )
     latest_prices = (
         select(
-            DailyPrice.item_id.label("item_id"),
-            DailyPrice.price_per_unit.label("actual_price"),
-            DailyPrice.price_date.label("price_date"),
+            DailyPrice.item_id.label("billing_item_id"),
+            DailyPrice.price_per_unit.label("today_price"),
             func.row_number()
             .over(
                 partition_by=DailyPrice.item_id,
@@ -862,105 +1314,201 @@ async def _write_assumptions_section(
             )
             .label("rn"),
         )
-        .join(Shop, Shop.id == DailyPrice.shop_id)
-        .where(*latest_price_filters)
+        .where(DailyPrice.shop_id == shop_id)
         .subquery()
     )
+    category_label = func.coalesce(func.nullif(func.trim(Item.category), ""), "Uncategorized")
     rows = (
         await db.execute(
             select(
-                category_label.label("category"),
+                InventoryItemBillingMapping.inventory_item_id,
+                Item.id.label("billing_item_id"),
                 Item.name.label("item_name"),
                 Item.tamil_name.label("item_tamil_name"),
-                Item.base_unit,
-                Item.is_active,
+                category_label.label("category"),
+                Item.base_unit.label("unit"),
                 Item.assumption_percent,
-                Item.assumption_inventory_item_id,
-                Item.assumption_inventory_category_id,
-                InventoryItem.name.label("inventory_item_name"),
-                InventoryCategory.name.label("inventory_category_name"),
-                latest_prices.c.actual_price,
-                latest_prices.c.price_date,
+                latest_prices.c.today_price,
+                func.coalesce(sales_totals.c.sales_quantity, 0).label("sales_quantity"),
+                func.coalesce(sales_totals.c.sales_amount, 0).label("sales_amount"),
             )
-            .outerjoin(InventoryItem, InventoryItem.id == Item.assumption_inventory_item_id)
+            .join(Item, Item.id == InventoryItemBillingMapping.billing_item_id)
             .outerjoin(
-                InventoryCategory,
-                InventoryCategory.id == Item.assumption_inventory_category_id,
+                sales_totals,
+                sales_totals.c.billing_item_id == InventoryItemBillingMapping.billing_item_id,
             )
             .outerjoin(
                 latest_prices,
-                and_(latest_prices.c.item_id == Item.id, latest_prices.c.rn == 1),
+                and_(
+                    latest_prices.c.billing_item_id
+                    == InventoryItemBillingMapping.billing_item_id,
+                    latest_prices.c.rn == 1,
+                ),
             )
-            .where(Item.shop_id.is_(None))
-            .order_by(category_label, Item.sort_order, func.lower(Item.name), Item.id)
+            .where(InventoryItemBillingMapping.inventory_item_id.in_(list(inventory_items)))
+            .order_by(
+                InventoryItemBillingMapping.inventory_item_id,
+                category_label,
+                Item.sort_order,
+                func.lower(Item.name),
+                Item.id,
+            )
         )
     ).all()
-    status_counts = {
-        ItemAssumptionStatus.CONFIGURED: 0,
-        ItemAssumptionStatus.INCOMPLETE: 0,
-        ItemAssumptionStatus.NOT_SET: 0,
-        ItemAssumptionStatus.NOT_APPLICABLE: 0,
-    }
-    row_statuses = []
     for row in rows:
-        status = _assumption_status(
-            row.base_unit,
-            row.assumption_percent,
-            row.assumption_inventory_item_id,
-            row.assumption_inventory_category_id,
+        inventory_item = inventory_items.get(row.inventory_item_id)
+        if inventory_item is None:
+            continue
+
+        unit = row.unit
+        sales_quantity = _decimal(row.sales_quantity)
+        sales_amount = _decimal(row.sales_amount)
+        today_price = _decimal(row.today_price) if row.today_price is not None else None
+        assumption_percent = row.assumption_percent
+        assumption_quantity = (
+            _decimal(inventory_item.used_stock) * _decimal(assumption_percent) / Decimal("100")
+            if assumption_percent is not None
+            else Decimal("0")
         )
-        status_counts[status] += 1
-        row_statuses.append((row, status))
+        difference_quantity = sales_quantity - assumption_quantity
+        assumption_amount = (
+            assumption_quantity * today_price if today_price is not None else Decimal("0")
+        )
+        difference_amount = (
+            difference_quantity * today_price if today_price is not None else Decimal("0")
+        )
+        inventory_item.billing_items.append(
+            OverallReportBillingItem(
+                billing_item_id=row.billing_item_id,
+                item_name=row.item_name,
+                item_tamil_name=row.item_tamil_name,
+                category=row.category,
+                unit=unit,
+                assumption_percent=assumption_percent,
+                sales_quantity=sales_quantity,
+                assumption_quantity=assumption_quantity,
+                difference_quantity=difference_quantity,
+                today_price=today_price,
+                sales_amount=sales_amount,
+                assumption_amount=assumption_amount,
+                difference_amount=difference_amount,
+            )
+        )
+        inventory_item.sales_quantity += sales_quantity
+        inventory_item.assumption_quantity += assumption_quantity
+        inventory_item.difference_quantity += difference_quantity
+        inventory_item.sales_amount += sales_amount
+        inventory_item.assumption_amount += assumption_amount
+        inventory_item.difference_amount += difference_amount
 
-    writer.note(
-        f"Rows shown: {len(rows)} catalogue item(s). "
-        f"Configured: {status_counts[ItemAssumptionStatus.CONFIGURED]}; "
-        f"Incomplete: {status_counts[ItemAssumptionStatus.INCOMPLETE]}; "
-        f"Not set: {status_counts[ItemAssumptionStatus.NOT_SET]}; "
-        f"Not applicable: {status_counts[ItemAssumptionStatus.NOT_APPLICABLE]}. "
-        "Total price = actual price x assumption percent."
-    )
-    writer.table(
-        ["Category", "Item", "Tamil", "Unit", "Actual", "Assump", "Total", "Inventory", "Stock Cat", "Status"],
-        (
-            [
-                row.category,
-                row.item_name,
-                row.item_tamil_name,
-                getattr(row.base_unit, "value", row.base_unit),
-                _money_or_blank(row.actual_price),
-                _percent(row.assumption_percent),
-                _money_or_blank(_assumption_total_price(row.actual_price, row.assumption_percent)),
-                row.inventory_item_name or "",
-                row.inventory_category_name or "",
-                _assumption_status_label(status, row.is_active),
-            ]
-            for row, status in row_statuses
-        ),
-        [46, 58, 58, 26, 50, 38, 50, 66, 62, 44],
-        ["left", "left", "left", "center", "right", "right", "right", "left", "left", "center"],
-    )
+
+def _overall_report_unit_summaries(
+    inventory_items: Iterable[OverallReportInventoryItem],
+) -> list[OverallReportUnitSummary]:
+    summaries: dict[BaseUnit, OverallReportUnitSummary] = {}
+    for item in inventory_items:
+        summary = summaries.setdefault(item.unit, OverallReportUnitSummary(unit=item.unit))
+        summary.old_stock += _decimal(item.old_stock)
+        summary.adding_stock += _decimal(item.adding_stock)
+        summary.total_available_stock += _decimal(item.total_available_stock)
+        summary.used_stock += _decimal(item.used_stock)
+        summary.remaining_stock += _decimal(item.remaining_stock)
+        summary.sales_quantity += _decimal(item.sales_quantity)
+        summary.assumption_quantity += _decimal(item.assumption_quantity)
+        summary.difference_quantity += _decimal(item.difference_quantity)
+
+    return sorted(summaries.values(), key=lambda summary: _unit_sort_key(summary.unit))
 
 
-async def _write_over_report_section(
-    db: AsyncSession,
+def _unit_sort_key(unit: BaseUnit) -> int:
+    if unit == BaseUnit.KG:
+        return 0
+    if unit == BaseUnit.UNIT:
+        return 1
+    return 2
+
+
+def _write_over_report_statement(
     writer: PdfReportWriter,
-    context: ReportContext,
+    statement: OverallReportStatement,
 ) -> None:
-    if not context.shops:
-        writer.section("Overall Report")
-        writer.note("No branch data available for the selected report scope.")
+    writer.statement_header(
+        "SRI MAHALAKSHMI BROILERS",
+        f"{statement.shop_name.upper()} - BRANCH",
+        "Statement",
+        f"Date: {_date_text(statement.start_date)} To {_date_text(statement.end_date)}",
+    )
+
+    if not statement.inventory_items:
+        writer.note("No allocated inventory items found for this branch and period.")
         return
 
-    report_contexts = _over_report_section_contexts(context)
-    split_by_day = len(report_contexts) > 1
-    for report_context in report_contexts:
-        title = "Overall Report"
-        if split_by_day:
-            title = f"Overall Report - {report_context.period_label}"
-        for shop_id, shop_name in report_context.shops:
-            writer.section(title)
-            await _write_over_report_branch(db, writer, report_context, shop_id, shop_name)
+    writer.sheet_table(
+        OVER_REPORT_SHEET_HEADERS,
+        _over_report_sheet_rows(statement),
+        OVER_REPORT_SHEET_WIDTHS,
+        OVER_REPORT_SHEET_ALIGNMENTS,
+    )
+
+
+def _over_report_sheet_rows(statement: OverallReportStatement) -> list[list[str]]:
+    rows: list[list[str]] = []
+    table_date = _statement_table_date(statement)
+    for item in statement.inventory_items:
+        used_rows = item.used_stock_breakdown or [
+            OverallReportUsedStockBreakdown(
+                label="Used",
+                quantity=_decimal(item.used_stock),
+            )
+        ]
+        billing_rows = item.billing_items or []
+        row_count = max(1, len(used_rows), len(billing_rows) or 1)
+        for index in range(row_count):
+            is_first = index == 0
+            used_row = used_rows[index] if index < len(used_rows) else None
+            billing_row = billing_rows[index] if index < len(billing_rows) else None
+            rows.append(
+                [
+                    table_date if is_first else "",
+                    item.item_name if is_first else "",
+                    _quantity_with_unit(item.old_stock, item.unit) if is_first else "",
+                    _quantity_with_unit(item.adding_stock, item.unit) if is_first else "",
+                    _quantity_with_unit(item.total_available_stock, item.unit) if is_first else "",
+                    _used_stock_breakdown_text(used_row, item.unit),
+                    _quantity_with_unit(item.remaining_stock, item.unit) if is_first else "",
+                    billing_row.item_name if billing_row is not None else (
+                        "No mapped billing sales" if is_first and not billing_rows else ""
+                    ),
+                    _quantity_with_unit(billing_row.assumption_quantity, billing_row.unit)
+                    if billing_row is not None
+                    else "",
+                    _quantity_with_unit(billing_row.sales_quantity, billing_row.unit)
+                    if billing_row is not None
+                    else "",
+                    _quantity_with_unit(billing_row.difference_quantity, billing_row.unit)
+                    if billing_row is not None
+                    else "",
+                    _money(billing_row.assumption_amount) if billing_row is not None else "",
+                    _money(billing_row.sales_amount) if billing_row is not None else "",
+                    _money(billing_row.difference_amount) if billing_row is not None else "",
+                ]
+            )
+    return rows
+
+
+def _used_stock_breakdown_text(
+    row: OverallReportUsedStockBreakdown | None,
+    unit: BaseUnit,
+) -> str:
+    if row is None:
+        return ""
+    return f"{row.label}: {_quantity_with_unit(row.quantity, unit)}"
+
+
+def _statement_table_date(statement: OverallReportStatement) -> str:
+    if statement.start_date == statement.end_date:
+        return _date_text(statement.start_date)
+    return f"{_date_text(statement.start_date)} To {_date_text(statement.end_date)}"
 
 
 def _over_report_section_contexts(context: ReportContext) -> list[ReportContext]:
@@ -999,165 +1547,6 @@ def _context_for_day(context: ReportContext, day: date) -> ReportContext:
     )
 
 
-async def _write_over_report_branch(
-    db: AsyncSession,
-    writer: PdfReportWriter,
-    context: ReportContext,
-    shop_id: UUID,
-    shop_name: str,
-) -> None:
-    stock_totals = await _over_report_stock_totals(db, context, shop_id)
-    expense_amount = await _over_report_expense_amount(db, context, shop_id)
-    item_rows = await _over_report_item_rows(db, context, shop_id)
-
-    sales_kg = sum((row.sales_kg for row in item_rows), Decimal("0"))
-    assumption_kg = sum((row.assumption_kg for row in item_rows), Decimal("0"))
-    difference_kg = sales_kg - assumption_kg
-    sales_amount = sum((row.sales_amount for row in item_rows), Decimal("0"))
-    assumption_amount = sum((row.assumption_amount for row in item_rows), Decimal("0"))
-    difference_amount = sum((row.difference_amount for row in item_rows), Decimal("0"))
-    total_available = stock_totals["opening_stock"] + stock_totals["adding_stock"]
-    remaining_stock = total_available - stock_totals["used_stock"]
-    end_label = (context.end - timedelta(days=1)).date().isoformat()
-
-    writer.note(
-        "SRI MAHALAKSHMI BROILERS | "
-        f"{shop_name.upper()} - BRANCH | Statement | "
-        f"From Date: {context.start.date().isoformat()} To Date: {end_label}"
-    )
-    writer.table(
-        ["Particulars", "Value", "Format"],
-        [
-            ["Old Stock", _kg(stock_totals["opening_stock"]), ""],
-            ["Adding Stock", _kg(stock_totals["adding_stock"]), ""],
-            ["Old Stock + Adding Stock", _kg(total_available), "Total Available Stock"],
-            ["Used Stock", _kg(stock_totals["used_stock"]), ""],
-            ["Remaining Stock", _kg(remaining_stock), ""],
-            ["Sales (Kg)", _kg(sales_kg), ""],
-            ["Assumption (Kg)", _kg(assumption_kg), ""],
-            ["Difference (Kg)", _kg(difference_kg), "Sales (Kg) - Assumption (Kg)"],
-            ["Assumption Amount", _money(assumption_amount), ""],
-            ["Expense Amount", _money(expense_amount), ""],
-            ["Sales Amount", _money(sales_amount), ""],
-            ["Difference Amount", _money(difference_amount), "Difference (Kg) * Today price"],
-            ["Sales Amount - Expense Amount", _money(sales_amount - expense_amount), ""],
-            ["Sales Amount - Assumption Amount", _money(sales_amount - assumption_amount), ""],
-        ],
-        [178, 112, 206],
-        ["left", "right", "left"],
-    )
-
-    writer.table(
-        ["Category", "Item", "Assump", "Used", "Sales", "Assump Kg", "Diff Kg", "Today", "Diff Amt"],
-        (
-            [
-                row.category,
-                row.item_name,
-                _percent(row.assumption_percent),
-                _kg(row.used_stock),
-                _kg(row.sales_kg),
-                _kg(row.assumption_kg),
-                _kg(row.difference_kg),
-                _money_or_blank(row.today_price),
-                _money(row.difference_amount),
-            ]
-            for row in item_rows
-        ),
-        [56, 70, 42, 54, 54, 60, 52, 62, 66],
-        ["left", "left", "right", "right", "right", "right", "right", "right", "right"],
-    )
-
-
-async def _over_report_stock_totals(
-    db: AsyncSession,
-    context: ReportContext,
-    shop_id: UUID,
-) -> dict[str, Decimal]:
-    before_start = InventoryMovement.created_at < context.start
-    in_period = and_(
-        InventoryMovement.created_at >= context.start,
-        InventoryMovement.created_at < context.end,
-    )
-    row = (
-        await db.execute(
-            select(
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    before_start,
-                                    InventoryMovement.movement_type == InventoryMovementType.ADD,
-                                ),
-                                InventoryMovement.quantity,
-                            ),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ).label("opening_added"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    before_start,
-                                    InventoryMovement.movement_type == InventoryMovementType.USE,
-                                ),
-                                InventoryMovement.quantity,
-                            ),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ).label("opening_used"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    in_period,
-                                    InventoryMovement.movement_type == InventoryMovementType.ADD,
-                                ),
-                                InventoryMovement.quantity,
-                            ),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ).label("adding_stock"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    in_period,
-                                    InventoryMovement.movement_type == InventoryMovementType.USE,
-                                ),
-                                InventoryMovement.quantity,
-                            ),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ).label("used_stock"),
-            )
-            .select_from(InventoryMovement)
-            .join(InventoryItem, InventoryItem.id == InventoryMovement.inventory_item_id)
-            .where(
-                InventoryMovement.shop_id == shop_id,
-                InventoryItem.base_unit == BaseUnit.KG,
-            )
-        )
-    ).one()
-    opening_stock = _decimal(row.opening_added) - _decimal(row.opening_used)
-    return {
-        "opening_stock": opening_stock,
-        "adding_stock": _decimal(row.adding_stock),
-        "used_stock": _decimal(row.used_stock),
-    }
-
-
 async def _over_report_expense_amount(
     db: AsyncSession,
     context: ReportContext,
@@ -1171,167 +1560,6 @@ async def _over_report_expense_amount(
         )
     )
     return _decimal(total).quantize(Decimal("0.01"))
-
-
-async def _over_report_item_rows(
-    db: AsyncSession,
-    context: ReportContext,
-    shop_id: UUID,
-) -> list[OverReportItemRow]:
-    category_label = func.coalesce(func.nullif(func.trim(Item.category), ""), "Uncategorized")
-    sales_totals = (
-        select(
-            BillItem.item_id.label("item_id"),
-            func.coalesce(func.sum(BillItem.quantity), 0).label("sales_kg"),
-            func.coalesce(func.sum(BillItem.line_total), 0).label("sales_amount"),
-        )
-        .join(Bill, Bill.id == BillItem.bill_id)
-        .where(
-            Bill.shop_id == shop_id,
-            Bill.created_at >= context.start,
-            Bill.created_at < context.end,
-            BillItem.unit == BaseUnit.KG,
-        )
-        .group_by(BillItem.item_id)
-        .subquery()
-    )
-    movement_totals = (
-        select(
-            InventoryMovement.inventory_item_id.label("inventory_item_id"),
-            func.coalesce(func.sum(InventoryMovement.quantity), 0).label("used_stock"),
-        )
-        .where(
-            InventoryMovement.shop_id == shop_id,
-            InventoryMovement.created_at >= context.start,
-            InventoryMovement.created_at < context.end,
-            InventoryMovement.movement_type == InventoryMovementType.USE,
-        )
-        .group_by(InventoryMovement.inventory_item_id)
-        .subquery()
-    )
-    mapping_sales = (
-        select(
-            movement_totals.c.inventory_item_id,
-            InventoryItemBillingMapping.billing_item_id,
-            movement_totals.c.used_stock,
-            func.coalesce(sales_totals.c.sales_kg, 0).label("mapped_sales_kg"),
-            func.sum(func.coalesce(sales_totals.c.sales_kg, 0))
-            .over(
-                partition_by=movement_totals.c.inventory_item_id
-            )
-            .label("item_sales_kg"),
-        )
-        .select_from(
-            movement_totals.join(
-                InventoryItemBillingMapping,
-                InventoryItemBillingMapping.inventory_item_id
-                == movement_totals.c.inventory_item_id,
-            )
-        )
-        .outerjoin(
-            sales_totals,
-            sales_totals.c.item_id == InventoryItemBillingMapping.billing_item_id,
-        )
-        .subquery()
-    )
-    used_totals = (
-        select(
-            mapping_sales.c.billing_item_id,
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            mapping_sales.c.item_sales_kg > 0,
-                            mapping_sales.c.used_stock
-                            * mapping_sales.c.mapped_sales_kg
-                            / mapping_sales.c.item_sales_kg,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("used_stock"),
-        )
-        .group_by(mapping_sales.c.billing_item_id)
-        .subquery()
-    )
-    latest_prices = (
-        select(
-            DailyPrice.item_id.label("item_id"),
-            DailyPrice.price_per_unit.label("today_price"),
-            func.row_number()
-            .over(
-                partition_by=DailyPrice.item_id,
-                order_by=(
-                    DailyPrice.price_date.desc(),
-                    DailyPrice.created_at.desc(),
-                    DailyPrice.id.desc(),
-                ),
-            )
-            .label("rn"),
-        )
-        .where(DailyPrice.shop_id == shop_id)
-        .subquery()
-    )
-    rows = (
-        await db.execute(
-            select(
-                category_label.label("category"),
-                Item.name.label("item_name"),
-                Item.assumption_percent,
-                latest_prices.c.today_price,
-                func.coalesce(sales_totals.c.sales_kg, 0).label("sales_kg"),
-                func.coalesce(sales_totals.c.sales_amount, 0).label("sales_amount"),
-                func.coalesce(used_totals.c.used_stock, 0).label("used_stock"),
-            )
-            .outerjoin(sales_totals, sales_totals.c.item_id == Item.id)
-            .outerjoin(
-                used_totals,
-                used_totals.c.billing_item_id == Item.id,
-            )
-            .outerjoin(
-                latest_prices,
-                and_(latest_prices.c.item_id == Item.id, latest_prices.c.rn == 1),
-            )
-            .where(Item.shop_id.is_(None), Item.base_unit == BaseUnit.KG)
-            .order_by(category_label, Item.sort_order, func.lower(Item.name), Item.id)
-        )
-    ).all()
-
-    report_rows: list[OverReportItemRow] = []
-    for row in rows:
-        sales_kg = _decimal(row.sales_kg)
-        sales_amount = _decimal(row.sales_amount)
-        today_price = _decimal(row.today_price) if row.today_price is not None else None
-        assumption_percent = row.assumption_percent
-        assumption_kg = (
-            sales_kg * _decimal(assumption_percent) / Decimal("100")
-            if assumption_percent is not None
-            else Decimal("0")
-        )
-        difference_kg = sales_kg - assumption_kg
-        assumption_amount = (
-            assumption_kg * today_price if today_price is not None else Decimal("0")
-        )
-        difference_amount = (
-            difference_kg * today_price if today_price is not None else Decimal("0")
-        )
-        report_rows.append(
-            OverReportItemRow(
-                category=row.category,
-                item_name=row.item_name,
-                assumption_percent=assumption_percent,
-                used_stock=_decimal(row.used_stock),
-                sales_kg=sales_kg,
-                assumption_kg=assumption_kg,
-                difference_kg=difference_kg,
-                today_price=today_price,
-                sales_amount=sales_amount,
-                assumption_amount=assumption_amount,
-                difference_amount=difference_amount,
-            )
-        )
-    return report_rows
 
 
 async def _inventory_category_labels_by_item_id(
@@ -1397,33 +1625,6 @@ def _inventory_totals_subquery(context: ReportContext, *, period_only: bool):
         .group_by(InventoryMovement.shop_id, InventoryMovement.inventory_item_id)
     )
     return query.subquery()
-
-
-def _assumption_status(
-    base_unit: BaseUnit,
-    assumption_percent: object,
-    inventory_item_id: UUID | None,
-    inventory_category_id: UUID | None,
-) -> ItemAssumptionStatus:
-    if base_unit != BaseUnit.KG:
-        return ItemAssumptionStatus.NOT_APPLICABLE
-    values = (assumption_percent, inventory_item_id, inventory_category_id)
-    if all(value is None for value in values):
-        return ItemAssumptionStatus.NOT_SET
-    if assumption_percent is not None:
-        return ItemAssumptionStatus.CONFIGURED
-    return ItemAssumptionStatus.INCOMPLETE
-
-
-def _assumption_status_label(status: ItemAssumptionStatus, active: bool) -> str:
-    if not active:
-        return "Paused"
-    return {
-        ItemAssumptionStatus.CONFIGURED: "Configured",
-        ItemAssumptionStatus.INCOMPLETE: "Incomplete",
-        ItemAssumptionStatus.NOT_SET: "Not set",
-        ItemAssumptionStatus.NOT_APPLICABLE: "N/A",
-    }[status]
 
 
 def _bill_filters(context: ReportContext) -> list[object]:
@@ -1508,26 +1709,12 @@ def _money(value: object) -> str:
     return f"Rs. {_decimal(value).quantize(Decimal('0.01'))}"
 
 
-def _money_or_blank(value: object) -> str:
-    if value is None:
-        return ""
-    return _money(value)
+def _unit_value(unit: object) -> str:
+    return str(getattr(unit, "value", unit))
 
 
-def _percent(value: object) -> str:
-    if value is None:
-        return ""
-    return f"{_quantity(value)}%"
-
-
-def _kg(value: object) -> str:
-    return f"{_quantity(value)} kg"
-
-
-def _assumption_total_price(actual_price: object, assumption_percent: object) -> Decimal | None:
-    if actual_price is None or assumption_percent is None:
-        return None
-    return _decimal(actual_price) * _decimal(assumption_percent) / Decimal("100")
+def _quantity_with_unit(value: object, unit: object) -> str:
+    return f"{_quantity(value)} {_unit_value(unit)}"
 
 
 def _quantity(value: object) -> str:
@@ -1537,3 +1724,7 @@ def _quantity(value: object) -> str:
 
 def _datetime_text(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d %H:%M") if value is not None else ""
+
+
+def _date_text(value: date) -> str:
+    return value.strftime("%d/%m/%Y")

@@ -1,13 +1,12 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { YStack } from "tamagui";
 
 import {
-  fetchInventoryItems,
   fetchItemCategories,
   fetchShopPriceHistory,
   updateItemAssumption,
@@ -19,7 +18,6 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAdminItemsStore } from "@/store/admin-items-store";
 import type {
   DailyPriceCreate,
-  InventoryItemRead,
   ItemAssumptionUpdate,
   ItemCategoryRead,
   ItemPriceRead,
@@ -111,6 +109,10 @@ function buildCatalogueItemQuery(search: string): FetchShopItemsParams {
   };
 }
 
+function isAdminCatalogueItem(item: ShopItemRead) {
+  return item.scope === ItemScope.Global && !item.shop_id;
+}
+
 function AdminItemsRoute({
   navigation,
   route,
@@ -124,6 +126,7 @@ function AdminItemsRoute({
   const setStoredShopId = useAdminItemsStore((state) => state.setSelectedShopId);
   const routeShopId = "params" in route ? route.params?.shopId : undefined;
   const initialShopId = routeShopId ?? storedShopId;
+  const appliedRouteShopIdRef = useRef<UUID | undefined>(routeShopId);
   const [selectedShopId, setSelectedShopId] = useState<UUID | null>(initialShopId ?? null);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
@@ -133,9 +136,6 @@ function AdminItemsRoute({
   const [selectedImportIds, setSelectedImportIds] = useState<Set<UUID>>(() => new Set());
   const [itemCategories, setItemCategories] = useState<ItemCategoryRead[]>([]);
   const [itemCategoriesLoading, setItemCategoriesLoading] = useState(false);
-  const [assumptionInventoryItems, setAssumptionInventoryItems] = useState<InventoryItemRead[]>([]);
-  const [assumptionInventoryLoading, setAssumptionInventoryLoading] = useState(false);
-  const [assumptionInventoryError, setAssumptionInventoryError] = useState<string | null>(null);
   const [assumptionDrafts, setAssumptionDrafts] = useState<Record<UUID, AssumptionDraft>>({});
   const [savingAssumptionId, setSavingAssumptionId] = useState<UUID | null>(null);
   const [categoryFilterKey, setCategoryFilterKey] = useState(ALL_CATEGORY_FILTER_KEY);
@@ -171,6 +171,10 @@ function AdminItemsRoute({
   const selectedImportKey = useMemo(
     () => [...selectedImportIds].sort().join("|"),
     [selectedImportIds],
+  );
+  const assumptionItems = useMemo(
+    () => catalogueState.items.filter(isAdminCatalogueItem),
+    [catalogueState.items],
   );
   const importingImportKey = useMemo(
     () => [...availableCatalogueState.importingIds].sort().join("|"),
@@ -211,22 +215,6 @@ function AdminItemsRoute({
       setPriceHistoryLoading(false);
     }
   }, [priceHistoryDate, selectedShopId, showToast]);
-
-  const loadAssumptionInventoryItems = useCallback(async () => {
-    setAssumptionInventoryLoading(true);
-    setAssumptionInventoryError(null);
-    try {
-      const nextItems = await fetchInventoryItems({ active: true });
-      setAssumptionInventoryItems(nextItems);
-      return nextItems;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load inventory items.";
-      setAssumptionInventoryError(message);
-      throw new Error(message);
-    } finally {
-      setAssumptionInventoryLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
     if (!toast) {
@@ -276,11 +264,15 @@ function AdminItemsRoute({
     if (!isFocused) {
       return;
     }
-    if (routeShopId && routeShopId !== selectedShopId) {
+    if (routeShopId === appliedRouteShopIdRef.current) {
+      return;
+    }
+    appliedRouteShopIdRef.current = routeShopId;
+    if (routeShopId) {
       setSelectedShopId(routeShopId);
       setStoredShopId(routeShopId);
     }
-  }, [isFocused, routeShopId, selectedShopId, setStoredShopId]);
+  }, [isFocused, routeShopId, setStoredShopId]);
 
   useEffect(() => {
     if (!isFocused || routeShopId || !adminItemsHydrated || !storedShopId || selectedShopId === storedShopId) {
@@ -319,18 +311,9 @@ function AdminItemsRoute({
 
   useEffect(() => {
     if (isFocused && isCatalogueLikeWorkspace) {
-      prefetchItemThumbnails(catalogueState.items);
+      prefetchItemThumbnails(isAssumptionWorkspace ? assumptionItems : catalogueState.items);
     }
-  }, [catalogueState.items, isCatalogueLikeWorkspace, isFocused]);
-
-  useEffect(() => {
-    if (!isFocused || !isAssumptionWorkspace) {
-      return;
-    }
-    void loadAssumptionInventoryItems().catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to load inventory items.");
-    });
-  }, [isAssumptionWorkspace, isFocused, loadAssumptionInventoryItems, showToast]);
+  }, [assumptionItems, catalogueState.items, isAssumptionWorkspace, isCatalogueLikeWorkspace, isFocused]);
 
   useEffect(() => {
     if (!isFocused || workspace !== AdminItemWorkspace.Shop || !selectedShopId) {
@@ -606,9 +589,6 @@ function AdminItemsRoute({
     }
     if (workspace === AdminItemWorkspace.Assumption) {
       refreshCatalogue();
-      void loadAssumptionInventoryItems().catch((error) => {
-        showToast("error", error instanceof Error ? error.message : "Unable to refresh inventory items.");
-      });
       return;
     }
     if (workspace === AdminItemWorkspace.Prices) {
@@ -633,7 +613,6 @@ function AdminItemsRoute({
     shopsState,
     workspace,
     workspaceNeedsShop,
-    loadAssumptionInventoryItems,
     loadPriceHistory,
     priceHistoryDate,
     priceHistoryOpen,
@@ -644,7 +623,7 @@ function AdminItemsRoute({
     workspace === AdminItemWorkspace.Catalogue
       ? catalogueState.refreshing
       : workspace === AdminItemWorkspace.Assumption
-        ? catalogueState.refreshing || assumptionInventoryLoading
+        ? catalogueState.refreshing
         : workspace === AdminItemWorkspace.Prices
         ? priceState.refreshing || priceHistoryLoading || shopsState.loading
         : shopItemsTab === "available"
@@ -655,8 +634,6 @@ function AdminItemsRoute({
     setAssumptionDrafts((current) => {
       const previous = current[item.id] ?? {
         assumption_percent: item.assumption_percent ?? "",
-        assumption_inventory_item_id: item.assumption_inventory_item_id ?? null,
-        assumption_inventory_category_id: item.assumption_inventory_category_id ?? null,
       };
       return {
         ...current,
@@ -873,14 +850,12 @@ function AdminItemsRoute({
         {commonHeader}
       </View>
       <AssumptionGrid
-        items={catalogueState.items}
-        inventoryItems={assumptionInventoryItems}
+        items={assumptionItems}
         loading={catalogueState.loading}
-        refreshing={catalogueState.refreshing || assumptionInventoryLoading}
-        inventoryLoading={assumptionInventoryLoading}
+        refreshing={catalogueState.refreshing}
         drafts={assumptionDrafts}
         savingItemId={savingAssumptionId}
-        error={catalogueState.error ?? assumptionInventoryError}
+        error={catalogueState.error}
         palette={palette}
         bottomPadding={42 + insets.bottom}
         onRefresh={refreshCurrentItemsPage}
@@ -1134,16 +1109,21 @@ function AdminItemsRoute({
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border, paddingTop: Math.max(insets.top - 8, 0) }]}>
+      <StatusBar style="light" />
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder, paddingTop: Math.max(insets.top - 8, 0) },
+        ]}
+      >
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate("AdminDashboard")} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text numberOfLines={1} style={[styles.title, { color: palette.textPrimary }]}>
+          <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
             {title}
           </Text>
-          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.textMuted }]}>
+          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
             {subtitle}
           </Text>
         </View>

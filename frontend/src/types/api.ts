@@ -118,6 +118,12 @@ export interface InventoryCategoryRead {
   updated_at?: string | null;
 }
 
+export interface InventoryBillingItemMappingRead {
+  billing_item_id: UUID;
+  billing_item_name: string;
+  billing_item_tamil_name?: string | null;
+}
+
 export interface InventoryCategoryCreate {
   name: string;
 }
@@ -134,6 +140,8 @@ export interface InventoryItemRead {
   base_unit: BaseUnit;
   is_active: boolean;
   sort_order: number;
+  billing_item_ids: UUID[];
+  billing_items: InventoryBillingItemMappingRead[];
   category_ids: UUID[];
   categories: InventoryCategoryRead[];
   created_at: string;
@@ -228,7 +236,7 @@ export interface InventoryAddRequest {
 }
 
 export interface InventoryUseRequest {
-  category_id: UUID;
+  category_id?: UUID | null;
   quantity: string;
 }
 
@@ -652,6 +660,85 @@ export interface ItemSalesSummary {
   quantity_sold: string;
   total_amount: string;
   bill_count: number;
+}
+
+export interface OverallReportUnitSummary {
+  unit: BaseUnit;
+  old_stock: string;
+  adding_stock: string;
+  total_available_stock: string;
+  used_stock: string;
+  remaining_stock: string;
+  sales_quantity: string;
+  assumption_quantity: string;
+  difference_quantity: string;
+}
+
+export interface OverallReportBillingItem {
+  billing_item_id: UUID;
+  item_name: string;
+  item_tamil_name?: string | null;
+  category: string;
+  unit: BaseUnit;
+  assumption_percent?: string | null;
+  sales_quantity: string;
+  assumption_quantity: string;
+  difference_quantity: string;
+  today_price?: string | null;
+  sales_amount: string;
+  assumption_amount: string;
+  difference_amount: string;
+}
+
+export interface OverallReportUsedStockBreakdown {
+  category_id?: UUID | null;
+  category_name?: string | null;
+  label: string;
+  quantity: string;
+}
+
+export interface OverallReportInventoryItem {
+  inventory_item_id: UUID;
+  item_name: string;
+  item_tamil_name?: string | null;
+  category: string;
+  unit: BaseUnit;
+  old_stock: string;
+  adding_stock: string;
+  total_available_stock: string;
+  used_stock: string;
+  remaining_stock: string;
+  sales_quantity: string;
+  assumption_quantity: string;
+  difference_quantity: string;
+  sales_amount: string;
+  assumption_amount: string;
+  difference_amount: string;
+  used_stock_breakdown: OverallReportUsedStockBreakdown[];
+  billing_items: OverallReportBillingItem[];
+}
+
+export interface OverallReportStatement {
+  shop_id: UUID;
+  shop_name: string;
+  start_date: string;
+  end_date: string;
+  period_label: string;
+  unit_summaries: OverallReportUnitSummary[];
+  expense_amount: string;
+  sales_amount: string;
+  assumption_amount: string;
+  difference_amount: string;
+  sales_minus_expense_amount: string;
+  sales_minus_assumption_amount: string;
+  inventory_items: OverallReportInventoryItem[];
+}
+
+export interface OverallReportRead {
+  period: AnalyticsPeriod;
+  detail_level: "summary" | "full";
+  period_label: string;
+  statements: OverallReportStatement[];
 }
 
 export interface AdminBillSummary {

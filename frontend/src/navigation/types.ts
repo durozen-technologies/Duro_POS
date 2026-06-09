@@ -1,10 +1,15 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type {
+  AdminReportDetailLevel,
+  AdminReportSection,
+  AnalyticsDateRange,
+} from "@/api/admin";
+import type {
   AdminItemEditorMode,
   AdminItemWorkspace,
 } from "@/screens/admin/admin-items-model";
-import type { InventoryItemRead, ShopItemRead, UUID } from "@/types/api";
+import type { AnalyticsPeriod, InventoryItemRead, ShopItemRead, UUID } from "@/types/api";
 
 export type AppStackParamList = {
   AppLoading: undefined;
@@ -19,6 +24,14 @@ export type AppStackParamList = {
   AdminItemCategories: undefined;
   AdminInventory: { shopId?: UUID } | undefined;
   AdminReports: undefined;
+  AdminOverallReportPreview: {
+    sections: AdminReportSection[];
+    detailLevel: AdminReportDetailLevel;
+    period: AnalyticsPeriod;
+    referenceDate?: string | null;
+    range?: AnalyticsDateRange;
+    shopIds?: UUID[];
+  };
   AdminExpenses: { shopId?: UUID } | undefined;
   AdminShopExpensesOrder: { shopId: UUID; shopName?: string };
   AdminInventoryItemEditor:
@@ -51,6 +64,7 @@ export type AdminItemPricesScreenProps = NativeStackScreenProps<AppStackParamLis
 export type AdminItemCategoriesScreenProps = NativeStackScreenProps<AppStackParamList, "AdminItemCategories">;
 export type AdminInventoryScreenProps = NativeStackScreenProps<AppStackParamList, "AdminInventory">;
 export type AdminReportsScreenProps = NativeStackScreenProps<AppStackParamList, "AdminReports">;
+export type AdminOverallReportPreviewScreenProps = NativeStackScreenProps<AppStackParamList, "AdminOverallReportPreview">;
 export type AdminExpensesScreenProps = NativeStackScreenProps<AppStackParamList, "AdminExpenses">;
 export type AdminShopExpensesOrderScreenProps = NativeStackScreenProps<AppStackParamList, "AdminShopExpensesOrder">;
 export type AdminInventoryItemEditorScreenProps = NativeStackScreenProps<AppStackParamList, "AdminInventoryItemEditor">;

@@ -4,7 +4,6 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-
 MIGRATION_VERSION_LIMIT = 32
 MIGRATION_VERSIONS_DIR = Path(__file__).resolve().parents[2] / "backend" / "migrations" / "versions"
 

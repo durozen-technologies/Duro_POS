@@ -172,7 +172,7 @@ class InventoryAddRequest(BaseModel):
 
 
 class InventoryUseRequest(BaseModel):
-    category_id: UUID
+    category_id: UUID | None = None
     quantity: Decimal = Field(gt=0)
 
 

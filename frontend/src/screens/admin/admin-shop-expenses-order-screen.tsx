@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import DraggableFlatList, { type RenderItemParams } from "react-native-draggable-flatlist";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,11 +11,10 @@ import {
   type ExpenseCursorParams,
 } from "@/api/expenses";
 import { toApiError } from "@/api/client";
-import { EmptyState } from "@/components/ui/empty-state";
-import { LoadingState } from "@/components/ui/loading-state";
 import type { AdminShopExpensesOrderScreenProps } from "@/navigation/types";
 import type { ShopExpenseItemRead, UUID } from "@/types/api";
 
+import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { useAdminTheme } from "./use-admin-theme";
@@ -86,6 +85,31 @@ function OrderRow({
   );
 }
 
+function OrderLoadingState({ palette }: { palette: ThemePalette }) {
+  return (
+    <View style={[styles.loadingState, { backgroundColor: palette.background }]}>
+      <View style={[styles.loadingIcon, { backgroundColor: palette.card, borderColor: palette.border }]}>
+        <ActivityIndicator size="large" color={palette.primary} />
+      </View>
+      <Text style={[styles.loadingText, { color: palette.textMuted }]}>Loading branch expenses...</Text>
+    </View>
+  );
+}
+
+function OrderEmptyState({ palette }: { palette: ThemePalette }) {
+  return (
+    <View style={[styles.emptyState, { backgroundColor: palette.card, borderColor: palette.border }]}>
+      <View style={[styles.emptyIcon, { backgroundColor: palette.cashSoft, borderColor: palette.border }]}>
+        <MaterialCommunityIcons name="cash-minus" size={24} color={palette.cash} />
+      </View>
+      <Text style={[styles.emptyTitle, { color: palette.textPrimary }]}>No allocated expenses</Text>
+      <Text style={[styles.emptyText, { color: palette.textMuted }]}>
+        Allocate expense items before arranging branch order.
+      </Text>
+    </View>
+  );
+}
+
 export function AdminShopExpensesOrderScreen({
   navigation,
   route,
@@ -143,14 +167,14 @@ export function AdminShopExpensesOrderScreen({
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
+      <StatusBar style="light" />
+      <View style={[styles.topBar, { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder }]}>
         <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text numberOfLines={1} style={[styles.title, { color: palette.textPrimary }]}>Arrange expenses</Text>
-          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.textMuted }]}>{subtitle}</Text>
+          <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>Arrange expenses</Text>
+          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>{subtitle}</Text>
         </View>
         <AdminHeaderActions refreshing={loading} refreshDisabled={saving} onRefresh={loadItems} />
         <Pressable
@@ -165,8 +189,8 @@ export function AdminShopExpensesOrderScreen({
           style={[
             styles.saveButton,
             {
-              backgroundColor: !dirty || saving || loading ? palette.card : palette.cash,
-              borderColor: !dirty || saving || loading ? palette.border : palette.cash,
+              backgroundColor: !dirty || saving || loading ? palette.shellControl : palette.cash,
+              borderColor: !dirty || saving || loading ? palette.shellBorder : palette.cash,
               opacity: !dirty || saving || loading ? 0.65 : 1,
             },
           ]}
@@ -174,9 +198,9 @@ export function AdminShopExpensesOrderScreen({
           <MaterialCommunityIcons
             name="content-save-outline"
             size={17}
-            color={!dirty || saving || loading ? palette.textMuted : palette.onCash}
+            color={!dirty || saving || loading ? palette.onShellMuted : palette.onCash}
           />
-          <Text style={[styles.saveButtonText, { color: !dirty || saving || loading ? palette.textMuted : palette.onCash }]}>
+          <Text style={[styles.saveButtonText, { color: !dirty || saving || loading ? palette.onShellMuted : palette.onCash }]}>
             {saving ? "Saving" : "Save"}
           </Text>
         </Pressable>
@@ -190,7 +214,7 @@ export function AdminShopExpensesOrderScreen({
       ) : null}
 
       {loading && items.length === 0 ? (
-        <LoadingState fullscreen label="Loading branch expenses..." />
+        <OrderLoadingState palette={palette} />
       ) : (
         <DraggableFlatList
           data={items}
@@ -203,12 +227,7 @@ export function AdminShopExpensesOrderScreen({
           activationDistance={8}
           containerStyle={{ flex: 1, backgroundColor: palette.background }}
           contentContainerStyle={{ padding: 14, paddingBottom: 42 + insets.bottom, gap: 8 }}
-          ListEmptyComponent={
-            <EmptyState
-              title="No allocated expenses"
-              description="Allocate expense items before arranging branch order."
-            />
-          }
+          ListEmptyComponent={<OrderEmptyState palette={palette} />}
         />
       )}
     </SafeAreaView>
@@ -262,6 +281,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "900",
+  },
+  loadingState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  loadingIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginTop: 14,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  emptyState: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+    alignItems: "center",
+    gap: 10,
+  },
+  emptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTitle: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  emptyText: {
+    maxWidth: 320,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    textAlign: "center",
   },
   errorBanner: {
     margin: 14,

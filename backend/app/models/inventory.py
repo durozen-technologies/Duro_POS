@@ -234,10 +234,6 @@ class InventoryMovement(Base, BaseModelMixin):
     __tablename__ = "inventory_movements"
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_inventory_movements_quantity_positive"),
-        CheckConstraint(
-            "movement_type != 'USE' OR category_id IS NOT NULL",
-            name="ck_inventory_movements_use_category_required",
-        ),
         Index(
             "ix_inventory_movements_shop_item_created",
             "shop_id",

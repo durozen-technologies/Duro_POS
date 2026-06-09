@@ -79,6 +79,20 @@ function formatInventoryQuantity(value: string | number, unit: BaseUnit) {
   return `${display || "0"} ${unit === BaseUnit.KG ? "kg" : numeric === 1 ? "unit" : "units"}`;
 }
 
+function inventoryItemBillingNames(item: InventoryItemRead) {
+  return (Array.isArray(item.billing_items) ? item.billing_items : []).map(
+    (billingItem) => billingItem.billing_item_name,
+  );
+}
+
+function inventoryItemCategoryLabel(item: InventoryItemRead) {
+  const categories = Array.isArray(item.categories) ? item.categories : [];
+  if (categories.length === 0) {
+    return "No categories";
+  }
+  return categories.map((category) => category.name).join(", ");
+}
+
 function markInventoryItemAllocated(
   items: InventoryItemStockRead[],
   itemId: UUID,
@@ -686,30 +700,59 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     </View>
   );
 
-  const renderInventoryItemRow = ({ item }: { item: InventoryItemRead }) => (
-    <View style={[styles.itemRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
-      <ItemThumbnail
-        uri={getItemThumbnailUri(item)}
-        recyclingKey={item.id}
-        size={52}
-        borderRadius={10}
-        backgroundColor={palette.surfaceMuted}
-        icon="package-variant-closed"
-        iconColor={palette.textMuted}
-      />
-      <View style={styles.itemText}>
-        <Text style={[styles.itemName, { color: palette.textPrimary }]}>{item.name}</Text>
-        <Text style={[styles.itemSub, { color: palette.textSecondary }]}>{item.tamil_name}</Text>
-        <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
-          {item.base_unit.toUpperCase()} · {item.categories.map((category) => category.name).join(", ")}
-        </Text>
+  const renderInventoryItemRow = ({ item }: { item: InventoryItemRead }) => {
+    const billingNames = inventoryItemBillingNames(item);
+    return (
+      <View style={[styles.itemRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+        <ItemThumbnail
+          uri={getItemThumbnailUri(item)}
+          recyclingKey={item.id}
+          size={52}
+          borderRadius={10}
+          backgroundColor={palette.surfaceMuted}
+          icon="package-variant-closed"
+          iconColor={palette.textMuted}
+        />
+        <View style={styles.itemText}>
+          <Text style={[styles.itemName, { color: palette.textPrimary }]}>{item.name}</Text>
+          <Text style={[styles.itemSub, { color: palette.textSecondary }]}>{item.tamil_name}</Text>
+          <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
+            {item.base_unit.toUpperCase()} · {inventoryItemCategoryLabel(item)}
+          </Text>
+          <View style={styles.mappingSummary}>
+            <View style={styles.mappingHeader}>
+              <MaterialCommunityIcons
+                name={billingNames.length > 0 ? "link-variant" : "link-off"}
+                size={14}
+                color={billingNames.length > 0 ? palette.inventory : palette.textMuted}
+              />
+              <Text style={[styles.mappingLabel, { color: palette.textMuted }]}>Billing</Text>
+            </View>
+            {billingNames.length === 0 ? (
+              <Text style={[styles.mappingEmpty, { color: palette.textMuted }]}>Not mapped</Text>
+            ) : (
+              <View style={styles.mappingChips}>
+                {billingNames.map((billingName, index) => (
+                  <View
+                    key={`${billingName}-${index}`}
+                    style={[styles.mappingChip, { backgroundColor: palette.inventorySoft }]}
+                  >
+                    <Text style={[styles.mappingChipText, { color: palette.inventoryStrong }]}>
+                      {billingName}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+        <View style={styles.rowActions}>
+          <IconButton icon="pencil-outline" label="Edit" palette={palette} onPress={() => openEditEditor(item)} />
+          <IconButton icon="delete-outline" label="Delete" palette={palette} danger onPress={() => confirmDeleteItem(item)} />
+        </View>
       </View>
-      <View style={styles.rowActions}>
-        <IconButton icon="pencil-outline" label="Edit" palette={palette} onPress={() => openEditEditor(item)} />
-        <IconButton icon="delete-outline" label="Delete" palette={palette} danger onPress={() => confirmDeleteItem(item)} />
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderItemsFooter = () => {
     if (itemsLoadingMore) {
@@ -869,6 +912,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const renderStockItemRow = ({ item }: { item: InventoryItemStockRead }) => {
     const busy = allocationBusyItemId === item.id;
     const allocationDisabled = Boolean(allocationBusyItemId && !busy);
+    const categoryUsage = Array.isArray(item.category_usage) ? item.category_usage : [];
     return (
       <View style={[styles.stockItemCard, { borderColor: palette.border, backgroundColor: palette.card }]}>
         <View style={styles.stockItemHeader}>
@@ -927,9 +971,9 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
             />
           )}
         </View>
-        {item.category_usage.length > 0 ? (
+        {categoryUsage.length > 0 ? (
           <View style={[styles.categoryUsageList, { borderTopColor: palette.border }]}>
-            {item.category_usage.map((category) => (
+            {categoryUsage.map((category) => (
               <View
                 key={category.category_id}
                 style={[
@@ -1027,14 +1071,19 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border, paddingTop: Math.max(insets.top - 8, 0) }]}>
+      <StatusBar style="light" />
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder, paddingTop: Math.max(insets.top - 8, 0) },
+        ]}
+      >
         <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text style={[styles.title, { color: palette.textPrimary }]}>Inventory</Text>
-          <Text style={[styles.subtitle, { color: palette.textMuted }]}>Items, categories, and branch stock</Text>
+          <Text style={[styles.title, { color: palette.onShell }]}>Inventory</Text>
+          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>Items, categories, and branch stock</Text>
         </View>
         <AdminHeaderActions
           refreshing={refreshing}
@@ -1232,7 +1281,7 @@ const styles = StyleSheet.create({
   historyButtonText: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
   search: { minHeight: 46, flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   input: { flex: 1, minHeight: 42, fontSize: 14, fontWeight: "700" },
-  itemRow: { borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  itemRow: { borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   stockItemCard: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 10 },
   stockItemHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   categoryUsageList: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, gap: 7 },
@@ -1247,6 +1296,13 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
   itemSub: { fontSize: 13, fontWeight: "700", letterSpacing: 0 },
   itemMeta: { fontSize: 12, fontWeight: "700", letterSpacing: 0 },
+  mappingSummary: { marginTop: 8, gap: 6 },
+  mappingHeader: { flexDirection: "row", alignItems: "center", gap: 5 },
+  mappingLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
+  mappingEmpty: { fontSize: 12, fontWeight: "800", letterSpacing: 0 },
+  mappingChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  mappingChip: { maxWidth: "100%", minHeight: 28, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  mappingChipText: { flexShrink: 1, fontSize: 12, fontWeight: "900", letterSpacing: 0, lineHeight: 16 },
   itemQuantityRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 3 },
   itemQuantityGroup: { gap: 1 },
   quantityLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },

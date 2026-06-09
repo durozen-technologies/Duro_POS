@@ -64,7 +64,6 @@ const SECTION_OPTIONS: { key: AdminReportSection; label: string; icon: IconName 
   { key: "billing", label: "Billing", icon: "receipt-text-outline" },
   { key: "items", label: "Items", icon: "playlist-edit" },
   { key: "inventory", label: "Inventory", icon: "warehouse" },
-  { key: "assumptions", label: "Assumption", icon: "percent" },
   { key: "over_report", label: "Overall Report", icon: "file-chart-outline" },
 ];
 
@@ -73,7 +72,6 @@ const SECTION_ORDER: AdminReportSection[] = [
   "billing",
   "items",
   "inventory",
-  "assumptions",
   "over_report",
 ];
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -232,6 +230,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     : formatSelectedBranchNames(shops, selectedShopIds);
   const currentPeriodLabel = formatReportPeriodLabel(period, referenceDate, rangeStartDate, rangeEndDate);
   const selectedSectionSet = useMemo(() => new Set(selectedSections), [selectedSections]);
+  const hasOverallReport = selectedSectionSet.has("over_report");
   const canGenerate = selectedSections.length > 0 && (allBranches || selectedShopIds.length > 0) && !generating;
   const periodAccent = getPeriodAccent(period, palette);
 
@@ -407,6 +406,39 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     allBranches,
     canGenerate,
     detailLevel,
+    period,
+    rangeEndDate,
+    rangeStartDate,
+    referenceDate,
+    selectedSections,
+    selectedShopIds,
+  ]);
+
+  const handlePreviewOverallReport = useCallback(() => {
+    if (!canGenerate) {
+      return;
+    }
+    const rangeError = period === AnalyticsPeriod.RANGE ? validateRange(rangeStartDate, rangeEndDate) : "";
+    if (rangeError) {
+      setErrorMessage(rangeError);
+      return;
+    }
+    navigation.navigate("AdminOverallReportPreview", {
+      sections: selectedSections,
+      detailLevel,
+      period,
+      referenceDate: period === AnalyticsPeriod.RANGE ? undefined : referenceDate,
+      range:
+        period === AnalyticsPeriod.RANGE
+          ? { startDate: rangeStartDate, endDate: rangeEndDate }
+          : undefined,
+      shopIds: allBranches ? undefined : selectedShopIds,
+    });
+  }, [
+    allBranches,
+    canGenerate,
+    detailLevel,
+    navigation,
     period,
     rangeEndDate,
     rangeStartDate,
@@ -822,6 +854,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
           </View>
         ) : null}
       </View>
+
     </View>
   );
 
@@ -831,7 +864,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         accessibilityRole="button"
         accessibilityState={{ disabled: !canGenerate }}
         disabled={!canGenerate}
-        onPress={handleGenerate}
+        onPress={hasOverallReport ? handlePreviewOverallReport : handleGenerate}
         style={[
           styles.generateButton,
           adminShadow(palette.shadow, 0.08, 10, 14),
@@ -844,10 +877,14 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         {generating ? (
           <ActivityIndicator size="small" color={palette.onPrimary} />
         ) : (
-          <MaterialCommunityIcons name="file-pdf-box" size={21} color={palette.onPrimary} />
+          <MaterialCommunityIcons
+            name={hasOverallReport ? "file-chart-outline" : "file-pdf-box"}
+            size={21}
+            color={palette.onPrimary}
+          />
         )}
         <Text style={[styles.generateButtonText, { color: palette.onPrimary }]}>
-          {generating ? "Generating..." : "Generate PDF"}
+          {generating ? "Generating..." : hasOverallReport ? "Preview Overall Report" : "Generate PDF"}
         </Text>
       </Pressable>
     </View>
@@ -855,16 +892,21 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border, paddingTop: Math.max(insets.top - 8, 0) }]}>
+      <StatusBar style="light" />
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder, paddingTop: Math.max(insets.top - 8, 0) },
+        ]}
+      >
         <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text numberOfLines={1} style={[styles.title, { color: palette.textPrimary }]}>
+          <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
             Reports
           </Text>
-          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.textMuted }]}>
+          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
             {branchSelectionLabel}
           </Text>
         </View>
@@ -1207,6 +1249,169 @@ const styles = StyleSheet.create({
     minHeight: 42,
     alignItems: "center",
     justifyContent: "center",
+  },
+  overallPreviewList: {
+    gap: 12,
+  },
+  overallStatement: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 12,
+  },
+  overallStatementHeader: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  overallStatementTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  overallStatementTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  overallStatementMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  overallStatementAmount: {
+    maxWidth: 116,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  reportMetricList: {
+    gap: 0,
+  },
+  reportMetricRow: {
+    minHeight: 38,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  reportMetricText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reportMetricLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  reportMetricNote: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  reportMetricValue: {
+    maxWidth: 132,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  inventoryReportList: {
+    gap: 0,
+  },
+  inventoryReportItem: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  inventoryReportHeader: {
+    minHeight: 50,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  inventoryReportTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inventoryReportTitle: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  inventoryReportMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  inventoryReportBody: {
+    paddingBottom: 10,
+    gap: 8,
+  },
+  billingReportList: {
+    gap: 0,
+  },
+  billingReportRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 9,
+    gap: 8,
+  },
+  billingReportHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  billingReportTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  billingReportTitle: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  billingReportMeta: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  billingReportPrice: {
+    maxWidth: 96,
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  billingMetricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  reportMiniMetric: {
+    width: "31.5%",
+    minHeight: 44,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    justifyContent: "center",
+  },
+  reportMiniLabel: {
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reportMiniValue: {
+    marginTop: 3,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  reportEmptyRow: {
+    minHeight: 42,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  reportEmptyText: {
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "center",
   },
   branchDoneButton: {
     minHeight: 42,

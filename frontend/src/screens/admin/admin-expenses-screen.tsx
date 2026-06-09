@@ -15,6 +15,9 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextInputProps,
+  type StyleProp,
+  type ViewStyle,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,11 +40,7 @@ import {
   updateShopExpenseAllocation,
   type ExpenseItemImageUploadFile,
 } from "@/api/expenses";
-import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
-import { LoadingState } from "@/components/ui/loading-state";
-import { TextField } from "@/components/ui/text-field";
 import { useApiConnection } from "@/hooks/use-api-connection";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { AdminExpensesScreenProps } from "@/navigation/types";
@@ -64,7 +63,7 @@ import {
 import { formatCurrency, formatDateTime } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
-import { adminShadow } from "./admin-dashboard-theme";
+import { adminShadow, type ThemePalette } from "./admin-dashboard-theme";
 import {
   buildMonthOptions,
   buildWeekOptions,
@@ -338,6 +337,141 @@ function IconButton({
         <MaterialCommunityIcons name={icon} size={18} color={tone} />
       )}
     </Pressable>
+  );
+}
+
+function AdminButton({
+  label,
+  onPress,
+  palette,
+  disabled = false,
+  loading = false,
+  variant = "primary",
+  style,
+}: {
+  label: string;
+  onPress: () => void;
+  palette: ThemePalette;
+  disabled?: boolean;
+  loading?: boolean;
+  variant?: "primary" | "secondary" | "danger";
+  style?: StyleProp<ViewStyle>;
+}) {
+  const isDisabled = disabled || loading;
+  const isSecondary = variant === "secondary";
+  const backgroundColor = isDisabled
+    ? palette.surfaceMuted
+    : isSecondary
+      ? palette.card
+      : variant === "danger"
+        ? palette.danger
+        : palette.primary;
+  const borderColor = isDisabled
+    ? palette.border
+    : isSecondary
+      ? palette.border
+      : variant === "danger"
+        ? palette.danger
+        : palette.primary;
+  const contentColor = isDisabled
+    ? palette.textMuted
+    : isSecondary
+      ? palette.textPrimary
+      : palette.onPrimary;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: isDisabled }}
+      disabled={isDisabled}
+      onPress={() => {
+        triggerHaptic();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.adminButton,
+        {
+          backgroundColor,
+          borderColor,
+          opacity: disabled && !loading ? 0.7 : 1,
+          transform: [{ translateY: pressed && !isDisabled ? 1 : 0 }],
+        },
+        style,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={contentColor} />
+      ) : (
+        <Text numberOfLines={1} style={[styles.adminButtonText, { color: contentColor }]}>
+          {label}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
+function AdminEmptyState({
+  title,
+  description,
+  palette,
+}: {
+  title: string;
+  description: string;
+  palette: ThemePalette;
+}) {
+  return (
+    <View style={[styles.adminEmptyCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+      <View style={[styles.adminEmptyIcon, { backgroundColor: palette.cashSoft, borderColor: palette.border }]}>
+        <MaterialCommunityIcons name="cash-minus" size={24} color={palette.cash} />
+      </View>
+      <Text style={[styles.adminEmptyTitle, { color: palette.textPrimary }]}>{title}</Text>
+      <Text style={[styles.adminEmptyText, { color: palette.textMuted }]}>{description}</Text>
+    </View>
+  );
+}
+
+function AdminLoadingState({
+  label,
+  palette,
+}: {
+  label: string;
+  palette: ThemePalette;
+}) {
+  return (
+    <View style={[styles.adminLoadingWrap, { backgroundColor: palette.background }]}>
+      <View style={[styles.adminLoadingIcon, { backgroundColor: palette.card, borderColor: palette.border }]}>
+        <ActivityIndicator size="large" color={palette.primary} />
+      </View>
+      <Text style={[styles.adminLoadingText, { color: palette.textMuted }]}>{label}</Text>
+    </View>
+  );
+}
+
+function AdminTextField({
+  label,
+  palette,
+  ...props
+}: TextInputProps & {
+  label: string;
+  palette: ThemePalette;
+}) {
+  return (
+    <View style={styles.adminField}>
+      <Text style={[styles.adminFieldLabel, { color: palette.textMuted }]}>{label}</Text>
+      <TextInput
+        autoCorrect={false}
+        underlineColorAndroid="transparent"
+        selectionColor={palette.primary}
+        cursorColor={palette.primary}
+        placeholderTextColor={palette.textMuted}
+        style={[
+          styles.adminFieldInput,
+          { backgroundColor: palette.surfaceMuted, borderColor: palette.border, color: palette.textPrimary },
+        ]}
+        {...props}
+      />
+    </View>
   );
 }
 
@@ -1662,22 +1796,24 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
         palette={palette}
       />
       <View style={styles.headerActions}>
-        <Button
+        <AdminButton
           label="Arrange order"
           variant="secondary"
+          palette={palette}
           onPress={() => selectedShop && navigation.navigate("AdminShopExpensesOrder", {
             shopId: selectedShop.id,
             shopName: selectedShop.name,
           })}
           disabled={!selectedShop || allocationRows.length === 0}
-          className="flex-1"
+          style={styles.flex}
         />
-        <Button
+        <AdminButton
           label={selectedCandidateIds.size > 0 ? `Import (${selectedCandidateIds.size})` : "Import"}
+          palette={palette}
           onPress={importSelectedCandidates}
           loading={importingCandidates}
           disabled={!selectedShop || selectedCandidateIds.size === 0}
-          className="flex-1"
+          style={styles.flex}
         />
       </View>
       <View style={[styles.searchBox, { borderColor: palette.border, backgroundColor: palette.card }]}>
@@ -1775,7 +1911,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
             Independent from billing items. No price, unit, image, category, or checkout fields.
           </Text>
         </View>
-        <Button label="New item" onPress={openCreateEditor} />
+        <AdminButton label="New item" palette={palette} onPress={openCreateEditor} />
       </View>
       <View style={[styles.searchBox, { borderColor: palette.border, backgroundColor: palette.card }]}>
         <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
@@ -1794,7 +1930,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
   const content = (() => {
     if (activeTab === "items") {
       if (itemsLoading && itemRows.length === 0) {
-        return <LoadingState fullscreen label="Loading expenses..." />;
+        return <AdminLoadingState label="Loading expenses..." palette={palette} />;
       }
       return (
         <FlatList
@@ -1804,7 +1940,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
             <ExpenseItemRow item={item} palette={palette} onEdit={openEditEditor} onDelete={confirmDeleteItem} />
           )}
           ListHeaderComponent={<>{renderHeader()}{itemsHeader()}</>}
-          ListEmptyComponent={<EmptyState title="No expense items" description="Create the first expense item for branch use." />}
+          ListEmptyComponent={<AdminEmptyState title="No expense items" description="Create the first expense item for branch use." palette={palette} />}
           ListFooterComponent={itemsLoadingMore ? <ActivityIndicator color={palette.cash} style={styles.footerLoader} /> : null}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} tintColor={palette.cash} />}
           onEndReached={loadMoreItems}
@@ -1816,7 +1952,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 
     if (activeTab === "allocation") {
       if (allocationLoading && allocationRows.length === 0) {
-        return <LoadingState fullscreen label="Loading branch allocation..." />;
+        return <AdminLoadingState label="Loading branch allocation..." palette={palette} />;
       }
       return (
         <FlatList
@@ -1832,7 +1968,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
             />
           )}
           ListHeaderComponent={<>{renderHeader()}{allocationHeader()}</>}
-          ListEmptyComponent={<EmptyState title="No allocated expenses" description="Allocate expense items to this branch." />}
+          ListEmptyComponent={<AdminEmptyState title="No allocated expenses" description="Allocate expense items to this branch." palette={palette} />}
           ListFooterComponent={allocationLoadingMore ? <ActivityIndicator color={palette.cash} style={styles.footerLoader} /> : null}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} tintColor={palette.cash} />}
           onEndReached={loadMoreAllocation}
@@ -1843,7 +1979,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
     }
 
     if (historyLoading && historyRows.length === 0) {
-      return <LoadingState fullscreen label="Loading expense history..." />;
+      return <AdminLoadingState label="Loading expense history..." palette={palette} />;
     }
     return (
       <FlatList
@@ -1851,7 +1987,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <HistoryRow entry={item} palette={palette} />}
         ListHeaderComponent={<>{renderHeader()}{historyHeader()}</>}
-        ListEmptyComponent={<EmptyState title="No expense history" description="Shop entries will appear here after they record expenses." />}
+        ListEmptyComponent={<AdminEmptyState title="No expense history" description="Shop entries will appear here after they record expenses." palette={palette} />}
         ListFooterComponent={historyLoadingMore ? <ActivityIndicator color={palette.cash} style={styles.footerLoader} /> : null}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} tintColor={palette.cash} />}
         onEndReached={loadMoreHistory}
@@ -1863,14 +1999,14 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
+      <StatusBar style="light" />
+      <View style={[styles.topBar, { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder }]}>
         <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text style={[styles.title, { color: palette.textPrimary }]}>Expenses</Text>
-          <Text style={[styles.subtitle, { color: palette.textMuted }]}>Standalone branch expense control</Text>
+          <Text style={[styles.title, { color: palette.onShell }]}>Expenses</Text>
+          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>Standalone branch expense control</Text>
         </View>
         <AdminHeaderActions refreshing={refreshing} onRefresh={refreshCurrentTab} />
       </View>
@@ -1939,8 +2075,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.modalScrollContent}
               >
-              <TextField label="Name" value={nameDraft} onChangeText={setNameDraft} placeholder="Example: Transport" />
-              <TextField label="Tamil name" value={tamilNameDraft} onChangeText={setTamilNameDraft} placeholder="தமிழ் பெயர்" />
+              <AdminTextField label="Name" value={nameDraft} onChangeText={setNameDraft} placeholder="Example: Transport" palette={palette} />
+              <AdminTextField label="Tamil name" value={tamilNameDraft} onChangeText={setTamilNameDraft} placeholder="தமிழ் பெயர்" palette={palette} />
               <View style={[styles.imagePanel, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
                 <ItemThumbnail
                   uri={currentImageUri}
@@ -2006,12 +2142,13 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
               </Pressable>
               </ScrollView>
               <View style={styles.modalActions}>
-                <Button label="Cancel" variant="secondary" onPress={closeEditor} disabled={savingItem} className="flex-1" />
-                <Button
+                <AdminButton label="Cancel" variant="secondary" palette={palette} onPress={closeEditor} disabled={savingItem} style={styles.flex} />
+                <AdminButton
                   label={editingItem ? "Save changes" : "Create item"}
+                  palette={palette}
                   onPress={saveExpenseItem}
                   loading={savingItem}
-                  className="flex-1"
+                  style={styles.flex}
                 />
               </View>
             </View>
@@ -2025,6 +2162,91 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  flex: {
+    flex: 1,
+  },
+  adminButton: {
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adminButtonText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  adminEmptyCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+    alignItems: "center",
+    gap: 10,
+  },
+  adminEmptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adminEmptyTitle: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  adminEmptyText: {
+    maxWidth: 320,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  adminLoadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  adminLoadingIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  adminLoadingText: {
+    marginTop: 14,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  adminField: {
+    gap: 8,
+  },
+  adminFieldLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  adminFieldInput: {
+    minHeight: 50,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontWeight: "800",
   },
   topBar: {
     minHeight: 62,

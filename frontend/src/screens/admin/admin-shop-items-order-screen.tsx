@@ -129,8 +129,8 @@ function ActionButton({
       borderRadius={10}
       paddingHorizontal={12}
       borderWidth={1}
-      borderColor={palette.items}
-      backgroundColor={disabled ? palette.card : palette.items}
+      borderColor={disabled ? palette.shellBorder : palette.items}
+      backgroundColor={disabled ? palette.shellControl : palette.items}
       opacity={disabled ? 0.55 : 1}
       pressStyle={{ opacity: 0.9, scale: 0.99 }}
     >
@@ -141,11 +141,11 @@ function ActionButton({
           <MaterialCommunityIcons
             name={icon}
             size={17}
-            color={disabled ? palette.textMuted : palette.onPrimary}
+            color={disabled ? palette.onShellMuted : palette.onPrimary}
           />
           <Text
             numberOfLines={1}
-            style={[styles.actionButtonText, { color: disabled ? palette.textMuted : palette.onPrimary }]}
+            style={[styles.actionButtonText, { color: disabled ? palette.onShellMuted : palette.onPrimary }]}
           >
             {label}
           </Text>
@@ -284,16 +284,21 @@ export function AdminShopItemsOrderScreen({
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border, paddingTop: Math.max(insets.top - 8, 0) }]}>
+      <StatusBar style="light" />
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder, paddingTop: Math.max(insets.top - 8, 0) },
+        ]}
+      >
         <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text numberOfLines={1} style={[styles.title, { color: palette.textPrimary }]}>
+          <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
             Arrange order
           </Text>
-          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.textMuted }]}>
+          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
             {(shopName || "Selected shop")} · {itemCount} items
           </Text>
         </View>

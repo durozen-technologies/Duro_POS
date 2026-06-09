@@ -31,6 +31,7 @@ import {
   ItemRead,
   ItemScope,
   ItemSalesSummary,
+  OverallReportRead,
   PaymentSplitSummary,
   PriceStatus,
   ShopBootstrapResponse,
@@ -68,13 +69,14 @@ export type InventoryItemMetadataPayload = {
   is_active: boolean;
   sort_order: number;
   category_ids: UUID[];
+  billing_item_ids: UUID[];
 };
 
 export type AnalyticsDateRange = {
   startDate?: string | null;
   endDate?: string | null;
 };
-export type AdminReportSection = "sales" | "billing" | "items" | "inventory" | "assumptions" | "over_report";
+export type AdminReportSection = "sales" | "billing" | "items" | "inventory" | "over_report";
 export type AdminReportDetailLevel = "summary" | "full";
 export type DownloadAdminReportPdfParams = {
   sections: AdminReportSection[];
@@ -84,6 +86,7 @@ export type DownloadAdminReportPdfParams = {
   range?: AnalyticsDateRange;
   shopIds?: UUID[];
 };
+export type FetchOverallReportParams = Omit<DownloadAdminReportPdfParams, "sections">;
 export type DownloadAdminReportPdfResult = {
   uri: string;
   filename: string;
@@ -277,9 +280,7 @@ export async function fetchAdminBillDetails(billIds: UUID[]) {
   return data;
 }
 
-function buildAdminReportQuery(params: DownloadAdminReportPdfParams) {
-  const query = new URLSearchParams();
-  params.sections.forEach((section) => query.append("sections", section));
+function appendAdminReportFilterQuery(query: URLSearchParams, params: FetchOverallReportParams) {
   query.set("detail_level", params.detailLevel ?? "summary");
   query.set("period", params.period);
   if (params.referenceDate) {
@@ -292,6 +293,18 @@ function buildAdminReportQuery(params: DownloadAdminReportPdfParams) {
     query.set("range_end_date", params.range.endDate);
   }
   params.shopIds?.forEach((shopId) => query.append("shop_ids", shopId));
+}
+
+function buildAdminReportQuery(params: DownloadAdminReportPdfParams) {
+  const query = new URLSearchParams();
+  params.sections.forEach((section) => query.append("sections", section));
+  appendAdminReportFilterQuery(query, params);
+  return query.toString();
+}
+
+function buildOverallReportQuery(params: FetchOverallReportParams) {
+  const query = new URLSearchParams();
+  appendAdminReportFilterQuery(query, params);
   return query.toString();
 }
 
@@ -360,6 +373,17 @@ export async function downloadAdminReportPdf(
     throw new Error(`Report download could not reach backend API.${attemptedMessage} ${lastNetworkError.message}`);
   }
   throw new Error("Report download failed before the backend responded.");
+}
+
+export async function fetchAdminOverallReport(
+  params: FetchOverallReportParams,
+  options: ApiRequestOptions = {},
+) {
+  const query = buildOverallReportQuery(params);
+  const { data } = await apiClient.get<OverallReportRead>(`/api/v1/admin/reports/overall?${query}`, {
+    signal: options.signal,
+  });
+  return data;
 }
 
 export async function deleteShop(shopId: UUID) {

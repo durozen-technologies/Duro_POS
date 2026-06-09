@@ -224,16 +224,21 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border, paddingTop: Math.max(insets.top - 8, 0) }]}>
+      <StatusBar style="light" />
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder, paddingTop: Math.max(insets.top - 8, 0) },
+        ]}
+      >
         <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text numberOfLines={1} style={[styles.title, { color: palette.textPrimary }]}>
+          <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
             Categories
           </Text>
-          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.textMuted }]}>
+          <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
             Manage catalogue groups
           </Text>
         </View>

@@ -18,7 +18,6 @@ import {
   ItemAssumptionStatus,
   UnitType,
   type DailyPriceCreate,
-  type InventoryItemRead,
   type ItemAssumptionUpdate,
   type ItemPriceRead,
   type ShopItemCounts,
@@ -634,7 +633,7 @@ export function ShopItemsCategoryToolbar({
           accessibilityRole="button"
           accessibilityLabel="Filter shop items by category"
           accessibilityState={{ expanded: open }}
-          onPress={() => setOpen((current) => !current)}
+          onPress={() => setOpen(true)}
           style={[styles.categoryFilterButton, { borderColor: palette.border, backgroundColor: palette.card }]}
         >
           <MaterialCommunityIcons name="tag-outline" size={17} color={palette.textMuted} />
@@ -656,46 +655,57 @@ export function ShopItemsCategoryToolbar({
         />
       </XStack>
 
-      {open ? (
-        <View style={[styles.categoryMenu, { borderColor: palette.border, backgroundColor: palette.card }]}>
-          <ScrollView
-            style={styles.categoryMenuScroll}
-            contentContainerStyle={styles.categoryMenuContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {options.map((option) => {
-              const selected = option.key === selectedKey;
-              return (
-                <Pressable
-                  key={option.key}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => {
-                    onSelectCategory(option.key);
-                    setOpen(false);
-                  }}
-                  style={[
-                    styles.categoryMenuOption,
-                    {
-                      borderColor: selected ? palette.items : palette.border,
-                      backgroundColor: selected ? palette.itemsSoft : palette.surfaceMuted,
-                    },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name={selected ? "tag-check-outline" : "tag-outline"}
-                    size={17}
-                    color={selected ? palette.itemsStrong : palette.textMuted}
-                  />
-                  <Text numberOfLines={1} style={[styles.categoryMenuText, { color: palette.textPrimary }]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View style={[styles.modalOverlay, styles.centeredModalOverlay, { backgroundColor: palette.overlay }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
+          <View style={[styles.categorySheet, { backgroundColor: palette.card, borderColor: palette.border }]}>
+            <XStack alignItems="center" justifyContent="space-between" gap={10}>
+              <YStack flex={1} minWidth={0}>
+                <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Select category</Text>
+              </YStack>
+              <Pressable accessibilityRole="button" onPress={() => setOpen(false)} style={styles.iconButton}>
+                <MaterialCommunityIcons name="close" size={20} color={palette.textPrimary} />
+              </Pressable>
+            </XStack>
+            <ScrollView
+              style={styles.categoryMenuScroll}
+              contentContainerStyle={styles.categoryMenuContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {options.map((option) => {
+                const selected = option.key === selectedKey;
+                return (
+                  <Pressable
+                    key={option.key}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      onSelectCategory(option.key);
+                      setOpen(false);
+                    }}
+                    style={[
+                      styles.categoryMenuOption,
+                      {
+                        borderColor: selected ? palette.items : palette.border,
+                        backgroundColor: selected ? palette.itemsSoft : palette.surfaceMuted,
+                      },
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name={selected ? "tag-check-outline" : "tag-outline"}
+                      size={17}
+                      color={selected ? palette.itemsStrong : palette.textMuted}
+                    />
+                    <Text numberOfLines={1} style={[styles.categoryMenuText, { color: palette.textPrimary }]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
         </View>
-      ) : null}
+      </Modal>
     </YStack>
   );
 }
@@ -962,7 +972,11 @@ function isValidAssumptionPercent(value: string) {
 
 function getAssumptionStatus(item: ShopItemRead) {
   return item.assumption_status ?? (
-    item.base_unit === BaseUnit.KG ? ItemAssumptionStatus.NotSet : ItemAssumptionStatus.NotApplicable
+    item.base_unit === BaseUnit.KG
+      ? item.assumption_percent
+        ? ItemAssumptionStatus.Configured
+        : ItemAssumptionStatus.NotSet
+      : ItemAssumptionStatus.NotApplicable
   );
 }
 
@@ -985,43 +999,26 @@ function getDraftValue<TValue>(
 
 function AssumptionRow({
   item,
-  inventoryItems,
   draft,
   saving,
-  inventoryLoading,
   palette,
   onChangeDraft,
   onSaveRow,
   onClearRow,
 }: {
   item: ShopItemRead;
-  inventoryItems: InventoryItemRead[];
   draft?: AssumptionDraft;
   saving: boolean;
-  inventoryLoading: boolean;
   palette: ThemePalette;
   onChangeDraft: (item: ShopItemRead, patch: AssumptionDraft) => void;
   onSaveRow: (item: ShopItemRead, payload: ItemAssumptionUpdate) => void;
   onClearRow: (item: ShopItemRead) => void;
 }) {
-  const [openPicker, setOpenPicker] = useState<"inventory" | "category" | null>(null);
   const imageUri = getItemThumbnailUri(item);
   const status = getAssumptionStatus(item);
   const editable = item.base_unit === BaseUnit.KG;
   const percent = getDraftValue(draft, "assumption_percent", item.assumption_percent ?? "") ?? "";
-  const inventoryItemId = getDraftValue(
-    draft,
-    "assumption_inventory_item_id",
-    item.assumption_inventory_item_id ?? null,
-  ) ?? null;
-  const categoryId = getDraftValue(
-    draft,
-    "assumption_inventory_category_id",
-    item.assumption_inventory_category_id ?? null,
-  ) ?? null;
-  const selectedInventoryItem = inventoryItems.find((inventoryItem) => inventoryItem.id === inventoryItemId) ?? null;
-  const selectedCategory = selectedInventoryItem?.categories.find((category) => category.id === categoryId) ?? null;
-  const valid = editable && isValidAssumptionPercent(percent) && Boolean(inventoryItemId && categoryId);
+  const valid = editable && isValidAssumptionPercent(percent);
   const dirty = Boolean(draft);
   const canClear = editable && Boolean(
     item.assumption_percent || item.assumption_inventory_item_id || item.assumption_inventory_category_id || dirty,
@@ -1033,17 +1030,6 @@ function AssumptionRow({
       : status === ItemAssumptionStatus.NotSet
         ? { fg: palette.textMuted, bg: palette.surfaceMuted }
         : { fg: palette.textMuted, bg: palette.surfaceMuted };
-
-  const changeInventoryItem = (inventoryItem: InventoryItemRead) => {
-    const nextCategoryId = inventoryItem.categories.some((category) => category.id === categoryId)
-      ? categoryId
-      : null;
-    onChangeDraft(item, {
-      assumption_inventory_item_id: inventoryItem.id,
-      assumption_inventory_category_id: nextCategoryId,
-    });
-    setOpenPicker(null);
-  };
 
   return (
     <View style={[styles.assumptionRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
@@ -1100,96 +1086,6 @@ function AssumptionRow({
           <Text style={[styles.assumptionPercentMark, { color: palette.textMuted }]}>%</Text>
         </View>
 
-        <View style={styles.assumptionSelectorRow}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={!editable || saving || inventoryLoading}
-            onPress={() => setOpenPicker((current) => current === "inventory" ? null : "inventory")}
-            style={[
-              styles.assumptionSelector,
-              { borderColor: palette.border, backgroundColor: editable ? palette.surfaceMuted : palette.background },
-            ]}
-          >
-            <Text numberOfLines={1} style={[styles.assumptionSelectorText, { color: selectedInventoryItem ? palette.textPrimary : palette.textMuted }]}>
-              {selectedInventoryItem?.name ?? (inventoryLoading ? "Loading items" : "Inventory item")}
-            </Text>
-            <MaterialCommunityIcons name={openPicker === "inventory" ? "chevron-up" : "chevron-down"} size={16} color={palette.textMuted} />
-          </Pressable>
-
-          <Pressable
-            accessibilityRole="button"
-            disabled={!editable || saving || !selectedInventoryItem}
-            onPress={() => setOpenPicker((current) => current === "category" ? null : "category")}
-            style={[
-              styles.assumptionSelector,
-              { borderColor: palette.border, backgroundColor: editable ? palette.surfaceMuted : palette.background },
-            ]}
-          >
-            <Text numberOfLines={1} style={[styles.assumptionSelectorText, { color: selectedCategory ? palette.textPrimary : palette.textMuted }]}>
-              {selectedCategory?.name ?? "Category"}
-            </Text>
-            <MaterialCommunityIcons name={openPicker === "category" ? "chevron-up" : "chevron-down"} size={16} color={palette.textMuted} />
-          </Pressable>
-        </View>
-
-        {openPicker === "inventory" ? (
-          <View style={[styles.assumptionMenu, { borderColor: palette.border, backgroundColor: palette.card }]}>
-            <ScrollView style={styles.assumptionMenuScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-              {inventoryItems.length === 0 ? (
-                <Text style={[styles.assumptionMenuEmpty, { color: palette.textMuted }]}>No kg inventory items</Text>
-              ) : inventoryItems.map((inventoryItem) => (
-                <Pressable
-                  key={inventoryItem.id}
-                  accessibilityRole="button"
-                  onPress={() => changeInventoryItem(inventoryItem)}
-                  style={[
-                    styles.assumptionMenuOption,
-                    {
-                      backgroundColor: inventoryItem.id === inventoryItemId ? palette.itemsSoft : "transparent",
-                    },
-                  ]}
-                >
-                  <Text numberOfLines={1} style={[styles.assumptionMenuText, { color: palette.textPrimary }]}>
-                    {inventoryItem.name}
-                  </Text>
-                  <Text numberOfLines={1} style={[styles.assumptionMenuSubtext, { color: palette.textMuted }]}>
-                    {inventoryItem.categories.map((category) => category.name).join(", ") || "No categories"}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-
-        {openPicker === "category" ? (
-          <View style={[styles.assumptionMenu, { borderColor: palette.border, backgroundColor: palette.card }]}>
-            <ScrollView style={styles.assumptionMenuScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-              {!selectedInventoryItem || selectedInventoryItem.categories.length === 0 ? (
-                <Text style={[styles.assumptionMenuEmpty, { color: palette.textMuted }]}>No linked categories</Text>
-              ) : selectedInventoryItem.categories.map((category) => (
-                <Pressable
-                  key={category.id}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    onChangeDraft(item, { assumption_inventory_category_id: category.id });
-                    setOpenPicker(null);
-                  }}
-                  style={[
-                    styles.assumptionMenuOption,
-                    {
-                      backgroundColor: category.id === categoryId ? palette.itemsSoft : "transparent",
-                    },
-                  ]}
-                >
-                  <Text numberOfLines={1} style={[styles.assumptionMenuText, { color: palette.textPrimary }]}>
-                    {category.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-
         <View style={styles.assumptionActionRow}>
           <ActionButton
             label="Clear"
@@ -1210,8 +1106,6 @@ function AssumptionRow({
             loading={saving}
             onPress={() => onSaveRow(item, {
               assumption_percent: percent.trim(),
-              assumption_inventory_item_id: inventoryItemId,
-              assumption_inventory_category_id: categoryId,
             })}
           />
         </View>
@@ -1222,10 +1116,8 @@ function AssumptionRow({
 
 export function AssumptionGrid({
   items,
-  inventoryItems,
   loading,
   refreshing,
-  inventoryLoading,
   drafts,
   savingItemId,
   error,
@@ -1237,10 +1129,8 @@ export function AssumptionGrid({
   onClearRow,
 }: {
   items: ShopItemRead[];
-  inventoryItems: InventoryItemRead[];
   loading: boolean;
   refreshing: boolean;
-  inventoryLoading: boolean;
   drafts: Record<UUID, AssumptionDraft>;
   savingItemId: UUID | null;
   error: string | null;
@@ -1251,10 +1141,6 @@ export function AssumptionGrid({
   onSaveRow: (item: ShopItemRead, payload: ItemAssumptionUpdate) => void;
   onClearRow: (item: ShopItemRead) => void;
 }) {
-  const kgInventoryItems = useMemo(
-    () => inventoryItems.filter((item) => item.base_unit === BaseUnit.KG && item.is_active),
-    [inventoryItems],
-  );
   const summary = useMemo(() => {
     const configured = items.filter((item) => getAssumptionStatus(item) === ItemAssumptionStatus.Configured).length;
     const incomplete = items.filter((item) => getAssumptionStatus(item) === ItemAssumptionStatus.Incomplete).length;
@@ -1264,16 +1150,14 @@ export function AssumptionGrid({
   const renderAssumptionRow = useCallback(({ item }: { item: ShopItemRead }) => (
     <AssumptionRow
       item={item}
-      inventoryItems={kgInventoryItems}
       draft={drafts[item.id]}
       saving={savingItemId === item.id}
-      inventoryLoading={inventoryLoading}
       palette={palette}
       onChangeDraft={onChangeDraft}
       onSaveRow={onSaveRow}
       onClearRow={onClearRow}
     />
-  ), [drafts, inventoryLoading, kgInventoryItems, onChangeDraft, onClearRow, onSaveRow, palette, savingItemId]);
+  ), [drafts, onChangeDraft, onClearRow, onSaveRow, palette, savingItemId]);
 
   return (
     <FlatList
@@ -1299,10 +1183,9 @@ export function AssumptionGrid({
                   Assumption
                 </Text>
                 <Text numberOfLines={1} style={[styles.sectionSubtitle, { color: palette.textMuted }]}>
-                  {inventoryLoading ? "Loading inventory mappings..." : summary}
+                  {summary}
                 </Text>
               </YStack>
-              {inventoryLoading ? <Spinner color={palette.items} /> : null}
             </XStack>
           </View>
         </YStack>
@@ -2003,6 +1886,15 @@ const styles = StyleSheet.create({
     gap: 12,
     ...adminShadow("#000000", 0.22, 18, 18),
   },
+  categorySheet: {
+    width: "100%",
+    maxHeight: "82%",
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+    gap: 12,
+    ...adminShadow("#000000", 0.22, 18, 18),
+  },
   actionSheet: {
     borderWidth: 1,
     borderRadius: 18,
@@ -2133,14 +2025,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "900",
   },
-  categoryMenu: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 8,
-  },
   categoryMenuScroll: {
     flexGrow: 0,
-    maxHeight: 230,
+    maxHeight: 360,
   },
   categoryMenuContent: {
     gap: 7,
@@ -2487,60 +2374,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 16,
     fontWeight: "900",
-  },
-  assumptionSelectorRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  assumptionSelector: {
-    minHeight: 42,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  assumptionSelectorText: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "900",
-  },
-  assumptionMenu: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 6,
-  },
-  assumptionMenuScroll: {
-    maxHeight: 184,
-  },
-  assumptionMenuOption: {
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    gap: 2,
-  },
-  assumptionMenuText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "900",
-  },
-  assumptionMenuSubtext: {
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: "700",
-  },
-  assumptionMenuEmpty: {
-    padding: 12,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-    textAlign: "center",
   },
   assumptionActionRow: {
     flexDirection: "row",

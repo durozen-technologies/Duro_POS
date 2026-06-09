@@ -673,8 +673,8 @@ export const BottomNav = memo(function BottomNav({
         styles.bottomNavWrap,
         adminShadow(palette.shadow, 0.14, 20, 28),
         {
-          backgroundColor: palette.navBackdrop,
-          borderColor: palette.glassBorder,
+          backgroundColor: palette.shell,
+          borderColor: palette.shellBorder,
           bottom: bottomOffset + 8,
         },
       ]}
@@ -706,7 +706,7 @@ export const BottomNav = memo(function BottomNav({
             <MaterialCommunityIcons
               name={item.icon}
               size={active ? 21 : 20}
-              color={active ? navAccent.accent : palette.textMuted}
+              color={active ? navAccent.accent : palette.onShellMuted}
             />
             <Text
               numberOfLines={1}
@@ -714,7 +714,7 @@ export const BottomNav = memo(function BottomNav({
               minimumFontScale={0.78}
               style={[
                 styles.bottomNavLabel,
-                { color: active ? navAccent.accent : palette.textMuted },
+                { color: active ? navAccent.accent : palette.onShellMuted },
               ]}
             >
               {item.label}
@@ -744,20 +744,20 @@ export const TopAppBar = memo(function TopAppBar({
       style={[
         styles.topAppBar,
         adminShadow(palette.shadow, 0.04, 6, 10),
-        { paddingTop: topInset + 10, backgroundColor: palette.background, borderBottomColor: palette.border },
+        { paddingTop: topInset + 10, backgroundColor: palette.shell, borderBottomColor: palette.shellBorder },
       ]}
     >
       {/* LEFT: Shop + Period stacked */}
       <View style={styles.topAppLeft}>
         <Pressable onPress={onShopPress} style={styles.topAppShopRow} accessibilityRole="button" accessibilityLabel="Switch branch">
           <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.primary} />
-          <Text style={[styles.topAppShopName, { color: palette.textPrimary }]} numberOfLines={1}>{shopName}</Text>
-          <MaterialCommunityIcons name="chevron-down" size={18} color={palette.textMuted} />
+          <Text style={[styles.topAppShopName, { color: palette.onShell }]} numberOfLines={1}>{shopName}</Text>
+          <MaterialCommunityIcons name="chevron-down" size={18} color={palette.onShellMuted} />
         </Pressable>
         <Pressable onPress={onPeriodPress} style={styles.topAppPeriodRow} accessibilityRole="button" accessibilityLabel="Change analytics period">
           <View style={[styles.liveDot, { backgroundColor: isOffline ? palette.gold : palette.success }]} />
-          <Text style={[styles.topAppPeriodText, { color: palette.textMuted }]}>{periodLabel}</Text>
-          <MaterialCommunityIcons name="chevron-down" size={14} color={palette.textMuted} />
+          <Text style={[styles.topAppPeriodText, { color: palette.onShellMuted }]}>{periodLabel}</Text>
+          <MaterialCommunityIcons name="chevron-down" size={14} color={palette.onShellMuted} />
         </Pressable>
       </View>
 
@@ -765,22 +765,22 @@ export const TopAppBar = memo(function TopAppBar({
       <View style={styles.topAppActions}>
         <Pressable
           onPress={onRefresh}
-          style={[styles.topAppIconBtn, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
+          style={[styles.topAppIconBtn, { backgroundColor: palette.shellControl, borderColor: palette.shellBorder }]}
           accessibilityRole="button"
           accessibilityLabel="Refresh"
         >
-          <MaterialCommunityIcons name="refresh" size={19} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="refresh" size={19} color={palette.onShell} />
         </Pressable>
         <Pressable
           onPress={onThemeToggle}
-          style={[styles.topAppIconBtn, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
+          style={[styles.topAppIconBtn, { backgroundColor: palette.shellControl, borderColor: palette.shellBorder }]}
           accessibilityRole="button"
           accessibilityLabel={isDark ? "Switch to light mode" : "Switch to dark mode"}
         >
           <MaterialCommunityIcons
             name={isDark ? "white-balance-sunny" : "weather-night"}
             size={19}
-            color={palette.textPrimary}
+            color={palette.onShell}
           />
         </Pressable>
       </View>

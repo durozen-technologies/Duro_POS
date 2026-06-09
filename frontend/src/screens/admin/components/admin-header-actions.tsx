@@ -34,16 +34,16 @@ export function AdminHeaderActions({
         style={({ pressed }) => [
           styles.iconButton,
           {
-            backgroundColor: palette.surfaceMuted,
-            borderColor: palette.border,
+            backgroundColor: palette.shellControl,
+            borderColor: palette.shellBorder,
             opacity: refreshUnavailable ? 0.62 : pressed ? 0.78 : 1,
           },
         ]}
       >
         {refreshing ? (
-          <ActivityIndicator size="small" color={palette.primary} />
+          <ActivityIndicator size="small" color={palette.onShell} />
         ) : (
-          <MaterialCommunityIcons name="refresh" size={19} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="refresh" size={19} color={palette.onShell} />
         )}
       </Pressable>
 
@@ -57,13 +57,13 @@ export function AdminHeaderActions({
         style={({ pressed }) => [
           styles.iconButton,
           {
-            backgroundColor: palette.surfaceMuted,
-            borderColor: palette.border,
+            backgroundColor: palette.shellControl,
+            borderColor: palette.shellBorder,
             opacity: pressed ? 0.78 : 1,
           },
         ]}
       >
-        <MaterialCommunityIcons name={themeIcon} size={19} color={palette.textPrimary} />
+        <MaterialCommunityIcons name={themeIcon} size={19} color={palette.onShell} />
       </Pressable>
     </View>
   );

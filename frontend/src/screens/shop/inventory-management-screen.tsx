@@ -20,6 +20,7 @@ import {
   addShopInventoryStock,
   fetchShopInventoryRows,
   fetchShopInventoryMovements,
+  useShopInventoryStock,
   useShopInventoryStockSplit,
 } from "@/api/inventory";
 import { toApiError } from "@/api/client";
@@ -349,9 +350,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     const withinAvailable = total
       ? total.toDecimalPlaces(3).lessThanOrEqualTo(money(selectedItem.available_quantity).toDecimalPlaces(3))
       : false;
+    const hasCategories = selectedItem.category_usage.length > 0;
     const hasValidSplit =
       !hasInvalidSplit &&
-      selectedItem.category_usage.length > 0 &&
+      hasCategories &&
       splitTotal.greaterThan(0) &&
       splitMatchesTotal;
     return {
@@ -360,7 +362,9 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       hasValidTotal,
       hasValidSplit,
       splitMatchesTotal,
-      canSave: mode === InventoryMovementType.ADD ? hasValidTotal : hasValidSplit && withinAvailable,
+      canSave: mode === InventoryMovementType.ADD
+        ? hasValidTotal
+        : (hasCategories ? hasValidSplit : hasValidTotal) && withinAvailable,
     };
   }, [categoryQuantities, mode, quantity, selectedItem]);
 
@@ -380,7 +384,11 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       return;
     }
     if (mode === InventoryMovementType.USE && !splitState.canSave) {
-      Alert.alert(t("inventory.categoryRequiredTitle"), t("inventory.categoryRequiredMessage"));
+      if (selectedItem.category_usage.length > 0) {
+        Alert.alert(t("inventory.categoryRequiredTitle"), t("inventory.categoryRequiredMessage"));
+      } else {
+        Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidQuantityMessage"));
+      }
       return;
     }
     setSaving(true);
@@ -389,6 +397,15 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       let nextMovements: InventoryMovementRead[];
       if (mode === InventoryMovementType.ADD) {
         const result = await addShopInventoryStock(selectedItem.id, { quantity: rawQuantity });
+        changedItem = result.item;
+        nextMovements = [result.movement];
+        if (result.summary) {
+          setItems(visibleStockRows(result.summary.items));
+        } else {
+          setItems((currentItems) => patchInventoryRow(currentItems, changedItem));
+        }
+      } else if (selectedItem.category_usage.length === 0) {
+        const result = await useShopInventoryStock(selectedItem.id, { quantity: rawQuantity });
         changedItem = result.item;
         nextMovements = [result.movement];
         if (result.summary) {
@@ -477,7 +494,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
             label={t("inventory.useStock")}
             onPress={() => openMovement(item, InventoryMovementType.USE)}
             variant="secondary"
-            disabled={item.category_usage.length === 0}
+            disabled={money(item.available_quantity).lessThanOrEqualTo(0)}
             className="flex-1"
           />
         </View>
@@ -555,9 +572,9 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
               const isAdd = movement.movement_type === InventoryMovementType.ADD;
               const movementLabel = isAdd
                 ? t("inventory.movementAdded")
-                : t("inventory.movementUsedFor", {
-                    categoryName: movement.category_name ?? t("inventory.unknownCategory"),
-                  });
+                : movement.category_name
+                  ? t("inventory.movementUsedFor", { categoryName: movement.category_name })
+                  : t("inventory.used");
               return (
                 <Card key={movement.id} className="flex-row items-center gap-3">
                   <MaterialCommunityIcons
@@ -681,7 +698,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                     selectTextOnFocus
                     className={mode === InventoryMovementType.USE ? "text-center text-2xl font-extrabold" : undefined}
                   />
-                  {mode === InventoryMovementType.USE ? (
+                  {mode === InventoryMovementType.USE && selectedItem.category_usage.length > 0 ? (
                     <View className="gap-2">
                       <View className="flex-row items-center justify-between gap-3">
                         <Text className="text-[11px] font-semibold uppercase text-muted">{t("inventory.category")}</Text>

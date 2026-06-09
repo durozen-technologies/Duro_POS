@@ -46,6 +46,7 @@ from app.schemas.admin import (
     ItemSalesSummary,
     ItemScope,
     ItemUpdate,
+    OverallReportRead,
     PaymentSplitSummary,
     PriceStatus,
     ShopCreate,
@@ -201,7 +202,11 @@ from app.services.pricing import (
     get_shop_price_history,
     upsert_shop_daily_price,
 )
-from app.services.reports import generate_admin_report_pdf, iter_admin_report_file
+from app.services.reports import (
+    build_overall_report,
+    generate_admin_report_pdf,
+    iter_admin_report_file,
+)
 from app.services.storage import delete_item_image
 
 router = APIRouter(tags=["Admin"], dependencies=[Depends(require_roles(UserRole.ADMIN))])
@@ -2007,6 +2012,28 @@ async def admin_report_pdf(
         iter_admin_report_file(report.file),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{report.filename}"'},
+    )
+
+
+@router.get("/reports/overall", response_model=OverallReportRead, summary="Preview Overall Report")
+async def admin_overall_report(
+    detail_level: ReportDetailLevelParam = "summary",
+    period: AnalyticsPeriodParam = "date",
+    reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
+    shop_ids: ShopIdsParam = None,
+    db: DBSession = None,
+) -> OverallReportRead:
+    """Return the calculated Overall Report statement data for app preview."""
+    return await build_overall_report(
+        db,
+        detail_level=detail_level,
+        period=period,
+        reference_date=reference_date,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        shop_ids=shop_ids,
     )
 
 

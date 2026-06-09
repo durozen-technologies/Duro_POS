@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: I001
+
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
@@ -52,12 +54,13 @@ from app.services.billing import create_bill, preview_bill
 from app.services.inventory import (
     add_shop_inventory_stock,
     allocate_shop_inventory_items,
+    count_inventory_items,
     create_inventory_category,
     create_inventory_item as create_inventory_management_item,
     delete_inventory_category,
     delete_inventory_item as delete_inventory_management_item,
     get_inventory_summary,
-    count_inventory_items,
+    get_inventory_item,
     list_inventory_item_rows,
     list_inventory_items,
     list_inventory_movements,
@@ -73,7 +76,7 @@ from app.services.pricing import (
     get_global_bootstrap,
     get_shop_price_history,
 )
-from app.services.reports import generate_admin_report_pdf
+from app.services.reports import build_overall_report, generate_admin_report_pdf
 
 
 def _square_image_bytes(size: int = 400, image_format: str = "PNG") -> bytes:
@@ -182,8 +185,15 @@ class ServiceUnitTests(BackendTestCase):
                         assumption_inventory_item_id=inventory_item.id,
                         assumption_inventory_category_id=category.id,
                     )
-                with self.assertRaises(ValidationError):
-                    ItemAssumptionUpdate(assumption_percent=Decimal("78"))
+                percent_only = await update_item_assumption(
+                    db,
+                    chicken.id,
+                    ItemAssumptionUpdate(assumption_percent=Decimal("65")),
+                )
+                self.assertEqual(percent_only.assumption_percent, Decimal("65"))
+                self.assertIsNone(percent_only.assumption_inventory_item_id)
+                self.assertIsNone(percent_only.assumption_inventory_category_id)
+                self.assertEqual(percent_only.assumption_status, ItemAssumptionStatus.CONFIGURED)
 
                 with self.assertRaises(HTTPException) as count_ctx:
                     await update_item_assumption(
@@ -219,70 +229,11 @@ class ServiceUnitTests(BackendTestCase):
 
         self.run_async(scenario())
 
-    def test_admin_report_pdf_can_include_item_assumptions(self) -> None:
-        _actor, shop = self.run_async(self.harness.create_shop_user())
-        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
-
-        async def scenario() -> None:
-            with self.harness.session_factory() as session:
-                db = AsyncSessionAdapter(session)
-                category = await create_inventory_category(
-                    db,
-                    InventoryCategoryCreate(name="Kitchen Use"),
-                )
-                inventory_item = await create_inventory_management_item(
-                    db,
-                    InventoryItemCreate(
-                        name="Chicken Stock",
-                        tamil_name="கோழி இருப்பு",
-                        unit_type=UnitType.WEIGHT,
-                        base_unit=BaseUnit.KG,
-                        category_ids=[category.id],
-                    ),
-                )
-                chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
-                await update_item_assumption(
-                    db,
-                    chicken.id,
-                    ItemAssumptionUpdate(
-                        assumption_percent=Decimal("78"),
-                        assumption_inventory_item_id=inventory_item.id,
-                        assumption_inventory_category_id=category.id,
-                    ),
-                )
-                session.add(
-                    DailyPrice(
-                        shop_id=shop.id,
-                        item_id=chicken.id,
-                        price_per_unit=Decimal("120.00"),
-                        unit=chicken.base_unit,
-                        price_date=date.today(),
-                    )
-                )
-                session.commit()
-
-                report = await generate_admin_report_pdf(
-                    db,
-                    sections=["assumptions"],
-                    period="date",
-                )
-                try:
-                    data = report.file.read()
-                    self.assertGreater(len(data), 0)
-                    self.assertIn(b"Assumptions", data)
-                    self.assertIn(b"Chicken Stock", data)
-                    self.assertIn(b"Rs. 120.00", data)
-                    self.assertIn(b"Rs. 93.60", data)
-                finally:
-                    report.file.close()
-
-        self.run_async(scenario())
-
     def test_admin_report_pdf_can_include_over_report_statement(self) -> None:
         _actor, shop = self.run_async(
             self.harness.create_shop_user(shop_name="SK Nagar")
         )
-        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+        self.run_async(self.harness.create_catalogue_items(("Chicken", "Mutton", "Duck")))
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
@@ -291,10 +242,34 @@ class ServiceUnitTests(BackendTestCase):
                 chicken = session.scalar(
                     select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
                 )
+                mutton = session.scalar(
+                    select(Item).where(Item.name == "Mutton", Item.shop_id.is_(None))
+                )
+                duck = session.scalar(
+                    select(Item).where(Item.name == "Duck", Item.shop_id.is_(None))
+                )
+                quail = Item(
+                    name="Quail",
+                    tamil_name="காடை",
+                    unit_type=UnitType.COUNT,
+                    base_unit=BaseUnit.UNIT,
+                    sort_order=50,
+                    category="Quail",
+                    is_active=True,
+                )
+                session.add(quail)
+                session.flush()
                 await allocate_catalogue_item(db, current_shop, chicken.id)
+                await allocate_catalogue_item(db, current_shop, mutton.id)
+                await allocate_catalogue_item(db, current_shop, duck.id)
+                await allocate_catalogue_item(db, current_shop, quail.id)
                 category = await create_inventory_category(
                     db,
                     InventoryCategoryCreate(name="Chicken Without Skin"),
+                )
+                category_b = await create_inventory_category(
+                    db,
+                    InventoryCategoryCreate(name="Chicken With Skin"),
                 )
                 inventory_item = await create_inventory_management_item(
                     db,
@@ -303,24 +278,118 @@ class ServiceUnitTests(BackendTestCase):
                         tamil_name="கோழி இருப்பு",
                         unit_type=UnitType.WEIGHT,
                         base_unit=BaseUnit.KG,
-                        category_ids=[category.id],
+                        category_ids=[category.id, category_b.id],
+                        billing_item_ids=[chicken.id, mutton.id],
                     ),
                 )
-                await allocate_shop_inventory_items(db, current_shop, [inventory_item.id])
+                unit_inventory_item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Duck Stock",
+                        tamil_name="வாத்து இருப்பு",
+                        unit_type=UnitType.COUNT,
+                        base_unit=BaseUnit.UNIT,
+                        category_ids=[],
+                        billing_item_ids=[duck.id],
+                    ),
+                )
+                no_percent_unit_inventory_item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Quail Stock",
+                        tamil_name="காடை இருப்பு",
+                        unit_type=UnitType.COUNT,
+                        base_unit=BaseUnit.UNIT,
+                        category_ids=[],
+                        billing_item_ids=[quail.id],
+                    ),
+                )
+                unmapped_inventory_item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="No Mapping Stock",
+                        tamil_name="இணைப்பு இல்லை",
+                        unit_type=UnitType.COUNT,
+                        base_unit=BaseUnit.UNIT,
+                        category_ids=[],
+                        billing_item_ids=[],
+                    ),
+                )
+                await allocate_shop_inventory_items(
+                    db,
+                    current_shop,
+                    [
+                        inventory_item.id,
+                        unit_inventory_item.id,
+                        no_percent_unit_inventory_item.id,
+                        unmapped_inventory_item.id,
+                    ],
+                )
                 await add_shop_inventory_stock(
                     db,
                     current_shop,
                     inventory_item.id,
                     InventoryAddRequest(quantity=Decimal("20")),
                 )
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    unit_inventory_item.id,
+                    InventoryAddRequest(quantity=Decimal("12")),
+                )
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    no_percent_unit_inventory_item.id,
+                    InventoryAddRequest(quantity=Decimal("6")),
+                )
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    unmapped_inventory_item.id,
+                    InventoryAddRequest(quantity=Decimal("5")),
+                )
                 await update_item_assumption(
                     db,
                     chicken.id,
-                    ItemAssumptionUpdate(
-                        assumption_percent=Decimal("78"),
-                        assumption_inventory_item_id=inventory_item.id,
-                        assumption_inventory_category_id=category.id,
+                    ItemAssumptionUpdate(assumption_percent=Decimal("78")),
+                )
+                await update_item_assumption(
+                    db,
+                    mutton.id,
+                    ItemAssumptionUpdate(assumption_percent=Decimal("50")),
+                )
+                duck.assumption_percent = Decimal("25")
+                session.flush()
+                await use_shop_inventory_stock_split(
+                    db,
+                    current_shop,
+                    inventory_item.id,
+                    InventoryUseSplitRequest(
+                        total_quantity=Decimal("15"),
+                        categories=[
+                            InventoryUseSplitLine(
+                                category_id=category.id,
+                                quantity=Decimal("10"),
+                            ),
+                            InventoryUseSplitLine(
+                                category_id=category_b.id,
+                                quantity=Decimal("5"),
+                            ),
+                        ],
                     ),
+                )
+                await use_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    unit_inventory_item.id,
+                    InventoryUseRequest(quantity=Decimal("4")),
+                )
+                await use_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    no_percent_unit_inventory_item.id,
+                    InventoryUseRequest(quantity=Decimal("2")),
                 )
                 await create_daily_prices(
                     db,
@@ -330,14 +399,31 @@ class ServiceUnitTests(BackendTestCase):
                             DailyPriceEntry(
                                 item_id=chicken.id,
                                 price_per_unit=Decimal("120.00"),
-                            )
+                            ),
+                            DailyPriceEntry(
+                                item_id=mutton.id,
+                                price_per_unit=Decimal("100.00"),
+                            ),
+                            DailyPriceEntry(
+                                item_id=duck.id,
+                                price_per_unit=Decimal("25.00"),
+                            ),
+                            DailyPriceEntry(
+                                item_id=quail.id,
+                                price_per_unit=Decimal("30.00"),
+                            ),
                         ]
                     ),
                 )
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("10"))],
+                    items=[
+                        BillItemInput(item_id=chicken.id, quantity=Decimal("10")),
+                        BillItemInput(item_id=mutton.id, quantity=Decimal("5")),
+                        BillItemInput(item_id=duck.id, quantity=Decimal("3")),
+                        BillItemInput(item_id=quail.id, quantity=Decimal("2")),
+                    ],
                     payment=CheckoutPaymentInput(
-                        cash_amount=Decimal("1200.00"),
+                        cash_amount=Decimal("1835.00"),
                         upi_amount=Decimal("0.00"),
                     ),
                 )
@@ -366,6 +452,52 @@ class ServiceUnitTests(BackendTestCase):
                 )
                 session.commit()
 
+                overall = await build_overall_report(
+                    db,
+                    detail_level="summary",
+                    period="date",
+                    shop_ids=[current_shop.id],
+                )
+                self.assertEqual(len(overall.statements), 1)
+                statement = overall.statements[0]
+                self.assertEqual(statement.sales_amount, Decimal("1835.00"))
+                self.assertEqual(statement.expense_amount, Decimal("100.00"))
+                self.assertEqual(statement.assumption_amount, Decimal("2179.000"))
+                self.assertEqual(statement.difference_amount, Decimal("-344.000"))
+                summaries_by_unit = {summary.unit: summary for summary in statement.unit_summaries}
+                self.assertEqual(summaries_by_unit[BaseUnit.KG].adding_stock, Decimal("20.000"))
+                self.assertEqual(summaries_by_unit[BaseUnit.KG].used_stock, Decimal("15.000"))
+                self.assertEqual(summaries_by_unit[BaseUnit.KG].sales_quantity, Decimal("15.000"))
+                self.assertEqual(summaries_by_unit[BaseUnit.KG].assumption_quantity, Decimal("19.200"))
+                self.assertEqual(summaries_by_unit[BaseUnit.UNIT].adding_stock, Decimal("23.000"))
+                self.assertEqual(summaries_by_unit[BaseUnit.UNIT].used_stock, Decimal("6.000"))
+                self.assertEqual(summaries_by_unit[BaseUnit.UNIT].sales_quantity, Decimal("5.000"))
+                self.assertEqual(summaries_by_unit[BaseUnit.UNIT].assumption_quantity, Decimal("1.000"))
+
+                items_by_name = {item.item_name: item for item in statement.inventory_items}
+                chicken_stock = items_by_name["Chicken Stock"]
+                breakdown_by_label = {
+                    row.label: row.quantity for row in chicken_stock.used_stock_breakdown
+                }
+                self.assertEqual(breakdown_by_label["Chicken Without Skin"], Decimal("10.000"))
+                self.assertEqual(breakdown_by_label["Chicken With Skin"], Decimal("5.000"))
+                self.assertEqual(chicken_stock.assumption_quantity, Decimal("19.200"))
+                self.assertEqual(chicken_stock.difference_amount, Decimal("-454.000"))
+                duck_stock = items_by_name["Duck Stock"]
+                self.assertEqual(duck_stock.unit, BaseUnit.UNIT)
+                self.assertEqual(duck_stock.sales_quantity, Decimal("3.000"))
+                self.assertEqual(duck_stock.assumption_quantity, Decimal("1.000"))
+                self.assertEqual(duck_stock.difference_amount, Decimal("50.000"))
+                self.assertEqual(duck_stock.used_stock_breakdown[0].label, "Used")
+                self.assertEqual(duck_stock.used_stock_breakdown[0].quantity, Decimal("4.000"))
+                self.assertEqual(len(duck_stock.billing_items), 1)
+                self.assertEqual(duck_stock.billing_items[0].assumption_percent, Decimal("25"))
+                quail_stock = items_by_name["Quail Stock"]
+                self.assertEqual(quail_stock.assumption_quantity, Decimal("0"))
+                self.assertEqual(quail_stock.difference_amount, Decimal("60.000"))
+                self.assertIsNone(quail_stock.billing_items[0].assumption_percent)
+                self.assertEqual(items_by_name["No Mapping Stock"].billing_items, [])
+
                 report = await generate_admin_report_pdf(
                     db,
                     sections=["over_report"],
@@ -374,15 +506,54 @@ class ServiceUnitTests(BackendTestCase):
                 try:
                     data = report.file.read()
                     self.assertGreater(len(data), 0)
-                    self.assertIn(b"Over Report", data)
                     self.assertIn(b"SRI MAHALAKSHMI BROILERS", data)
                     self.assertIn(b"SK NAGAR - BRANCH", data)
+                    self.assertIn(b"Inventory Item", data)
+                    self.assertIn(b"Used Stock", data)
+                    self.assertIn(b"Assumption Amount", data)
                     self.assertIn(b"Total Available Stock", data)
-                    self.assertIn(b"Rs. 1200.00", data)
-                    self.assertIn(b"Rs. 936.00", data)
-                    self.assertIn(b"Rs. 264.00", data)
+                    self.assertIn(b"Chicken", data)
+                    self.assertIn(b"Mutton", data)
+                    self.assertIn(b"Duck Stock", data)
+                    self.assertIn(b"Quail Stock", data)
+                    self.assertIn(b"No Mapping Stock", data)
+                    self.assertIn(b"Chicken With", data)
+                    self.assertIn(b"Chicken Without", data)
+                    self.assertIn(b"3 unit", data)
+                    self.assertIn(b"No mapped billing sales", data)
+                    self.assertIn(b"Rs. 1404.00", data)
+                    self.assertIn(b"Rs. 750.00", data)
+                    self.assertIn(b"Rs. 25.00", data)
+                    self.assertIn(b"Rs. 60.00", data)
+                    self.assertIn(b"Rs. -204.00", data)
+                    self.assertIn(b"Rs. -250.00", data)
                 finally:
                     report.file.close()
+
+                today = datetime.now(UTC).date()
+                tomorrow = today + timedelta(days=1)
+                full_range_report = await generate_admin_report_pdf(
+                    db,
+                    sections=["over_report"],
+                    detail_level="full",
+                    period="range",
+                    range_start_date=today,
+                    range_end_date=tomorrow,
+                )
+                try:
+                    data = full_range_report.file.read()
+                    today_text = today.strftime("%d/%m/%Y")
+                    tomorrow_text = tomorrow.strftime("%d/%m/%Y")
+                    self.assertIn(
+                        f"Date: {today_text} To {today_text}".encode(),
+                        data,
+                    )
+                    self.assertIn(
+                        f"Date: {tomorrow_text} To {tomorrow_text}".encode(),
+                        data,
+                    )
+                finally:
+                    full_range_report.file.close()
 
         self.run_async(scenario())
 
@@ -628,6 +799,15 @@ class ServiceUnitTests(BackendTestCase):
                     )
                 self.assertEqual(wrong_category_ctx.exception.status_code, 422)
 
+                with self.assertRaises(HTTPException) as missing_category_ctx:
+                    await use_shop_inventory_stock(
+                        db,
+                        current_shop,
+                        item.id,
+                        InventoryUseRequest(quantity=Decimal("1")),
+                    )
+                self.assertEqual(missing_category_ctx.exception.status_code, 422)
+
                 with self.assertRaises(HTTPException) as overuse_ctx:
                     await use_shop_inventory_stock(
                         db,
@@ -640,6 +820,204 @@ class ServiceUnitTests(BackendTestCase):
                 with self.assertRaises(HTTPException) as delete_ctx:
                     await delete_inventory_management_item(db, item.id)
                 self.assertEqual(delete_ctx.exception.status_code, 409)
+
+        self.run_async(scenario())
+
+    def test_uncategorized_inventory_item_can_use_stock(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Loose Stock",
+                        tamil_name="தளர்ந்த சரக்கு",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        category_ids=[],
+                    ),
+                )
+                await allocate_shop_inventory_items(db, current_shop, [item.id])
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    InventoryAddRequest(quantity=Decimal("10")),
+                )
+
+                use_result = await use_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    InventoryUseRequest(quantity=Decimal("3")),
+                )
+
+                self.assertIsNone(use_result.movement.category_id)
+                self.assertIsNone(use_result.movement.category_name)
+                self.assertEqual(use_result.item.available_quantity, Decimal("7.000"))
+                self.assertEqual(use_result.item.used_quantity, Decimal("3.000"))
+                self.assertEqual(use_result.item.category_usage, [])
+
+                summary = await get_inventory_summary(db, current_shop)
+                stock_item = next(row for row in summary.items if row.id == item.id)
+                self.assertEqual(stock_item.available_quantity, Decimal("7.000"))
+                self.assertEqual(stock_item.used_quantity, Decimal("3.000"))
+                self.assertEqual(stock_item.category_usage, [])
+
+                with self.assertRaises(HTTPException) as overuse_ctx:
+                    await use_shop_inventory_stock(
+                        db,
+                        current_shop,
+                        item.id,
+                        InventoryUseRequest(quantity=Decimal("8")),
+                    )
+                self.assertEqual(overuse_ctx.exception.status_code, 409)
+
+        self.run_async(scenario())
+
+    def test_inventory_items_can_map_to_multiple_global_billing_items(
+        self,
+    ) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken", "Mutton")))
+        self.run_async(self.harness.create_items_for_shop(shop.id, ("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
+                )
+                mutton = session.scalar(
+                    select(Item).where(Item.name == "Mutton", Item.shop_id.is_(None))
+                )
+                shop_chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
+                )
+                egg_count = Item(
+                    name="Egg Count",
+                    tamil_name="முட்டை",
+                    unit_type=UnitType.COUNT,
+                    base_unit=BaseUnit.UNIT,
+                    sort_order=20,
+                    category="Eggs",
+                    is_active=True,
+                )
+                session.add(egg_count)
+                session.commit()
+                session.refresh(egg_count)
+
+                category_a = await create_inventory_category(
+                    db, InventoryCategoryCreate(name="Mapped Stock A")
+                )
+                category_b = await create_inventory_category(
+                    db, InventoryCategoryCreate(name="Mapped Stock B")
+                )
+                item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Mapped Chicken Stock",
+                        tamil_name="மேப் கோழி இருப்பு",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        billing_item_ids=[chicken.id, mutton.id],
+                        category_ids=[category_a.id, category_b.id],
+                    ),
+                )
+
+                self.assertEqual(set(item.billing_item_ids), {chicken.id, mutton.id})
+                self.assertEqual(
+                    {
+                        (billing_item.billing_item_name, billing_item.billing_item_tamil_name)
+                        for billing_item in item.billing_items
+                    },
+                    {("Chicken", chicken.tamil_name), ("Mutton", mutton.tamil_name)},
+                )
+                self.assertFalse(hasattr(item, "category_billing_mappings"))
+                self.assertEqual(set(item.category_ids), {category_a.id, category_b.id})
+
+                detail = await get_inventory_item(db, item.id)
+                self.assertEqual(set(detail.billing_item_ids), {chicken.id, mutton.id})
+                self.assertFalse(hasattr(detail, "category_billing_mappings"))
+
+                listed = await list_inventory_items(db, q="Mapped Chicken")
+                listed_item = next(row for row in listed if row.id == item.id)
+                self.assertEqual(set(listed_item.billing_item_ids), {chicken.id, mutton.id})
+                self.assertFalse(hasattr(listed_item, "category_billing_mappings"))
+
+                rows_page = await list_inventory_item_rows(db, q="Mapped Chicken", limit=10)
+                paged_item = next(row for row in rows_page.items if row.id == item.id)
+                self.assertEqual(set(paged_item.billing_item_ids), {chicken.id, mutton.id})
+
+                cleared = await update_inventory_management_item(
+                    db,
+                    item.id,
+                    InventoryItemUpdate(
+                        name=item.name,
+                        tamil_name=item.tamil_name,
+                        unit_type=item.unit_type,
+                        base_unit=item.base_unit,
+                        billing_item_ids=[],
+                        category_ids=item.category_ids,
+                    ),
+                )
+                self.assertEqual(cleared.billing_item_ids, [])
+                self.assertEqual(
+                    set(cleared.category_ids),
+                    {category_a.id, category_b.id},
+                )
+
+                remapped = await update_inventory_management_item(
+                    db,
+                    item.id,
+                    InventoryItemUpdate(
+                        name=item.name,
+                        tamil_name=item.tamil_name,
+                        unit_type=item.unit_type,
+                        base_unit=item.base_unit,
+                        billing_item_ids=[mutton.id],
+                        category_ids=item.category_ids,
+                    ),
+                )
+                self.assertEqual(remapped.billing_item_ids, [mutton.id])
+                self.assertEqual(
+                    {
+                        billing_item.billing_item_name
+                        for billing_item in remapped.billing_items
+                    },
+                    {"Mutton"},
+                )
+
+                with self.assertRaises(HTTPException) as shop_item_level_ctx:
+                    await create_inventory_management_item(
+                        db,
+                        InventoryItemCreate(
+                            name="Shop Item Level Mapping Stock",
+                            tamil_name="கடை பொருள் நேரடி இருப்பு",
+                            unit_type=UnitType.WEIGHT,
+                            base_unit=BaseUnit.KG,
+                            billing_item_ids=[shop_chicken.id],
+                            category_ids=[category_a.id],
+                        ),
+                    )
+                self.assertEqual(shop_item_level_ctx.exception.status_code, 422)
+
+                with self.assertRaises(HTTPException) as unit_item_level_ctx:
+                    await create_inventory_management_item(
+                        db,
+                        InventoryItemCreate(
+                            name="Wrong Unit Item Level Mapping Stock",
+                            tamil_name="தவறான அலகு நேரடி இருப்பு",
+                            unit_type=UnitType.WEIGHT,
+                            base_unit=BaseUnit.KG,
+                            billing_item_ids=[egg_count.id],
+                            category_ids=[category_a.id],
+                        ),
+                    )
+                self.assertEqual(unit_item_level_ctx.exception.status_code, 422)
 
         self.run_async(scenario())
 

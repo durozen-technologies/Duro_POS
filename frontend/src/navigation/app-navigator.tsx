@@ -84,6 +84,8 @@ const getAdminInventoryScreen = () =>
   require("@/screens/admin/admin-inventory-screen").AdminInventoryScreen;
 const getAdminReportsScreen = () =>
   require("@/screens/admin/admin-reports-screen").AdminReportsScreen;
+const getAdminOverallReportPreviewScreen = () =>
+  require("@/screens/admin/admin-overall-report-preview-screen").AdminOverallReportPreviewScreen;
 const getAdminExpensesScreen = () =>
   require("@/screens/admin/admin-expenses-screen").AdminExpensesScreen;
 const getAdminShopExpensesOrderScreen = () =>
@@ -379,6 +381,11 @@ function AdminStack() {
       <Stack.Screen
         name="AdminReports"
         getComponent={getAdminReportsScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="AdminOverallReportPreview"
+        getComponent={getAdminOverallReportPreviewScreen}
         options={HEADER_HIDDEN_OPTIONS}
       />
       <Stack.Screen

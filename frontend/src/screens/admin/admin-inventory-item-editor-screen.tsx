@@ -17,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import {
   createInventoryItemMetadata,
   deleteInventoryItemImage,
+  fetchCatalogueItemRows,
   fetchInventoryCategories,
   fetchInventoryItem,
   replaceInventoryItemImageFile,
@@ -30,6 +31,8 @@ import {
   UnitType,
   type InventoryCategoryRead,
   type InventoryItemRead,
+  type InventoryBillingItemMappingRead,
+  type ShopItemRead,
   type UUID,
 } from "@/types/api";
 import { getItemThumbnailUri } from "@/utils/item-images";
@@ -49,6 +52,7 @@ type InventoryEditorValues = {
   baseUnit: BaseUnit;
   sortOrder: string;
   isActive: boolean;
+  billingItemIds: Set<UUID>;
   categoryIds: Set<UUID>;
 };
 
@@ -59,6 +63,7 @@ const EMPTY_VALUES: InventoryEditorValues = {
   baseUnit: BaseUnit.KG,
   sortOrder: "0",
   isActive: true,
+  billingItemIds: new Set<UUID>(),
   categoryIds: new Set(),
 };
 
@@ -70,6 +75,7 @@ function valuesFromItem(item: InventoryItemRead): InventoryEditorValues {
     baseUnit: item.base_unit,
     sortOrder: String(item.sort_order ?? 0),
     isActive: item.is_active,
+    billingItemIds: new Set(item.billing_item_ids ?? []),
     categoryIds: new Set(item.category_ids),
   };
 }
@@ -82,8 +88,33 @@ function buildInventoryPayload(values: InventoryEditorValues): InventoryItemMeta
     base_unit: values.baseUnit,
     sort_order: Number(values.sortOrder.trim() || 0),
     is_active: values.isActive,
+    billing_item_ids: [...values.billingItemIds],
     category_ids: [...values.categoryIds],
   };
+}
+
+async function fetchAllActiveCatalogueItems() {
+  const items: ShopItemRead[] = [];
+  let cursorSortOrder: number | null | undefined = null;
+  let cursorName: string | null | undefined = null;
+  let cursorId: UUID | null | undefined = null;
+  do {
+    const page = await fetchCatalogueItemRows({
+      active: true,
+      limit: 100,
+      cursor_sort_order: cursorSortOrder,
+      cursor_name: cursorName,
+      cursor_id: cursorId,
+    });
+    items.push(...page.items);
+    cursorSortOrder = page.next_cursor_sort_order;
+    cursorName = page.next_cursor_name;
+    cursorId = page.next_cursor_id;
+    if (!page.has_more) {
+      break;
+    }
+  } while (cursorName && cursorId);
+  return items;
 }
 
 function imageDraftFromAsset(asset: ImagePicker.ImagePickerAsset): ImageDraft {
@@ -108,6 +139,7 @@ export function AdminInventoryItemEditorScreen({
   const savingRef = useRef(false);
 
   const [categories, setCategories] = useState<InventoryCategoryRead[]>([]);
+  const [billingItems, setBillingItems] = useState<ShopItemRead[]>([]);
   const [item, setItem] = useState<InventoryItemRead | null>(initialItem);
   const [values, setValues] = useState<InventoryEditorValues>(() =>
     initialItem ? valuesFromItem(initialItem) : EMPTY_VALUES,
@@ -118,13 +150,17 @@ export function AdminInventoryItemEditorScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [itemMappingOpen, setItemMappingOpen] = useState(false);
 
   const currentImageUri =
     imageDraft?.uri || (!removeImage && item ? getItemThumbnailUri(item) : "");
   const canRemoveImage = Boolean(imageDraft || item?.image_path || item?.image_thumb_path);
   const effectiveItemId = itemId ?? item?.id ?? null;
   const isEdit = Boolean(effectiveItemId);
-
+  const matchingBillingItems = useMemo(
+    () => billingItems.filter((billingItem) => billingItem.base_unit === values.baseUnit),
+    [billingItems, values.baseUnit],
+  );
   const loadEditorData = useCallback(async (refresh = false) => {
     if (refresh) {
       setRefreshing(true);
@@ -133,11 +169,13 @@ export function AdminInventoryItemEditorScreen({
     }
     setSaveError(null);
     try {
-      const [nextCategories, loadedItem] = await Promise.all([
+      const [nextCategories, nextBillingItems, loadedItem] = await Promise.all([
         fetchInventoryCategories(),
+        fetchAllActiveCatalogueItems(),
         itemId && !initialItem ? fetchInventoryItem(itemId) : Promise.resolve(initialItem),
       ]);
       setCategories(nextCategories);
+      setBillingItems(nextBillingItems);
       if (loadedItem) {
         setItem(loadedItem);
         setValues(valuesFromItem(loadedItem));
@@ -145,6 +183,7 @@ export function AdminInventoryItemEditorScreen({
         setItem(null);
         setValues(EMPTY_VALUES);
       }
+      setItemMappingOpen(false);
       setImageDraft(null);
       setRemoveImage(false);
     } catch (error) {
@@ -190,6 +229,22 @@ export function AdminInventoryItemEditorScreen({
       }
       return { ...current, categoryIds: next };
     });
+  }, []);
+
+  const toggleItemMappedBillingItem = useCallback((billingItemId: UUID) => {
+    setValues((current) => {
+      const nextIds = new Set(current.billingItemIds);
+      if (nextIds.has(billingItemId)) {
+        nextIds.delete(billingItemId);
+      } else {
+        nextIds.add(billingItemId);
+      }
+      return { ...current, billingItemIds: nextIds };
+    });
+  }, []);
+
+  const clearItemMappedBillingItems = useCallback(() => {
+    setValues((current) => ({ ...current, billingItemIds: new Set<UUID>() }));
   }, []);
 
   const removeOrUndoImage = useCallback(() => {
@@ -254,16 +309,21 @@ export function AdminInventoryItemEditorScreen({
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.topBar, { borderBottomColor: palette.border, paddingTop: Math.max(insets.top - 8, 0) }]}>
+      <StatusBar style="light" />
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder, paddingTop: Math.max(insets.top - 8, 0) },
+        ]}
+      >
         <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.textPrimary} />
+          <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text style={[styles.title, { color: palette.textPrimary }]}>
+          <Text style={[styles.title, { color: palette.onShell }]}>
             {isEdit ? "Edit inventory item" : "Add inventory item"}
           </Text>
-          <Text style={[styles.subtitle, { color: palette.textMuted }]}>Image, names, unit, and categories</Text>
+          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>Image, names, unit, and categories</Text>
         </View>
         <AdminHeaderActions
           refreshing={refreshing}
@@ -325,16 +385,47 @@ export function AdminInventoryItemEditorScreen({
                 icon="scale-balance"
                 palette={palette}
                 active={values.unitType === UnitType.WEIGHT}
-                onPress={() => setValues((current) => ({ ...current, unitType: UnitType.WEIGHT, baseUnit: BaseUnit.KG }))}
+                onPress={() =>
+                  setValues((current) => ({
+                    ...current,
+                    unitType: UnitType.WEIGHT,
+                    baseUnit: BaseUnit.KG,
+                    billingItemIds:
+                      current.baseUnit === BaseUnit.KG ? current.billingItemIds : new Set<UUID>(),
+                  }))
+                }
               />
               <ActionButton
                 label="Count"
                 icon="counter"
                 palette={palette}
                 active={values.unitType === UnitType.COUNT}
-                onPress={() => setValues((current) => ({ ...current, unitType: UnitType.COUNT, baseUnit: BaseUnit.UNIT }))}
+                onPress={() =>
+                  setValues((current) => ({
+                    ...current,
+                    unitType: UnitType.COUNT,
+                    baseUnit: BaseUnit.UNIT,
+                    billingItemIds:
+                      current.baseUnit === BaseUnit.UNIT ? current.billingItemIds : new Set<UUID>(),
+                  }))
+                }
               />
             </View>
+
+            <InventoryBillingMappingDropdown
+              label="Inventory item"
+              existingMappedItems={item?.billing_items ?? []}
+              open={itemMappingOpen}
+              options={matchingBillingItems}
+              palette={palette}
+              selectedIds={values.billingItemIds}
+              unit={values.baseUnit}
+              onClear={clearItemMappedBillingItems}
+              onToggle={() => {
+                setItemMappingOpen((current) => !current);
+              }}
+              onToggleItem={toggleItemMappedBillingItem}
+            />
 
             <View style={styles.categoryChips}>
               {categories.map((category) => {
@@ -373,6 +464,145 @@ export function AdminInventoryItemEditorScreen({
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function InventoryBillingMappingDropdown({
+  label,
+  existingMappedItems,
+  open,
+  options,
+  palette,
+  selectedIds,
+  unit,
+  onClear,
+  onToggle,
+  onToggleItem,
+}: {
+  label: string;
+  existingMappedItems: InventoryBillingItemMappingRead[];
+  open: boolean;
+  options: ShopItemRead[];
+  palette: ThemePalette;
+  selectedIds: Set<UUID>;
+  unit: BaseUnit;
+  onClear: () => void;
+  onToggle: () => void;
+  onToggleItem: (billingItemId: UUID) => void;
+}) {
+  const optionIds = new Set(options.map((option) => option.id));
+  const inactiveSelectedItems = existingMappedItems.filter(
+    (mappedItem) => selectedIds.has(mappedItem.billing_item_id) && !optionIds.has(mappedItem.billing_item_id),
+  );
+  const selectedCount = selectedIds.size;
+  return (
+    <View style={styles.dropdownWrap}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        style={[
+          styles.dropdownSelect,
+          {
+            borderColor: open ? palette.inventory : palette.border,
+            backgroundColor: palette.surfaceMuted,
+          },
+        ]}
+      >
+        <View style={[styles.dropdownIcon, { backgroundColor: palette.inventorySoft }]}>
+          <MaterialCommunityIcons name="link-variant" size={18} color={palette.inventory} />
+        </View>
+        <View style={styles.dropdownText}>
+          <Text style={[styles.dropdownLabel, { color: palette.textMuted }]}>{label}</Text>
+          <Text numberOfLines={1} style={[styles.dropdownValue, { color: palette.textPrimary }]}>
+            {selectedCount === 0 ? "No billing items" : `${selectedCount} billing item${selectedCount === 1 ? "" : "s"}`}
+          </Text>
+        </View>
+        <MaterialCommunityIcons name={open ? "chevron-up" : "chevron-down"} size={20} color={palette.textMuted} />
+      </Pressable>
+      {open ? (
+        <View style={[styles.dropdownMenu, { borderColor: palette.border, backgroundColor: palette.card }]}>
+          <Pressable
+            onPress={onClear}
+            style={[
+              styles.dropdownOption,
+              {
+                borderColor: selectedCount === 0 ? palette.inventory : palette.border,
+                backgroundColor: selectedCount === 0 ? palette.inventorySoft : palette.surfaceMuted,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={selectedCount === 0 ? "check-circle" : "close-circle-outline"}
+              size={16}
+              color={selectedCount === 0 ? palette.inventory : palette.textMuted}
+            />
+            <Text style={[styles.dropdownOptionText, { color: palette.textPrimary }]}>No mapped billing items</Text>
+          </Pressable>
+          {inactiveSelectedItems.map((billingItem) => (
+            <Pressable
+              key={billingItem.billing_item_id}
+              onPress={() => onToggleItem(billingItem.billing_item_id)}
+              style={[
+                styles.dropdownOption,
+                {
+                  borderColor: palette.inventory,
+                  backgroundColor: palette.inventorySoft,
+                },
+              ]}
+            >
+              <MaterialCommunityIcons name="check-circle" size={16} color={palette.inventory} />
+              <View style={styles.dropdownOptionTextWrap}>
+                <Text numberOfLines={1} style={[styles.dropdownOptionText, { color: palette.textPrimary }]}>
+                  {billingItem.billing_item_name}
+                </Text>
+                <Text numberOfLines={1} style={[styles.dropdownOptionSubtext, { color: palette.textMuted }]}>
+                  Existing mapping
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+          {options.length === 0 ? (
+            <Text style={[styles.dropdownEmpty, { color: palette.textMuted }]}>
+              No active {unit} billing items found.
+            </Text>
+          ) : (
+            options.map((billingItem) => {
+              const active = selectedIds.has(billingItem.id);
+              return (
+                <Pressable
+                  key={billingItem.id}
+                  onPress={() => onToggleItem(billingItem.id)}
+                  style={[
+                    styles.dropdownOption,
+                    {
+                      borderColor: active ? palette.inventory : palette.border,
+                      backgroundColor: active ? palette.inventorySoft : palette.surfaceMuted,
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name={active ? "check-circle" : "circle-outline"}
+                    size={16}
+                    color={active ? palette.inventory : palette.textMuted}
+                  />
+                  <View style={styles.dropdownOptionTextWrap}>
+                    <Text numberOfLines={1} style={[styles.dropdownOptionText, { color: palette.textPrimary }]}>
+                      {billingItem.name}
+                    </Text>
+                    {billingItem.tamil_name ? (
+                      <Text numberOfLines={1} style={[styles.dropdownOptionSubtext, { color: palette.textMuted }]}>
+                        {billingItem.tamil_name}
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -471,6 +701,18 @@ const styles = StyleSheet.create({
   field: { gap: 7 },
   fieldLabel: { fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0 },
   fieldInput: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontSize: 15, fontWeight: "800" },
+  dropdownWrap: { gap: 8 },
+  dropdownSelect: { minHeight: 58, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10 },
+  dropdownIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  dropdownText: { flex: 1, minWidth: 0, gap: 2 },
+  dropdownLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
+  dropdownValue: { fontSize: 15, fontWeight: "900", letterSpacing: 0 },
+  dropdownMenu: { borderWidth: 1, borderRadius: 12, padding: 6, gap: 4 },
+  dropdownOption: { minHeight: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 9 },
+  dropdownOptionTextWrap: { flex: 1, minWidth: 0, gap: 2 },
+  dropdownOptionText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "900", letterSpacing: 0 },
+  dropdownOptionSubtext: { fontSize: 11, fontWeight: "700", letterSpacing: 0 },
+  dropdownEmpty: { paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, fontWeight: "800", letterSpacing: 0 },
   categoryChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   categoryChip: { minHeight: 36, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 6 },
   chipText: { fontSize: 12, fontWeight: "900", letterSpacing: 0 },

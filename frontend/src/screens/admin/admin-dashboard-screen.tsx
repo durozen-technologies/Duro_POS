@@ -728,7 +728,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   if (!loading && shops.length === 0 && dashboardError) {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
-        <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+        <StatusBar style="light" />
         <View style={styles.emptyWrap}>
           <EmptyStateCard
             title="Unable to load admin dashboard"
@@ -745,7 +745,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["left", "right"]}>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+      <StatusBar style="light" />
 
       <TopAppBar
         shopName={selectedShopName}

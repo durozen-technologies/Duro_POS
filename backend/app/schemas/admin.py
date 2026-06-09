@@ -16,7 +16,6 @@ AdminReportSection = Literal[
     "billing",
     "items",
     "inventory",
-    "assumptions",
     "over_report",
 ]
 AdminReportDetailLevel = Literal["summary", "full"]
@@ -304,6 +303,85 @@ class ItemSalesSummary(BaseModel):
     quantity_sold: Decimal
     total_amount: Decimal
     bill_count: int
+
+
+class OverallReportUnitSummary(BaseModel):
+    unit: BaseUnit
+    old_stock: Decimal = Decimal("0")
+    adding_stock: Decimal = Decimal("0")
+    total_available_stock: Decimal = Decimal("0")
+    used_stock: Decimal = Decimal("0")
+    remaining_stock: Decimal = Decimal("0")
+    sales_quantity: Decimal = Decimal("0")
+    assumption_quantity: Decimal = Decimal("0")
+    difference_quantity: Decimal = Decimal("0")
+
+
+class OverallReportBillingItem(BaseModel):
+    billing_item_id: UUID
+    item_name: str
+    item_tamil_name: str | None = None
+    category: str
+    unit: BaseUnit
+    assumption_percent: Decimal | None = None
+    sales_quantity: Decimal = Decimal("0")
+    assumption_quantity: Decimal = Decimal("0")
+    difference_quantity: Decimal = Decimal("0")
+    today_price: Decimal | None = None
+    sales_amount: Decimal = Decimal("0")
+    assumption_amount: Decimal = Decimal("0")
+    difference_amount: Decimal = Decimal("0")
+
+
+class OverallReportUsedStockBreakdown(BaseModel):
+    category_id: UUID | None = None
+    category_name: str | None = None
+    label: str
+    quantity: Decimal = Decimal("0")
+
+
+class OverallReportInventoryItem(BaseModel):
+    inventory_item_id: UUID
+    item_name: str
+    item_tamil_name: str | None = None
+    category: str
+    unit: BaseUnit
+    old_stock: Decimal = Decimal("0")
+    adding_stock: Decimal = Decimal("0")
+    total_available_stock: Decimal = Decimal("0")
+    used_stock: Decimal = Decimal("0")
+    remaining_stock: Decimal = Decimal("0")
+    sales_quantity: Decimal = Decimal("0")
+    assumption_quantity: Decimal = Decimal("0")
+    difference_quantity: Decimal = Decimal("0")
+    sales_amount: Decimal = Decimal("0")
+    assumption_amount: Decimal = Decimal("0")
+    difference_amount: Decimal = Decimal("0")
+    used_stock_breakdown: list[OverallReportUsedStockBreakdown] = Field(default_factory=list)
+    billing_items: list[OverallReportBillingItem] = Field(default_factory=list)
+
+
+class OverallReportStatement(BaseModel):
+    shop_id: UUID
+    shop_name: str
+    start_date: date
+    end_date: date
+    period_label: str
+    unit_summaries: list[OverallReportUnitSummary] = Field(default_factory=list)
+    expense_amount: Decimal = Decimal("0")
+    sales_amount: Decimal = Decimal("0")
+    assumption_amount: Decimal = Decimal("0")
+    difference_amount: Decimal = Decimal("0")
+    sales_minus_expense_amount: Decimal = Decimal("0")
+    sales_minus_assumption_amount: Decimal = Decimal("0")
+    inventory_items: list[OverallReportInventoryItem] = Field(default_factory=list)
+
+
+class OverallReportRead(BaseModel):
+    period: AnalyticsPeriod
+    detail_level: AdminReportDetailLevel
+    period_label: str
+    statements: list[OverallReportStatement] = Field(default_factory=list)
 
 
 class AdminBillSummary(BaseModel):

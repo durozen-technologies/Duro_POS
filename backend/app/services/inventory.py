@@ -1438,7 +1438,12 @@ async def use_shop_inventory_stock(
     item, allocation = await _get_allocated_inventory_item_for_shop(db, shop, item_id)
     quantity = _normalize_quantity(item.base_unit, payload.quantity)
     category_ids = {link.category_id for link in item.category_links}
-    if payload.category_id not in category_ids:
+    if category_ids and payload.category_id not in category_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Inventory category is not linked to this item",
+        )
+    if not category_ids and payload.category_id is not None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Inventory category is not linked to this item",

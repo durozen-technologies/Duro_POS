@@ -322,3 +322,11 @@ Admins manage independent expense items and allocate them to shop branches. Shop
 - Remove the new item , and import item from items page in expenses
 - Add drop down for history expenses page.
 - Add existing date, range, week, month and year, toal. selt the interval.
+
+
+========================================================================================================================================
+
+
+- In edit and add inventry button pop up in inventry item page, add a drowdrop to map the inventry item with items item (billing ) item (items table) items.
+
+- Also update to the overall report with the changes..
