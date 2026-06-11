@@ -63,6 +63,14 @@ Production data is bind-mounted:
 /home/ubuntu/rustfs/data -> /data
 ```
 
+When using the wrapper image in `rustfs/Dockerfile`, the container runs as the
+non-root `10001:10001` user/group. Make the host data directory writable by that
+identity before starting RustFS:
+
+```bash
+sudo chown -R 10001:10001 /home/ubuntu/rustfs/data
+```
+
 ## Image Storage Contract
 
 Use database metadata to reference objects:
@@ -94,4 +102,3 @@ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/
 ```
 
 Expected codes include `200`, `403`, or `404`.
-

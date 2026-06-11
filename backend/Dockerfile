@@ -51,10 +51,8 @@ COPY --from=builder --chown=app:app /app/app /app/app
 COPY --from=builder --chown=app:app /app/migrations /app/migrations
 COPY --from=builder --chown=app:app /app/scripts /app/scripts
 COPY --from=builder --chown=app:app /app/assets /app/assets
-COPY --chown=app:app docker-entrypoint.sh /docker-entrypoint.sh
+COPY --chown=app:app --chmod=0755 docker-entrypoint.sh /docker-entrypoint.sh
 
-USER root
-RUN chmod 0755 /docker-entrypoint.sh
 USER app:app
 
 EXPOSE 8000

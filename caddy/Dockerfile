@@ -12,13 +12,24 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM caddy:${CADDY_VERSION}-alpine AS runtime
 
+ARG CADDY_UID=10001
+ARG CADDY_GID=10001
+
 ENV CADDY_UPSTREAM="backend:8000"
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 COPY Caddyfile.template /etc/caddy/Caddyfile.template
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+RUN set -eux; \
+    addgroup -S -g "${CADDY_GID}" caddyapp; \
+    adduser -S -D -H -u "${CADDY_UID}" -G caddyapp -s /sbin/nologin caddyapp; \
+    mkdir -p /config /data /etc/caddy; \
+    chown -R caddyapp:caddyapp /config /data /etc/caddy; \
+    chmod 0755 /usr/local/bin/docker-entrypoint.sh; \
+    setcap cap_net_bind_service=+ep /usr/bin/caddy
+
+USER caddyapp:caddyapp
 
 EXPOSE 80 443 443/udp
 STOPSIGNAL SIGTERM
