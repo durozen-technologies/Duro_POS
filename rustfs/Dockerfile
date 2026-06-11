@@ -2,7 +2,18 @@
 
 ARG RUSTFS_IMAGE=rustfs/rustfs:latest
 
-FROM ${RUSTFS_IMAGE}
+FROM ${RUSTFS_IMAGE} AS entrypoint
+
+USER root
+
+WORKDIR /build
+
+COPY docker-entrypoint.sh .
+
+RUN chmod 0755 docker-entrypoint.sh
+
+
+FROM ${RUSTFS_IMAGE} AS runtime
 
 ARG RUSTFS_DATA_UID=10001
 ARG RUSTFS_DATA_GID=10001
@@ -12,9 +23,7 @@ ENV RUSTFS_DATA_UID="${RUSTFS_DATA_UID}" \
 
 USER root
 
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-
-RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+COPY --from=entrypoint /build/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 STOPSIGNAL SIGTERM
 

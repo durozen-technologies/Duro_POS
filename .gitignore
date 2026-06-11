@@ -40,6 +40,7 @@ Desktop.ini
 
 # Logs and local process files
 logs/
+.deploy/
 *.log
 *.pid
 *.pid.lock
@@ -243,6 +244,32 @@ frontend/ios/**/*.xcuserdata/
 frontend/ios/*.mobileprovision
 frontend/ios/*.p12
 frontend/ios/*.cer
+
+# MCP tooling
+mcp/gluestack-mcp/.env
+mcp/gluestack-mcp/.env.*
+!mcp/gluestack-mcp/.env.example
+mcp/gluestack-mcp/.env.local
+mcp/gluestack-mcp/.envrc
+mcp/gluestack-mcp/.direnv/
+mcp/gluestack-mcp/node_modules/
+mcp/gluestack-mcp/.npm/
+mcp/gluestack-mcp/.yarn/
+mcp/gluestack-mcp/.yarn/cache/
+mcp/gluestack-mcp/.yarn/unplugged/
+mcp/gluestack-mcp/.yarn/build-state.yml
+mcp/gluestack-mcp/.yarn/install-state.gz
+mcp/gluestack-mcp/.pnpm-store/
+mcp/gluestack-mcp/.pnp.*
+mcp/gluestack-mcp/.cache/
+mcp/gluestack-mcp/.turbo/
+mcp/gluestack-mcp/.eslintcache
+mcp/gluestack-mcp/*.tsbuildinfo
+mcp/gluestack-mcp/coverage/
+mcp/gluestack-mcp/.nyc_output/
+mcp/gluestack-mcp/dist/
+mcp/gluestack-mcp/build/
+mcp/gluestack-mcp/*.log
 
 # Service runtime data
 caddy/config/*
