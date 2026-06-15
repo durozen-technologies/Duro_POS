@@ -642,6 +642,7 @@ export interface ShopRead {
   is_active: boolean;
   created_at: string;
   username: string;
+  last_active_at?: string | null;
 }
 
 export interface ShopStatusUpdate {

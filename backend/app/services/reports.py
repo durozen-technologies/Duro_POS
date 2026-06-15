@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import html as _html_lib
 import io
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -13,6 +11,7 @@ from typing import BinaryIO, Iterable, Iterator
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from fpdf import FPDF
 from pypdf import PdfReader as PypdfReader
 from pypdf import PdfWriter as PypdfWriter
 from reportlab.lib.pagesizes import A4, landscape
@@ -55,12 +54,16 @@ from app.services.admin import _get_period_bounds
 SECTION_ORDER: tuple[AdminReportSection, ...] = (
     "sales",
     "billing",
+    "items",
+    "inventory",
     "expenses",
     "over_report",
 )
 SECTION_LABELS: dict[AdminReportSection, str] = {
     "sales": "Sales",
     "billing": "Billing",
+    "items": "Items",
+    "inventory": "Inventory",
     "expenses": "Expenses",
     "over_report": "Overall Report",
 }
@@ -664,23 +667,27 @@ async def generate_admin_report_pdf(
                     await _write_sales_section(db, writer, non_over_context)
                 elif section == "billing":
                     await _write_billing_section(db, writer, non_over_context)
+                elif section == "items":
+                    await _write_items_section(db, writer, non_over_context)
+                elif section == "inventory":
+                    await _write_inventory_section(db, writer, non_over_context)
                 elif section == "expenses":
                     await _write_expenses_section(db, writer, non_over_context)
         writer.save()
         rl_bytes = rl_output.getvalue()
 
-    # ── Step 2: Generate overall-report pages with WeasyPrint (Tamil-safe) ──
-    wp_bytes: bytes | None = None
+    # ── Step 2: Generate overall-report pages with FPDF2 (Tamil-safe) ──
+    fpdf_bytes: bytes | None = None
     if has_over_report:
-        wp_bytes = await _generate_over_report_weasyprint_pdf(db, context, language=language)
+        fpdf_bytes = await _generate_over_report_fpdf_pdf(db, context, language=language)
 
     # ── Step 3: Merge with pypdf ──
     output = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     merger = PypdfWriter()
     if rl_bytes:
         merger.append(PypdfReader(io.BytesIO(rl_bytes)))
-    if wp_bytes:
-        merger.append(PypdfReader(io.BytesIO(wp_bytes)))
+    if fpdf_bytes:
+        merger.append(PypdfReader(io.BytesIO(fpdf_bytes)))
     merger.write(output)
     output.seek(0)
     return AdminReportFile(file=output, filename=_report_filename(context))
@@ -836,6 +843,12 @@ async def _write_billing_section(
         )
     ).one()
     max_rows = SUMMARY_BILL_ROWS if context.detail_level == "summary" else None
+    writer.note(
+        "Rows shown: "
+        f"{min(int(stats.bill_count or 0), max_rows or int(stats.bill_count or 0))} "
+        f"of {int(stats.bill_count or 0)} bills. "
+        f"Total: {_money(stats.total_sales)}; Cash: {_money(stats.cash_total)}; UPI: {_money(stats.upi_total)}."
+    )
     writer.table_header(
         ["Bill No", "Branch", "Date", "Total", "Cash", "UPI", "Status"],
         [74, 115, 108, 62, 62, 62, 40],
@@ -904,6 +917,189 @@ async def _write_billing_section(
         ("Cash", _money(stats.cash_total)),
         ("UPI", _money(stats.upi_total)),
     ])
+
+
+async def _write_items_section(
+    db: AsyncSession,
+    writer: PdfReportWriter,
+    context: ReportContext,
+) -> None:
+    writer.section("Items")
+    filters = _bill_filters(context)
+    max_rows = SUMMARY_ITEM_ROWS if context.detail_level == "summary" else None
+    item_name = func.coalesce(Item.name, "Unknown item")
+    item_unit = func.coalesce(Item.base_unit, BillItem.item_base_unit, BillItem.unit)
+    item_amount = func.coalesce(func.sum(BillItem.line_total), 0)
+    query = (
+        select(
+            Bill.shop_id,
+            Shop.name.label("shop_name"),
+            item_name.label("item_name"),
+            item_unit.label("unit"),
+            func.coalesce(func.sum(BillItem.quantity), 0).label("quantity_sold"),
+            item_amount.label("total_amount"),
+            func.count(distinct(BillItem.bill_id)).label("bill_count"),
+        )
+        .select_from(BillItem)
+        .join(Bill, Bill.id == BillItem.bill_id)
+        .join(Shop, Shop.id == Bill.shop_id)
+        .outerjoin(Item, Item.id == BillItem.item_id)
+        .where(*filters)
+        .group_by(
+            Bill.shop_id,
+            Shop.name,
+            item_name,
+            item_unit,
+        )
+        .order_by(Shop.name, item_amount.desc(), item_name)
+    )
+    if max_rows is not None:
+        query = query.limit(max_rows)
+    rows = (await db.execute(query)).all()
+    category_labels = await _sold_item_category_labels_by_key(
+        db,
+        context,
+        {(row.shop_id, row.item_name, row.unit) for row in rows},
+    )
+    writer.note(
+        f"Rows shown: {len(rows)}"
+        + (
+            " top sold item row(s). Items are grouped by current item name."
+            if context.detail_level == "summary"
+            else " sold item row(s). Items are grouped by current item name."
+        )
+    )
+    writer.table(
+        ["Branch", "Category", "Item", "Qty", "Unit", "Amount", "Bills"],
+        (
+            [
+                row.shop_name,
+                category_labels.get((row.shop_id, row.item_name, row.unit), "Uncategorized"),
+                row.item_name,
+                _quantity(row.quantity_sold),
+                getattr(row.unit, "value", row.unit),
+                _money(row.total_amount),
+                int(row.bill_count or 0),
+            ]
+            for row in rows
+        ),
+        [78, 82, 132, 54, 40, 70, 40],
+        ["left", "left", "left", "right", "center", "right", "right"],
+    )
+
+
+async def _sold_item_category_labels_by_key(
+    db: AsyncSession,
+    context: ReportContext,
+    keys: set[SoldItemCategoryKey],
+) -> dict[SoldItemCategoryKey, str]:
+    if not keys:
+        return {}
+
+    item_name = func.coalesce(Item.name, "Unknown item")
+    item_unit = func.coalesce(Item.base_unit, BillItem.item_base_unit, BillItem.unit)
+    item_category = func.coalesce(func.nullif(func.trim(Item.category), ""), "Uncategorized")
+    shop_ids = {shop_id for shop_id, _name, _unit in keys}
+    item_names = {name for _shop_id, name, _unit in keys}
+    rows = (
+        await db.execute(
+            select(
+                Bill.shop_id,
+                item_name.label("item_name"),
+                item_unit.label("unit"),
+                item_category.label("category"),
+            )
+            .select_from(BillItem)
+            .join(Bill, Bill.id == BillItem.bill_id)
+            .outerjoin(Item, Item.id == BillItem.item_id)
+            .where(
+                *_bill_filters(context),
+                Bill.shop_id.in_(list(shop_ids)),
+                item_name.in_(list(item_names)),
+            )
+            .group_by(Bill.shop_id, item_name, item_unit, item_category)
+            .order_by(Bill.shop_id, item_name, item_category)
+        )
+    ).all()
+    category_names_by_key: dict[SoldItemCategoryKey, set[str]] = {}
+    for row in rows:
+        key = (row.shop_id, row.item_name, row.unit)
+        if key in keys:
+            category_names_by_key.setdefault(key, set()).add(row.category)
+    return {
+        key: ", ".join(sorted(category_names, key=str.lower))
+        for key, category_names in category_names_by_key.items()
+    }
+
+
+async def _write_inventory_section(
+    db: AsyncSession,
+    writer: PdfReportWriter,
+    context: ReportContext,
+) -> None:
+    writer.section("Inventory")
+    max_rows = SUMMARY_INVENTORY_ROWS if context.detail_level == "summary" else None
+    all_totals = _inventory_totals_subquery(context, period_only=False)
+    period_totals = _inventory_totals_subquery(context, period_only=True)
+    query = (
+        select(
+            Shop.name.label("shop_name"),
+            InventoryItem.id.label("item_id"),
+            InventoryItem.name.label("item_name"),
+            InventoryItem.base_unit.label("unit"),
+            ShopInventoryAllocation.is_active,
+            func.coalesce(all_totals.c.added_quantity, 0).label("added_quantity"),
+            func.coalesce(all_totals.c.used_quantity, 0).label("used_quantity"),
+            func.coalesce(period_totals.c.added_quantity, 0).label("period_added_quantity"),
+            func.coalesce(period_totals.c.used_quantity, 0).label("period_used_quantity"),
+        )
+        .join(ShopInventoryAllocation, ShopInventoryAllocation.shop_id == Shop.id)
+        .join(InventoryItem, InventoryItem.id == ShopInventoryAllocation.inventory_item_id)
+        .outerjoin(
+            all_totals,
+            and_(
+                all_totals.c.shop_id == Shop.id,
+                all_totals.c.inventory_item_id == InventoryItem.id,
+            ),
+        )
+        .outerjoin(
+            period_totals,
+            and_(
+                period_totals.c.shop_id == Shop.id,
+                period_totals.c.inventory_item_id == InventoryItem.id,
+            ),
+        )
+        .order_by(Shop.name, ShopInventoryAllocation.sort_order, func.lower(InventoryItem.name), InventoryItem.id)
+    )
+    query = _apply_shop_scope(query, context)
+    if max_rows is not None:
+        query = query.limit(max_rows)
+    rows = (await db.execute(query)).all()
+    category_labels = await _inventory_category_labels_by_item_id(
+        db,
+        [row.item_id for row in rows],
+    )
+    writer.note(
+        f"Rows shown: {len(rows)}"
+        + " allocated stock row(s). Added and Used are period movement totals."
+    )
+    writer.table(
+        ["Branch", "Category", "Inventory Item", "Available", "Added", "Used", "Status"],
+        (
+            [
+                row.shop_name,
+                category_labels.get(row.item_id, "Uncategorized"),
+                row.item_name,
+                f"{_quantity(_decimal(row.added_quantity) - _decimal(row.used_quantity))} {getattr(row.unit, 'value', row.unit)}",
+                _quantity(row.period_added_quantity),
+                _quantity(row.period_used_quantity),
+                "Active" if row.is_active else "Paused",
+            ]
+            for row in rows
+        ),
+        [72, 82, 125, 82, 58, 58, 45],
+        ["left", "left", "left", "right", "right", "right", "center"],
+    )
 
 
 async def _write_expenses_section(
@@ -1841,330 +2037,278 @@ def _date_text(value: date) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WeasyPrint-based Overall Report PDF (Tamil-safe)
+# FPDF2-based Overall Report PDF (Tamil-safe)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _he(text: str) -> str:
-    """HTML-escape a string for safe embedding in HTML."""
-    return _html_lib.escape(str(text), quote=True)
+class OverallReportPDF(FPDF):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.set_margin(36)
+        self.page_break_trigger = self.h - 54
+        self.set_auto_page_break(False)
+
+    def footer(self) -> None:
+        self.set_y(-30)
+        self.set_font("NotoSans", size=7)
+        self.set_text_color(97, 110, 128)
+        self.set_draw_color(209, 217, 227)
+        self.line(36, self.h - 34, self.w - 36, self.h - 34)
+        self.cell(0, 10, text="Billing System Admin Report", align="L")
+        self.cell(0, 10, text=f"Page {self.page_no()}", align="R")
 
 
-def _render_shop_group_html(
-    shop_name: str,
-    statements: list[OverallReportStatement],
-    use_tamil: bool,
-    period_start: date,
-    period_end: date,
-) -> str:
-    """Render all statements for one branch as a single section with one header.
-
-    The header shows the company name, branch, and the full date range once.
-    All daily rows are merged into one continuous table.
-    """
-    headers = OVER_REPORT_SHEET_HEADERS_TAMIL if use_tamil else OVER_REPORT_SHEET_HEADERS
-    header_cells = "".join(f"<th>{_he(h)}</th>" for h in headers)
-
-    # Date range label — always "DD/MM/YYYY To DD/MM/YYYY" (or single date if same day)
-    if period_start == period_end:
-        date_label = _date_text(period_start)
-    else:
-        date_label = f"{_date_text(period_start)} To {_date_text(period_end)}"
-
-    # Merge rows from all daily statements — with a styled daily summary after each day
-    body_rows = ""
-    row_index = 0
-    has_any_items = False
-    num_cols = len(OVER_REPORT_SHEET_HEADERS)
-
-    for stmt in statements:
-        if stmt.inventory_items:
-            has_any_items = True
-
-        # Data rows for this day
-        for row in _over_report_sheet_rows(stmt, use_tamil=use_tamil):
-            tr_class = "alt" if row_index % 2 == 1 else ""
-            tds = "".join(f"<td>{_he(cell)}</td>" for cell in row)
-            body_rows += f'<tr class="{tr_class}">{tds}</tr>\n'
-            row_index += 1
-
-        # Daily summary card — full-width, matching the uploaded image style
-        if stmt.inventory_items and period_start != period_end:
-            day_label = _statement_table_date(stmt)
-            day_sales = _decimal(stmt.sales_amount)
-            day_expense = _decimal(stmt.expense_amount)
-            day_balance = day_sales - day_expense
-            card = (
-                f'<div class="day-card">'
-                f'<div class="day-card-title">Day Summary &nbsp;<span class="day-card-date">({_he(day_label)})</span></div>'
-                f'<div class="day-card-row">'
-                f'  <span class="day-card-label">Total Sales</span>'
-                f'  <span class="day-card-value">{_he(_money(day_sales))}</span>'
-                f'</div>'
-                f'<div class="day-card-row">'
-                f'  <span class="day-card-label">Total Expense Amount</span>'
-                f'  <span class="day-card-value">{_he(_money(day_expense))}</span>'
-                f'</div>'
-                f'<div class="day-card-row">'
-                f'  <span class="day-card-label">Balance Amount</span>'
-                f'  <span class="day-card-value">{_he(_money(day_balance))}</span>'
-                f'</div>'
-                f'</div>'
-            )
-            body_rows += (
-                f'<tr class="day-summary-row">'
-                f'<td colspan="{num_cols}" class="day-summary-cell">'
-                f'{card}'
-                f'</td></tr>\n'
-            )
-
-    # Grand total financial summary across all statements
-    total_sales = sum((_decimal(s.sales_amount) for s in statements), Decimal("0"))
-    total_expense = sum((_decimal(s.expense_amount) for s in statements), Decimal("0"))
-    total_balance = total_sales - total_expense
-
-    fin_rows = ""
-    for label, value in [
-        ("Total Sales", _money(total_sales)),
-        ("Total Expense", _money(total_expense)),
-        ("Balance Amount", _money(total_balance)),
-    ]:
-        fin_rows += f'<tr><td class="fin-label">{_he(label)}</td><td class="fin-value">{_he(value)}</td></tr>'
-
-    empty_note = (
-        '<p class="empty-note">No allocated inventory items found for this branch and period.</p>'
-        if not has_any_items
-        else ""
-    )
-
-    table_html = (
-        f"""
-  <div class="table-wrap">
-    <table>
-      <thead><tr>{header_cells}</tr></thead>
-      <tbody>{body_rows}</tbody>
-    </table>
-  </div>
-  <table class="fin-summary">
-    <tbody>{fin_rows}</tbody>
-  </table>"""
-        if has_any_items
-        else ""
-    )
-
-    return f"""
-<section class="statement">
-  <div class="stmt-header">
-    <div class="company">SRI MAHALAKSHMI BROILERS</div>
-    <div class="branch">{_he(shop_name.upper())} - BRANCH</div>
-    <div class="stmt-title">Statement</div>
-    <div class="stmt-date">Date: {_he(date_label)}</div>
-  </div>
-  {empty_note}
-  {table_html}
-</section>
-"""
+def _fpdf_draw_row(
+    pdf: FPDF,
+    widths: list[int],
+    alignments: list[str],
+    row_values: list[object],
+    line_height: float,
+    padding: float,
+    fill: bool = False,
+    fill_color: tuple[int, int, int] = (255, 255, 255),
+    is_header: bool = False,
+    header_drawer: object = None,
+) -> None:
+    cell_lines = []
+    for val, w in zip(row_values, widths):
+        txt = str(val) if val is not None else ""
+        lines = pdf.multi_cell(w - padding * 2, text=txt, dry_run=True, output="LINES")
+        cell_lines.append(lines)
+        
+    max_lines = max((len(lines) for lines in cell_lines), default=1)
+    row_height = max_lines * line_height + padding * 2
+    
+    if not is_header and pdf.get_y() + row_height > pdf.page_break_trigger:
+        pdf.add_page()
+        if header_drawer:
+            header_drawer()
+            
+    x_start = (pdf.w - sum(widths)) / 2
+    pdf.set_x(x_start)
+    y_start = pdf.get_y()
+    
+    current_x = x_start
+    for lines, w, align in zip(cell_lines, widths, alignments):
+        if fill:
+            pdf.set_fill_color(*fill_color)
+            pdf.rect(current_x, y_start, w, row_height, style="DF")
+        else:
+            pdf.rect(current_x, y_start, w, row_height, style="D")
+            
+        align_code = align[0].upper() if align else "L"
+        for idx, line in enumerate(lines):
+            pdf.set_xy(current_x + padding, y_start + padding + idx * line_height)
+            pdf.cell(w - padding * 2, line_height, text=line, align=align_code)
+            
+        current_x += w
+        
+    pdf.set_xy(x_start, y_start + row_height)
 
 
-_PLAYWRIGHT_CSS = """
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  font-family: 'Noto Sans Tamil', 'Noto Sans', 'Segoe UI', Arial, sans-serif;
-  font-size: 7pt;
-  color: #1f2733;
-  line-height: 1.3;
-}
-
-.statement {
-  margin-bottom: 16mm;
-  page-break-inside: avoid;
-}
-
-.stmt-header {
-  text-align: center;
-  margin-bottom: 4mm;
-}
-.company  { font-size: 13pt; font-weight: 700; }
-.branch   { font-size: 11pt; font-weight: 700; margin-top: 1mm; }
-.stmt-title { font-size: 9pt; font-weight: 600; margin-top: 1mm; }
-.stmt-date  { font-size: 8pt; color: #555; margin-top: 1mm; }
-
-.table-wrap {
-  overflow-x: auto;
-  margin-bottom: 3mm;
-}
-
-table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 6.5pt;
-}
-
-/* Date column — first child — needs slightly more width to fit DD/MM/YYYY */
-thead th:first-child,
-tbody td:first-child {
-  min-width: 72px;
-  white-space: nowrap;
-}
-
-thead tr {
-  background: #2e3d52;
-  color: #fff;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
-
-thead th {
-  padding: 3pt 4pt;
-  text-align: left;
-  border: 0.5pt solid #1a2533;
-  font-weight: 700;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-tbody tr td {
-  padding: 2.5pt 4pt;
-  border: 0.5pt solid #c8cdd4;
-  vertical-align: top;
-  word-break: break-word;
-}
-
-tbody tr.alt td {
-  background: #f4f6f8;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
-
-.fin-summary {
-  margin-left: auto;
-  width: auto;
-  border-collapse: collapse;
-  margin-top: 2mm;
-}
-.fin-summary td {
-  padding: 2pt 6pt;
-  font-size: 8pt;
-}
-.fin-label { font-weight: 700; text-align: right; }
-.fin-value { font-weight: 700; text-align: right; }
-
-/* Daily summary card — full-width, image-matching style */
-.day-summary-row td.day-summary-cell {
-  background: #fff;
-  border: none !important;
-  padding: 3pt 0 5pt 0;
-}
-.day-card {
-  border: 1pt solid #b8c8d8;
-  border-radius: 4pt;
-  padding: 6pt 10pt;
-  margin: 2pt 0;
-  background: #fff;
-}
-.day-card-title {
-  font-size: 8.5pt;
-  font-weight: 900;
-  color: #1f2e3d;
-  margin-bottom: 4pt;
-}
-.day-card-date {
-  font-weight: 600;
-  color: #4a5c6e;
-  font-size: 7.5pt;
-}
-.day-card-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.5pt 0;
-}
-.day-card-label {
-  font-size: 7.5pt;
-  font-weight: 700;
-  color: #1f2e3d;
-}
-.day-card-value {
-  font-size: 7.5pt;
-  font-weight: 700;
-  color: #1f2e3d;
-  text-align: right;
-}
-
-.empty-note {
-  color: #777;
-  font-style: italic;
-  text-align: center;
-  padding: 4mm;
-}
-"""
+def _fpdf_draw_day_summary_card(
+    pdf: FPDF,
+    day_label: str,
+    sales: Decimal,
+    expense: Decimal,
+    balance: Decimal,
+) -> None:
+    card_width = 300
+    card_height = 60
+    x_start = (pdf.w - card_width) / 2
+    y_start = pdf.get_y() + 5
+    
+    if y_start + card_height > pdf.page_break_trigger:
+        pdf.add_page()
+        y_start = pdf.get_y() + 5
+        
+    pdf.set_fill_color(244, 246, 248)
+    pdf.set_draw_color(200, 205, 212)
+    pdf.rect(x_start, y_start, card_width, card_height, style="DF")
+    
+    pdf.set_xy(x_start + 10, y_start + 6)
+    pdf.set_font("NotoSans", style="B", size=8)
+    pdf.cell(card_width - 20, 10, text=f"Day Summary ({day_label})")
+    
+    pdf.set_font("NotoSans", size=7.5)
+    
+    pdf.set_xy(x_start + 10, y_start + 20)
+    pdf.cell(150, 8, text="Total Sales")
+    pdf.set_xy(x_start + card_width - 110, y_start + 20)
+    pdf.cell(100, 8, text=_money(sales), align="R")
+    
+    pdf.set_xy(x_start + 10, y_start + 30)
+    pdf.cell(150, 8, text="Total Expense Amount")
+    pdf.set_xy(x_start + card_width - 110, y_start + 30)
+    pdf.cell(100, 8, text=_money(expense), align="R")
+    
+    pdf.set_xy(x_start + 10, y_start + 42)
+    pdf.set_font("NotoSans", style="B", size=7.5)
+    pdf.cell(150, 8, text="Balance Amount")
+    pdf.set_xy(x_start + card_width - 110, y_start + 42)
+    pdf.cell(100, 8, text=_money(balance), align="R")
+    
+    pdf.set_draw_color(200, 205, 212)
+    pdf.set_xy(x_start, y_start + card_height + 5)
 
 
-async def _generate_over_report_weasyprint_pdf(
+def _fpdf_draw_grand_total_summary(
+    pdf: FPDF,
+    total_sales: Decimal,
+    total_expense: Decimal,
+    total_balance: Decimal,
+    table_width: int = 798,
+) -> None:
+    fin_width = 250
+    fin_height = 42
+    
+    x_start = (pdf.w - table_width) / 2 + table_width - fin_width
+    y_start = pdf.get_y() + 8
+    
+    if y_start + fin_height > pdf.page_break_trigger:
+        pdf.add_page()
+        y_start = pdf.get_y() + 8
+        
+    pdf.set_fill_color(255, 255, 255)
+    pdf.set_draw_color(200, 205, 212)
+    pdf.rect(x_start, y_start, fin_width, fin_height, style="DF")
+    
+    pdf.set_xy(x_start + 10, y_start + 5)
+    pdf.set_font("NotoSans", size=8)
+    pdf.cell(120, 8, text="Total Sales")
+    pdf.set_xy(x_start + fin_width - 110, y_start + 5)
+    pdf.cell(100, 8, text=_money(total_sales), align="R")
+    
+    pdf.set_xy(x_start + 10, y_start + 15)
+    pdf.cell(120, 8, text="Total Expense")
+    pdf.set_xy(x_start + fin_width - 110, y_start + 15)
+    pdf.cell(100, 8, text=_money(total_expense), align="R")
+    
+    pdf.set_xy(x_start + 10, y_start + 27)
+    pdf.set_font("NotoSans", style="B", size=8)
+    pdf.cell(120, 8, text="Balance Amount")
+    pdf.set_xy(x_start + fin_width - 110, y_start + 27)
+    pdf.cell(100, 8, text=_money(total_balance), align="R")
+    
+    pdf.set_xy(x_start, y_start + fin_height + 5)
+
+
+async def _generate_over_report_fpdf_pdf(
     db: AsyncSession,
     context: ReportContext,
     language: str = "en",
 ) -> bytes:
-    """Build the Overall Report PDF using Playwright/Chromium so Tamil renders correctly.
-
-    Playwright is already a project dependency and works on Windows, Linux, and macOS.
-    We use the sync API in a thread pool executor so it works on uvicorn's SelectorEventLoop
-    (Windows asyncio does not support subprocess creation from async context).
-    """
     report = await _build_overall_report_for_context(db, context)
     use_tamil = language == "ta"
     period_start = context.start.date()
     period_end = (context.end - timedelta(days=1)).date()
 
-    if not report.statements:
-        body = '<p class="empty-note" style="margin:20mm auto;text-align:center;">No branch data available for the selected report scope.</p>'
+    if period_start == period_end:
+        date_label = _date_text(period_start)
     else:
-        # Group statements by shop so each branch gets one header and one merged table
-        shops_seen: dict[str, tuple[str, list[OverallReportStatement]]] = {}
-        for stmt in report.statements:
-            key = str(stmt.shop_id)
-            if key not in shops_seen:
-                shops_seen[key] = (stmt.shop_name, [])
-            shops_seen[key][1].append(stmt)
+        date_label = f"{_date_text(period_start)} To {_date_text(period_end)}"
 
-        body = "\n".join(
-            _render_shop_group_html(shop_name, stmts, use_tamil, period_start, period_end)
-            for _shop_id, (shop_name, stmts) in shops_seen.items()
-        )
+    pdf = OverallReportPDF(orientation="landscape", unit="pt", format="A3")
+    pdf.compress = False
+    pdf.add_font("NotoSans", fname="/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")
+    pdf.add_font("NotoSans", style="B", fname="/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf")
+    pdf.add_font("NotoSansTamil", fname="/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf")
+    pdf.add_font("NotoSansTamil", style="B", fname="/usr/share/fonts/truetype/noto/NotoSansTamil-Bold.ttf")
+    pdf.set_font("NotoSans")
+    pdf.set_fallback_fonts(["NotoSansTamil"])
+    pdf.set_text_shaping(True)
+    pdf.set_text_color(31, 39, 51)
 
-    html_content = f"""<!DOCTYPE html>
-<html lang="{'ta' if use_tamil else 'en'}">
-<head>
-<meta charset="utf-8">
-<title>Overall Report - {_he(context.period_label)}</title>
-<style>
-{_PLAYWRIGHT_CSS}
-</style>
-</head>
-<body>
-{body}
-</body>
-</html>"""
+    if not report.statements:
+        pdf.add_page()
+        pdf.set_font("NotoSans", style="B", size=14)
+        pdf.cell(0, 20, text="SRI MAHALAKSHMI BROILERS", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("NotoSans", size=9)
+        pdf.set_text_color(97, 110, 128)
+        pdf.cell(0, 40, text="No branch data available for the selected report scope.", align="C")
+        return bytes(pdf.output())
 
-    loop = asyncio.get_event_loop()
-    pdf_bytes = await loop.run_in_executor(None, _playwright_html_to_pdf, html_content)
-    return pdf_bytes
+    shops_seen = {}
+    for stmt in report.statements:
+        key = str(stmt.shop_id)
+        if key not in shops_seen:
+            shops_seen[key] = (stmt.shop_name, [])
+        shops_seen[key][1].append(stmt)
 
+    for shop_id, (shop_name, statements) in shops_seen.items():
+        pdf.add_page()
+        
+        pdf.set_font("NotoSans", style="B", size=14)
+        pdf.cell(0, 18, text="SRI MAHALAKSHMI BROILERS", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("NotoSans", style="B", size=11)
+        pdf.cell(0, 15, text=f"{shop_name.upper()} - BRANCH", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("NotoSans", style="B", size=9)
+        pdf.cell(0, 13, text="Statement", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("NotoSans", size=8)
+        pdf.set_text_color(97, 110, 128)
+        pdf.cell(0, 12, text=f"Date: {date_label}", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(31, 39, 51)
+        pdf.ln(10)
 
-def _playwright_html_to_pdf(html_content: str) -> bytes:
-    """Run Playwright synchronously in a thread — avoids asyncio subprocess issues on Windows."""
-    from playwright.sync_api import sync_playwright  # noqa: PLC0415
+        has_any_items = any(bool(stmt.inventory_items) for stmt in statements)
+        if not has_any_items:
+            pdf.set_font("NotoSansTamil", size=9)
+            pdf.set_text_color(97, 110, 128)
+            pdf.cell(0, 20, text="No allocated inventory items found for this branch and period.", align="C")
+            continue
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        page = browser.new_page()
-        page.set_content(html_content, wait_until="domcontentloaded")
-        pdf_bytes = page.pdf(
-            format="A3",
-            landscape=True,
-            print_background=True,
-            margin={"top": "12mm", "bottom": "14mm", "left": "10mm", "right": "10mm"},
-        )
-        browser.close()
-    return pdf_bytes
+        headers = OVER_REPORT_SHEET_HEADERS_TAMIL if use_tamil else OVER_REPORT_SHEET_HEADERS
+        widths = OVER_REPORT_SHEET_WIDTHS
+        alignments = OVER_REPORT_SHEET_ALIGNMENTS
+
+        def draw_header_row() -> None:
+            pdf.set_font("NotoSans", style="B", size=6.5)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_draw_color(26, 37, 51)
+            _fpdf_draw_row(
+                pdf,
+                widths,
+                alignments,
+                headers,
+                line_height=7,
+                padding=4,
+                fill=True,
+                fill_color=(46, 61, 82),
+                is_header=True
+            )
+            pdf.set_text_color(31, 39, 51)
+            pdf.set_draw_color(200, 205, 212)
+
+        draw_header_row()
+
+        row_index = 0
+        for stmt in statements:
+            pdf.set_font("NotoSans", size=6)
+            for row in _over_report_sheet_rows(stmt, use_tamil=use_tamil):
+                fill = row_index % 2 == 1
+                _fpdf_draw_row(
+                    pdf,
+                    widths,
+                    alignments,
+                    row,
+                    line_height=7,
+                    padding=3,
+                    fill=fill,
+                    fill_color=(244, 246, 248),
+                    header_drawer=draw_header_row
+                )
+                row_index += 1
+
+            if stmt.inventory_items and period_start != period_end:
+                day_label = _statement_table_date(stmt)
+                day_sales = _decimal(stmt.sales_amount)
+                day_expense = _decimal(stmt.expense_amount)
+                day_balance = day_sales - day_expense
+                _fpdf_draw_day_summary_card(pdf, day_label, day_sales, day_expense, day_balance)
+
+        total_sales = sum((_decimal(s.sales_amount) for s in statements), Decimal("0"))
+        total_expense = sum((_decimal(s.expense_amount) for s in statements), Decimal("0"))
+        total_balance = total_sales - total_expense
+        _fpdf_draw_grand_total_summary(pdf, total_sales, total_expense, total_balance)
+
+    return bytes(pdf.output())
 

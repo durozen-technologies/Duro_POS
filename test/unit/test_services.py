@@ -509,6 +509,12 @@ class ServiceUnitTests(BackendTestCase):
                 self.assertIsNone(quail_stock.billing_items[0].assumption_percent)
                 self.assertEqual(items_by_name["No Mapping Stock"].billing_items, [])
 
+                def get_pdf_text(pdf_bytes: bytes) -> str:
+                    from pypdf import PdfReader
+                    reader = PdfReader(BytesIO(pdf_bytes))
+                    raw_text = "\n".join([page.extract_text() for page in reader.pages])
+                    return " ".join(raw_text.split())
+
                 report = await generate_admin_report_pdf(
                     db,
                     sections=["over_report"],
@@ -517,26 +523,27 @@ class ServiceUnitTests(BackendTestCase):
                 try:
                     data = report.file.read()
                     self.assertGreater(len(data), 0)
-                    self.assertIn(b"SRI MAHALAKSHMI BROILERS", data)
-                    self.assertIn(b"SK NAGAR - BRANCH", data)
-                    self.assertIn(b"Inventory Item", data)
-                    self.assertIn(b"Used Stock", data)
-                    self.assertIn(b"Assumption Amount", data)
-                    self.assertIn(b"Total Available Stock", data)
-                    self.assertIn(b"Chicken", data)
-                    self.assertIn(b"Mutton", data)
-                    self.assertIn(b"Duck Stock", data)
-                    self.assertIn(b"Quail Stock", data)
-                    self.assertIn(b"No Mapping Stock", data)
-                    self.assertIn(b"Chicken With", data)
-                    self.assertIn(b"Chicken Without", data)
-                    self.assertIn(b"3 unit", data)
-                    self.assertIn(b"No mapped billing sales", data)
-                    self.assertIn(b"Rs. 936.00", data)
-                    self.assertIn(b"Rs. 250.00", data)
-                    self.assertIn(b"Rs. 25.00", data)
-                    self.assertIn(b"Rs. 60.00", data)
-                    self.assertIn(b"Rs. 264.00", data)
+                    text_content = get_pdf_text(data)
+                    self.assertIn("SRI MAHALAKSHMI BROILERS", text_content)
+                    self.assertIn("SK NAGAR - BRANCH", text_content)
+                    self.assertIn("Inventory Item", text_content)
+                    self.assertIn("Used Stock", text_content)
+                    self.assertIn("Assumption Amount", text_content)
+                    self.assertIn("Total Available Stock", text_content)
+                    self.assertIn("Chicken", text_content)
+                    self.assertIn("Mutton", text_content)
+                    self.assertIn("Duck Stock", text_content)
+                    self.assertIn("Quail Stock", text_content)
+                    self.assertIn("No Mapping Stock", text_content)
+                    self.assertIn("Chicken With", text_content)
+                    self.assertIn("Chicken Without", text_content)
+                    self.assertIn("3 unit", text_content)
+                    self.assertIn("No mapped billing sales", text_content)
+                    self.assertIn("Rs. 936.00", text_content)
+                    self.assertIn("Rs. 250.00", text_content)
+                    self.assertIn("Rs. 25.00", text_content)
+                    self.assertIn("Rs. 60.00", text_content)
+                    self.assertIn("Rs. 264.00", text_content)
                 finally:
                     report.file.close()
 
@@ -552,16 +559,12 @@ class ServiceUnitTests(BackendTestCase):
                 )
                 try:
                     data = full_range_report.file.read()
+                    text_content = get_pdf_text(data)
                     today_text = today.strftime("%d/%m/%Y")
                     tomorrow_text = tomorrow.strftime("%d/%m/%Y")
-                    self.assertIn(
-                        f"Date: {today_text} To {today_text}".encode(),
-                        data,
-                    )
-                    self.assertIn(
-                        f"Date: {tomorrow_text} To {tomorrow_text}".encode(),
-                        data,
-                    )
+                    self.assertIn(f"Date: {today_text} To {tomorrow_text}", text_content)
+                    self.assertIn(today_text, text_content)
+                    self.assertIn(tomorrow_text, text_content)
                 finally:
                     full_range_report.file.close()
 

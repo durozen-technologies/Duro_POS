@@ -20,8 +20,10 @@ from app.models import (
     Bill,
     BillItem,
     DailyPrice,
+    ExpenseEntry,
     InventoryItem,
     InventoryItemCategory,
+    InventoryMovement,
     Item,
     ItemAssumptionStatus,
     ItemCategory,
@@ -66,13 +68,14 @@ from app.schemas.admin import (
 from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
 
 
-def _shop_to_read(shop: Shop) -> ShopRead:
+def _shop_to_read(shop: Shop, last_active_at: datetime | None = None) -> ShopRead:
     return ShopRead(
         id=shop.id,
         name=shop.name,
         is_active=shop.is_active,
         created_at=shop.created_at,
         username=shop.owner.username,
+        last_active_at=last_active_at,
     )
 
 
@@ -149,7 +152,9 @@ def _merge_custom_attributes(
     return attributes
 
 
-def _custom_attributes_dict(value: dict[str, object | None] | str | None) -> dict[str, object | None]:
+def _custom_attributes_dict(
+    value: dict[str, object | None] | str | None,
+) -> dict[str, object | None]:
     if isinstance(value, dict):
         return dict(value)
     if isinstance(value, str) and value.strip():
@@ -201,12 +206,16 @@ def _json_safe_item_state(item: Item | None) -> dict[str, object | None]:
         "category": item.category,
         "is_active": item.is_active,
         "custom_attributes": dict(item.custom_attributes or {}),
-        "assumption_percent": str(item.assumption_percent) if item.assumption_percent is not None else None,
+        "assumption_percent": str(item.assumption_percent)
+        if item.assumption_percent is not None
+        else None,
         "assumption_inventory_item_id": (
             str(item.assumption_inventory_item_id) if item.assumption_inventory_item_id else None
         ),
         "assumption_inventory_category_id": (
-            str(item.assumption_inventory_category_id) if item.assumption_inventory_category_id else None
+            str(item.assumption_inventory_category_id)
+            if item.assumption_inventory_category_id
+            else None
         ),
         "image_object_key": item.image_object_key,
         "image_content_type": item.image_content_type,
@@ -290,13 +299,13 @@ def _normalize_category_name(raw_name: str) -> str:
 
 
 async def list_item_categories(db: AsyncSession) -> list[ItemCategoryRead]:
-    rows = await db.scalars(select(ItemCategory).order_by(func.lower(ItemCategory.name), ItemCategory.id))
+    rows = await db.scalars(
+        select(ItemCategory).order_by(func.lower(ItemCategory.name), ItemCategory.id)
+    )
     return [ItemCategoryRead.model_validate(category) for category in rows.all()]
 
 
-async def create_item_category(
-    db: AsyncSession, payload: ItemCategoryCreate
-) -> ItemCategoryRead:
+async def create_item_category(db: AsyncSession, payload: ItemCategoryCreate) -> ItemCategoryRead:
     category_name = _normalize_category_name(payload.name)
     existing = await db.scalar(
         select(ItemCategory).where(func.lower(ItemCategory.name) == category_name.lower())
@@ -315,7 +324,9 @@ async def update_item_category(
     db: AsyncSession, category_id: UUID, payload: ItemCategoryUpdate
 ) -> ItemCategoryRead:
     category_name = _normalize_category_name(payload.name)
-    category = await db.scalar(select(ItemCategory).where(ItemCategory.id == category_id).with_for_update())
+    category = await db.scalar(
+        select(ItemCategory).where(ItemCategory.id == category_id).with_for_update()
+    )
     if category is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
 
@@ -325,12 +336,12 @@ async def update_item_category(
     category_key = category_name.lower()
     if category.name.lower() != category_key:
         existing = await db.scalar(
-            select(ItemCategory.id)
-            .where(func.lower(ItemCategory.name) == category_key)
-            .limit(1)
+            select(ItemCategory.id).where(func.lower(ItemCategory.name) == category_key).limit(1)
         )
         if existing is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category already exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Category already exists"
+            )
 
     category.name = category_name
     await db.execute(
@@ -346,7 +357,9 @@ async def update_item_category(
 
 
 async def delete_item_category(db: AsyncSession, category_id: UUID) -> None:
-    category = await db.scalar(select(ItemCategory).where(ItemCategory.id == category_id).with_for_update())
+    category = await db.scalar(
+        select(ItemCategory).where(ItemCategory.id == category_id).with_for_update()
+    )
     if category is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
 
@@ -359,9 +372,7 @@ async def delete_item_category(db: AsyncSession, category_id: UUID) -> None:
     await db.commit()
 
 
-async def _find_or_create_item_category(
-    db: AsyncSession, category_name: str
-) -> ItemCategory:
+async def _find_or_create_item_category(db: AsyncSession, category_name: str) -> ItemCategory:
     normalized_name = _normalize_category_name(category_name)
     category = await db.scalar(
         select(ItemCategory).where(func.lower(ItemCategory.name) == normalized_name.lower())
@@ -534,36 +545,40 @@ async def list_shop_items(
     )
     count_is_available = and_(count_is_active, count_is_allocated)
     count_row = (
-        await db.execute(
-            select(
-                func.count().label("all"),
-                _sum_if(~count_is_shop_item).label("catalogue"),
-                _sum_if(count_is_shop_item).label("shop"),
-                _sum_if(count_is_allocated).label("allocated"),
-                _sum_if(and_(~count_is_allocated, ~count_is_shop_item)).label("available"),
-                _sum_if(
-                    and_(
-                        count_is_available,
-                        count_source.c.price_date == today,
-                    )
-                ).label("priced"),
-                _sum_if(
-                    and_(
-                        count_is_available,
-                        count_source.c.price_date.is_(None),
-                    )
-                ).label("needs_price"),
-                _sum_if(
-                    and_(
-                        count_is_available,
-                        count_source.c.price_date.is_not(None),
-                        count_source.c.price_date != today,
-                    )
-                ).label("stale_price"),
-                _sum_if(~count_is_active).label("paused"),
-            ).select_from(count_source)
+        (
+            await db.execute(
+                select(
+                    func.count().label("all"),
+                    _sum_if(~count_is_shop_item).label("catalogue"),
+                    _sum_if(count_is_shop_item).label("shop"),
+                    _sum_if(count_is_allocated).label("allocated"),
+                    _sum_if(and_(~count_is_allocated, ~count_is_shop_item)).label("available"),
+                    _sum_if(
+                        and_(
+                            count_is_available,
+                            count_source.c.price_date == today,
+                        )
+                    ).label("priced"),
+                    _sum_if(
+                        and_(
+                            count_is_available,
+                            count_source.c.price_date.is_(None),
+                        )
+                    ).label("needs_price"),
+                    _sum_if(
+                        and_(
+                            count_is_available,
+                            count_source.c.price_date.is_not(None),
+                            count_source.c.price_date != today,
+                        )
+                    ).label("stale_price"),
+                    _sum_if(~count_is_active).label("paused"),
+                ).select_from(count_source)
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     counts = ShopItemCounts(
         all=_zero_if_null(count_row["all"]),
         catalogue=_zero_if_null(count_row["catalogue"]),
@@ -909,9 +924,7 @@ async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItem
         allocated=is_allocated,
         available_for_billing=available_for_billing,
         can_delete=(
-            bill_count == 0
-            and price_count == 0
-            and (is_shop_item or allocated_shop_count == 0)
+            bill_count == 0 and price_count == 0 and (is_shop_item or allocated_shop_count == 0)
         ),
         can_deallocate=not is_shop_item and is_allocated,
         bill_count=bill_count,
@@ -922,10 +935,13 @@ async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItem
 
 def _compact_shop_item_from_row(row, shop: Shop, *, allocated: bool) -> ShopItemRead:
     is_shop_item = row.shop_id == shop.id
-    effective_name = _coalesce_text(
-        getattr(row, "allocation_display_name", None),
-        row.name,
-    ) or row.name
+    effective_name = (
+        _coalesce_text(
+            getattr(row, "allocation_display_name", None),
+            row.name,
+        )
+        or row.name
+    )
     effective_tamil_name = _coalesce_text(
         getattr(row, "allocation_tamil_name", None),
         row.tamil_name,
@@ -1091,12 +1107,8 @@ def _filter_selected_shop_source(
             or_(
                 func.lower(source.c.name).like(like_search),
                 func.lower(func.coalesce(source.c.tamil_name, "")).like(like_search),
-                func.lower(func.coalesce(source.c.allocation_display_name, "")).like(
-                    like_search
-                ),
-                func.lower(func.coalesce(source.c.allocation_tamil_name, "")).like(
-                    like_search
-                ),
+                func.lower(func.coalesce(source.c.allocation_display_name, "")).like(like_search),
+                func.lower(func.coalesce(source.c.allocation_tamil_name, "")).like(like_search),
             )
         )
     if category_id is not None:
@@ -1188,20 +1200,24 @@ async def count_selected_shop_items(
         uncategorized=uncategorized,
     ).subquery()
     count_row = (
-        await db.execute(
-            select(
-                func.count().label("all"),
-                _sum_if(count_source.c.shop_id == shop.id).label("shop"),
-                _sum_if(count_source.c.shop_id.is_(None)).label("catalogue"),
-                _sum_if(
-                    or_(
-                        count_source.c.is_active.is_(False),
-                        count_source.c.allocation_is_active.is_(False),
-                    )
-                ).label("paused"),
-            ).select_from(count_source)
+        (
+            await db.execute(
+                select(
+                    func.count().label("all"),
+                    _sum_if(count_source.c.shop_id == shop.id).label("shop"),
+                    _sum_if(count_source.c.shop_id.is_(None)).label("catalogue"),
+                    _sum_if(
+                        or_(
+                            count_source.c.is_active.is_(False),
+                            count_source.c.allocation_is_active.is_(False),
+                        )
+                    ).label("paused"),
+                ).select_from(count_source)
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     total_count = _zero_if_null(count_row["all"])
     return ShopItemCounts(
         all=total_count,
@@ -1268,11 +1284,7 @@ async def update_selected_shop_items_order(
         )
 
     shop_items = (
-        await db.scalars(
-            select(Item)
-            .where(Item.shop_id == shop.id)
-            .with_for_update()
-        )
+        await db.scalars(select(Item).where(Item.shop_id == shop.id).with_for_update())
     ).all()
     allocation_rows = (
         await db.scalars(
@@ -1348,34 +1360,31 @@ def _shop_item_import_candidates_query(shop: Shop, q: str | None = None):
         )
         .exists()
     )
-    query = (
-        select(
-            Item.id,
-            Item.shop_id,
-            Item.name,
-            Item.tamil_name,
-            Item.unit_type,
-            Item.base_unit,
-            Item.sort_order,
-            Item.category_id,
-            Item.category,
-            Item.is_active,
-            Item.created_at,
-            Item.updated_at,
-            Item.custom_attributes,
-            Item.assumption_percent,
-            Item.assumption_inventory_item_id,
-            Item.assumption_inventory_category_id,
-            Item.image_object_key,
-            Item.image_content_type,
-            Item.image_thumbnail_object_key,
-            Item.image_thumbnail_content_type,
-        )
-        .where(
-            Item.shop_id.is_(None),
-            Item.is_active.is_(True),
-            ~allocation_exists,
-        )
+    query = select(
+        Item.id,
+        Item.shop_id,
+        Item.name,
+        Item.tamil_name,
+        Item.unit_type,
+        Item.base_unit,
+        Item.sort_order,
+        Item.category_id,
+        Item.category,
+        Item.is_active,
+        Item.created_at,
+        Item.updated_at,
+        Item.custom_attributes,
+        Item.assumption_percent,
+        Item.assumption_inventory_item_id,
+        Item.assumption_inventory_category_id,
+        Item.image_object_key,
+        Item.image_content_type,
+        Item.image_thumbnail_object_key,
+        Item.image_thumbnail_content_type,
+    ).where(
+        Item.shop_id.is_(None),
+        Item.is_active.is_(True),
+        ~allocation_exists,
     )
 
     search = q.strip() if q else ""
@@ -1418,10 +1427,7 @@ async def list_shop_item_import_candidate_rows(
     result_rows = rows.all()
     page_rows = result_rows[:limit]
     has_more = len(result_rows) > limit
-    items = [
-        _compact_shop_item_from_row(row, shop, allocated=False)
-        for row in page_rows
-    ]
+    items = [_compact_shop_item_from_row(row, shop, allocated=False) for row in page_rows]
 
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if has_more and page_rows:
@@ -1607,17 +1613,13 @@ async def count_catalogue_items(
     active: bool | None = None,
 ) -> ShopItemCounts:
     allocation_exists = (
-        select(ShopItemAllocation.id)
-        .where(ShopItemAllocation.item_id == Item.id)
-        .exists()
+        select(ShopItemAllocation.id).where(ShopItemAllocation.item_id == Item.id).exists()
     )
     query = select(
         Item.id,
         Item.is_active,
         allocation_exists.label("is_allocated"),
-    ).where(
-        Item.shop_id.is_(None)
-    )
+    ).where(Item.shop_id.is_(None))
     search = q.strip() if q else ""
     if search:
         like_search = f"%{search.lower()}%"
@@ -1632,15 +1634,19 @@ async def count_catalogue_items(
 
     count_source = query.subquery()
     count_row = (
-        await db.execute(
-            select(
-                func.count().label("all"),
-                _sum_if(count_source.c.is_allocated.is_(True)).label("allocated"),
-                _sum_if(count_source.c.is_allocated.is_(False)).label("available"),
-                _sum_if(count_source.c.is_active.is_(False)).label("paused"),
-            ).select_from(count_source)
+        (
+            await db.execute(
+                select(
+                    func.count().label("all"),
+                    _sum_if(count_source.c.is_allocated.is_(True)).label("allocated"),
+                    _sum_if(count_source.c.is_allocated.is_(False)).label("available"),
+                    _sum_if(count_source.c.is_active.is_(False)).label("paused"),
+                ).select_from(count_source)
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     total_count = _zero_if_null(count_row["all"])
     return ShopItemCounts(
         all=total_count,
@@ -1680,39 +1686,39 @@ async def list_catalogue_items(
         .group_by(ShopItemAllocation.item_id)
         .subquery()
     )
-    query = select(
-        Item.id,
-        Item.shop_id,
-        Item.name,
-        Item.tamil_name,
-        Item.unit_type,
-        Item.base_unit,
-        Item.sort_order,
-        Item.category_id,
-        Item.category,
-        Item.is_active,
-        Item.created_at,
-        Item.updated_at,
-        Item.custom_attributes,
-        Item.assumption_percent,
-        Item.assumption_inventory_item_id,
-        Item.assumption_inventory_category_id,
-        Item.image_object_key,
-        Item.image_content_type,
-        Item.image_thumbnail_object_key,
-        Item.image_thumbnail_content_type,
-        func.coalesce(bill_counts.c.bill_count, 0).label("bill_count"),
-        func.coalesce(price_counts.c.price_count, 0).label("price_count"),
-        func.coalesce(allocation_counts.c.allocated_shop_count, 0).label(
-            "allocated_shop_count"
-        ),
-    ).outerjoin(
-        bill_counts, bill_counts.c.item_id == Item.id
-    ).outerjoin(
-        price_counts, price_counts.c.item_id == Item.id
-    ).outerjoin(
-        allocation_counts, allocation_counts.c.item_id == Item.id
-    ).where(Item.shop_id.is_(None))
+    query = (
+        select(
+            Item.id,
+            Item.shop_id,
+            Item.name,
+            Item.tamil_name,
+            Item.unit_type,
+            Item.base_unit,
+            Item.sort_order,
+            Item.category_id,
+            Item.category,
+            Item.is_active,
+            Item.created_at,
+            Item.updated_at,
+            Item.custom_attributes,
+            Item.assumption_percent,
+            Item.assumption_inventory_item_id,
+            Item.assumption_inventory_category_id,
+            Item.image_object_key,
+            Item.image_content_type,
+            Item.image_thumbnail_object_key,
+            Item.image_thumbnail_content_type,
+            func.coalesce(bill_counts.c.bill_count, 0).label("bill_count"),
+            func.coalesce(price_counts.c.price_count, 0).label("price_count"),
+            func.coalesce(allocation_counts.c.allocated_shop_count, 0).label(
+                "allocated_shop_count"
+            ),
+        )
+        .outerjoin(bill_counts, bill_counts.c.item_id == Item.id)
+        .outerjoin(price_counts, price_counts.c.item_id == Item.id)
+        .outerjoin(allocation_counts, allocation_counts.c.item_id == Item.id)
+        .where(Item.shop_id.is_(None))
+    )
 
     search = q.strip() if q else ""
     if search:
@@ -1734,15 +1740,19 @@ async def list_catalogue_items(
 
     count_source = query.subquery()
     count_row = (
-        await db.execute(
-            select(
-                func.count().label("all"),
-                _sum_if(count_source.c.allocated_shop_count > 0).label("allocated"),
-                _sum_if(count_source.c.allocated_shop_count == 0).label("available"),
-                _sum_if(~count_source.c.is_active).label("paused"),
-            ).select_from(count_source)
+        (
+            await db.execute(
+                select(
+                    func.count().label("all"),
+                    _sum_if(count_source.c.allocated_shop_count > 0).label("allocated"),
+                    _sum_if(count_source.c.allocated_shop_count == 0).label("available"),
+                    _sum_if(~count_source.c.is_active).label("paused"),
+                ).select_from(count_source)
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     total_count = _zero_if_null(count_row["all"])
     counts = ShopItemCounts(
         all=total_count,
@@ -1765,7 +1775,9 @@ async def list_catalogue_items(
             query = query.where(
                 or_(
                     Item.sort_order > cursor_sort_order,
-                    and_(Item.sort_order == cursor_sort_order, sort_name_expr > cursor_name.lower()),
+                    and_(
+                        Item.sort_order == cursor_sort_order, sort_name_expr > cursor_name.lower()
+                    ),
                     and_(
                         Item.sort_order == cursor_sort_order,
                         sort_name_expr == cursor_name.lower(),
@@ -2287,7 +2299,20 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
     db.add_all([user, shop])
     await db.flush()
     await db.commit()
-    return _shop_to_read(shop)
+    return _shop_to_read(shop, last_active_at=None)
+
+
+async def _query_shop_last_active_at(db: AsyncSession, shop_id: UUID) -> datetime | None:
+    result = await db.execute(
+        select(
+            select(func.max(Bill.created_at)).where(Bill.shop_id == shop_id).scalar_subquery(),
+            select(func.max(DailyPrice.created_at)).where(DailyPrice.shop_id == shop_id).scalar_subquery(),
+            select(func.max(ExpenseEntry.created_at)).where(ExpenseEntry.shop_id == shop_id).scalar_subquery(),
+            select(func.max(InventoryMovement.created_at)).where(InventoryMovement.shop_id == shop_id).scalar_subquery(),
+        )
+    )
+    times = result.first()
+    return max((t for t in times if t is not None), default=None) if times else None
 
 
 async def update_shop_account(db: AsyncSession, shop_id: UUID, payload: ShopUpdate) -> ShopRead:
@@ -2339,11 +2364,13 @@ async def update_shop_account(db: AsyncSession, shop_id: UUID, payload: ShopUpda
         has_changes = True
 
     if not has_changes:
-        return _shop_to_read(shop)
+        last_active_at = await _query_shop_last_active_at(db, shop.id)
+        return _shop_to_read(shop, last_active_at=last_active_at)
 
     await db.flush()  # batch both UPDATEs before the commit
     await db.commit()
-    return _shop_to_read(shop)
+    last_active_at = await _query_shop_last_active_at(db, shop.id)
+    return _shop_to_read(shop, last_active_at=last_active_at)
 
 
 async def delete_shop_account(db: AsyncSession, shop_id: UUID) -> None:
@@ -2401,10 +2428,15 @@ async def list_shops(db: AsyncSession) -> list[ShopRead]:
     """Return all shops projected to ShopRead in a single flat query.
 
     Uses a column-level projection instead of ``joinedload`` so only the
-    5 columns required by ``ShopRead`` are fetched from the DB — the full
+    columns required by ``ShopRead`` are fetched from the DB — the full
     ``User`` row (including ``hashed_password``, ``role``, etc.) is never
     loaded into Python memory.
     """
+    bill_sub = select(func.max(Bill.created_at)).where(Bill.shop_id == Shop.id).correlate(Shop).scalar_subquery()
+    price_sub = select(func.max(DailyPrice.created_at)).where(DailyPrice.shop_id == Shop.id).correlate(Shop).scalar_subquery()
+    expense_sub = select(func.max(ExpenseEntry.created_at)).where(ExpenseEntry.shop_id == Shop.id).correlate(Shop).scalar_subquery()
+    inventory_sub = select(func.max(InventoryMovement.created_at)).where(InventoryMovement.shop_id == Shop.id).correlate(Shop).scalar_subquery()
+
     rows = await db.execute(
         select(
             Shop.id,
@@ -2412,17 +2444,25 @@ async def list_shops(db: AsyncSession) -> list[ShopRead]:
             Shop.is_active,
             Shop.created_at,
             User.username,
+            bill_sub.label("last_bill"),
+            price_sub.label("last_price"),
+            expense_sub.label("last_expense"),
+            inventory_sub.label("last_inventory"),
         )
         .join(Shop.owner)
         .order_by(Shop.id.asc())
     )
     return [
         ShopRead(
-            id=r.id,
-            name=r.name,
-            is_active=r.is_active,
-            created_at=r.created_at,
-            username=r.username,
+            id=r["id"],
+            name=r["name"],
+            is_active=r["is_active"],
+            created_at=r["created_at"],
+            username=r["username"],
+            last_active_at=max(
+                (t for t in (r["last_bill"], r["last_price"], r["last_expense"], r["last_inventory"]) if t is not None),
+                default=None
+            ),
         )
         for r in rows.mappings()
     ]
@@ -2431,9 +2471,14 @@ async def list_shops(db: AsyncSession) -> list[ShopRead]:
 async def get_shop_by_id(db: AsyncSession, shop_id: UUID) -> ShopRead:
     """Fetch a single shop by PK using a flat projection JOIN.
 
-    One SQL JOIN selecting only the 5 columns ShopRead needs — no ORM object
+    One SQL JOIN selecting only the columns ShopRead needs — no ORM object
     instantiation, no secondary SELECT for the owner row.
     """
+    bill_sub = select(func.max(Bill.created_at)).where(Bill.shop_id == shop_id).scalar_subquery()
+    price_sub = select(func.max(DailyPrice.created_at)).where(DailyPrice.shop_id == shop_id).scalar_subquery()
+    expense_sub = select(func.max(ExpenseEntry.created_at)).where(ExpenseEntry.shop_id == shop_id).scalar_subquery()
+    inventory_sub = select(func.max(InventoryMovement.created_at)).where(InventoryMovement.shop_id == shop_id).scalar_subquery()
+
     row = await db.execute(
         select(
             Shop.id,
@@ -2441,6 +2486,10 @@ async def get_shop_by_id(db: AsyncSession, shop_id: UUID) -> ShopRead:
             Shop.is_active,
             Shop.created_at,
             User.username,
+            bill_sub.label("last_bill"),
+            price_sub.label("last_price"),
+            expense_sub.label("last_expense"),
+            inventory_sub.label("last_inventory"),
         )
         .join(Shop.owner)
         .where(Shop.id == shop_id)
@@ -2448,7 +2497,19 @@ async def get_shop_by_id(db: AsyncSession, shop_id: UUID) -> ShopRead:
     result = row.mappings().one_or_none()
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop not found")
-    return ShopRead(**result)
+    
+    last_active_at = max(
+        (t for t in (result["last_bill"], result["last_price"], result["last_expense"], result["last_inventory"]) if t is not None),
+        default=None
+    )
+    return ShopRead(
+        id=result["id"],
+        name=result["name"],
+        is_active=result["is_active"],
+        created_at=result["created_at"],
+        username=result["username"],
+        last_active_at=last_active_at,
+    )
 
 
 async def create_item(
@@ -2543,8 +2604,10 @@ async def update_item(
             exclude_item_id=item_id,
         )
 
-    should_remove_image = remove_image and image is None and bool(
-        item.image_object_key or item.image_thumbnail_object_key
+    should_remove_image = (
+        remove_image
+        and image is None
+        and bool(item.image_object_key or item.image_thumbnail_object_key)
     )
     if not configuration_changed and image is None and not should_remove_image:
         return _item_to_read(item)
@@ -2631,7 +2694,9 @@ async def update_item_metadata(
         if payload.tamil_name is not None
         else item.tamil_name
     )
-    category_fields_set = "category_id" in payload.model_fields_set or "category" in payload.model_fields_set
+    category_fields_set = (
+        "category_id" in payload.model_fields_set or "category" in payload.model_fields_set
+    )
     next_category = (
         await _resolve_item_category(
             db, category_id=payload.category_id, category_name=payload.category
@@ -2640,11 +2705,15 @@ async def update_item_metadata(
         else None
     )
     next_category_id = (
-        next_category.id if next_category is not None else None
-    ) if category_fields_set else item.category_id
+        (next_category.id if next_category is not None else None)
+        if category_fields_set
+        else item.category_id
+    )
     next_category_name = (
-        next_category.name if next_category is not None else None
-    ) if category_fields_set else item.category
+        (next_category.name if next_category is not None else None)
+        if category_fields_set
+        else item.category
+    )
     next_unit_type = payload.unit_type if payload.unit_type is not None else item.unit_type
     next_base_unit = payload.base_unit if payload.base_unit is not None else item.base_unit
     next_is_active = payload.is_active if payload.is_active is not None else item.is_active
@@ -2887,7 +2956,8 @@ async def set_shop_active_state(db: AsyncSession, shop_id: UUID, is_active: bool
     shop.owner.is_active = is_active
     await db.flush()  # batch both UPDATEs before the commit
     await db.commit()
-    return _shop_to_read(shop)
+    last_active_at = await _query_shop_last_active_at(db, shop_id)
+    return _shop_to_read(shop, last_active_at=last_active_at)
 
 
 async def get_bill_by_id(db: AsyncSession, bill_id: UUID) -> BillRead:

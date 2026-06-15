@@ -364,8 +364,8 @@ function CategoryButton({
   palette: ThemePalette;
   onPress: () => void;
 }) {
-  const backgroundColor = active ? palette.items : palette.card;
-  const borderColor = active ? palette.items : palette.border;
+  const backgroundColor = active ? palette.success : palette.card;
+  const borderColor = active ? palette.success : palette.border;
   const textColor = active ? palette.onPrimary : palette.textPrimary;
   return (
     <TButton

@@ -111,9 +111,9 @@ function buttonColors(palette: ThemePalette, tone: "primary" | "neutral" | "dang
   }
   if (tone === "primary") {
     return {
-      fg: active ? palette.onPrimary : palette.itemsStrong,
-      bg: active ? palette.items : palette.itemsSoft,
-      border: palette.items,
+      fg: active ? palette.onPrimary : palette.success,
+      bg: active ? palette.success : palette.successSoft,
+      border: palette.success,
     };
   }
   return {

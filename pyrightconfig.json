@@ -1,0 +1,17 @@
+{
+  "executionEnvironments": [
+    {
+      "root": "backend",
+      "extraPaths": [
+        "backend"
+      ]
+    },
+    {
+      "root": "WhatsApp Bot",
+      "extraPaths": [
+        "WhatsApp Bot",
+        "backend"
+      ]
+    }
+  ]
+}

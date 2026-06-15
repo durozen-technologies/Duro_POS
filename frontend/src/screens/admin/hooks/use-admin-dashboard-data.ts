@@ -34,7 +34,7 @@ export type ShopDashboardRow = {
   cashTotal: string;
   upiTotal: string;
   billCount: number;
-  lastActivityAt: string;
+  lastActivityAt: string | null;
   status: ShopOperationalState;
 };
 
@@ -262,7 +262,7 @@ export function useAdminDashboardData({
     return dashboardData.shops.map((shop) => {
       const latestBillAt = latestBillAtByShopId.get(shop.id);
       const payment = paymentsByShopId.get(shop.id);
-      const lastActivityAt = latestBillAt ?? shop.created_at;
+      const lastActivityAt = shop.last_active_at ?? latestBillAt ?? null;
 
       return {
         shop,

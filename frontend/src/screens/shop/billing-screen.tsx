@@ -250,6 +250,7 @@ const ProductCard = memo(
                 label={buttonLabel}
                 onPress={() => onAddToCart(item, quantity)}
                 disabled={!hasPrice}
+                className={hasPrice ? "border-[#147D52] bg-[#147D52]" : undefined}
               />
             </View>
           </View>

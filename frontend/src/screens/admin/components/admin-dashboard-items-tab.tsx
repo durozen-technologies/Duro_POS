@@ -171,7 +171,7 @@ const catalogueFilterSet = new Set<ItemFilter>([
 
 function toneColor(palette: ThemePalette, tone: Tone) {
   if (tone === "primary") {
-    return { fg: palette.itemsStrong, bg: palette.itemsSoft, border: palette.items };
+    return { fg: palette.success, bg: palette.successSoft, border: palette.success };
   }
   if (tone === "gold") {
     return { fg: palette.cash, bg: palette.goldSoft, border: palette.gold };
@@ -246,7 +246,7 @@ const ActionButton = memo(function ActionButton({
 }) {
   const backgroundColor =
     variant === "primary"
-      ? palette.items
+      ? palette.success
       : variant === "danger"
         ? palette.danger
         : variant === "ghost"
@@ -254,7 +254,7 @@ const ActionButton = memo(function ActionButton({
           : palette.card;
   const borderColor =
     variant === "primary"
-      ? palette.items
+      ? palette.success
       : variant === "danger"
         ? palette.danger
         : variant === "ghost"
