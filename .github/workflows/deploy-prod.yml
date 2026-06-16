@@ -228,6 +228,9 @@ jobs:
                   return f'{key}="{escaped}"\n'
               return f"{key}={value}\n"
 
+          def non_empty(key: str, default: str) -> str:
+              return (os.environ.get(key) or "").strip() or default
+
           pairs = {
               "DOCKERHUB_USERNAME": os.environ["DOCKERHUB_USERNAME"],
               "BACKEND_IMAGE_REPO": os.environ.get("BACKEND_IMAGE", "mlb-pos-backend"),
@@ -239,8 +242,8 @@ jobs:
               "SYNC_COMPOSE": os.environ.get("SYNC_COMPOSE", "false"),
               "POSTGRES_DATA_DIR": "/home/ubuntu/pos-postgress/data",
               "RUSTFS_DATA_DIR": "/home/ubuntu/rustfs/data",
-              "POSTGRES_DB": os.environ.get("POSTGRES_DB", "meat_billing"),
-              "POSTGRES_USER": os.environ.get("POSTGRES_USER", "postgres"),
+              "POSTGRES_DB": non_empty("POSTGRES_DB", "meat_billing"),
+              "POSTGRES_USER": non_empty("POSTGRES_USER", "postgres"),
               "POSTGRES_PASSWORD": os.environ["POSTGRES_PASSWORD"],
               "RUSTFS_ACCESS_KEY": os.environ["RUSTFS_ACCESS_KEY"],
               "RUSTFS_SECRET_KEY": os.environ["RUSTFS_SECRET_KEY"],
