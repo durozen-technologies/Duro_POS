@@ -210,15 +210,13 @@ make docker-logs
 make docker-ps
 ```
 
-The active proxy is Caddy and currently terminates HTTPS for:
-
-- `https://pos-mlb.duckdns.org`
+The active proxy is Caddy and terminates HTTPS for `CADDY_PUBLIC_HOST`.
 
 Backend connectivity reference:
 
 - direct local backend: `http://127.0.0.1:8000`
 - internal Docker upstream: `http://backend:8000`
-- through Caddy: `https://pos-mlb.duckdns.org`
+- through Caddy: `https://<CADDY_PUBLIC_HOST>`
 
 Current Compose defaults point the backend to host services:
 
@@ -339,8 +337,8 @@ Local backend:
 
 Through Caddy:
 
-- `https://pos-mlb.duckdns.org/api/v1/health`
-- `https://pos-mlb.duckdns.org/docs`
+- `https://<CADDY_PUBLIC_HOST>/api/v1/health`
+- `https://<CADDY_PUBLIC_HOST>/docs`
 
 ## Testing
 

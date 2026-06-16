@@ -1,2 +1,2 @@
 # Runtime Caddyfile is generated from Caddyfile.template by docker-entrypoint.sh
-# using CADDY_PUBLIC_HOST and CADDY_DUCKDNS_HOST from GitHub Secrets / VM .env
+# using CADDY_PUBLIC_HOST from GitHub Secrets / VM .env

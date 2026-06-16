@@ -281,7 +281,6 @@ postgres/data/*
 !postgres/data/.gitkeep
 rustfs/data/*
 !rustfs/data/.gitkeep
-duckdns/
 
 # Test caches outside app folders
 test/__pycache__/

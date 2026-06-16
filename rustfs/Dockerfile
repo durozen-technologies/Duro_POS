@@ -2,7 +2,9 @@
 
 ARG RUSTFS_IMAGE=rustfs/rustfs:latest
 
-FROM ${RUSTFS_IMAGE} AS runtime
+FROM ${RUSTFS_IMAGE} AS upstream
+
+FROM upstream AS runtime
 
 ARG RUSTFS_DATA_UID=10001
 ARG RUSTFS_DATA_GID=10001

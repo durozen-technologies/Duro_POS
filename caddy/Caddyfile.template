@@ -62,7 +62,3 @@
 		}
 	}
 }
-
-# __CADDY_PUBLIC_HOST_BLOCK__
-
-# __CADDY_DUCKDNS_HOST_BLOCK__

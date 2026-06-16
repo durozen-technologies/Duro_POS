@@ -1,3 +1,0 @@
-# Production overrides — merged automatically by deploy-prod.sh when present.
-# Keep RustFS enabled from docker-compose.prod.yml; item images are RustFS-only.
-services: {}

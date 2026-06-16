@@ -6,7 +6,7 @@ x-default-logging: &default-logging
 
 networks:
   pos:
-    name: mahalakshmi-pos-network
+    name: mlb-pos-network
     driver: bridge
 
 services:
@@ -78,7 +78,7 @@ services:
       start_period: 20s
 
   backend:
-    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/mahalakshmi-pos-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG:-latest}}
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${BACKEND_IMAGE_REPO:-mlb-pos-backend}:${BACKEND_IMAGE_TAG:-${IMAGE_TAG:-latest}}
     init: true
     restart: unless-stopped
     logging: *default-logging
@@ -122,7 +122,7 @@ services:
       start_period: 20s
 
   caddy:
-    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/mahalakshmi-pos-caddy:${CADDY_IMAGE_TAG:-${IMAGE_TAG:-latest}}
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${CADDY_IMAGE_REPO:-mlb-pos-caddy}:${CADDY_IMAGE_TAG:-${IMAGE_TAG:-latest}}
     init: true
     restart: unless-stopped
     logging: *default-logging
@@ -134,8 +134,6 @@ services:
     environment:
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:?Set CADDY_ACME_EMAIL}
       CADDY_PUBLIC_HOST: ${CADDY_PUBLIC_HOST:?Set CADDY_PUBLIC_HOST}
-      CADDY_DUCKDNS_HOST: ${CADDY_DUCKDNS_HOST:-}
-      DUCKDNS_API_TOKEN: ${DUCKDNS_API_TOKEN:-}
       CADDY_UPSTREAM: ${CADDY_UPSTREAM:-backend:8000}
     ports:
       - "80:80"

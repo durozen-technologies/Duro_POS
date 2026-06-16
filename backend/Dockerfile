@@ -3,7 +3,7 @@
 ARG PYTHON_VERSION=3.11
 ARG UV_VERSION=0.11.3
 
-FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
+FROM python:${PYTHON_VERSION}-slim-bookworm AS deps
 
 ARG UV_VERSION
 
@@ -20,6 +20,9 @@ RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
+
+
+FROM deps AS builder
 
 COPY . .
 

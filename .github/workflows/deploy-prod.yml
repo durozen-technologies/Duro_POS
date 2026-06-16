@@ -3,7 +3,7 @@ name: Deploy Production
 on:
   push:
     branches:
-      - main
+      - prod
     paths:
       - "backend/**"
       - "caddy/**"
@@ -34,8 +34,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BACKEND_IMAGE: mahalakshmi-pos-backend
-  CADDY_IMAGE: mahalakshmi-pos-caddy
+  BACKEND_IMAGE: mlb-pos-backend
+  CADDY_IMAGE: mlb-pos-caddy
 
 jobs:
   changes:
@@ -80,6 +80,7 @@ jobs:
         with:
           context: ./backend
           file: ./backend/Dockerfile
+          target: runtime
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
@@ -107,6 +108,7 @@ jobs:
         with:
           context: ./caddy
           file: ./caddy/Dockerfile
+          target: runtime
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.CADDY_IMAGE }}:${{ github.sha }}
@@ -181,6 +183,8 @@ jobs:
 
       - name: Create production .env
         env:
+          BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
+          CADDY_IMAGE: ${{ env.CADDY_IMAGE }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           BACKEND_IMAGE_TAG: ${{ steps.plan.outputs.backend_tag }}
           CADDY_IMAGE_TAG: ${{ steps.plan.outputs.caddy_tag }}
@@ -188,7 +192,6 @@ jobs:
           DEPLOY_CADDY: ${{ steps.plan.outputs.deploy_caddy }}
           SYNC_COMPOSE: ${{ steps.plan.outputs.sync_compose }}
           CADDY_PUBLIC_HOST: ${{ secrets.CADDY_PUBLIC_HOST }}
-          CADDY_DUCKDNS_HOST: ${{ secrets.CADDY_DUCKDNS_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -197,7 +200,6 @@ jobs:
           RUSTFS_SERVER_DOMAINS: ${{ secrets.RUSTFS_SERVER_DOMAINS }}
           BACKEND_SECRET_KEY: ${{ secrets.BACKEND_SECRET_KEY }}
           CADDY_ACME_EMAIL: ${{ secrets.CADDY_ACME_EMAIL }}
-          DUCKDNS_API_TOKEN: ${{ secrets.DUCKDNS_API_TOKEN }}
           BACKEND_RUSTFS_BUCKET_NAME: ${{ secrets.BACKEND_RUSTFS_BUCKET_NAME }}
         run: |
           if [ -z "${CADDY_PUBLIC_HOST}" ]; then
@@ -206,14 +208,13 @@ jobs:
           fi
 
           BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","127.0.0.1","localhost","backend"]'
-          if [ -n "${CADDY_DUCKDNS_HOST}" ]; then
-            BACKEND_ALLOWED_HOSTS='["'"${CADDY_PUBLIC_HOST}"'","'"${CADDY_DUCKDNS_HOST}"'","127.0.0.1","localhost","backend"]'
-          fi
           BACKEND_CORS_ORIGINS='["*"]'
           BACKEND_TRUSTED_PROXIES='[]'
 
           : > .env.deploy
           echo "DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}" >> .env.deploy
+          echo "BACKEND_IMAGE_REPO=${BACKEND_IMAGE:-mlb-pos-backend}" >> .env.deploy
+          echo "CADDY_IMAGE_REPO=${CADDY_IMAGE:-mlb-pos-caddy}" >> .env.deploy
           echo "BACKEND_IMAGE_TAG=${BACKEND_IMAGE_TAG}" >> .env.deploy
           echo "CADDY_IMAGE_TAG=${CADDY_IMAGE_TAG}" >> .env.deploy
           echo "DEPLOY_BACKEND=${DEPLOY_BACKEND}" >> .env.deploy
@@ -235,8 +236,6 @@ jobs:
           echo "BACKEND_RUSTFS_BUCKET_NAME=${BACKEND_RUSTFS_BUCKET_NAME:-pos-mlb-items}" >> .env.deploy
           echo "CADDY_ACME_EMAIL=${CADDY_ACME_EMAIL}" >> .env.deploy
           echo "CADDY_PUBLIC_HOST=${CADDY_PUBLIC_HOST}" >> .env.deploy
-          echo "CADDY_DUCKDNS_HOST=${CADDY_DUCKDNS_HOST}" >> .env.deploy
-          echo "DUCKDNS_API_TOKEN=${DUCKDNS_API_TOKEN}" >> .env.deploy
           echo "CADDY_UPSTREAM=backend:8000" >> .env.deploy
 
       - uses: appleboy/scp-action@v0.1.7
