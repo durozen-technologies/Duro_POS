@@ -265,7 +265,7 @@ log_backend_health_diagnostics() {
 }
 
 wait_backend_health() {
-  local i status
+  local i status restart_count
   log "Waiting for backend health (up to $((HEALTH_RETRIES * HEALTH_INTERVAL))s)"
   for ((i = 1; i <= HEALTH_RETRIES; i++)); do
     status="$(service_health backend)"
@@ -274,6 +274,19 @@ wait_backend_health() {
       debug_log "H2" "deploy-prod.sh:wait_backend_health" "backend healthy" \
         "{\"attempt\":${i},\"status\":\"${status}\"}"
       return 0
+    fi
+    if [[ "${status}" == "exited" || "${status}" == "dead" ]]; then
+      log "Backend container is not running (status=${status})"
+      log_backend_health_diagnostics "${status}"
+      return 1
+    fi
+    if [[ "${status}" == "unhealthy" ]]; then
+      restart_count="$(docker inspect --format='{{.RestartCount}}' "$(service_container_id backend)" 2>/dev/null || echo 0)"
+      if [[ "${restart_count}" -ge 3 ]]; then
+        log "Backend crash-looping (status=${status}, restarts=${restart_count})"
+        log_backend_health_diagnostics "${status}"
+        return 1
+      fi
     fi
     if (( i == 1 || i % 6 == 0 )); then
       log "Backend not ready yet: status=${status} (attempt ${i}/${HEALTH_RETRIES})"
