@@ -201,12 +201,47 @@ def _get_bucket_init_lock() -> asyncio.Lock:
     return _bucket_init_lock
 
 
+def _parse_rustfs_server_domains() -> list[str]:
+    raw = (settings.rustfs_server_domains_raw or "").strip()
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _resolve_rustfs_s3_host_header() -> str | None:
+    override = (settings.rustfs_s3_host_header or "").strip()
+    if override:
+        return override
+
+    for domain in _parse_rustfs_server_domains():
+        if domain.endswith(":9000"):
+            return domain
+
+    for domain in _parse_rustfs_server_domains():
+        if domain.endswith(":9001"):
+            host = domain.rsplit(":", 1)[0]
+            if host:
+                return f"{host}:9000"
+
+    return None
+
+
+def _effective_rustfs_host_header() -> str:
+    return _resolve_rustfs_s3_host_header() or _rustfs_endpoint_host_header()
+
+
+def _inject_rustfs_s3_host_header(request, **kwargs) -> None:
+    host_header = _resolve_rustfs_s3_host_header()
+    if host_header:
+        request.headers["Host"] = host_header
+
+
 @lru_cache(maxsize=1)
 def _get_storage_client():
     if not settings.rustfs_enabled:
         raise RuntimeError("RustFS is not configured")
 
-    return boto3.client(
+    client = boto3.client(
         "s3",
         endpoint_url=settings.rustfs_endpoint_url,
         aws_access_key_id=settings.rustfs_access_key_id,
@@ -220,6 +255,9 @@ def _get_storage_client():
         ),
         region_name=settings.rustfs_region_name,
     )
+    if _resolve_rustfs_s3_host_header():
+        client.meta.events.register("before-sign.s3.*", _inject_rustfs_s3_host_header)
+    return client
 
 
 def _rustfs_endpoint_host_header() -> str:
@@ -247,13 +285,13 @@ def _raise_rustfs_head_bucket_error(exc: ClientError) -> None:
             "Use lowercase letters, numbers, and hyphens only."
         ) from exc
 
-    host_header = _rustfs_endpoint_host_header()
+    host_header = _effective_rustfs_host_header()
     raise RuntimeError(
         "RustFS rejected the S3 request Host header. "
         f"Endpoint: {settings.rustfs_endpoint_url}, "
         f"Host header sent: {host_header or '(unknown)'}. "
-        "When RUSTFS_SERVER_DOMAINS is set, it must include that host:port "
-        "(production compose appends rustfs:9000 automatically)."
+        "Set RUSTFS_SERVER_DOMAINS to include a :9000 entry (or RUSTFS_S3_HOST_HEADER) "
+        "and recreate the rustfs container so virtual-host mode accepts it."
     ) from exc
 
 

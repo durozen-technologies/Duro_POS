@@ -355,7 +355,7 @@ Password: <POSTGRES_PASSWORD secret>
 | `POSTGRES_PASSWORD` | Database password (must match existing data dir) |
 | `POSTGRES_DB`, `POSTGRES_USER` | Optional overrides (default `meat_billing` / `postgres`) |
 | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | Object storage |
-| `RUSTFS_SERVER_DOMAINS` | RustFS virtual-host domains, comma-separated (e.g. `16.112.68.20:9000,16.112.68.20:9001`). Must include S3 API port `:9000`; compose auto-appends `rustfs:9000` for backend Docker networking. Default bucket is `pos-mlb-items`. |
+| `RUSTFS_SERVER_DOMAINS` | RustFS virtual-host domains, comma-separated (e.g. `16.112.68.20:9000,16.112.68.20:9001`). Console-only `:9001` values are expanded to `:9000` on deploy. Backend sends the `:9000` Host header while connecting to `rustfs:9000` internally. |
 | `BACKEND_SECRET_KEY` | 32+ char JWT secret |
 | `BACKEND_RUSTFS_BUCKET_NAME` | Optional |
 

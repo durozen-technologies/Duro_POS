@@ -26,6 +26,65 @@ log() {
   printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
 }
 
+expand_rustfs_server_domains() {
+  local raw="${RUSTFS_SERVER_DOMAINS:-}"
+  if [[ -z "${raw}" ]]; then
+    return 0
+  fi
+
+  local -A seen=()
+  local -a out=()
+  local d host item expanded=""
+
+  add_domain() {
+    local value="${1// /}"
+    [[ -z "${value}" ]] && return 0
+    [[ -n "${seen[$value]+x}" ]] && return 0
+    seen["$value"]=1
+    out+=("${value}")
+  }
+
+  IFS=',' read -ra parts <<< "${raw}"
+  for d in "${parts[@]}"; do
+    add_domain "${d}"
+    d="${d// /}"
+    if [[ "${d}" == *:9001 ]]; then
+      host="${d%:9001}"
+      add_domain "${host}:9000"
+    fi
+  done
+
+  add_domain "rustfs:9000"
+
+  for item in "${out[@]}"; do
+    if [[ -n "${expanded}" ]]; then
+      expanded+=","
+    fi
+    expanded+="${item}"
+  done
+
+  export RUSTFS_SERVER_DOMAINS="${expanded}"
+  log "Expanded RUSTFS_SERVER_DOMAINS=${RUSTFS_SERVER_DOMAINS}"
+}
+
+apply_rustfs_config() {
+  log "Applying RustFS server-domain configuration"
+  run_compose up -d --pull never --force-recreate rustfs
+
+  local i status
+  for ((i = 1; i <= HEALTH_RETRIES; i++)); do
+    status="$(service_health rustfs)"
+    if [[ "${status}" == "healthy" ]]; then
+      log "RustFS healthy after config apply"
+      return 0
+    fi
+    sleep "${HEALTH_INTERVAL}"
+  done
+
+  log "RustFS failed to become healthy after config apply (status=${status})"
+  return 1
+}
+
 #region agent log
 debug_log() {
   local hypothesis="$1" location="$2" message="$3" data="${4:-{}}"
@@ -204,11 +263,11 @@ bootstrap_infra() {
 }
 
 sync_compose_project() {
-  log "Applying compose/network changes (infra only, no image pull)"
+  log "Applying compose/network changes (postgres only, no image pull)"
   if [[ "${COMPOSE_V2}" == "true" ]]; then
-    run_compose up -d --no-recreate --pull never postgres rustfs
+    run_compose up -d --no-recreate --pull never postgres
   else
-    run_compose up -d --no-recreate postgres rustfs
+    run_compose up -d --no-recreate postgres
   fi
 }
 
@@ -381,6 +440,12 @@ deploy_app() {
 
   bootstrap_infra
 
+  if [[ "${deploy_backend}" == "true" || "${sync_compose}" == "true" ]]; then
+    if ! apply_rustfs_config; then
+      exit 1
+    fi
+  fi
+
   if [[ "${sync_compose}" == "true" && "${deploy_backend}" != "true" && "${deploy_caddy}" != "true" ]]; then
     sync_compose_project
     if ! refresh_backend_env_if_needed; then
@@ -466,6 +531,7 @@ main() {
   source "${ENV_FILE}"
   set +a
 
+  expand_rustfs_server_domains
   setup_home_symlinks
   read_state
   resolve_compose_cmd

@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     rustfs_secret_access_key: str | None = None
     rustfs_region_name: str = "us-east-1"
     rustfs_bucket_name: str = "pos-mlb-items"
+    rustfs_server_domains_raw: str | None = Field(default=None, validation_alias="RUSTFS_SERVER_DOMAINS")
+    rustfs_s3_host_header: str | None = Field(default=None, validation_alias="RUSTFS_S3_HOST_HEADER")
     rustfs_public_base_url: str | None = None
     rustfs_public_read_enabled: bool = False
     rustfs_connect_timeout_seconds: int = 5

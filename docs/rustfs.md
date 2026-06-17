@@ -41,8 +41,10 @@ RUSTFS_ACCESS_KEY=...
 RUSTFS_SECRET_KEY=...
 # Comma-separated virtual-host domains. Include S3 API :9000 and console :9001.
 # Example: 16.112.68.20:9000,16.112.68.20:9001
-# docker-compose.prod.yml appends rustfs:9000 for backend container access.
+# deploy-prod.sh expands :9001 to :9000 and appends rustfs:9000 before starting RustFS.
 RUSTFS_SERVER_DOMAINS=...
+# Optional override for the S3 Host header (defaults to the :9000 domain above).
+RUSTFS_S3_HOST_HEADER=
 RUSTFS_DATA_DIR=/home/ubuntu/rustfs/data
 ```
 
@@ -62,8 +64,10 @@ RUSTFS_PUBLIC_READ_ENABLED=False
 
 When `RUSTFS_SERVER_DOMAINS` is set, RustFS requires each S3 client's `Host`
 header to match one of the configured domains (including port). The backend
-connects to `http://rustfs:9000` inside Docker, so production compose appends
-`rustfs:9000` to `RUSTFS_SERVER_DOMAINS` automatically.
+connects to `http://rustfs:9000` inside Docker but sends a `Host` header derived
+from `RUSTFS_SERVER_DOMAINS` (for example `YOUR_IP:9000`). `deploy-prod.sh`
+expands console-only secrets (`:9001`) to add matching `:9000` entries and
+`rustfs:9000`, then recreates the RustFS container.
 
 Set the GitHub secret to your public API and console hosts, for example
 `YOUR_IP:9000,YOUR_IP:9001`. The default bucket name `pos-mlb-items` is valid;

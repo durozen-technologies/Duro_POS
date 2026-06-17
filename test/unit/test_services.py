@@ -647,11 +647,28 @@ class ServiceUnitTests(BackendTestCase):
         finally:
             item_storage.settings.rustfs_endpoint_url = original
 
+    def test_rustfs_s3_host_header_derives_api_port_from_console_domain(self) -> None:
+        original_domains = item_storage.settings.rustfs_server_domains_raw
+        original_override = item_storage.settings.rustfs_s3_host_header
+        try:
+            item_storage.settings.rustfs_server_domains_raw = "16.112.68.20:9001"
+            item_storage.settings.rustfs_s3_host_header = None
+            self.assertEqual(
+                item_storage._resolve_rustfs_s3_host_header(),
+                "16.112.68.20:9000",
+            )
+        finally:
+            item_storage.settings.rustfs_server_domains_raw = original_domains
+            item_storage.settings.rustfs_s3_host_header = original_override
+            item_storage._get_storage_client.cache_clear()
+
     def test_rustfs_head_bucket_400_on_valid_bucket_reports_host_mismatch(self) -> None:
         original_bucket = item_storage.settings.rustfs_bucket_name
         original_endpoint = item_storage.settings.rustfs_endpoint_url
+        original_domains = item_storage.settings.rustfs_server_domains_raw
         item_storage.settings.rustfs_bucket_name = "pos-mlb-items"
         item_storage.settings.rustfs_endpoint_url = "http://rustfs:9000"
+        item_storage.settings.rustfs_server_domains_raw = "16.112.68.20:9001"
         try:
             exc = ClientError(
                 {
@@ -664,10 +681,11 @@ class ServiceUnitTests(BackendTestCase):
                 item_storage._raise_rustfs_head_bucket_error(exc)
             message = str(ctx.exception)
             self.assertIn("Host header", message)
-            self.assertIn("rustfs:9000", message)
+            self.assertIn("16.112.68.20:9000", message)
         finally:
             item_storage.settings.rustfs_bucket_name = original_bucket
             item_storage.settings.rustfs_endpoint_url = original_endpoint
+            item_storage.settings.rustfs_server_domains_raw = original_domains
 
     def test_item_image_variants_use_thumbnails_and_uuid7_keys(self) -> None:
         original, original_content_type, thumbnail, thumbnail_content_type = (
