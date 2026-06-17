@@ -259,13 +259,30 @@ def _fpdf_over_report_sheet_widths(
     )
 
 
+_REPORT_APP_DIR = Path(__file__).resolve().parent.parent
+_REPORT_FONTS_DIR = _REPORT_APP_DIR / "fonts"
+_REPORT_ASSET_FONTS_DIR = _REPORT_APP_DIR / "assets" / "fonts"
+
 TAMIL_FONT_REGULAR = "BillingReportNotoSansTamil"
 TAMIL_FONT_BOLD = "BillingReportNotoSansTamilBold"
+LATIN_FONT_REGULAR_PATHS = (
+    _REPORT_FONTS_DIR / "custom_noto.ttf",
+    Path("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
+)
+LATIN_FONT_BOLD_PATHS = (
+    _REPORT_FONTS_DIR / "custom_noto-semibold.ttf",
+    _REPORT_FONTS_DIR / "custom_noto-extrabold.ttf",
+    Path("/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"),
+)
 TAMIL_FONT_REGULAR_PATHS = (
+    _REPORT_FONTS_DIR / "NotoSansTamil-Regular.ttf",
+    _REPORT_ASSET_FONTS_DIR / "NotoSansTamil-Regular.ttf",
+    _REPORT_FONTS_DIR / "NotoSansTamil.ttf",
     Path("/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf"),
     Path("/usr/share/fonts/truetype/noto/NotoSerifTamil-Regular.ttf"),
 )
 TAMIL_FONT_BOLD_PATHS = (
+    _REPORT_ASSET_FONTS_DIR / "NotoSansTamil-Bold.ttf",
     Path("/usr/share/fonts/truetype/noto/NotoSansTamil-Bold.ttf"),
     Path("/usr/share/fonts/truetype/noto/NotoSerifTamil-Bold.ttf"),
 )
@@ -2101,10 +2118,26 @@ def _format_cell(value: object) -> str:
     return "" if value is None else _normalize_report_text(str(value))
 
 
+def _resolve_font_file(*paths: Path) -> Path:
+    for path in paths:
+        if path.is_file():
+            return path
+    raise FileNotFoundError(f"No report font file found in: {', '.join(str(path) for path in paths)}")
+
+
 def _resolve_tamil_fonts() -> tuple[str, str]:
     regular = _register_pdf_font(TAMIL_FONT_REGULAR, TAMIL_FONT_REGULAR_PATHS)
     bold = _register_pdf_font(TAMIL_FONT_BOLD, TAMIL_FONT_BOLD_PATHS)
     return regular or "Helvetica", bold or regular or "Helvetica-Bold"
+
+
+def _register_fpdf_fonts(pdf: FPDF) -> None:
+    pdf.add_font("NotoSans", fname=str(_resolve_font_file(*LATIN_FONT_REGULAR_PATHS)))
+    pdf.add_font("NotoSans", style="B", fname=str(_resolve_font_file(*LATIN_FONT_BOLD_PATHS)))
+    pdf.add_font("NotoSansTamil", fname=str(_resolve_font_file(*TAMIL_FONT_REGULAR_PATHS)))
+    pdf.add_font("NotoSansTamil", style="B", fname=str(_resolve_font_file(*TAMIL_FONT_BOLD_PATHS)))
+    pdf.set_font("NotoSans")
+    pdf.set_fallback_fonts(["NotoSansTamil"])
 
 
 def _register_pdf_font(name: str, paths: tuple[Path, ...]) -> str | None:
@@ -2441,12 +2474,7 @@ async def _generate_over_report_fpdf_pdf(
 
     pdf = OverallReportPDF(orientation="landscape", unit="pt", format="A3")
     pdf.compress = False
-    pdf.add_font("NotoSans", fname="/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf")
-    pdf.add_font("NotoSans", style="B", fname="/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf")
-    pdf.add_font("NotoSansTamil", fname="/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf")
-    pdf.add_font("NotoSansTamil", style="B", fname="/usr/share/fonts/truetype/noto/NotoSansTamil-Bold.ttf")
-    pdf.set_font("NotoSans")
-    pdf.set_fallback_fonts(["NotoSansTamil"])
+    _register_fpdf_fonts(pdf)
     pdf.set_text_shaping(True)
     pdf.set_text_color(31, 39, 51)
 
