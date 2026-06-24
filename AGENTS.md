@@ -44,6 +44,13 @@ Receipt data must **only be committed to the database after successful printing*
 ### Payment Accuracy
 - Checkout requires **exact payment matching**: `cash_amount + upi_amount = bill_total`
 - No rounding, discounts, or partial payments without explicit business rule changes.
+- Treat money as exact values; avoid floating-point arithmetic for receipt totals, payment validation, and persistence.
+
+### Receipt, Inventory, and Audit Integrity
+- Receipt commit, stock updates, and audit logging must happen in one backend transaction after print success.
+- Failed printing must leave no committed receipt and no stock mutation; support retry without duplicate receipt creation.
+- Stock must never become negative unless an explicit business rule and test coverage are added.
+- Audit logs are required for login-sensitive/admin actions, item create/update/delete, stock changes, receipt commits, and payment-impacting operations.
 
 ---
 
@@ -57,13 +64,18 @@ The foundation of backend design is a **single source of truth**:
 
 ### Database Migrations
 - **Always use Alembic**: All schema changes go through `backend/migrations/versions/`
-- **Deployment script**: Use [migrate.py](file:///home/sachinn-p/Codes/Billing System/backend/migrate.py) to apply migrations in production
-- **Idempotent startup**: [startup.py](file:///home/sachinn-p/Codes/Billing System/backend/app/db/startup.py) handles legacy data migration and RustFS bucket initialization on every application start
+- **Deployment script**: Use [migrate.py](file:///home/sachinn-p/Codes/Durozen%20Projects/Billing%20System/backend/migrate.py) to apply migrations in production
+- **Idempotent startup**: [startup.py](file:///home/sachinn-p/Codes/Durozen%20Projects/Billing%20System/backend/app/db/startup.py) handles legacy data migration and RustFS bucket initialization on every application start
 
 ### API Layers
 - **Routers** (`app/routers/`): Endpoint definitions and request routing (auth, shop, admin, health, audit_log)
 - **Services** (`app/services/`): Business logic and core operations
 - **Core** (`app/core/`): Shared utilities, configuration, exception handling, and dependency injection
+
+### Security & Configuration
+- Never commit secrets, credentials, tokens, certificates, database dumps, or production `.env` values.
+- Keep environment-variable examples documented, but use placeholders for sensitive values.
+- Route authorization must stay role-aware; admin-only actions must not become reachable by cashier/shop users.
 
 ---
 
@@ -80,9 +92,14 @@ The foundation of backend design is a **single source of truth**:
 - Receipt printing must complete successfully before checkout is marked as complete
 
 ### API Client & Network Resilience
-- [client.ts](file:///home/sachinn-p/Codes/Billing System/frontend/src/api/client.ts) implements base URL probing and automatic failover
+- [client.ts](file:///home/sachinn-p/Codes/Durozen%20Projects/Billing%20System/frontend/src/api/client.ts) implements base URL probing and automatic failover
 - Handles offline scenarios and network transitions gracefully
 - All API requests go through this single client
+
+### Frontend Checkout Safety
+- The UI must keep checkout in preview/print/commit order, including offline, printer error, and retry states.
+- After checkout success or logout, clear only the relevant stores and avoid stale cart/payment/printer state.
+- Admin item forms must validate English name, Tamil name, price, stock, image metadata, and required category fields before submit.
 
 ---
 
@@ -164,7 +181,7 @@ The foundation of backend design is a **single source of truth**:
 2. Create or modify screens in `src/screens/`
 3. Add reusable components to `src/components/`
 4. Update API client (`src/api/client.ts`) if endpoint signatures change
-5. Validate with: `npx tsc --noEmit --watch`
+5. Validate with: `npx tsc --noEmit`
 
 ### Database Migrations
 - **Creating**: `cd backend && uv run alembic revision --autogenerate -m "meaningful name"`
@@ -187,7 +204,7 @@ cd backend && uv run ruff check . && uv run --with pytest pytest ../test/
 
 ### Frontend Typecheck
 ```bash
-cd frontend && npx tsc --noEmit --watch
+cd frontend && npx tsc --noEmit
 ```
 
 ### Docker Build & Run (Local Development)
@@ -199,10 +216,10 @@ docker-compose up -d
 
 ## Important File References
 
-- **Migrations**: [migrate.py](file:///home/sachinn-p/Codes/Billing System/backend/migrate.py)
-- **Startup Tasks**: [startup.py](file:///home/sachinn-p/Codes/Billing System/backend/app/db/startup.py)
-- **API Client**: [client.ts](file:///home/sachinn-p/Codes/Billing System/frontend/src/api/client.ts)
-- **Docker Compose**: [compose.yaml](file:///home/sachinn-p/Codes/Billing System/compose.yaml)
+- **Migrations**: [migrate.py](file:///home/sachinn-p/Codes/Durozen%20Projects/Billing%20System/backend/migrate.py)
+- **Startup Tasks**: [startup.py](file:///home/sachinn-p/Codes/Durozen%20Projects/Billing%20System/backend/app/db/startup.py)
+- **API Client**: [client.ts](file:///home/sachinn-p/Codes/Durozen%20Projects/Billing%20System/frontend/src/api/client.ts)
+- **Docker Compose**: [compose.yaml](file:///home/sachinn-p/Codes/Durozen%20Projects/Billing%20System/compose.yaml)
 
 ---
 
@@ -212,5 +229,7 @@ docker-compose up -d
 - **No Magic Strings**: Use constants defined in `app/core/` or store configuration
 - **Async First**: Backend uses async SQLAlchemy; always await database operations
 - **Type Safety**: Frontend uses strict TypeScript; backend uses Pydantic for validation
-- **Testing**: Write tests alongside features; integration tests verify end-to-end flows
+- **Testing**: Write focused tests alongside features; integration tests verify checkout, payment, inventory, auth, migrations, and API workflows when touched
 - **Documentation**: Update this guide when adding new architectural patterns or business rules
+- **Dependencies**: Use the package manager already used by that component and commit lockfile changes (`uv.lock`, `package-lock.json`, etc.) when dependencies change
+- **Project Hygiene**: Always review and update `README.md`, `.gitignore`, relevant Dockerfiles, Compose files, and app/build config when changes affect setup, dependencies, generated files, build behavior, runtime configuration, or deployment

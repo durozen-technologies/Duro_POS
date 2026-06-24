@@ -35,9 +35,13 @@ def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, str]]:
         url = url.set(drivername="postgresql+asyncpg")
 
     sslmode = url.query.get("sslmode")
+    # url.query.get may return a str or a tuple/list of str depending on how URL was parsed.
     if sslmode:
-        connect_args["ssl"] = sslmode
-        url = url.set(query={key: value for key, value in url.query.items() if key != "sslmode"})
+        if isinstance(sslmode, (list, tuple)):
+            sslmode = sslmode[0] if sslmode else ""
+        if sslmode:
+            connect_args["ssl"] = sslmode
+            url = url.set(query={key: value for key, value in url.query.items() if key != "sslmode"})
 
     return url, connect_args
 

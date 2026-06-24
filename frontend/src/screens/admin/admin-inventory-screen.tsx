@@ -58,10 +58,11 @@ import { getItemThumbnailUri } from "@/utils/item-images";
 import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import { AdminHeaderActions } from "./components/admin-header-actions";
+import { AdminTransferShopsTab } from "./components/admin-transfer-shops-tab";
 import { useAdminTheme } from "./use-admin-theme";
 import type { AdminInventoryScreenProps } from "@/navigation/types";
 
-type InventoryTab = "items" | "categories" | "purchaseRates" | "shops";
+type InventoryTab = "items" | "categories" | "purchaseRates" | "shops" | "transferShops";
 type MovementHistoryMode = "date" | "range";
 type MovementHistoryCalendarTarget = "date" | "start" | "end";
 const INVENTORY_ITEM_PAGE_SIZE = 50;
@@ -145,7 +146,7 @@ function patchStockItem(
 export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<InventoryTab>("items");
+  const [activeTab, setActiveTab] = useState<InventoryTab>(route.params?.tab ?? "items");
   const [items, setItems] = useState<InventoryItemRead[]>([]);
   const [categories, setCategories] = useState<InventoryCategoryRead[]>([]);
   const [shops, setShops] = useState<ShopRead[]>([]);
@@ -870,6 +871,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           { key: "categories", label: "Categories", icon: "shape-outline" },
           { key: "purchaseRates", label: "Purchase rate", icon: "currency-inr" },
           { key: "shops", label: "Branch stock", icon: "storefront-outline" },
+          { key: "transferShops", label: "Transfer shops", icon: "swap-horizontal" },
         ].map((tab) => {
         const active = activeTab === tab.key;
         return (
@@ -895,23 +897,9 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     </ScrollView>
   );
 
-  const renderItemsHeader = () => (
-    <View style={styles.itemsHeader}>
-      <View style={styles.row}>
-        <View style={[styles.search, { borderColor: palette.border, backgroundColor: palette.card }]}>
-          <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search inventory"
-            placeholderTextColor={palette.textMuted}
-            style={[styles.input, { color: palette.textPrimary }]}
-          />
-        </View>
-        <ActionButton label="Add" icon="plus" palette={palette} active onPress={openCreateEditor} />
-      </View>
-    </View>
-  );
+  const renderItemsHeader = () => null;
+
+
 
   const renderInventoryItemRow = ({ item }: { item: InventoryItemRead }) => {
     const billingNames = inventoryItemBillingNames(item);
@@ -1528,26 +1516,43 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           ) : null}
 
           {activeTab === "items" && (
-            <FlatList
-              data={items}
-              keyExtractor={(item) => item.id}
-              renderItem={renderInventoryItemRow}
-              keyboardShouldPersistTaps="handled"
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={() => void loadBaseData(true)} tintColor={palette.inventory} colors={[palette.inventory]} />
-              }
-              contentContainerStyle={[styles.content, { paddingBottom: 34 + insets.bottom }]}
-              ItemSeparatorComponent={() => <View style={styles.listSeparator} />}
-              ListHeaderComponent={renderItemsHeader}
-              ListEmptyComponent={
-                !itemsLoading ? (
-                  <Text style={[styles.loadingText, { color: palette.textMuted }]}>No inventory items found.</Text>
-                ) : null
-              }
-              ListFooterComponent={renderItemsFooter}
-              onEndReached={() => void loadInventoryRows({ append: true })}
-              onEndReachedThreshold={0.35}
-            />
+            <>
+              <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
+                <View style={[styles.row, { gap: 10 }]}>
+                  <View style={[styles.search, { flex: 1, borderColor: palette.border, backgroundColor: palette.card }]}>
+                    <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
+                    <TextInput
+                      value={search}
+                      onChangeText={setSearch}
+                      placeholder="Search inventory"
+                      placeholderTextColor={palette.textMuted}
+                      style={[styles.input, { color: palette.textPrimary }]}
+                    />
+                  </View>
+                  <ActionButton label="Add" icon="plus" palette={palette} active onPress={openCreateEditor} />
+                </View>
+              </View>
+              <FlatList
+                data={items}
+                keyExtractor={(item) => item.id}
+                renderItem={renderInventoryItemRow}
+                keyboardShouldPersistTaps="handled"
+                refreshControl={
+                  <RefreshControl refreshing={refreshing} onRefresh={() => void loadBaseData(true)} tintColor={palette.inventory} colors={[palette.inventory]} />
+                }
+                contentContainerStyle={[styles.content, { paddingBottom: 34 + insets.bottom }]}
+                ItemSeparatorComponent={() => <View style={styles.listSeparator} />}
+                ListHeaderComponent={renderItemsHeader}
+                ListEmptyComponent={
+                  !itemsLoading ? (
+                    <Text style={[styles.loadingText, { color: palette.textMuted }]}>No inventory items found.</Text>
+                  ) : null
+                }
+                ListFooterComponent={renderItemsFooter}
+                onEndReached={() => void loadInventoryRows({ append: true })}
+                onEndReachedThreshold={0.35}
+              />
+            </>
           )}
 
           {activeTab === "purchaseRates" && (
@@ -1610,6 +1615,10 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                 renderCategories()
               )}
             </ScrollView>
+          )}
+
+          {activeTab === "transferShops" && (
+            <AdminTransferShopsTab />
           )}
         </View>
       </KeyboardAvoidingView>

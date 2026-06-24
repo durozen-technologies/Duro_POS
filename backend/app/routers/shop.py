@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Sequence
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -30,6 +31,12 @@ from app.schemas.inventory import (
     InventoryUseSplitRequest,
 )
 from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse
+from app.schemas.transfer import (
+    InventoryTransferCreate,
+    InventoryTransferPage,
+    InventoryTransferRead,
+    TransferShopRead,
+)
 from app.services.billing import create_bill, preview_bill
 from app.services.expenses import (
     create_shop_expense_entry,
@@ -41,10 +48,12 @@ from app.services.inventory import (
     get_inventory_summary,
     list_inventory_movements,
     list_inventory_stock_rows,
+    list_inventory_transfers,
     use_shop_inventory_stock,
     use_shop_inventory_stock_split,
 )
 from app.services.pricing import create_daily_prices, get_shop_bootstrap, get_today_prices
+from app.services.transfer import create_inventory_transfer, list_transfer_shops
 
 router = APIRouter(tags=["Shop"], dependencies=[Depends(require_roles(UserRole.SHOP_ACCOUNT))])
 
@@ -151,6 +160,31 @@ async def shop_inventory_movements(
 ) -> InventoryMovementPage:
     """Return inventory movements for the signed-in shop."""
     return await list_inventory_movements(
+        db,
+        shop_id=shop.id,
+        reference_date=reference_date,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/inventory/transfers",
+    response_model=InventoryTransferPage,
+    response_model_exclude_unset=True,
+    summary="List Shop Inventory Transfers",
+)
+async def shop_inventory_transfers(
+    reference_date: date | None = Query(None),
+    range_start_date: date | None = Query(None),
+    range_end_date: date | None = Query(None),
+    limit: int = Query(30, ge=1, le=100),
+    shop: Shop = Depends(get_current_shop),
+    db: AsyncSession = Depends(get_db),
+) -> InventoryTransferPage:
+    """Return inventory transfers out from the signed-in shop."""
+    return await list_inventory_transfers(
         db,
         shop_id=shop.id,
         reference_date=reference_date,
@@ -288,6 +322,41 @@ async def use_inventory_stock_split(
         payload,
         include_summary=include_summary,
     )
+
+
+@router.post(
+    "/inventory/items/{item_id}/transfer",
+    response_model=InventoryTransferRead,
+    status_code=201,
+    summary="Transfer Inventory Stock",
+)
+async def transfer_inventory_stock(
+    item_id: UUID,
+    payload: InventoryTransferCreate,
+    shop: Shop = Depends(get_current_shop),
+    db: AsyncSession = Depends(get_db),
+) -> InventoryTransferRead:
+    """Transfer kg/unit stock to a transfer shop destination."""
+    return await create_inventory_transfer(
+        db,
+        source_shop=shop,
+        inventory_item_id=item_id,
+        payload=payload,
+        user_id=shop.owner_user_id,
+    )
+
+
+@router.get(
+    "/inventory/transfer-shops",
+    response_model=list[TransferShopRead],
+    summary="Get Active Transfer Shops",
+)
+async def list_active_transfer_shops(
+    db: AsyncSession = Depends(get_db),
+    _shop: Shop = Depends(get_current_shop),
+) -> Sequence[TransferShopRead]:
+    """Get active transfer shops for inventory transfers."""
+    return await list_transfer_shops(db, active=True)
 
 
 @router.post(

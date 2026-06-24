@@ -25,6 +25,7 @@ from app.models import (
     InventoryItemCategory,
     InventoryMovement,
     InventoryMovementType,
+    InventoryTransfer,
     Item,
     Shop,
     ShopInventoryAllocation,
@@ -55,6 +56,8 @@ from app.schemas.inventory import (
     InventoryUseSplitRequest,
     ShopInventoryAllocationBulkRead,
 )
+
+from ..schemas.transfer import InventoryTransferPage, InventoryTransferRead
 
 ZERO = Decimal("0")
 THREE_DECIMALS = Decimal("0.001")
@@ -1113,7 +1116,7 @@ async def _movement_totals(
     item_ids: list[UUID],
     *,
     used_since: date | None = None,
-) -> tuple[dict[UUID, Decimal], dict[UUID, Decimal], dict[tuple[UUID, UUID], Decimal]]:
+) -> tuple[dict[UUID, Decimal], dict[UUID, Decimal], dict[tuple[UUID, UUID], Decimal], dict[UUID, Decimal]]:
     """Return (added, used, category_used) totals for the given items.
 
     ``added`` is always the all-time total so that available stock is correct.
@@ -1123,7 +1126,7 @@ async def _movement_totals(
     any data in the database or history view.
     """
     if not item_ids:
-        return {}, {}, {}
+        return {}, {}, {}, {}
 
     # ADD movements — always all-time so that available_quantity is correct
     add_rows = (
@@ -1186,7 +1189,26 @@ async def _movement_totals(
     category_used = {
         (row.inventory_item_id, row.category_id): row.quantity or ZERO for row in category_rows
     }
-    return added, used, category_used
+
+    # TRANSFERRED_OUT movements — always all-time so that available_quantity is correct
+    transfer_rows = (
+        await db.execute(
+            select(
+                InventoryTransfer.inventory_item_id,
+                func.coalesce(func.sum(InventoryTransfer.quantity), 0).label("quantity"),
+            )
+            .where(
+                InventoryTransfer.source_shop_id == shop_id,
+                InventoryTransfer.inventory_item_id.in_(item_ids),
+            )
+            .group_by(InventoryTransfer.inventory_item_id)
+        )
+    ).all()
+    transferred_out = {
+        row.inventory_item_id: row.quantity or ZERO for row in transfer_rows
+    }
+
+    return added, used, category_used, transferred_out
 
 
 def _stock_item_from_inventory_item(
@@ -1207,6 +1229,7 @@ def _stock_item_from_inventory_item(
     base = _inventory_item_to_read(item)
     if available_quantity is None:
         available_quantity = added_quantity - used_quantity
+
     category_usage = [
         InventoryCategoryUsageRead(
             category_id=category.id,
@@ -1272,13 +1295,14 @@ async def get_inventory_summary(
         )
     ).all()
     item_ids = [item.id for item in items]
-    added, used, category_used = await _movement_totals(db, shop.id, item_ids)
+    added, used, category_used, transferred_out = await _movement_totals(db, shop.id, item_ids)
     stock_items = [
         _stock_item_from_inventory_item(
             item,
             allocation=allocations_by_item_id.get(item.id),
             added_quantity=added.get(item.id, ZERO),
             used_quantity=used.get(item.id, ZERO),
+            available_quantity=added.get(item.id, ZERO) - used.get(item.id, ZERO) - transferred_out.get(item.id, ZERO),
             category_used=category_used,
         )
         for item in items
@@ -1394,8 +1418,8 @@ async def list_inventory_stock_rows(
     item_ids = [row[0].id for row in page_rows]
     # Fetch all-time totals for correct available_quantity, and today-only
     # totals for the displayed used_quantity (which resets each day).
-    added, used_alltime, _ = await _movement_totals(db, shop.id, item_ids)
-    _, used_today, category_used_today = await _movement_totals(
+    added, used_alltime, _, transferred_alltime = await _movement_totals(db, shop.id, item_ids)
+    _, used_today, category_used_today, _ = await _movement_totals(
         db, shop.id, item_ids, used_since=date.today()
     )
 
@@ -1407,7 +1431,7 @@ async def list_inventory_stock_rows(
             # Display: today's usage (resets daily)
             used_quantity=used_today.get(item.id, ZERO),
             # Availability: all-time usage (prevents over-use)
-            available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO),
+            available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
             category_used=category_used_today,
         )
         for item, allocation in page_rows
@@ -1556,8 +1580,8 @@ async def _get_allocated_inventory_item_for_shop(
 
 
 async def _available_quantity_for_item(db: AsyncSession, shop_id: UUID, item_id: UUID) -> Decimal:
-    added, used, _ = await _movement_totals(db, shop_id, [item_id])
-    return added.get(item_id, ZERO) - used.get(item_id, ZERO)
+    added, used_alltime, _, transferred = await _movement_totals(db, shop_id, [item_id])
+    return added.get(item_id, ZERO) - used_alltime.get(item_id, ZERO) - transferred.get(item_id, ZERO)
 
 
 async def _stock_item_for_shop_inventory_item(
@@ -1574,9 +1598,9 @@ async def _stock_item_for_shop_inventory_item(
     movements on or after that date, while ``available_quantity`` is always
     computed from all-time totals to stay correct for capacity checks.
     """
-    added, used_alltime, category_used_alltime = await _movement_totals(db, shop.id, [item.id])
+    added, used_alltime, category_used_alltime, transferred_alltime = await _movement_totals(db, shop.id, [item.id])
     if used_since is not None:
-        _, used_display, category_used_display = await _movement_totals(
+        _, used_display, category_used_display, _ = await _movement_totals(
             db, shop.id, [item.id], used_since=used_since
         )
     else:
@@ -1587,7 +1611,7 @@ async def _stock_item_for_shop_inventory_item(
         allocation=allocation,
         added_quantity=added.get(item.id, ZERO),
         used_quantity=used_display.get(item.id, ZERO),
-        available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO),
+        available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
         category_used=category_used_display,
     )
 
@@ -1662,6 +1686,66 @@ async def list_inventory_movements(
     page_rows = rows[:limit]
     return InventoryMovementPage(
         items=[_movement_to_read(movement) for movement in page_rows],
+        limit=limit,
+        has_more=len(rows) > limit,
+    )
+
+
+async def list_inventory_transfers(
+    db: AsyncSession,
+    *,
+    shop_id: UUID | None = None,
+    item_id: UUID | None = None,
+    reference_date: date | None = None,
+    range_start_date: date | None = None,
+    range_end_date: date | None = None,
+    limit: int = 100,
+) -> InventoryTransferPage:
+    query = select(InventoryTransfer).options(
+        selectinload(InventoryTransfer.source_shop),
+        selectinload(InventoryTransfer.transfer_shop),
+        selectinload(InventoryTransfer.inventory_item),
+    )
+    if shop_id is not None:
+        query = query.where(InventoryTransfer.source_shop_id == shop_id)
+    if item_id is not None:
+        query = query.where(InventoryTransfer.inventory_item_id == item_id)
+    if range_start_date is not None or range_end_date is not None:
+        if range_start_date is not None:
+            query = query.where(
+                InventoryTransfer.created_at
+                >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
+            )
+        if range_end_date is not None:
+            query = query.where(
+                InventoryTransfer.created_at
+                < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
+            )
+    elif reference_date is not None:
+        query = query.where(
+            InventoryTransfer.created_at
+            >= datetime.combine(reference_date, time.min, tzinfo=UTC),
+            InventoryTransfer.created_at
+            < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
+        )
+    rows = (
+        await db.scalars(
+            query.order_by(InventoryTransfer.created_at.desc(), InventoryTransfer.id.desc()).limit(limit + 1)
+        )
+    ).all()
+    page_rows = rows[:limit]
+    
+    items = []
+    for transfer in page_rows:
+        read = InventoryTransferRead.model_validate(transfer)
+        read.source_shop_name = transfer.source_shop.name if transfer.source_shop else None
+        read.transfer_shop_name = transfer.transfer_shop.name if transfer.transfer_shop else None
+        read.inventory_item_name = transfer.inventory_item.name if transfer.inventory_item else None
+        read.inventory_item_tamil_name = transfer.inventory_item.tamil_name if transfer.inventory_item else None
+        items.append(read)
+        
+    return InventoryTransferPage(
+        items=items,
         limit=limit,
         has_more=len(rows) > limit,
     )

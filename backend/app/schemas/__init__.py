@@ -23,6 +23,7 @@ from .admin import (
     ShopSelectedItemsOrderUpdate,
     ShopStatusUpdate,
 )
+from .audit_log import AuditLogCreate, AuditLogRead
 from .auth import (
     LoginRequest,
     LoginResponse,
@@ -91,6 +92,14 @@ from .pricing import (
     ItemImageRead,
     ItemPriceRead,
     ShopBootstrapResponse,
+)
+from .transfer import (
+    InventoryTransferCreate,
+    InventoryTransferPage,
+    InventoryTransferRead,
+    TransferShopCreate,
+    TransferShopRead,
+    TransferShopUpdate,
 )
 from .whatsapp import (
     BotStage,
@@ -178,6 +187,7 @@ __all__ = [
     "InventoryItemRowsPage",
     "InventoryItemStockRead",
     "InventoryItemUpdate",
+    "InventoryItemPurchaseRateUpdate",
     "InventoryMovementCreateResult",
     "InventoryMovementPage",
     "InventoryMovementRead",
@@ -197,4 +207,12 @@ __all__ = [
     "SalesSummaryResponse",
     "WebhookProcessResponse",
     "WhatsAppWebhookPayload",
+    "TransferShopCreate",
+    "TransferShopUpdate",
+    "TransferShopRead",
+    "InventoryTransferCreate",
+    "InventoryTransferRead",
+    "InventoryTransferPage",
+    "AuditLogCreate",
+    "AuditLogRead",
 ]

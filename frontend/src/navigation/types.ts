@@ -22,7 +22,7 @@ export type AppStackParamList = {
   AdminShopItemsOrder: { shopId: UUID; shopName?: string };
   AdminItemPrices: { shopId?: UUID } | undefined;
   AdminItemCategories: undefined;
-  AdminInventory: { shopId?: UUID } | undefined;
+  AdminInventory: { shopId?: UUID; tab?: "items" | "categories" | "purchaseRates" | "shops" | "transferShops" } | undefined;
   AdminReports: undefined;
   AdminOverallReportPreview: {
     sections: AdminReportSection[];

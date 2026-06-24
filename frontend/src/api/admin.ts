@@ -55,6 +55,10 @@ import {
   ShopUpdate,
   UnitType,
   UUID,
+  TransferShopCreate,
+  TransferShopUpdate,
+  TransferShopRead,
+  InventoryTransferPage,
 } from "@/types/api";
 
 export type ItemImageUploadFile = {
@@ -80,7 +84,7 @@ export type AnalyticsDateRange = {
   startDate?: string | null;
   endDate?: string | null;
 };
-export type AdminReportSection = "sales" | "billing" | "expenses" | "over_report";
+export type AdminReportSection = "sales" | "billing" | "expenses" | "transfers" | "over_report";
 export type AdminReportDetailLevel = "summary" | "full";
 export type DownloadAdminReportPdfParams = {
   sections: AdminReportSection[];
@@ -1078,6 +1082,58 @@ export async function fetchDashboardBootstrap(
       shop_id: shopId ?? undefined,
       bills_limit: limit,
     },
+  });
+  return data;
+}
+
+export async function fetchTransferShops(
+  params?: { q?: string; active?: boolean | null },
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<TransferShopRead[]>("/api/v1/admin/transfer-shops", {
+    params: {
+      q: params?.q || undefined,
+      active: params?.active ?? undefined,
+    },
+    signal: options.signal,
+  });
+  return data;
+}
+
+export async function createTransferShop(payload: TransferShopCreate) {
+  const { data } = await apiClient.post<TransferShopRead>("/api/v1/admin/transfer-shops", payload);
+  return data;
+}
+
+export async function updateTransferShop(id: UUID, payload: TransferShopUpdate) {
+  const { data } = await apiClient.patch<TransferShopRead>(`/api/v1/admin/transfer-shops/${id}`, payload);
+  return data;
+}
+
+export async function fetchInventoryTransfersPage(
+  params?: {
+    transfer_shop_id?: UUID;
+    source_shop_id?: UUID;
+    inventory_item_id?: UUID;
+    referenceDate?: string;
+    range?: AnalyticsDateRange;
+    limit?: number;
+    offset?: number;
+  },
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<InventoryTransferPage>("/api/v1/admin/inventory/transfers", {
+    params: {
+      transfer_shop_id: params?.transfer_shop_id ?? undefined,
+      source_shop_id: params?.source_shop_id ?? undefined,
+      inventory_item_id: params?.inventory_item_id ?? undefined,
+      reference_date: params?.referenceDate ?? undefined,
+      range_start_date: params?.range?.startDate ?? undefined,
+      range_end_date: params?.range?.endDate ?? undefined,
+      limit: params?.limit ?? 100,
+      offset: params?.offset ?? 0,
+    },
+    signal: options.signal,
   });
   return data;
 }

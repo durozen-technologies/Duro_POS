@@ -24,7 +24,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import require_roles
+from app.auth import get_current_user, require_roles
 from app.core.deps import get_current_admin, get_shop_or_404
 from app.db.database import get_db
 from app.db.storage import upload_item_image
@@ -106,6 +106,12 @@ from app.schemas.pricing import (
     DailyPriceUpdate,
     ItemImageRead,
     ShopBootstrapResponse,
+)
+from app.schemas.transfer import (
+    InventoryTransferPage,
+    TransferShopCreate,
+    TransferShopRead,
+    TransferShopUpdate,
 )
 from app.services.admin import (
     allocate_catalogue_item,
@@ -213,6 +219,12 @@ from app.services.reports import (
     iter_admin_report_file,
 )
 from app.services.storage import delete_item_image
+from app.services.transfer import (
+    create_transfer_shop,
+    list_inventory_transfers,
+    list_transfer_shops,
+    update_transfer_shop,
+)
 
 router = APIRouter(tags=["Admin"], dependencies=[Depends(require_roles(UserRole.ADMIN))])
 
@@ -2332,4 +2344,77 @@ async def dashboard_bootstrap(
         bills_limit=bills_limit,
         range_start_date=range_start_date,
         range_end_date=range_end_date,
+    )
+
+
+# ── Transfers ─────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/transfer-shops",
+    response_model=list[TransferShopRead],
+    summary="List Transfer Shops",
+)
+async def admin_list_transfer_shops(
+    db: DBSession,
+    q: str | None = None,
+    active: bool | None = None,
+) -> list[TransferShopRead]:
+    return await list_transfer_shops(db, q=q, active=active)
+
+
+@router.post(
+    "/transfer-shops",
+    response_model=TransferShopRead,
+    status_code=201,
+    summary="Create Transfer Shop",
+)
+async def admin_create_transfer_shop(
+    payload: TransferShopCreate,
+    db: DBSession,
+    user: User = Depends(get_current_user),
+) -> TransferShopRead:
+    return await create_transfer_shop(db, payload, user_id=user.id)
+
+
+@router.patch(
+    "/transfer-shops/{transfer_shop_id}",
+    response_model=TransferShopRead,
+    summary="Update Transfer Shop",
+)
+async def admin_update_transfer_shop(
+    transfer_shop_id: UUID,
+    payload: TransferShopUpdate,
+    db: DBSession,
+    user: User = Depends(get_current_user),
+) -> TransferShopRead:
+    return await update_transfer_shop(db, transfer_shop_id, payload, user_id=user.id)
+
+
+@router.get(
+    "/inventory/transfers",
+    response_model=InventoryTransferPage,
+    summary="List Inventory Transfers",
+)
+async def admin_list_inventory_transfers(
+    db: DBSession,
+    transfer_shop_id: UUID | None = None,
+    source_shop_id: UUID | None = None,
+    inventory_item_id: UUID | None = None,
+    reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> InventoryTransferPage:
+    return await list_inventory_transfers(
+        db,
+        transfer_shop_id=transfer_shop_id,
+        source_shop_id=source_shop_id,
+        inventory_item_id=inventory_item_id,
+        reference_date=reference_date,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        limit=limit,
+        offset=offset,
     )

@@ -26,13 +26,22 @@ from app.models import (
     ExpenseItem,
     InventoryMovement,
     InventoryMovementType,
+    InventoryTransfer,
     Item,
     ItemAssumptionStatus,
     Shop,
+    TransferShop,
     UnitType,
     User,
 )
-from app.schemas.admin import ItemAssumptionUpdate, ItemCreate, PriceStatus, ShopCreate
+from app.schemas.admin import (
+    ItemAssumptionUpdate,
+    ItemCreate,
+    OverallReportInventoryItem,
+    OverallReportStatement,
+    PriceStatus,
+    ShopCreate,
+)
 from app.schemas.auth import RegisterRequest
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
@@ -81,6 +90,7 @@ from app.services.pricing import (
 )
 from app.services.reports import (
     _over_report_sheet_headers,
+    _over_report_sheet_rows,
     _over_report_sheet_widths,
     build_overall_report,
     generate_admin_report_pdf,
@@ -108,6 +118,7 @@ class ServiceUnitTests(BackendTestCase):
                     "5 Kg",
                     "15 Kg",
                     "Kitchen Use\n4 Kg",
+                    "0 Kg",
                     "11 Kg",
                     "Chicken",
                     "3 Kg",
@@ -134,6 +145,153 @@ class ServiceUnitTests(BackendTestCase):
                     for line in str(cell).split("\n"):
                         if line:
                             self.assertLessEqual(measure(line) + 12, width)
+
+    def test_over_report_single_day_subtotal_rows_match_headers(self) -> None:
+        headers = _over_report_sheet_headers(use_tamil=False)
+        report_date = date(2026, 6, 1)
+        statement = OverallReportStatement(
+            shop_id=UUID("018f36ba-7c1f-7c2d-9d67-000000000010"),
+            shop_name="SK Nagar",
+            start_date=report_date,
+            end_date=report_date,
+            period_label="2026-06-01",
+            inventory_items=[
+                OverallReportInventoryItem(
+                    inventory_item_id=UUID("018f36ba-7c1f-7c2d-9d67-000000000011"),
+                    item_name="Chicken Stock",
+                    item_tamil_name="கோழி இருப்பு",
+                    category="Chicken",
+                    unit=BaseUnit.KG,
+                    old_stock=Decimal("10"),
+                    adding_stock=Decimal("5"),
+                    total_available_stock=Decimal("15"),
+                    used_stock=Decimal("4"),
+                    transfer_stock=Decimal("2"),
+                    remaining_stock=Decimal("9"),
+                    sales_quantity=Decimal("3"),
+                    assumption_quantity=Decimal("3"),
+                    difference_quantity=Decimal("0"),
+                    sales_amount=Decimal("300"),
+                    assumption_amount=Decimal("300"),
+                    difference_amount=Decimal("0"),
+                )
+            ],
+        )
+
+        rows = _over_report_sheet_rows(statement)
+
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(len(row), len(headers))
+        subtotal_row = rows[-1]
+        self.assertEqual(subtotal_row[6], "")
+        self.assertEqual(subtotal_row[7], "")
+        self.assertEqual(subtotal_row[8], "Subtotal")
+
+    def test_over_report_accounts_for_inventory_transfers(self) -> None:
+        _actor, shop = self.run_async(
+            self.harness.create_shop_user(shop_name="Transfer Branch")
+        )
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.get(Shop, shop.id)
+                inventory_item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Transfer Chicken Stock",
+                        tamil_name="பரிமாற்ற கோழி இருப்பு",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        category_ids=[],
+                        billing_item_ids=[],
+                    ),
+                )
+                await allocate_shop_inventory_items(db, current_shop, [inventory_item.id])
+                destination = TransferShop(
+                    name="Outside Branch",
+                    tamil_name="வெளி கிளை",
+                )
+                session.add(destination)
+                session.flush()
+
+                report_date = date(2026, 6, 1)
+                before_period = datetime(2026, 5, 31, 10, tzinfo=UTC)
+                in_period = datetime(2026, 6, 1, 10, tzinfo=UTC)
+                session.add_all(
+                    [
+                        InventoryMovement(
+                            shop_id=current_shop.id,
+                            inventory_item_id=inventory_item.id,
+                            movement_type=InventoryMovementType.ADD,
+                            quantity=Decimal("20"),
+                            unit=BaseUnit.KG,
+                            created_at=before_period,
+                        ),
+                        InventoryMovement(
+                            shop_id=current_shop.id,
+                            inventory_item_id=inventory_item.id,
+                            movement_type=InventoryMovementType.USE,
+                            quantity=Decimal("3"),
+                            unit=BaseUnit.KG,
+                            created_at=before_period,
+                        ),
+                        InventoryTransfer(
+                            source_shop_id=current_shop.id,
+                            transfer_shop_id=destination.id,
+                            inventory_item_id=inventory_item.id,
+                            quantity=Decimal("4"),
+                            unit=BaseUnit.KG,
+                            created_at=before_period,
+                        ),
+                        InventoryMovement(
+                            shop_id=current_shop.id,
+                            inventory_item_id=inventory_item.id,
+                            movement_type=InventoryMovementType.ADD,
+                            quantity=Decimal("10"),
+                            unit=BaseUnit.KG,
+                            created_at=in_period,
+                        ),
+                        InventoryMovement(
+                            shop_id=current_shop.id,
+                            inventory_item_id=inventory_item.id,
+                            movement_type=InventoryMovementType.USE,
+                            quantity=Decimal("2"),
+                            unit=BaseUnit.KG,
+                            created_at=in_period,
+                        ),
+                        InventoryTransfer(
+                            source_shop_id=current_shop.id,
+                            transfer_shop_id=destination.id,
+                            inventory_item_id=inventory_item.id,
+                            quantity=Decimal("5"),
+                            unit=BaseUnit.KG,
+                            created_at=in_period,
+                        ),
+                    ]
+                )
+                session.commit()
+
+                overall = await build_overall_report(
+                    db,
+                    detail_level="summary",
+                    period="date",
+                    reference_date=report_date,
+                    shop_ids=[current_shop.id],
+                )
+
+                statement = overall.statements[0]
+                item = statement.inventory_items[0]
+                self.assertEqual(item.old_stock, Decimal("13.000"))
+                self.assertEqual(item.adding_stock, Decimal("10.000"))
+                self.assertEqual(item.total_available_stock, Decimal("23.000"))
+                self.assertEqual(item.used_stock, Decimal("2.000"))
+                self.assertEqual(item.transfer_stock, Decimal("5.000"))
+                self.assertEqual(item.remaining_stock, Decimal("16.000"))
+                self.assertEqual(statement.unit_summaries[0].transfer_stock, Decimal("5.000"))
+
+        self.run_async(scenario())
 
     def test_register_admin_rejects_second_admin(self) -> None:
         self.run_async(self.harness.create_admin_user())
@@ -387,25 +545,25 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     inventory_item.id,
-                    InventoryAddRequest(quantity=Decimal("20")),
+                    InventoryAddRequest(quantity=Decimal("20"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
                 await add_shop_inventory_stock(
                     db,
                     current_shop,
                     unit_inventory_item.id,
-                    InventoryAddRequest(quantity=Decimal("12")),
+                    InventoryAddRequest(quantity=Decimal("12"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
                 await add_shop_inventory_stock(
                     db,
                     current_shop,
                     no_percent_unit_inventory_item.id,
-                    InventoryAddRequest(quantity=Decimal("6")),
+                    InventoryAddRequest(quantity=Decimal("6"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
                 await add_shop_inventory_stock(
                     db,
                     current_shop,
                     unmapped_inventory_item.id,
-                    InventoryAddRequest(quantity=Decimal("5")),
+                    InventoryAddRequest(quantity=Decimal("5"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
                 await update_item_assumption(
                     db,
@@ -829,7 +987,7 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     item.id,
-                    InventoryAddRequest(quantity=Decimal("10")),
+                    InventoryAddRequest(quantity=Decimal("10"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
                 self.assertIsNone(add_result.summary)
                 self.assertEqual(add_result.item.available_quantity, Decimal("10.000"))
@@ -1005,7 +1163,7 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     item.id,
-                    InventoryAddRequest(quantity=Decimal("10")),
+                    InventoryAddRequest(quantity=Decimal("10"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
 
                 use_result = await use_shop_inventory_stock(
@@ -1362,7 +1520,7 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     item.id,
-                    InventoryAddRequest(quantity=Decimal("10")),
+                    InventoryAddRequest(quantity=Decimal("10"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
 
                 with self.assertRaises(HTTPException) as mismatch_ctx:
@@ -1656,7 +1814,7 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_branch_a,
                     item.id,
-                    InventoryAddRequest(quantity=Decimal("10")),
+                    InventoryAddRequest(quantity=Decimal("10"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
                 await use_shop_inventory_stock(
                     db,
@@ -2400,7 +2558,7 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     inventory_item.id,
-                    InventoryAddRequest(quantity=Decimal("20")),
+                    InventoryAddRequest(quantity=Decimal("20"), driver_name="Test Driver", vehicle_number="TN01AB1234"),
                 )
                 await update_item_assumption(
                     db,

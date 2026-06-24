@@ -1,4 +1,5 @@
 from ..db.database import Base
+from .audit_log import AuditLog
 from .base import BaseModelMixin
 from .bill import Bill, BillItem, MonthlyBillSequence
 from .daily_price import DailyPrice
@@ -26,6 +27,7 @@ from .payment import Payment
 from .receipt import Receipt
 from .shop import Shop
 from .shop_item_allocation import ShopItemAllocation
+from .transfer import InventoryTransfer, TransferShop
 from .user import User
 from .whatsapp import (
     ProcessedWhatsAppMessage,
@@ -68,4 +70,7 @@ __all__ = [
     "WhatsAppConversation",
     "WhatsAppUser",
     "WhatsAppUserShop",
+    "TransferShop",
+    "InventoryTransfer",
+    "AuditLog",
 ]

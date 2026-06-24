@@ -63,6 +63,7 @@ const SECTION_OPTIONS: { key: AdminReportSection; label: string; icon: IconName 
   { key: "sales", label: "Sales", icon: "chart-line" },
   { key: "billing", label: "Billing", icon: "receipt-text-outline" },
   { key: "expenses", label: "Expenses", icon: "currency-inr" },
+  { key: "transfers", label: "Transfer Stock", icon: "truck-delivery-outline" },
   { key: "over_report", label: "Overall Report", icon: "file-chart-outline" },
 ];
 
@@ -70,6 +71,7 @@ const SECTION_ORDER: AdminReportSection[] = [
   "sales",
   "billing",
   "expenses",
+  "transfers",
   "over_report",
 ];
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;

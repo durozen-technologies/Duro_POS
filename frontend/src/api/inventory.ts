@@ -8,6 +8,10 @@ import {
   InventorySummaryRead,
   InventoryUseRequest,
   InventoryUseSplitRequest,
+  InventoryTransferCreate,
+  InventoryTransferPage,
+  InventoryTransferRead,
+  TransferShopRead,
   UUID,
 } from "@/types/api";
 
@@ -57,6 +61,18 @@ export async function fetchShopInventoryMovements(params?: FetchShopInventoryMov
   return data;
 }
 
+export async function fetchShopInventoryTransfers(params?: FetchShopInventoryMovementParams) {
+  const { data } = await apiClient.get<InventoryTransferPage>("/api/v1/shop/inventory/transfers", {
+    params: {
+      reference_date: params?.reference_date ?? undefined,
+      range_start_date: params?.range_start_date ?? undefined,
+      range_end_date: params?.range_end_date ?? undefined,
+      limit: params?.limit ?? 30,
+    },
+  });
+  return data;
+}
+
 export async function addShopInventoryStock(itemId: UUID, payload: InventoryAddRequest) {
   const { data } = await apiClient.post<InventoryMovementCreateResult>(
     `/api/v1/shop/inventory/items/${itemId}/add`,
@@ -78,5 +94,18 @@ export async function useShopInventoryStockSplit(itemId: UUID, payload: Inventor
     `/api/v1/shop/inventory/items/${itemId}/use-split`,
     payload,
   );
+  return data;
+}
+
+export async function transferInventoryStock(itemId: UUID, payload: InventoryTransferCreate) {
+  const { data } = await apiClient.post<InventoryTransferRead>(
+    `/api/v1/shop/inventory/items/${itemId}/transfer`,
+    payload,
+  );
+  return data;
+}
+
+export async function getActiveTransferShops() {
+  const { data } = await apiClient.get<TransferShopRead[]>("/api/v1/shop/inventory/transfer-shops");
   return data;
 }

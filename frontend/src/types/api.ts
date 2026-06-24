@@ -268,6 +268,26 @@ export interface InventoryUseSplitRequest {
   categories: InventoryUseSplitLine[];
 }
 
+export interface InventoryTransferRead {
+  id: UUID;
+  source_shop_id: UUID;
+  transfer_shop_id: UUID;
+  inventory_item_id: UUID;
+  quantity: string;
+  unit: BaseUnit;
+  created_at: string;
+  source_shop_name?: string | null;
+  transfer_shop_name?: string | null;
+  inventory_item_name?: string | null;
+  inventory_item_tamil_name?: string | null;
+}
+
+export interface InventoryTransferPage {
+  items: InventoryTransferRead[];
+  limit: number;
+  has_more: boolean;
+}
+
 export interface InventoryMovementCreateResult {
   movement: InventoryMovementRead;
   item: InventoryItemStockRead;
@@ -687,6 +707,7 @@ export interface OverallReportUnitSummary {
   adding_stock: string;
   total_available_stock: string;
   used_stock: string;
+  transfer_stock: string;
   remaining_stock: string;
   sales_quantity: string;
   assumption_quantity: string;
@@ -726,6 +747,7 @@ export interface OverallReportInventoryItem {
   adding_stock: string;
   total_available_stock: string;
   used_stock: string;
+  transfer_stock: string;
   remaining_stock: string;
   sales_quantity: string;
   assumption_quantity: string;
@@ -804,4 +826,50 @@ export interface AdminDashboardBootstrap {
   payment_summary: PaymentSplitSummary[];
   bills: AdminBillPage;
   item_sales: ItemSalesSummary[];
+}
+
+export interface TransferShopCreate {
+  name: string;
+  tamil_name: string;
+  is_active: boolean;
+}
+
+export interface TransferShopUpdate {
+  name?: string | null;
+  tamil_name?: string | null;
+  is_active?: boolean | null;
+}
+
+export interface TransferShopRead {
+  id: UUID;
+  name: string;
+  tamil_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryTransferCreate {
+  transfer_shop_id: UUID;
+  quantity: string;
+}
+
+export interface InventoryTransferRead {
+  id: UUID;
+  source_shop_id: UUID;
+  transfer_shop_id: UUID;
+  inventory_item_id: UUID;
+  quantity: string;
+  unit: BaseUnit;
+  created_at: string;
+  source_shop_name?: string | null;
+  transfer_shop_name?: string | null;
+  inventory_item_name?: string | null;
+  inventory_item_tamil_name?: string | null;
+}
+
+export interface InventoryTransferPage {
+  items: InventoryTransferRead[];
+  limit: number;
+  has_more: boolean;
 }

@@ -633,28 +633,6 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
 
   const renderListHeader = () => (
     <View className="mb-4 gap-4">
-      <View className="rounded-[20px] border border-border bg-card p-4 shadow-soft">
-        <View className="flex-row items-start gap-3">
-          <View className="h-12 w-12 items-center justify-center rounded-[15px] bg-accentSoft">
-            <MaterialCommunityIcons name="cash-fast" size={23} color="#147D52" />
-          </View>
-          <View className="min-w-0 flex-1">
-            <Text className="text-lg font-extrabold leading-7 text-ink">
-              Branch expenses
-            </Text>
-            <Text className="mt-1 text-sm leading-6 text-muted">
-              Enter expenses only from the items assigned by admin.
-            </Text>
-          </View>
-        </View>
-        <Button
-          label={historyOpen ? "Hide history" : "History"}
-          onPress={toggleHistory}
-          variant="secondary"
-          className="mt-4"
-        />
-      </View>
-
       {errorMessage ? (
         <View className="flex-row items-center gap-2 rounded-[16px] border border-[#B42318] bg-[#FEE4E2] px-4 py-3">
           <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#B42318" />
@@ -680,6 +658,20 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
         </View>
       ) : null}
 
+
+
+      <Text className="text-base font-extrabold text-ink">Allocated expense items</Text>
+    </View>
+  );
+
+  const renderListFooter = () => (
+    <View className="gap-4 pt-2">
+      {loadingMore ? <ActivityIndicator color="#147D52" style={styles.footerLoader} /> : null}
+      <Button
+        label={historyOpen ? "Hide history" : "History"}
+        onPress={toggleHistory}
+        variant="secondary"
+      />
       {historyOpen ? (
         <View>
           <Text className="mb-3 text-base font-extrabold text-ink">Recent history</Text>
@@ -708,8 +700,6 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
           )}
         </View>
       ) : null}
-
-      <Text className="text-base font-extrabold text-ink">Allocated expense items</Text>
     </View>
   );
 
@@ -737,7 +727,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
             description="Ask an admin to allocate expense items to this branch."
           />
         }
-        ListFooterComponent={loadingMore ? <ActivityIndicator color="#147D52" style={styles.footerLoader} /> : null}
+        ListFooterComponent={renderListFooter}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadItems(true)} tintColor="#147D52" />}
         onEndReached={loadMoreItems}
         onEndReachedThreshold={0.45}

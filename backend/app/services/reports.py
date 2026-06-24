@@ -34,10 +34,12 @@ from app.models import (
     InventoryItemCategory,
     InventoryMovement,
     InventoryMovementType,
+    InventoryTransfer,
     Item,
     Payment,
     Shop,
     ShopInventoryAllocation,
+    TransferShop,
 )
 from app.schemas.admin import (
     AdminReportDetailLevel,
@@ -58,6 +60,7 @@ SECTION_ORDER: tuple[AdminReportSection, ...] = (
     "items",
     "inventory",
     "expenses",
+    "transfers",
     "over_report",
 )
 SECTION_LABELS: dict[AdminReportSection, str] = {
@@ -66,6 +69,7 @@ SECTION_LABELS: dict[AdminReportSection, str] = {
     "items": "Items",
     "inventory": "Inventory",
     "expenses": "Expenses",
+    "transfers": "Transfer Stock",
     "over_report": "Overall Report",
 }
 SUMMARY_BILL_ROWS = 25
@@ -80,6 +84,7 @@ _OVER_REPORT_HEADER_LABELS_EN = (
     "Adding Stock",
     "Total Available Stock",
     "Used Stock",
+    "Transfer Stock",
     "Remaining Stock",
     "Billing Items",
     "Assumption",
@@ -96,6 +101,7 @@ _OVER_REPORT_HEADER_LABELS_TA = (
     "சேர்க்கப்பட்ட இருப்பு",
     "மொத்த கிடைக்கும் இருப்பு",
     "பயன்படுத்தப்பட்ட இருப்பு",
+    "பரிமாற்ற இருப்பு",
     "மீதி இருப்பு",
     "பில்லிங் பொருள்கள்",
     "அனுமானம்",
@@ -105,7 +111,7 @@ _OVER_REPORT_HEADER_LABELS_TA = (
     "விற்பனை தொகை",
     "வித்தியாச தொகை",
 )
-_KG_UNIT_HEADER_INDICES = frozenset({2, 3, 4, 5, 6, 8, 9, 10})
+_KG_UNIT_HEADER_INDICES = frozenset({2, 3, 4, 5, 6, 7, 9, 10, 11})
 
 
 def _over_report_sheet_headers(*, use_tamil: bool) -> list[str]:
@@ -119,9 +125,9 @@ def _over_report_sheet_headers(*, use_tamil: bool) -> list[str]:
     return headers
 
 
-OVER_REPORT_SHEET_HEADER_ALIGNMENTS = ("center",) * 14
+OVER_REPORT_SHEET_HEADER_ALIGNMENTS = ("center",) * 15
 OVER_REPORT_SHEET_MIN_WIDTHS = (
-    46, 58, 50, 50, 50, 68, 52, 58, 50, 48, 48, 58, 52, 58,
+    46, 58, 50, 50, 50, 68, 56, 52, 58, 50, 48, 48, 58, 52, 58,
 )
 OVER_REPORT_SHEET_HEADER_PADDING = 8
 OVER_REPORT_SHEET_DATA_PADDING = 6
@@ -136,6 +142,7 @@ OVER_REPORT_SHEET_ALIGNMENTS = [
     "right",
     "right",
     "left",
+    "right",
     "right",
     "left",
     "right",
@@ -824,6 +831,8 @@ async def generate_admin_report_pdf(
                     await _write_inventory_section(db, writer, non_over_context)
                 elif section == "expenses":
                     await _write_expenses_section(db, writer, non_over_context)
+                elif section == "transfers":
+                    await _write_transfers_section(db, writer, non_over_context)
         writer.save()
         rl_bytes = rl_output.getvalue()
 
@@ -1329,6 +1338,83 @@ async def _write_expenses_section(
     ])
 
 
+async def _write_transfers_section(
+    db: AsyncSession,
+    writer: PdfReportWriter,
+    context: ReportContext,
+) -> None:
+    period_start = context.start.date()
+    period_end = (context.end - timedelta(days=1)).date()
+    if period_start == period_end:
+        date_line = f"Date: {_date_text(period_start)}"
+    else:
+        date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
+
+    branch_label = context.branch_label.upper()
+    writer.statement_header(
+        "SRI MAHALAKSHMI BROILERS",
+        f"{branch_label} - BRANCH" if context.shop_ids else branch_label,
+        "Transfer Stock Report",
+        date_line,
+    )
+
+    filters: list[object] = [InventoryTransfer.created_at >= context.start, InventoryTransfer.created_at < context.end]
+    if context.shop_ids:
+        filters.append(InventoryTransfer.source_shop_id.in_(context.shop_ids))
+
+    stats = (
+        await db.execute(
+            select(
+                func.count(InventoryTransfer.id).label("transfer_count"),
+            )
+            .select_from(InventoryTransfer)
+            .where(*filters)
+        )
+    ).one()
+
+    widths = [70, 95, 95, 130, 50, 40]
+    alignments = ["left", "left", "left", "left", "right", "center"]
+    writer.table_header(
+        ["Date", "Source Branch", "Destination", "Inventory Item", "Qty", "Unit"],
+        widths,
+        alignments,
+    )
+
+    result = await db.execute(
+        select(
+            InventoryTransfer.created_at,
+            Shop.name.label("source_shop_name"),
+            TransferShop.name.label("transfer_shop_name"),
+            InventoryItem.name.label("item_name"),
+            InventoryTransfer.quantity,
+            InventoryTransfer.unit,
+        )
+        .join(Shop, Shop.id == InventoryTransfer.source_shop_id)
+        .join(TransferShop, TransferShop.id == InventoryTransfer.transfer_shop_id)
+        .join(InventoryItem, InventoryItem.id == InventoryTransfer.inventory_item_id)
+        .where(*filters)
+        .order_by(InventoryTransfer.created_at.asc(), InventoryTransfer.id.asc())
+    )
+    page = result.all()
+    for row in page:
+        writer.table_row(
+            [
+                row.created_at.strftime("%d/%m/%Y") if row.created_at else "",
+                row.source_shop_name,
+                row.transfer_shop_name,
+                row.item_name,
+                _quantity(row.quantity),
+                _unit_value(row.unit),
+            ],
+            widths,
+            alignments,
+        )
+
+    writer.financial_summary([
+        ("Total Transfers", str(int(stats.transfer_count or 0))),
+    ])
+
+
 
 async def _write_over_report_section(
     db: AsyncSession,
@@ -1437,6 +1523,37 @@ async def _overall_report_inventory_items(
         InventoryMovement.created_at >= context.start,
         InventoryMovement.created_at < context.end,
     )
+    transfer_before_start = InventoryTransfer.created_at < context.start
+    transfer_in_period = and_(
+        InventoryTransfer.created_at >= context.start,
+        InventoryTransfer.created_at < context.end,
+    )
+    transfer_totals = (
+        select(
+            InventoryTransfer.inventory_item_id.label("inventory_item_id"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (transfer_before_start, InventoryTransfer.quantity),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("opening_transferred"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (transfer_in_period, InventoryTransfer.quantity),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("transfer_stock"),
+        )
+        .where(InventoryTransfer.source_shop_id == shop_id)
+        .group_by(InventoryTransfer.inventory_item_id)
+        .subquery()
+    )
     stock_totals = (
         select(
             InventoryMovement.inventory_item_id.label("inventory_item_id"),
@@ -1516,12 +1633,18 @@ async def _overall_report_inventory_items(
                 func.coalesce(stock_totals.c.opening_used, 0).label("opening_used"),
                 func.coalesce(stock_totals.c.adding_stock, 0).label("adding_stock"),
                 func.coalesce(stock_totals.c.used_stock, 0).label("used_stock"),
+                func.coalesce(transfer_totals.c.opening_transferred, 0).label("opening_transferred"),
+                func.coalesce(transfer_totals.c.transfer_stock, 0).label("transfer_stock"),
             )
             .select_from(ShopInventoryAllocation)
             .join(InventoryItem, InventoryItem.id == ShopInventoryAllocation.inventory_item_id)
             .outerjoin(
                 stock_totals,
                 stock_totals.c.inventory_item_id == InventoryItem.id,
+            )
+            .outerjoin(
+                transfer_totals,
+                transfer_totals.c.inventory_item_id == InventoryItem.id,
             )
             .where(ShopInventoryAllocation.shop_id == shop_id)
             .order_by(
@@ -1537,10 +1660,11 @@ async def _overall_report_inventory_items(
     )
     items: dict[UUID, OverallReportInventoryItem] = {}
     for row in rows:
-        old_stock = _decimal(row.opening_added) - _decimal(row.opening_used)
+        old_stock = _decimal(row.opening_added) - _decimal(row.opening_used) - _decimal(row.opening_transferred)
         adding_stock = _decimal(row.adding_stock)
         total_available_stock = old_stock + adding_stock
         used_stock = _decimal(row.used_stock)
+        transfer_stock = _decimal(row.transfer_stock)
         items[row.inventory_item_id] = OverallReportInventoryItem(
             inventory_item_id=row.inventory_item_id,
             item_name=row.item_name,
@@ -1551,7 +1675,8 @@ async def _overall_report_inventory_items(
             adding_stock=adding_stock,
             total_available_stock=total_available_stock,
             used_stock=used_stock,
-            remaining_stock=total_available_stock - used_stock,
+            transfer_stock=transfer_stock,
+            remaining_stock=total_available_stock - used_stock - transfer_stock,
         )
     return items
 
@@ -1784,6 +1909,7 @@ def _overall_report_unit_summaries(
         summary.adding_stock += _decimal(item.adding_stock)
         summary.total_available_stock += _decimal(item.total_available_stock)
         summary.used_stock += _decimal(item.used_stock)
+        summary.transfer_stock += _decimal(item.transfer_stock)
         summary.remaining_stock += _decimal(item.remaining_stock)
         summary.sales_quantity += _decimal(item.sales_quantity)
         summary.assumption_quantity += _decimal(item.assumption_quantity)
@@ -1917,6 +2043,7 @@ def _over_report_sheet_rows(statement: OverallReportStatement, use_tamil: bool =
                     _quantity_with_unit(item.adding_stock, item.unit) if is_first else "",
                     _quantity_with_unit(item.total_available_stock, item.unit) if is_first else "",
                     _used_stock_breakdown_text(used_row, item.unit),
+                    _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
                     _quantity_with_unit(item.remaining_stock, item.unit),
                     billing_display_name if billing_row is not None else (
                         "No mapped billing sales" if is_first and not billing_rows else ""
@@ -1945,6 +2072,7 @@ def _over_report_sheet_rows(statement: OverallReportStatement, use_tamil: bool =
                     "",
                     "",
                     f"Total Used\n{_quantity_with_unit(item.used_stock, item.unit)}",
+                    "",
                     "",
                     "Subtotal",
                     _quantity_with_unit(item.assumption_quantity, item.unit),

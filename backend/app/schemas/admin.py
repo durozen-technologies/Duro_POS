@@ -17,6 +17,7 @@ AdminReportSection = Literal[
     "items",
     "inventory",
     "expenses",
+    "transfers",
     "over_report",
 ]
 AdminReportDetailLevel = Literal["summary", "full"]
@@ -313,6 +314,7 @@ class OverallReportUnitSummary(BaseModel):
     adding_stock: Decimal = Decimal("0")
     total_available_stock: Decimal = Decimal("0")
     used_stock: Decimal = Decimal("0")
+    transfer_stock: Decimal = Decimal("0")
     remaining_stock: Decimal = Decimal("0")
     sales_quantity: Decimal = Decimal("0")
     assumption_quantity: Decimal = Decimal("0")
@@ -352,6 +354,7 @@ class OverallReportInventoryItem(BaseModel):
     adding_stock: Decimal = Decimal("0")
     total_available_stock: Decimal = Decimal("0")
     used_stock: Decimal = Decimal("0")
+    transfer_stock: Decimal = Decimal("0")
     remaining_stock: Decimal = Decimal("0")
     sales_quantity: Decimal = Decimal("0")
     assumption_quantity: Decimal = Decimal("0")

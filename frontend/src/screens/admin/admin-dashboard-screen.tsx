@@ -706,6 +706,10 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     navigation.navigate("AdminItemPrices", { shopId: targetShopId ?? undefined });
   }, [navigation, selectedShopId, shops]);
 
+  const handleOpenPurchaseRates = useCallback(() => {
+    navigation.navigate("AdminInventory", { tab: "purchaseRates" });
+  }, [navigation]);
+
   const handleSelectNav = useCallback((key: string) => {
     if (key === "items") {
       navigation.navigate("AdminItemsCatalogue");
@@ -1140,19 +1144,34 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       />
 
       {activeNav === "dashboard" || activeNav === "settings" ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Navigate to price setup"
-          onPress={handleOpenPriceNavigation}
-          style={[
-            styles.fab,
-            adminShadow(palette.shadow, 0.12, 14, 20),
-            { backgroundColor: palette.success, bottom: fabOffset },
-          ]}
-        >
-          <MaterialCommunityIcons name="cash-edit" size={18} color={palette.background} />
-          <Text style={[styles.fabLabel, { color: palette.background }]}>Update Price </Text>
-        </Pressable>
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Navigate to purchase rates"
+            onPress={handleOpenPurchaseRates}
+            style={[
+              styles.fab,
+              adminShadow(palette.shadow, 0.12, 14, 20),
+              { backgroundColor: palette.primary, bottom: fabOffset + 58 },
+            ]}
+          >
+            <MaterialCommunityIcons name="cart-arrow-down" size={18} color={palette.onPrimary} />
+            <Text style={[styles.fabLabel, { color: palette.onPrimary }]}>Purchase Rate</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Navigate to price setup"
+            onPress={handleOpenPriceNavigation}
+            style={[
+              styles.fab,
+              adminShadow(palette.shadow, 0.12, 14, 20),
+              { backgroundColor: palette.success, bottom: fabOffset },
+            ]}
+          >
+            <MaterialCommunityIcons name="cash-edit" size={18} color={palette.background} />
+            <Text style={[styles.fabLabel, { color: palette.background }]}>Update Price</Text>
+          </Pressable>
+        </>
       ) : null}
 
       <BillPreviewSheet
