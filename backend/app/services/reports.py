@@ -2135,7 +2135,6 @@ def _over_report_sheet_rows(
                     _quantity_with_unit(item.difference_quantity, item.unit),
                     _money(item.assumption_amount),
                     _money(item.sales_amount),
-                    _money(item.purchase_amount),
                     _money(item.difference_amount),
                 ]
             )
