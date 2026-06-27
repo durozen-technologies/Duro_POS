@@ -23,6 +23,12 @@ class InventoryCategoryRead(ORMModel):
     updated_at: datetime | None = None
 
 
+class InventoryItemPurchaseRateHistoryRead(BaseModel):
+    inventory_item_id: UUID
+    purchase_rate: Decimal
+
+
+
 class InventoryBillingItemMappingRead(BaseModel):
     inventory_category_id: UUID | None = None
     inventory_category_name: str | None = None
@@ -208,6 +214,12 @@ class InventoryUseSplitLine(BaseModel):
 class InventoryUseSplitRequest(BaseModel):
     total_quantity: Decimal = Field(gt=0)
     categories: list[InventoryUseSplitLine] = Field(min_length=1)
+
+
+class InventoryStockAdjustRequest(BaseModel):
+    available_quantity: Decimal | None = Field(default=None, ge=0)
+    used_quantity: Decimal | None = Field(default=None, ge=0)
+    category_id: UUID | None = None
 
 
 class InventoryMovementCreateResult(BaseModel):

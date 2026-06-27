@@ -86,6 +86,8 @@ _OVER_REPORT_HEADER_LABELS_EN = (
     "Used Stock",
     "Transfer Stock",
     "Remaining Stock",
+    "Purchase Rate",
+    "Purchase Amount",
     "Billing Items",
     "Assumption",
     "Sales",
@@ -103,6 +105,8 @@ _OVER_REPORT_HEADER_LABELS_TA = (
     "பயன்படுத்தப்பட்ட இருப்பு",
     "பரிமாற்ற இருப்பு",
     "மீதி இருப்பு",
+    "கொள்முதல் விலை",
+    "கொள்முதல் தொகை",
     "பில்லிங் பொருள்கள்",
     "அனுமானம்",
     "விற்பனை",
@@ -125,9 +129,9 @@ def _over_report_sheet_headers(*, use_tamil: bool) -> list[str]:
     return headers
 
 
-OVER_REPORT_SHEET_HEADER_ALIGNMENTS = ("center",) * 15
+OVER_REPORT_SHEET_HEADER_ALIGNMENTS = ("center",) * 17
 OVER_REPORT_SHEET_MIN_WIDTHS = (
-    46, 58, 50, 50, 50, 68, 56, 52, 58, 50, 48, 48, 58, 52, 58,
+    46, 58, 50, 50, 50, 68, 56, 52, 48, 52, 58, 50, 48, 48, 58, 52, 58,
 )
 OVER_REPORT_SHEET_HEADER_PADDING = 8
 OVER_REPORT_SHEET_DATA_PADDING = 6
@@ -142,6 +146,8 @@ OVER_REPORT_SHEET_ALIGNMENTS = [
     "right",
     "right",
     "left",
+    "right",
+    "right",
     "right",
     "right",
     "left",
@@ -1496,6 +1502,10 @@ async def _build_overall_report_statement(
         (_decimal(item.difference_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
+    purchase_amount = sum(
+        (_decimal(item.purchase_amount) for item in inventory_items.values()),
+        Decimal("0"),
+    )
     return OverallReportStatement(
         shop_id=shop_id,
         shop_name=shop_name,
@@ -1509,6 +1519,7 @@ async def _build_overall_report_statement(
         difference_amount=difference_amount,
         sales_minus_expense_amount=sales_amount - expense_amount,
         sales_minus_assumption_amount=sales_amount - assumption_amount,
+        purchase_amount=purchase_amount,
         inventory_items=list(inventory_items.values()),
     )
 
@@ -1628,6 +1639,7 @@ async def _overall_report_inventory_items(
                 InventoryItem.id.label("inventory_item_id"),
                 InventoryItem.name.label("item_name"),
                 InventoryItem.tamil_name.label("item_tamil_name"),
+                InventoryItem.purchase_rate.label("purchase_rate"),
                 InventoryItem.base_unit.label("unit"),
                 func.coalesce(stock_totals.c.opening_added, 0).label("opening_added"),
                 func.coalesce(stock_totals.c.opening_used, 0).label("opening_used"),
@@ -1665,6 +1677,8 @@ async def _overall_report_inventory_items(
         total_available_stock = old_stock + adding_stock
         used_stock = _decimal(row.used_stock)
         transfer_stock = _decimal(row.transfer_stock)
+        purchase_rate = _decimal(row.purchase_rate) if row.purchase_rate is not None else None
+        purchase_amount = (adding_stock * purchase_rate) if purchase_rate is not None else Decimal("0")
         items[row.inventory_item_id] = OverallReportInventoryItem(
             inventory_item_id=row.inventory_item_id,
             item_name=row.item_name,
@@ -1677,6 +1691,8 @@ async def _overall_report_inventory_items(
             used_stock=used_stock,
             transfer_stock=transfer_stock,
             remaining_stock=total_available_stock - used_stock - transfer_stock,
+            purchase_rate=purchase_rate,
+            purchase_amount=purchase_amount,
         )
     return items
 
@@ -2045,6 +2061,8 @@ def _over_report_sheet_rows(statement: OverallReportStatement, use_tamil: bool =
                     _used_stock_breakdown_text(used_row, item.unit),
                     _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
                     _quantity_with_unit(item.remaining_stock, item.unit),
+                    _money(item.purchase_rate) if is_first and item.purchase_rate is not None else "",
+                    _money(item.purchase_amount) if is_first else "",
                     billing_display_name if billing_row is not None else (
                         "No mapped billing sales" if is_first and not billing_rows else ""
                     ),
@@ -2074,6 +2092,8 @@ def _over_report_sheet_rows(statement: OverallReportStatement, use_tamil: bool =
                     f"Total Used\n{_quantity_with_unit(item.used_stock, item.unit)}",
                     "",
                     "",
+                    "",  # purchase_rate
+                    "",  # purchase_amount
                     "Subtotal",
                     _quantity_with_unit(item.assumption_quantity, item.unit),
                     _quantity_with_unit(item.sales_quantity, item.unit),

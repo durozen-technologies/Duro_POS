@@ -27,17 +27,20 @@ import {
   fetchInventoryCategories,
   fetchInventoryItemCounts,
   fetchInventoryItemRows,
+  fetchInventoryPurchaseRatesHistory,
   fetchShopInventoryAllocationRows,
   fetchShops,
   updateInventoryCategory,
   confirmInventoryPurchaseRatesToday,
   updateInventoryItemPurchaseRate,
   updateShopInventoryAllocation,
+  adminSetShopInventoryStock,
 } from "@/api/admin";
 import { isApiRequestCanceled, toApiError } from "@/api/client";
 import {
   CalendarDateField,
   CalendarDatePickerModal,
+  formatCalendarDateLabel,
   type CalendarPickerColors,
 } from "@/components/ui/calendar-date-picker";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
@@ -190,6 +193,10 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const [editingPurchaseRateValue, setEditingPurchaseRateValue] = useState("");
   const [savingPurchaseRateId, setSavingPurchaseRateId] = useState<UUID | null>(null);
   const [savingAllPurchaseRates, setSavingAllPurchaseRates] = useState(false);
+  const [purchaseRateHistoryDate, setPurchaseRateHistoryDate] = useState(() => toDateInputValue(new Date()));
+  const [purchaseRateCalendarOpen, setPurchaseRateCalendarOpen] = useState(false);
+  const [historicalPurchaseRates, setHistoricalPurchaseRates] = useState<Record<string, string>>({});
+  const [loadingHistoricalRates, setLoadingHistoricalRates] = useState(false);
   const debouncedSearchRef = useRef("");
   const loadedItemsQueryRef = useRef<string | null>(null);
   const itemsAbortRef = useRef<AbortController | null>(null);
@@ -255,6 +262,35 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
         : null,
     [movementHistoryMode, movementHistoryParams, selectedShopId],
   );
+
+  const isTodayPurchaseRate = purchaseRateHistoryDate === toDateInputValue(new Date());
+
+  useEffect(() => {
+    if (activeTab === "purchaseRates" && !isTodayPurchaseRate) {
+      let active = true;
+      setLoadingHistoricalRates(true);
+      fetchInventoryPurchaseRatesHistory(purchaseRateHistoryDate)
+        .then((rates) => {
+          if (active) {
+            const rateMap: Record<string, string> = {};
+            for (const r of rates) {
+              rateMap[r.inventory_item_id] = r.purchase_rate;
+            }
+            setHistoricalPurchaseRates(rateMap);
+            setLoadingHistoricalRates(false);
+          }
+        })
+        .catch((e) => {
+          if (active) {
+            setLoadingHistoricalRates(false);
+            console.error("Failed to load historical purchase rates", e);
+          }
+        });
+      return () => {
+        active = false;
+      };
+    }
+  }, [activeTab, purchaseRateHistoryDate, isTodayPurchaseRate]);
 
   useEffect(() => {
     itemsCursorRef.current = itemsCursor;
@@ -770,35 +806,33 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     }
   }, [allocationBusyItemId, selectedShopId]);
 
-  const handleSaveStockValue = useCallback(() => {
-    if (!editingStockKey) return;
+  const handleSaveStockValue = useCallback(async () => {
+    if (!editingStockKey || !selectedShopId) return;
     const [itemId, type] = editingStockKey.split(":");
     const numValue = parseFloat(editingStockValue) || 0;
+    const strValue = numValue.toString();
 
-    setStockItems((currentItems) => {
-      return currentItems.map((item) => {
-        if (item.id !== itemId) return item;
-
-        if (type === "available") {
-          return { ...item, available_quantity: numValue.toString() };
-        } else if (type === "used") {
-          return { ...item, used_quantity: numValue.toString() };
-        } else {
-          let newTotalUsed = 0;
-          const newCategoryUsage = (item.category_usage || []).map((cat) => {
-            if (cat.category_id === type) {
-              newTotalUsed += numValue;
-              return { ...cat, used_quantity: numValue.toString() };
-            }
-            newTotalUsed += parseFloat(cat.used_quantity) || 0;
-            return cat;
-          });
-          return { ...item, category_usage: newCategoryUsage, used_quantity: newTotalUsed.toString() };
-        }
-      });
-    });
     setEditingStockKey(null);
-  }, [editingStockKey, editingStockValue]);
+    setErrorMessage(null);
+
+    try {
+      const payload: Record<string, any> = {};
+      if (type === "available") {
+        payload.available_quantity = strValue;
+      } else if (type === "used") {
+        payload.used_quantity = strValue;
+      } else {
+        payload.used_quantity = strValue;
+        payload.category_id = type;
+      }
+
+      const updatedItem = await adminSetShopInventoryStock(selectedShopId, itemId, payload);
+      setStockItems((currentItems) => currentItems.map((item) => (item.id === itemId ? updatedItem : item)));
+    } catch (error) {
+      triggerHaptic();
+      setErrorMessage(getRequestMessage(error, "Unable to save stock value."));
+    }
+  }, [editingStockKey, editingStockValue, selectedShopId]);
 
   const toggleStockEdit = useCallback((key: string, currentValue: string) => {
     if (editingStockKey === key) {
@@ -957,30 +991,78 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
 
   const renderPurchaseRateHeader = () => (
     <View style={styles.itemsHeader}>
-      <Text style={[styles.purchaseRateIntro, { color: palette.textSecondary }]}>
-        Set today&apos;s purchase rate for each inventory item, then tap Save to confirm all existing rates.
-      </Text>
-      <View style={styles.row}>
-        <View style={[styles.search, { borderColor: palette.border, backgroundColor: palette.card }]}>
-          <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search inventory"
-            placeholderTextColor={palette.textMuted}
-            style={[styles.input, { color: palette.textPrimary }]}
+      {/* Intro — only shown in today mode */}
+      {isTodayPurchaseRate && (
+        <Text style={[styles.purchaseRateIntro, { color: palette.textSecondary }]}>
+          Set today&apos;s purchase rate for each item, then tap Save to confirm.
+        </Text>
+      )}
+
+      {/* History date control */}
+      <View style={[styles.historyBar, { borderColor: palette.border, backgroundColor: palette.card }]}>
+        <View style={[styles.historyBarIcon, { backgroundColor: palette.inventorySoft }]}>
+          <MaterialCommunityIcons
+            name={isTodayPurchaseRate ? "currency-inr" : "history"}
+            size={16}
+            color={palette.inventoryStrong}
           />
         </View>
-        <ActionButton
-          label={savingAllPurchaseRates ? "Saving..." : "Save"}
-          icon="calendar-check-outline"
-          palette={palette}
-          active
-          loading={savingAllPurchaseRates}
-          disabled={items.length === 0 || savingAllPurchaseRates || Boolean(savingPurchaseRateId)}
-          onPress={() => void handleSaveAllPurchaseRates()}
-        />
+        <View style={styles.historyBarContent}>
+          <Text style={[styles.historyBarLabel, { color: palette.textMuted }]}>
+            {isTodayPurchaseRate ? "VIEWING" : "HISTORY"}
+          </Text>
+          <Pressable
+            onPress={() => setPurchaseRateCalendarOpen(true)}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+          >
+            <Text style={[styles.historyDateBtnText, { color: palette.textPrimary }]}>
+              {isTodayPurchaseRate ? "Today" : formatCalendarDateLabel(purchaseRateHistoryDate)}
+            </Text>
+          </Pressable>
+        </View>
+        {!isTodayPurchaseRate ? (
+          <Pressable
+            onPress={() => setPurchaseRateHistoryDate(toDateInputValue(new Date()))}
+            style={[styles.historyBarBadge, { backgroundColor: palette.inventory }]}
+          >
+            <MaterialCommunityIcons name="calendar-today" size={12} color={palette.onPrimary} />
+            <Text style={[styles.historyBarBadgeText, { color: palette.onPrimary }]}>Today</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => setPurchaseRateCalendarOpen(true)}
+            style={[styles.historyBarBadge, { backgroundColor: palette.surfaceMuted, borderWidth: 1, borderColor: palette.border }]}
+          >
+            <MaterialCommunityIcons name="history" size={12} color={palette.textSecondary} />
+            <Text style={[styles.historyBarBadgeText, { color: palette.textSecondary }]}>History</Text>
+          </Pressable>
+        )}
       </View>
+
+      {/* Search + Save — only in today mode */}
+      {isTodayPurchaseRate && (
+        <View style={styles.row}>
+          <View style={[styles.search, { borderColor: palette.border, backgroundColor: palette.card }]}>
+            <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search inventory"
+              placeholderTextColor={palette.textMuted}
+              style={[styles.input, { color: palette.textPrimary }]}
+            />
+          </View>
+          <ActionButton
+            label={savingAllPurchaseRates ? "Saving..." : "Save"}
+            icon="calendar-check-outline"
+            palette={palette}
+            active
+            loading={savingAllPurchaseRates}
+            disabled={items.length === 0 || savingAllPurchaseRates || Boolean(savingPurchaseRateId)}
+            onPress={() => void handleSaveAllPurchaseRates()}
+          />
+        </View>
+      )}
     </View>
   );
 
@@ -988,70 +1070,96 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     const editing = editingPurchaseRateId === item.id;
     const saving = savingPurchaseRateId === item.id;
     const updatedToday = isPurchaseRateUpdatedToday(item.updated_at);
+    const historicalRate = !isTodayPurchaseRate ? historicalPurchaseRates[item.id] : null;
+    const hasHistoricalRate = historicalRate != null;
+    
     return (
-      <View style={[styles.itemRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+      <View style={[styles.prRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+        {/* Left: thumbnail + item info */}
         <ItemThumbnail
           uri={getItemThumbnailUri(item)}
           recyclingKey={item.id}
-          size={52}
+          size={48}
           borderRadius={10}
           backgroundColor={palette.surfaceMuted}
           icon="package-variant-closed"
           iconColor={palette.textMuted}
         />
-        <View style={styles.itemText}>
-          <Text style={[styles.itemName, { color: palette.textPrimary }]}>{item.name}</Text>
-          <Text style={[styles.itemSub, { color: palette.textSecondary }]}>{item.tamil_name}</Text>
+        <View style={styles.prInfo}>
+          <Text style={[styles.itemName, { color: palette.textPrimary }]} numberOfLines={1}>{item.name}</Text>
+          <Text style={[styles.itemSub, { color: palette.textSecondary }]} numberOfLines={1}>{item.tamil_name}</Text>
           <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
             {item.base_unit.toUpperCase()} · {inventoryItemCategoryLabel(item)}
           </Text>
-          <View style={styles.purchaseRateBlock}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Purchase rate</Text>
-              <Pressable onPress={() => togglePurchaseRateEdit(item)} disabled={saving} hitSlop={10}>
-                <MaterialCommunityIcons
-                  name={editing ? "check" : "pencil-outline"}
-                  size={14}
-                  color={palette.textMuted}
-                />
-              </Pressable>
-            </View>
-            {editing ? (
-              <TextInput
-                value={editingPurchaseRateValue}
-                onChangeText={setEditingPurchaseRateValue}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-                placeholderTextColor={palette.textMuted}
-                style={[
-                  styles.quantityValue,
-                  {
-                    color: palette.textPrimary,
-                    borderBottomWidth: 1,
-                    borderBottomColor: palette.border,
-                    minWidth: 90,
-                    padding: 0,
-                  },
-                ]}
-                onSubmitEditing={() => void handleSavePurchaseRate(item.id)}
-                autoFocus
-              />
-            ) : (
-              <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
-                {formatPurchaseRate(item.purchase_rate ?? "0", item.base_unit)}
-              </Text>
-            )}
-            <Text
+          {isTodayPurchaseRate && (
+            <View
               style={[
-                styles.purchaseRateStatus,
-                { color: updatedToday ? palette.inventoryStrong : palette.danger },
+                styles.prStatusPill,
+                {
+                  backgroundColor: updatedToday ? palette.inventorySoft : "#fee2e2",
+                },
               ]}
             >
-              {updatedToday ? "Updated today" : "Needs today's rate"}
-            </Text>
-          </View>
+              <View
+                style={[
+                  styles.prStatusDot,
+                  { backgroundColor: updatedToday ? palette.inventoryStrong : palette.danger },
+                ]}
+              />
+              <Text style={[styles.prStatusText, { color: updatedToday ? palette.inventoryStrong : palette.danger }]}>
+                {updatedToday ? "Updated today" : "Needs update"}
+              </Text>
+            </View>
+          )}
         </View>
-        {saving ? <ActivityIndicator color={palette.inventory} /> : null}
+
+        {/* Right: rate panel */}
+        <View style={[styles.prPanel, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+          <Text style={[styles.prPanelLabel, { color: palette.textMuted }]}>RATE</Text>
+          {saving ? (
+            <ActivityIndicator size="small" color={palette.inventory} style={{ marginVertical: 4 }} />
+          ) : editing ? (
+            <TextInput
+              value={editingPurchaseRateValue}
+              onChangeText={setEditingPurchaseRateValue}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={palette.textMuted}
+              style={[styles.prPanelValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.inventory, minWidth: 70 }]}
+              onSubmitEditing={() => void handleSavePurchaseRate(item.id)}
+              autoFocus
+            />
+          ) : !isTodayPurchaseRate ? (
+            loadingHistoricalRates ? (
+              <ActivityIndicator size="small" color={palette.textMuted} style={{ marginVertical: 4 }} />
+            ) : (
+              <Text style={[styles.prPanelValue, { color: hasHistoricalRate ? palette.textPrimary : palette.textMuted }]}>
+                {hasHistoricalRate ? formatPurchaseRate(historicalRate, item.base_unit) : "—"}
+              </Text>
+            )
+          ) : (
+            <Text style={[styles.prPanelValue, { color: palette.textPrimary }]}>
+              {formatPurchaseRate(item.purchase_rate ?? "0", item.base_unit)}
+            </Text>
+          )}
+          {isTodayPurchaseRate && !saving && (
+            <Pressable
+              onPress={() => togglePurchaseRateEdit(item)}
+              disabled={saving}
+              hitSlop={8}
+              style={[styles.prEditBtn, { backgroundColor: editing ? palette.inventory : palette.border }]}
+            >
+              <MaterialCommunityIcons
+                name={editing ? "check" : "pencil-outline"}
+                size={13}
+                color={editing ? palette.onPrimary : palette.textSecondary}
+              />
+              <Text style={[styles.prEditBtnText, { color: editing ? palette.onPrimary : palette.textSecondary }]}>
+                {editing ? "Save" : "Edit"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </View>
     );
   };
@@ -1645,6 +1753,18 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
         onSelect={selectMovementHistoryDate}
         onClose={() => setMovementCalendarTarget(null)}
       />
+
+      <CalendarDatePickerModal
+        visible={purchaseRateCalendarOpen}
+        title="History date"
+        value={purchaseRateHistoryDate}
+        colors={movementCalendarColors}
+        onSelect={(date) => {
+          setPurchaseRateHistoryDate(date);
+          setPurchaseRateCalendarOpen(false);
+        }}
+        onClose={() => setPurchaseRateCalendarOpen(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1801,4 +1921,23 @@ const styles = StyleSheet.create({
   dropdownOption: { minHeight: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 9 },
   dropdownOptionText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "900", letterSpacing: 0 },
   sectionTitle: { fontSize: 15, fontWeight: "900", letterSpacing: 0, marginTop: 4 },
+  historyBar: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
+  historyBarIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  historyBarContent: { flex: 1, minWidth: 0, gap: 2 },
+  historyBarLabel: { fontSize: 9, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase" },
+  historyBarBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
+  historyBarBadgeText: { fontSize: 11, fontWeight: "900", letterSpacing: 0 },
+  historyDateBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  historyDateBtnText: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
+  // Purchase rate row
+  prRow: { borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  prInfo: { flex: 1, minWidth: 0, gap: 2 },
+  prStatusPill: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginTop: 4 },
+  prStatusDot: { width: 6, height: 6, borderRadius: 999 },
+  prStatusText: { fontSize: 10, fontWeight: "900", letterSpacing: 0 },
+  prPanel: { alignItems: "center", borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, gap: 4, minWidth: 86 },
+  prPanelLabel: { fontSize: 9, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase" },
+  prPanelValue: { fontSize: 17, fontWeight: "900", letterSpacing: 0, textAlign: "center" },
+  prEditBtn: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  prEditBtnText: { fontSize: 10, fontWeight: "900", letterSpacing: 0 },
 });

@@ -65,7 +65,7 @@ When adding or changing data structures used by both services, update `backend.a
 - Python `3.11+`
 - `uv`
 - Node.js `18+`
-- npm
+- `nub`
 - Docker and Docker Compose
 - PostgreSQL if running backend outside Docker
 - Android emulator, device, iOS simulator, or browser for the frontend
@@ -93,16 +93,16 @@ uv run --with pytest pytest ../test/ -v
 
 ```bash
 cd frontend
-npm install
-npx expo start
+nub install
+nub run start
 ```
 
 For the Android dev client and printer workflow:
 
 ```bash
 cd frontend
-npx expo run:android
-npm run start:dev
+nub exec expo run:android
+nub run start:dev
 ```
 
 If the backend runs on the same machine and the frontend is on a physical Android phone:

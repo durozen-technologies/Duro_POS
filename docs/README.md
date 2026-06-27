@@ -70,7 +70,7 @@ uv run --with pytest pytest ../test/
 
 # Frontend typecheck
 cd frontend
-npm run typecheck
+nub run typecheck
 ```
 
 ## Important Repo Paths
@@ -89,4 +89,3 @@ docker-compose.prod.yml  Production Docker Compose stack
 compose.yaml             Local Docker stack
 scripts/deploy-prod.sh   Production deployment script
 ```
-

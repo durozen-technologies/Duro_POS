@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -256,7 +257,6 @@ class ShopInventoryAllocation(Base, BaseModelMixin):
 class InventoryMovement(Base, BaseModelMixin):
     __tablename__ = "inventory_movements"
     __table_args__ = (
-        CheckConstraint("quantity > 0", name="ck_inventory_movements_quantity_positive"),
         Index(
             "ix_inventory_movements_shop_item_created",
             "shop_id",
@@ -345,3 +345,40 @@ class InventoryMovementSplit(Base, BaseModelMixin):
 
     movement = relationship("InventoryMovement", back_populates="splits")
     category = relationship("InventoryCategory")
+
+
+class InventoryItemPurchaseRateHistory(Base, BaseModelMixin):
+    __tablename__ = "inventory_item_purchase_rate_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "inventory_item_id",
+            "date",
+            name="uq_inventory_item_purchase_rate_history_item_date",
+        ),
+        Index("ix_inventory_item_purchase_rate_history_date", "date"),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    inventory_item_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("inventory_items.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    purchase_rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+    )
+
+    item = relationship("InventoryItem")

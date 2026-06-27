@@ -4,10 +4,12 @@ from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.ids import uuid7
 from app.db.storage import (
     build_inventory_item_image_path,
     build_inventory_item_image_thumb_path,
@@ -23,6 +25,7 @@ from app.models import (
     InventoryItem,
     InventoryItemBillingMapping,
     InventoryItemCategory,
+    InventoryItemPurchaseRateHistory,
     InventoryMovement,
     InventoryMovementType,
     InventoryTransfer,
@@ -50,6 +53,7 @@ from app.schemas.inventory import (
     InventoryMovementPage,
     InventoryMovementRead,
     InventoryMovementSplitCreateResult,
+    InventoryStockAdjustRequest,
     InventoryStockRowsPage,
     InventorySummaryRead,
     InventoryUseRequest,
@@ -1059,6 +1063,42 @@ async def update_inventory_item_purchase_rate(
 
 async def confirm_inventory_purchase_rates_today(db: AsyncSession) -> int:
     now = datetime.now(UTC)
+    today = now.date()
+
+    # Get active inventory items
+    items = (
+        await db.execute(
+            select(InventoryItem.id, InventoryItem.purchase_rate)
+            .where(InventoryItem.is_active.is_(True))
+        )
+    ).all()
+
+    if not items:
+        return 0
+
+    # UPSERT the history for today
+    values = [
+        {
+            "id": uuid7(),
+            "inventory_item_id": item.id,
+            "purchase_rate": item.purchase_rate,
+            "date": today,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for item in items
+    ]
+    
+    stmt = pg_insert(InventoryItemPurchaseRateHistory).values(values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["inventory_item_id", "date"],
+        set_={
+            "purchase_rate": stmt.excluded.purchase_rate,
+            "updated_at": stmt.excluded.updated_at,
+        }
+    )
+    await db.execute(stmt)
+
     result = await db.execute(
         update(InventoryItem)
         .where(InventoryItem.is_active.is_(True))
@@ -1066,6 +1106,16 @@ async def confirm_inventory_purchase_rates_today(db: AsyncSession) -> int:
     )
     await db.commit()
     return int(result.rowcount or 0)
+
+
+async def get_inventory_purchase_rates_history(db: AsyncSession, reference_date: date) -> dict[UUID, Decimal]:
+    rows = (
+        await db.execute(
+            select(InventoryItemPurchaseRateHistory.inventory_item_id, InventoryItemPurchaseRateHistory.purchase_rate)
+            .where(InventoryItemPurchaseRateHistory.date == reference_date)
+        )
+    ).all()
+    return {row.inventory_item_id: row.purchase_rate for row in rows}
 
 
 async def upload_inventory_item_image(
@@ -1228,7 +1278,8 @@ def _stock_item_from_inventory_item(
     """
     base = _inventory_item_to_read(item)
     if available_quantity is None:
-        available_quantity = added_quantity - used_quantity
+        # ponytail: available stock does not depend on used stock
+        available_quantity = added_quantity
 
     category_usage = [
         InventoryCategoryUsageRead(
@@ -1239,6 +1290,11 @@ def _stock_item_from_inventory_item(
         )
         for category in base.categories
     ]
+
+    # ponytail: if an item has categories, its total used quantity is strictly the sum of category usage.
+    if category_usage:
+        used_quantity = sum((cat.used_quantity for cat in category_usage), ZERO)
+
     return InventoryItemStockRead(
         **base.model_dump(),
         allocated=allocation is not None,
@@ -1302,7 +1358,7 @@ async def get_inventory_summary(
             allocation=allocations_by_item_id.get(item.id),
             added_quantity=added.get(item.id, ZERO),
             used_quantity=used.get(item.id, ZERO),
-            available_quantity=added.get(item.id, ZERO) - used.get(item.id, ZERO) - transferred_out.get(item.id, ZERO),
+            available_quantity=added.get(item.id, ZERO) - transferred_out.get(item.id, ZERO),
             category_used=category_used,
         )
         for item in items
@@ -1430,8 +1486,8 @@ async def list_inventory_stock_rows(
             added_quantity=added.get(item.id, ZERO),
             # Display: today's usage (resets daily)
             used_quantity=used_today.get(item.id, ZERO),
-            # Availability: all-time usage (prevents over-use)
-            available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
+            # Availability: does not depend on used stock
+            available_quantity=added.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
             category_used=category_used_today,
         )
         for item, allocation in page_rows
@@ -1580,8 +1636,8 @@ async def _get_allocated_inventory_item_for_shop(
 
 
 async def _available_quantity_for_item(db: AsyncSession, shop_id: UUID, item_id: UUID) -> Decimal:
-    added, used_alltime, _, transferred = await _movement_totals(db, shop_id, [item_id])
-    return added.get(item_id, ZERO) - used_alltime.get(item_id, ZERO) - transferred.get(item_id, ZERO)
+    added, _, _, transferred = await _movement_totals(db, shop_id, [item_id])
+    return added.get(item_id, ZERO) - transferred.get(item_id, ZERO)
 
 
 async def _stock_item_for_shop_inventory_item(
@@ -1611,7 +1667,7 @@ async def _stock_item_for_shop_inventory_item(
         allocation=allocation,
         added_quantity=added.get(item.id, ZERO),
         used_quantity=used_display.get(item.id, ZERO),
-        available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
+        available_quantity=added.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
         category_used=category_used_display,
     )
 
@@ -1935,3 +1991,82 @@ async def use_shop_inventory_stock_split(
         item=stock_item,
         summary=summary,
     )
+
+
+async def admin_set_shop_inventory_stock(
+    db: AsyncSession,
+    shop: Shop,
+    item_id: UUID,
+    payload: InventoryStockAdjustRequest,
+) -> InventoryItemStockRead:
+    """Admin override: set available and/or used stock by creating adjustment movements.
+
+    Available stock is adjusted via ADD (positive delta) or USE (negative delta).
+    Used stock (today's display) is adjusted via USE (positive delta) or ADD (negative delta).
+    """
+    allocation = await db.scalar(
+        select(ShopInventoryAllocation)
+        .where(
+            ShopInventoryAllocation.shop_id == shop.id,
+            ShopInventoryAllocation.inventory_item_id == item_id,
+        )
+        .with_for_update()
+    )
+    if allocation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory allocation not found")
+
+    item = await db.scalar(
+        select(InventoryItem)
+        .where(InventoryItem.id == item_id)
+        .options(selectinload(InventoryItem.category_links).selectinload(InventoryItemCategory.category))
+        .with_for_update()
+    )
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+
+    added, used_alltime, _, transferred_alltime = await _movement_totals(db, shop.id, [item_id])
+    _, used_today, _, _ = await _movement_totals(db, shop.id, [item_id], used_since=date.today())
+
+    current_available = added.get(item_id, ZERO) - transferred_alltime.get(item_id, ZERO)
+    current_used_today = used_today.get(item_id, ZERO)
+
+    movements_added: list[InventoryMovement] = []
+
+    if payload.available_quantity is not None:
+        target_available = _normalize_nonnegative_quantity(item.base_unit, payload.available_quantity)
+        delta = target_available - current_available
+        if delta != ZERO:
+            # ponytail: adjust available via ADD (positive or negative) without touching used
+            movements_added.append(InventoryMovement(
+                shop_id=shop.id,
+                inventory_item_id=item_id,
+                movement_type=InventoryMovementType.ADD,
+                quantity=delta,
+            ))
+
+    if payload.used_quantity is not None:
+        target_used = _normalize_nonnegative_quantity(item.base_unit, payload.used_quantity)
+        if payload.category_id:
+            _, _, category_used_today_all, _ = await _movement_totals(db, shop.id, [item_id], used_since=date.today())
+            current_used = category_used_today_all.get((item_id, payload.category_id), ZERO)
+        else:
+            current_used = current_used_today
+
+        delta = target_used - current_used
+        if delta != ZERO:
+            # ponytail: adjust used via USE (positive or negative) without touching available
+            movements_added.append(InventoryMovement(
+                shop_id=shop.id,
+                inventory_item_id=item_id,
+                category_id=payload.category_id,
+                movement_type=InventoryMovementType.USE,
+                quantity=delta,
+            ))
+
+    for movement in movements_added:
+        db.add(movement)
+    if movements_added:
+        await db.commit()
+
+    return await _stock_item_for_shop_inventory_item(db, shop, item, allocation, used_since=date.today())
+

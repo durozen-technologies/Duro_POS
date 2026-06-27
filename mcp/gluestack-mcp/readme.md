@@ -5,6 +5,7 @@ This project provides a Model Context Protocol (MCP) server for integrating Glue
 ## Prerequisites
 
 - Node.js (v14 or higher)
+- `nub`
 - Claude Desktop application OR Cursor IDE
 
 ## Setup Instructions
@@ -14,7 +15,7 @@ This project provides a Model Context Protocol (MCP) server for integrating Glue
 ```bash
 git clone <repository-url>
 cd <project-directory>
-npm install
+nub install
 ```
 
 ## Integration Options

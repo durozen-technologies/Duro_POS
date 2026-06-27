@@ -614,6 +614,11 @@ export type FetchInventoryItemsParams = {
   cursor_id?: UUID | null;
 };
 
+export interface InventoryItemPurchaseRateHistoryRead {
+  inventory_item_id: UUID;
+  purchase_rate: string;
+};
+
 export async function fetchInventoryItemRows(
   params?: FetchInventoryItemsParams,
   options: ApiRequestOptions = {},
@@ -778,6 +783,14 @@ export async function confirmInventoryPurchaseRatesToday() {
   return data;
 }
 
+export async function fetchInventoryPurchaseRatesHistory(referenceDate: string) {
+  const { data } = await apiClient.get<InventoryItemPurchaseRateHistoryRead[]>(
+    "/api/v1/admin/inventory/items/purchase-rates/history",
+    { params: { reference_date: referenceDate } },
+  );
+  return data;
+}
+
 export async function replaceInventoryItemImageFile(itemId: UUID, file: ItemImageUploadFile) {
   return uploadItemMultipartFile<InventoryItemImageRead>(
     `/api/v1/admin/inventory/items/${itemId}/image`,
@@ -935,6 +948,24 @@ export async function allocateShopInventoryItems(shopId: UUID, itemIds: UUID[]) 
 export async function updateShopInventoryAllocation(shopId: UUID, payload: ShopInventoryAllocationUpdate) {
   const { data } = await apiClient.patch<InventoryItemStockRead>(
     `/api/v1/admin/shops/${shopId}/inventory-allocations`,
+    payload,
+  );
+  return data;
+}
+
+export type InventoryStockAdjustRequest = {
+  available_quantity?: string | null;
+  used_quantity?: string | null;
+  category_id?: string | null;
+};
+
+export async function adminSetShopInventoryStock(
+  shopId: UUID,
+  itemId: UUID,
+  payload: InventoryStockAdjustRequest,
+) {
+  const { data } = await apiClient.patch<InventoryItemStockRead>(
+    `/api/v1/admin/shops/${shopId}/inventory-allocations/${itemId}/stock`,
     payload,
   );
   return data;

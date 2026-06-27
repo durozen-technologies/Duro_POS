@@ -46,6 +46,12 @@ const dateLabelFormatter = new Intl.DateTimeFormat("en-IN", {
   month: "short",
   year: "numeric",
 });
+const selectedBannerFormatter = new Intl.DateTimeFormat("en-IN", {
+  weekday: "short",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
 
 function parseLocalDateValue(value: string | null | undefined) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((value ?? "").trim());
@@ -160,21 +166,37 @@ export function CalendarDatePickerModal({
 
   const calendarCells = useMemo(() => buildCalendarCells(visibleMonth), [visibleMonth]);
   const monthTitle = monthFormatter.format(visibleMonth);
+  const todayValue = toDateInputValue(new Date());
+  const selectedLabel = selectedDate ? selectedBannerFormatter.format(selectedDate) : null;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+
+          {/* Header: title + selected date + close */}
           <View style={styles.header}>
-            <Text numberOfLines={1} style={[styles.title, { color: colors.textPrimary }]}>
-              {title}
-            </Text>
-            <Pressable accessibilityRole="button" onPress={onClose} style={styles.iconButton}>
-              <MaterialCommunityIcons name="close" size={20} color={colors.textPrimary} />
+            <View style={styles.headerLeft}>
+              <Text numberOfLines={1} style={[styles.title, { color: colors.textPrimary }]}>
+                {title}
+              </Text>
+              {selectedLabel ? (
+                <Text numberOfLines={1} style={[styles.selectedLabel, { color: colors.textMuted }]}>
+                  {selectedLabel}
+                </Text>
+              ) : null}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onClose}
+              style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            >
+              <MaterialCommunityIcons name="close" size={18} color={colors.textPrimary} />
             </Pressable>
           </View>
 
+          {/* Month nav — matches dashboard calendarHeader */}
           <View style={styles.monthHeader}>
             <Pressable
               accessibilityRole="button"
@@ -182,21 +204,25 @@ export function CalendarDatePickerModal({
               onPress={() => setVisibleMonth((current) => addMonths(current, -1))}
               style={[styles.monthButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
-              <MaterialCommunityIcons name="chevron-left" size={22} color={colors.textPrimary} />
+              <MaterialCommunityIcons name="chevron-left" size={22} color={colors.textSecondary} />
             </Pressable>
-            <Text numberOfLines={1} style={[styles.monthTitle, { color: colors.textPrimary }]}>
-              {monthTitle}
-            </Text>
+            <View style={styles.monthTitleWrap}>
+              <Text style={[styles.monthModeLabel, { color: colors.textMuted }]}>Select day</Text>
+              <Text numberOfLines={1} style={[styles.monthTitle, { color: colors.textPrimary }]}>
+                {monthTitle}
+              </Text>
+            </View>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Next month"
               onPress={() => setVisibleMonth((current) => addMonths(current, 1))}
               style={[styles.monthButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
-              <MaterialCommunityIcons name="chevron-right" size={22} color={colors.textPrimary} />
+              <MaterialCommunityIcons name="chevron-right" size={22} color={colors.textSecondary} />
             </Pressable>
           </View>
 
+          {/* Weekday labels */}
           <View style={styles.weekdayGrid}>
             {dayLabels.map((dayLabel, index) => (
               <Text key={`${dayLabel}-${index}`} style={[styles.weekdayLabel, { color: colors.textMuted }]}>
@@ -205,9 +231,11 @@ export function CalendarDatePickerModal({
             ))}
           </View>
 
+          {/* Day grid */}
           <View style={styles.dayGrid}>
             {calendarCells.map((cell) => {
               const isSelected = cell.value === selectedValue;
+              const isToday = cell.value === todayValue;
               const isRangeEdge = cell.value === rangeStartValue || cell.value === rangeEndValue;
               const isInRange = Boolean(
                 rangeStartValue && rangeEndValue && cell.value >= rangeStartValue && cell.value <= rangeEndValue,
@@ -223,9 +251,13 @@ export function CalendarDatePickerModal({
                     style={({ pressed }) => [
                       styles.dayButton,
                       {
-                        backgroundColor: isHighlighted ? colors.accent : isInRange ? colors.accentSoft : "transparent",
-                        borderColor: isHighlighted ? colors.accent : "transparent",
-                        opacity: pressed ? 0.76 : 1,
+                        backgroundColor: isHighlighted
+                          ? colors.accent
+                          : isInRange
+                            ? colors.accentSoft
+                            : "transparent",
+                        borderColor: isToday ? colors.accent : "transparent",
+                        opacity: pressed ? 0.72 : 1,
                       },
                     ]}
                   >
@@ -235,9 +267,12 @@ export function CalendarDatePickerModal({
                         {
                           color: isHighlighted
                             ? colors.onAccent
-                            : cell.inCurrentMonth
-                              ? colors.textPrimary
-                              : colors.textMuted,
+                            : !cell.inCurrentMonth
+                              ? colors.textMuted
+                              : isInRange || isToday
+                                ? colors.accent
+                                : colors.textPrimary,
+                          opacity: cell.inCurrentMonth || isHighlighted || isInRange ? 1 : 0.5,
                         },
                       ]}
                     >
@@ -267,7 +302,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   fieldButton: {
-    minHeight: 46,
+    minHeight: 48,
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
@@ -291,62 +326,83 @@ const styles = StyleSheet.create({
   sheet: {
     width: "100%",
     maxWidth: 420,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
-    padding: 14,
-    gap: 12,
-  },
-  header: {
-    minHeight: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    overflow: "hidden",
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 12,
     gap: 10,
   },
-  title: {
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingBottom: 4,
+  },
+  headerLeft: {
     flex: 1,
     minWidth: 0,
+    gap: 2,
+  },
+  title: {
     fontSize: 18,
     lineHeight: 23,
-    fontWeight: "900",
+    fontWeight: "800",
+  },
+  selectedLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
   },
   iconButton: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 14,
+    borderWidth: 1,
   },
   monthHeader: {
-    minHeight: 42,
+    minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
   monthButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 42,
+    height: 42,
+    borderRadius: 15,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  monthTitle: {
+  monthTitleWrap: {
     flex: 1,
     minWidth: 0,
-    textAlign: "center",
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "900",
+    alignItems: "center",
+  },
+  monthModeLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  monthTitle: {
+    marginTop: 3,
+    fontSize: 17,
+    fontWeight: "800",
   },
   weekdayGrid: {
     flexDirection: "row",
+    alignItems: "center",
   },
   weekdayLabel: {
     width: "14.2857%",
     textAlign: "center",
     fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "900",
+    fontWeight: "800",
   },
   dayGrid: {
     flexDirection: "row",
@@ -354,19 +410,17 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: "14.2857%",
-    aspectRatio: 1,
-    padding: 3,
+    padding: 2,
   },
   dayButton: {
-    flex: 1,
-    borderRadius: 12,
+    height: 38,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   dayText: {
     fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "900",
+    fontWeight: "800",
   },
 });

@@ -17,6 +17,7 @@ from .inventory import (
     InventoryItem,
     InventoryItemBillingMapping,
     InventoryItemCategory,
+    InventoryItemPurchaseRateHistory,
     InventoryMovement,
     ShopInventoryAllocation,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "InventoryItem",
     "InventoryItemBillingMapping",
     "InventoryItemCategory",
+    "InventoryItemPurchaseRateHistory",
     "InventoryMovement",
     "InventoryMovementType",
     "Item",

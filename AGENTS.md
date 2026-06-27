@@ -181,7 +181,7 @@ The foundation of backend design is a **single source of truth**:
 2. Create or modify screens in `src/screens/`
 3. Add reusable components to `src/components/`
 4. Update API client (`src/api/client.ts`) if endpoint signatures change
-5. Validate with: `npx tsc --noEmit`
+5. Validate with: `nub run typecheck`
 
 ### Database Migrations
 - **Creating**: `cd backend && uv run alembic revision --autogenerate -m "meaningful name"`
@@ -204,7 +204,7 @@ cd backend && uv run ruff check . && uv run --with pytest pytest ../test/
 
 ### Frontend Typecheck
 ```bash
-cd frontend && npx tsc --noEmit
+cd frontend && nub run typecheck
 ```
 
 ### Docker Build & Run (Local Development)
@@ -231,5 +231,5 @@ docker-compose up -d
 - **Type Safety**: Frontend uses strict TypeScript; backend uses Pydantic for validation
 - **Testing**: Write focused tests alongside features; integration tests verify checkout, payment, inventory, auth, migrations, and API workflows when touched
 - **Documentation**: Update this guide when adding new architectural patterns or business rules
-- **Dependencies**: Use the package manager already used by that component and commit lockfile changes (`uv.lock`, `package-lock.json`, etc.) when dependencies change
+- **Dependencies**: Use the package manager already used by that component and commit lockfile changes (`uv.lock`, `lock.yaml`, etc.) when dependencies change
 - **Project Hygiene**: Always review and update `README.md`, `.gitignore`, relevant Dockerfiles, Compose files, and app/build config when changes affect setup, dependencies, generated files, build behavior, runtime configuration, or deployment

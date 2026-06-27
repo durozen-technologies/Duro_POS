@@ -51,7 +51,7 @@ frontend/
 ## Prerequisites
 
 - Node.js `18+`
-- npm
+- `nub`
 - reachable backend API URL
 - Android emulator, Android device, iOS simulator, or browser
 - Android dev build for native Bluetooth and USB printer support
@@ -60,7 +60,7 @@ frontend/
 
 ```bash
 cd frontend
-npm install
+nub install
 ```
 
 ## Environment
@@ -111,14 +111,14 @@ Important behavior:
 
 ```bash
 cd frontend
-npm run start
+nub run start
 ```
 
 Or:
 
 ```bash
 cd frontend
-npm run start:go
+nub run start:go
 ```
 
 Use Expo Go for UI testing without native printer access.
@@ -127,9 +127,9 @@ Use Expo Go for UI testing without native printer access.
 
 ```bash
 cd frontend
-npm run doctor:android
-npm run android:dev
-npm run start:dev -- --clear
+nub run doctor:android
+nub run android:dev
+nub run start:dev -- --clear
 ```
 
 This is the main path for real printer testing.
@@ -138,14 +138,14 @@ This is the main path for real printer testing.
 
 ```bash
 cd frontend
-npm run android:emu
+nub run android:emu
 ```
 
 Or start Metro separately:
 
 ```bash
 cd frontend
-npm run start:android
+nub run start:android
 ```
 
 ### Physical Android Device Over USB
@@ -153,8 +153,8 @@ npm run start:android
 ```bash
 adb devices
 cd frontend
-npm run android:usb
-npm run start:dev -- --clear
+nub run android:usb
+nub run start:dev -- --clear
 ```
 
 If the backend runs on the same computer:
@@ -167,21 +167,21 @@ adb reverse tcp:8000 tcp:8000
 
 ```bash
 cd frontend
-npm run ios
+nub run ios
 ```
 
 ### Web
 
 ```bash
 cd frontend
-npm run web
+nub run web
 ```
 
 ### Physical Device On The Same Wi-Fi
 
 ```bash
 cd frontend
-EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:8000 npx expo start --lan
+EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:8000 nub exec expo start --lan
 ```
 
 Replace `192.168.1.20` with your machine’s LAN IP.
@@ -192,7 +192,7 @@ If you use Expo tunnel, point the app at a public backend URL:
 
 ```bash
 cd frontend
-EXPO_PUBLIC_API_BASE_URL=https://your-public-backend.example.com npx expo start --tunnel
+EXPO_PUBLIC_API_BASE_URL=https://your-public-backend.example.com nub exec expo start --tunnel
 ```
 
 ## Scripts
@@ -200,24 +200,24 @@ EXPO_PUBLIC_API_BASE_URL=https://your-public-backend.example.com npx expo start 
 Current scripts from [package.json](package.json):
 
 ```bash
-npm run start
-npm run start:go
-npm run start:dev
-npm run start:android
-npm run doctor:android
-npm run emulator:start
-npm run android
-npm run android:emu
-npm run android:usb
-npm run android:dev
-npm run ios
-npm run web
-npm run lint
-npm run typecheck
-npm run eas:configure
-npm run eas:android:preview
-npm run eas:android:production
-npm run eas:android:run
+nub run start
+nub run start:go
+nub run start:dev
+nub run start:android
+nub run doctor:android
+nub run emulator:start
+nub run android
+nub run android:emu
+nub run android:usb
+nub run android:dev
+nub run ios
+nub run web
+nub run lint
+nub run typecheck
+nub run eas:configure
+nub run eas:android:preview
+nub run eas:android:production
+nub run eas:android:run
 ```
 
 The project also runs a bundled native dependency cleanup script automatically before several commands.
@@ -314,28 +314,28 @@ One-time setup:
 
 ```bash
 cd frontend
-npm run eas:configure
+nub run eas:configure
 ```
 
 Preview build:
 
 ```bash
 cd frontend
-npm run eas:android:preview
+nub run eas:android:preview
 ```
 
 Production build:
 
 ```bash
 cd frontend
-npm run eas:android:production
+nub run eas:android:production
 ```
 
 Install latest built Android artifact:
 
 ```bash
 cd frontend
-npm run eas:android:run
+nub run eas:android:run
 ```
 
 Cloud builds should use EAS environment variables for `EXPO_PUBLIC_API_BASE_URL`.
@@ -344,8 +344,8 @@ Cloud builds should use EAS environment variables for `EXPO_PUBLIC_API_BASE_URL`
 
 ```bash
 cd frontend
-npm run lint
-npm run typecheck
+nub run lint
+nub run typecheck
 ```
 
 ## Notes

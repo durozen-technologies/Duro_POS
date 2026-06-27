@@ -87,6 +87,7 @@ from app.schemas.inventory import (
     InventoryItemCounts,
     InventoryItemCreate,
     InventoryItemImageRead,
+    InventoryItemPurchaseRateHistoryRead,
     InventoryItemPurchaseRateUpdate,
     InventoryItemRead,
     InventoryItemRowsPage,
@@ -96,6 +97,7 @@ from app.schemas.inventory import (
     InventoryPurchaseRatesConfirmRead,
     InventoryStockRowsPage,
     InventorySummaryRead,
+    InventoryStockAdjustRequest,
     ShopInventoryAllocationBulkCreate,
     ShopInventoryAllocationBulkRead,
     ShopInventoryAllocationUpdate,
@@ -173,12 +175,14 @@ from app.services.expenses import (
     upload_expense_item_image,
 )
 from app.services.inventory import (
+    admin_set_shop_inventory_stock,
     allocate_shop_inventory_items,
     confirm_inventory_purchase_rates_today,
     count_inventory_items,
     create_inventory_category,
     delete_inventory_category,
     get_inventory_item,
+    get_inventory_purchase_rates_history,
     get_inventory_summary,
     list_inventory_categories,
     list_inventory_item_rows,
@@ -828,6 +832,22 @@ async def confirm_admin_inventory_purchase_rates_today(
     return InventoryPurchaseRatesConfirmRead(updated_count=updated_count)
 
 
+@router.get(
+    "/inventory/items/purchase-rates/history",
+    response_model=list[InventoryItemPurchaseRateHistoryRead],
+    summary="Get Inventory Purchase Rates History",
+)
+async def get_admin_inventory_purchase_rates_history(
+    reference_date: date,
+    db: DBSession,
+) -> list[InventoryItemPurchaseRateHistoryRead]:
+    rates = await get_inventory_purchase_rates_history(db, reference_date)
+    return [
+        InventoryItemPurchaseRateHistoryRead(inventory_item_id=item_id, purchase_rate=rate)
+        for item_id, rate in rates.items()
+    ]
+
+
 @router.put(
     "/inventory/items/{item_id}/image",
     response_model=InventoryItemImageRead,
@@ -1219,6 +1239,21 @@ async def update_shop_inventory(
     if include_summary:
         return await get_inventory_summary(db, shop, include_unallocated=True)
     return stock_item
+
+
+@router.patch(
+    "/shops/{shop_id}/inventory-allocations/{item_id}/stock",
+    response_model=InventoryItemStockRead,
+    response_model_exclude_unset=True,
+    summary="Adjust Shop Inventory Stock",
+)
+async def adjust_shop_inventory_stock(
+    item_id: UUID,
+    payload: InventoryStockAdjustRequest,
+    shop: ShopDep,
+    db: DBSession,
+) -> InventoryItemStockRead:
+    return await admin_set_shop_inventory_stock(db, shop, item_id, payload)
 
 
 @router.get(

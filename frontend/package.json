@@ -10,10 +10,10 @@
     "start:go": "expo start --go",
     "prestart:dev": "node ./scripts/cleanup-bundled-native-deps.js",
     "start:dev": "expo start --dev-client",
-    "eas:configure": "npx eas-cli@latest build:configure",
-    "eas:android:preview": "npx eas-cli@latest build -p android --profile preview",
-    "eas:android:production": "npx eas-cli@latest build -p android --profile production",
-    "eas:android:run": "npx eas-cli@latest build:run -p android --latest",
+    "eas:configure": "nubx eas-cli@latest build:configure",
+    "eas:android:preview": "nubx eas-cli@latest build -p android --profile preview",
+    "eas:android:production": "nubx eas-cli@latest build -p android --profile production",
+    "eas:android:run": "nubx eas-cli@latest build:run -p android --latest",
     "prestart:android": "node ./scripts/cleanup-bundled-native-deps.js",
     "start:android": "bash ./scripts/start-android-dev-client.sh",
     "doctor:android": "node ./scripts/check-android-env.js",
@@ -91,5 +91,13 @@
     "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "packageManager": "nub@0.1.14",
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.1.14",
+      "onFail": "warn"
+    }
+  }
 }

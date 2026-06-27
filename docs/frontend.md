@@ -48,9 +48,9 @@ frontend/src/types/api.ts                          API DTO and enum types
 
 ```bash
 cd frontend
-npm install
+nub install
 cp .env.example .env
-npm run start
+nub run start
 ```
 
 Set the backend URL in `frontend/.env`:
@@ -84,6 +84,5 @@ API-facing enums live in `frontend/src/types/api.ts`. Prefer enum members such a
 
 ```bash
 cd frontend
-npm run typecheck
+nub run typecheck
 ```
-

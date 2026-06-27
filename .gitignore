@@ -22,6 +22,8 @@ Desktop.ini
 .codex/
 .trae
 .trae/
+.cursor/
+.cursorrules
 .git.backup/
 
 # Environment and secrets
@@ -293,3 +295,10 @@ tmp/
 todo.txt
 diff.txt
 *.zip
+
+# Ignore alternative package manager lock files (using nub with lock.yaml)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lock
+bun.lockb

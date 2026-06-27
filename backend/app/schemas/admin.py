@@ -362,6 +362,8 @@ class OverallReportInventoryItem(BaseModel):
     sales_amount: Decimal = Decimal("0")
     assumption_amount: Decimal = Decimal("0")
     difference_amount: Decimal = Decimal("0")
+    purchase_rate: Decimal | None = None
+    purchase_amount: Decimal = Decimal("0")
     used_stock_breakdown: list[OverallReportUsedStockBreakdown] = Field(default_factory=list)
     billing_items: list[OverallReportBillingItem] = Field(default_factory=list)
 
@@ -379,6 +381,7 @@ class OverallReportStatement(BaseModel):
     difference_amount: Decimal = Decimal("0")
     sales_minus_expense_amount: Decimal = Decimal("0")
     sales_minus_assumption_amount: Decimal = Decimal("0")
+    purchase_amount: Decimal = Decimal("0")
     inventory_items: list[OverallReportInventoryItem] = Field(default_factory=list)
 
 
