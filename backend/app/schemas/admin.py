@@ -361,6 +361,8 @@ class OverallReportInventoryItem(BaseModel):
     difference_quantity: Decimal = Decimal("0")
     sales_amount: Decimal = Decimal("0")
     assumption_amount: Decimal = Decimal("0")
+    purchase_rate: Decimal = Decimal("0")
+    purchase_amount: Decimal = Decimal("0")
     difference_amount: Decimal = Decimal("0")
     purchase_rate: Decimal | None = None
     purchase_amount: Decimal = Decimal("0")
@@ -378,6 +380,7 @@ class OverallReportStatement(BaseModel):
     expense_amount: Decimal = Decimal("0")
     sales_amount: Decimal = Decimal("0")
     assumption_amount: Decimal = Decimal("0")
+    purchase_amount: Decimal = Decimal("0")
     difference_amount: Decimal = Decimal("0")
     sales_minus_expense_amount: Decimal = Decimal("0")
     sales_minus_assumption_amount: Decimal = Decimal("0")
