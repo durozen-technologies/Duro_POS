@@ -87,6 +87,7 @@ const SHEET_COLUMNS: SheetColumn[] = [
   { key: "difference",        label: "Difference",                      tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a\u0bae\u0bcd",                  width: 120, align: "right", kgUnit: true },
   { key: "assumption_amount", label: "Assumption Amount",               tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9 \u0ba4\u0bca\u0b95\u0bc8",                          width: 124, align: "right" },
   { key: "sales_amount",      label: "Sales Amount",                    tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8 \u0ba4\u0bca\u0b95\u0bc8",                          width: 112, align: "right" },
+  { key: "purchase_rate",     label: "Purchase Rate",                   tamilLabel: "\u0b95\u0bca\u0bb3\u0bcd\u0bae\u0bc1\u0ba4\u0bb2\u0bcd \u0ba4\u0bca\u0b95\u0bc8",                      width: 124, align: "right" },
   { key: "difference_amount", label: "Difference Amount",               tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a \u0ba4\u0bca\u0b95\u0bc8",                        width: 124, align: "right" },
 ];
 
@@ -204,6 +205,7 @@ function buildInventoryRows(
         billingRow ? formatReportQuantityWithUnit(billingRow.difference_quantity, billingRow.unit) : "",
         billingRow ? formatReportMoney(billingRow.assumption_amount) : "",
         billingRow ? formatReportMoney(billingRow.sales_amount) : "",
+        isFirst ? formatReportMoney(item.purchase_amount) : "",
         billingRow ? formatReportMoney(billingRow.difference_amount) : "",
       ],
     });
@@ -407,8 +409,55 @@ export function AdminOverallReportPreviewScreen({
   };
 
   const renderStatement = ({ item: statement }: { item: OverallReportStatement }) => {
-    const rows = buildStatementRows(statement, language);
+    const mappedItems = statement.inventory_items.filter((item) => item.billing_items.length > 0);
+    const unmappedItems = statement.inventory_items.filter((item) => item.billing_items.length === 0);
+
+    const mappedRows = mappedItems.flatMap((item) => buildInventoryRows(statement, item, language));
+    const unmappedRows = unmappedItems.flatMap((item) => buildInventoryRows(statement, item, language));
+    
     const isTamil = language === "ta";
+    
+    const renderTable = (rows: SheetRow[], title?: string, isUnmapped: boolean = false) => {
+      const columns = isUnmapped ? SHEET_COLUMNS.slice(0, 8) : SHEET_COLUMNS;
+      return (
+        <View style={{ alignItems: "flex-start" }}>
+          {title && (
+            <View style={{ width: "100%", alignItems: "center", marginBottom: 12, marginTop: 4 }}>
+              <Text style={{ fontSize: 13, fontWeight: "800", color: palette.textPrimary, textAlign: "center" }}>
+                {title}
+              </Text>
+            </View>
+          )}
+          <View style={styles.sheetRow}>
+            {columns.map((column, columnIndex) =>
+              renderCell(
+                column,
+                isTamil ? column.tamilLabel : column.label,
+                "header",
+                -1,
+                isTamil,
+                columnWidths[columnIndex] ?? column.width,
+              ),
+            )}
+          </View>
+          {rows.map((row, index) => (
+            <View key={row.id} style={styles.sheetRow}>
+              {columns.map((column, columnIndex) =>
+                renderCell(
+                  column,
+                  row.cells[columnIndex] ?? "",
+                  row.id,
+                  index,
+                  isTamil && (column.key === "inventory" || column.key === "billing"),
+                  columnWidths[columnIndex] ?? column.width,
+                ),
+              )}
+            </View>
+          ))}
+        </View>
+      );
+    };
+
     return (
       <View
         style={[
@@ -430,7 +479,7 @@ export function AdminOverallReportPreviewScreen({
           </Text>
         </View>
 
-        {rows.length === 0 ? (
+        {mappedRows.length === 0 && unmappedRows.length === 0 ? (
           <View style={[styles.reportEmptyRow, { backgroundColor: palette.surfaceMuted }]}>
             <Text style={[styles.reportEmptyText, { color: palette.textMuted }]}>
               No allocated inventory items
@@ -438,38 +487,38 @@ export function AdminOverallReportPreviewScreen({
           </View>
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator>
-            <View>
-              {/* Header row */}
-              <View style={styles.sheetRow}>
-                {SHEET_COLUMNS.map((column, columnIndex) =>
-                  renderCell(
-                    column,
-                    isTamil ? column.tamilLabel : column.label,
-                    "header",
-                    -1,
-                    isTamil,
-                    columnWidths[columnIndex] ?? column.width,
-                  ),
-                )}
-              </View>
-              {/* Data rows */}
-              {rows.map((row, index) => (
-                <View key={row.id} style={styles.sheetRow}>
-                  {SHEET_COLUMNS.map((column, columnIndex) =>
-                    renderCell(
-                      column,
-                      row.cells[columnIndex] ?? "",
-                      row.id,
-                      index,
-                      // Use Tamil font for inventory/billing name columns when in Tamil mode
-                      isTamil && (column.key === "inventory" || column.key === "billing"),
-                      columnWidths[columnIndex] ?? column.width,
-                    ),
-                  )}
-                </View>
-              ))}
+            <View style={{ alignItems: "flex-start" }}>
+              {mappedRows.length > 0 && renderTable(mappedRows)}
+              
+              {unmappedRows.length > 0 && (
+                <>
+                  {mappedRows.length > 0 && <View style={{ height: 24 }} />}
+                  {renderTable(unmappedRows, "No mapped billing Items", true)}
+                </>
+              )}
             </View>
           </ScrollView>
+        )}
+
+        {(mappedRows.length > 0 || unmappedRows.length > 0) && (
+          <View style={[styles.summaryPanel, { borderColor: palette.border }]}>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Sales</Text>
+              <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>{formatReportMoney(statement.sales_amount)}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Purchase</Text>
+              <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>{formatReportMoney(statement.purchase_amount)}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Expense Amount</Text>
+              <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>{formatReportMoney(statement.expense_amount)}</Text>
+            </View>
+            <View style={[styles.summaryRow, styles.summaryRowTotal, { borderTopColor: palette.border }]}>
+              <Text style={[styles.summaryLabelTotal, { color: palette.textPrimary }]}>Balance Amount</Text>
+              <Text style={[styles.summaryValueTotal, { color: palette.primary }]}>{formatReportMoney(statement.sales_minus_expense_amount)}</Text>
+            </View>
+          </View>
         )}
       </View>
     );
@@ -686,6 +735,39 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  summaryPanel: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    paddingHorizontal: 8,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  summaryRowTotal: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  summaryLabelTotal: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  summaryValueTotal: {
+    fontSize: 16,
+    fontWeight: "700",
   },
   backButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
   titleWrap: { flex: 1, minWidth: 0 },

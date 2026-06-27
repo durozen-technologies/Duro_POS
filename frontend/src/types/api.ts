@@ -754,6 +754,8 @@ export interface OverallReportInventoryItem {
   difference_quantity: string;
   sales_amount: string;
   assumption_amount: string;
+  purchase_rate: string;
+  purchase_amount: string;
   difference_amount: string;
   used_stock_breakdown: OverallReportUsedStockBreakdown[];
   billing_items: OverallReportBillingItem[];
@@ -769,6 +771,7 @@ export interface OverallReportStatement {
   expense_amount: string;
   sales_amount: string;
   assumption_amount: string;
+  purchase_amount: string;
   difference_amount: string;
   sales_minus_expense_amount: string;
   sales_minus_assumption_amount: string;
