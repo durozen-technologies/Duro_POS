@@ -739,38 +739,6 @@ async def _billing_mappings_by_inventory_item_id(
     return item_mappings_by_item_id
 
 
-async def list_inventory_items(
-    db: AsyncSession,
-    *,
-    q: str | None = None,
-    active: bool | None = None,
-) -> list[InventoryItemRead]:
-    query = _inventory_items_row_query(q=q, active=active)
-    rows = (
-        await db.execute(
-            query.order_by(
-                InventoryItem.sort_order,
-                func.lower(InventoryItem.name),
-                InventoryItem.id,
-            )
-        )
-    ).all()
-    if not rows:
-        return []
-
-    item_ids = [row.id for row in rows]
-    categories_by_item_id = await _categories_by_inventory_item_id(db, item_ids)
-    item_mappings_by_item_id = await _billing_mappings_by_inventory_item_id(db, item_ids)
-    return [
-        _inventory_item_row_to_read(
-            row,
-            categories_by_item_id,
-            item_mappings_by_item_id,
-        )
-        for row in rows
-    ]
-
-
 async def list_inventory_item_rows(
     db: AsyncSession,
     *,

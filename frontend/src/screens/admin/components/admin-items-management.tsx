@@ -28,7 +28,7 @@ import {
 import { isPositiveNumber, toMoneyString } from "@/utils/decimal";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
-import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
+import { adminElevation, adminRadii, adminSpacing, type ThemePalette } from "../admin-dashboard-theme";
 import {
   AdminItemWorkspace,
   ItemScope,
@@ -39,7 +39,7 @@ type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 export type RowAction = {
   label: string;
   icon: IconName;
-  tone?: "primary" | "neutral" | "danger";
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   disabled?: boolean;
   loading?: boolean;
   onPress: () => void;
@@ -101,7 +101,7 @@ function buildHistoryCalendarDays(monthValue: string) {
   return days;
 }
 
-function buttonColors(palette: ThemePalette, tone: "primary" | "neutral" | "danger" = "neutral", active = false) {
+function buttonColors(palette: ThemePalette, tone: "primary" | "neutral" | "danger" | "success" | "warning" | "info" = "neutral", active = false) {
   if (tone === "danger") {
     return {
       fg: palette.danger,
@@ -109,11 +109,32 @@ function buttonColors(palette: ThemePalette, tone: "primary" | "neutral" | "dang
       border: palette.danger,
     };
   }
+  if (tone === "success") {
+    return {
+      fg: palette.success,
+      bg: active ? palette.successSoft : palette.card,
+      border: palette.success,
+    };
+  }
+  if (tone === "warning") {
+    return {
+      fg: palette.warning,
+      bg: active ? palette.warningSoft : palette.card,
+      border: palette.warning,
+    };
+  }
+  if (tone === "info") {
+    return {
+      fg: palette.primaryStrong,
+      bg: active ? palette.primarySoft : palette.card,
+      border: palette.primaryStrong,
+    };
+  }
   if (tone === "primary") {
     return {
-      fg: active ? palette.onPrimary : palette.success,
-      bg: active ? palette.success : palette.successSoft,
-      border: palette.success,
+      fg: active ? palette.onPrimary : palette.primaryStrong,
+      bg: active ? palette.primary : palette.primarySoft,
+      border: palette.primary,
     };
   }
   return {
@@ -137,7 +158,7 @@ function ActionButton({
   label: string;
   icon: IconName;
   palette: ThemePalette;
-  tone?: "primary" | "neutral" | "danger";
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   active?: boolean;
   disabled?: boolean;
   loading?: boolean;
@@ -184,7 +205,7 @@ export function StatusPill({
   label: string;
   icon?: IconName;
   palette: ThemePalette;
-  tone?: "primary" | "neutral" | "danger";
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
 }) {
   const colors = buttonColors(palette, tone, false);
   return (
@@ -468,7 +489,8 @@ export function FilterBar({
           label={workspace === AdminItemWorkspace.Catalogue ? "Add" : "Import"}
           icon={workspace === AdminItemWorkspace.Catalogue ? "plus" : "tray-arrow-down"}
           palette={palette}
-          tone="primary"
+          tone="success"
+          active
           onPress={onCreate}
         />
       </XStack>
@@ -569,7 +591,8 @@ export function ImportCatalogueToolbar({
           label="Done"
           icon="check"
           palette={palette}
-          tone="neutral"
+          tone="success"
+          active
           disabled={importing}
           onPress={onDone}
         />
@@ -584,7 +607,7 @@ export function ImportCatalogueToolbar({
               label="Clear"
               icon="close-circle-outline"
               palette={palette}
-              tone="neutral"
+              tone="warning"
               disabled={importing}
               compact
               onPress={onClearSelection}
@@ -594,7 +617,8 @@ export function ImportCatalogueToolbar({
             label="Import selected"
             icon="tray-arrow-down"
             palette={palette}
-            tone="primary"
+            tone="success"
+            active
             disabled={selectedCount === 0}
             loading={importing && selectedCount > 0}
             compact
@@ -649,7 +673,7 @@ export function ShopItemsCategoryToolbar({
           label="Arrange order"
           icon="sort-ascending"
           palette={palette}
-          tone="primary"
+          tone="info"
           disabled={arrangeDisabled}
           onPress={onArrangeOrder}
         />
@@ -902,7 +926,7 @@ export function ItemList({
       removeClippedSubviews
       ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
       style={{ flex: 1, backgroundColor: palette.background }}
-      contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
+      contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding, gap: 12 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.items} />}
       keyboardShouldPersistTaps="handled"
       ListHeaderComponent={<View style={styles.listHeader}>{header}</View>}
@@ -1091,7 +1115,7 @@ function AssumptionRow({
             label="Clear"
             icon="close-circle-outline"
             palette={palette}
-            tone="neutral"
+            tone="warning"
             compact
             disabled={!canClear || saving}
             onPress={() => onClearRow(item)}
@@ -1100,7 +1124,7 @@ function AssumptionRow({
             label={saving ? "Saving..." : "Save"}
             icon="content-save-outline"
             palette={palette}
-            tone={dirty ? "primary" : "neutral"}
+            tone="primary"
             compact
             disabled={!dirty || !valid || saving}
             loading={saving}
@@ -1171,7 +1195,7 @@ export function AssumptionGrid({
       removeClippedSubviews
       ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
       style={{ flex: 1, backgroundColor: palette.background }}
-      contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
+      contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding, gap: 12 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.items} />}
       ListHeaderComponent={
         <YStack gap={12} marginBottom={4}>
@@ -1644,7 +1668,7 @@ export function PriceGrid({
       removeClippedSubviews
       ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
       style={{ flex: 1, backgroundColor: palette.background }}
-      contentContainerStyle={{ padding: 14, paddingBottom: bottomPadding, gap: 10 }}
+      contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding, gap: 12 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.items} />}
       ListHeaderComponent={
         <YStack gap={12} marginBottom={4}>
@@ -1672,7 +1696,7 @@ export function PriceGrid({
                   label={historyOpen ? "Today" : "History"}
                   icon={historyOpen ? "calendar-today" : "history"}
                   palette={palette}
-                  tone={historyOpen ? "primary" : "neutral"}
+                  tone="info"
                   active={historyOpen}
                   onPress={onToggleHistory}
                   compact
@@ -1693,7 +1717,7 @@ export function PriceGrid({
               <XStack gap={8} flexWrap="wrap">
                 <ActionButton
                   label={savingAll ? "Saving..." : "Save edited prices"}
-                  icon="content-save-outline"
+                  icon="content-save-all-outline"
                   palette={palette}
                   tone="primary"
                   loading={savingAll}
@@ -1704,7 +1728,7 @@ export function PriceGrid({
                   label="Save"
                   icon="calendar-check-outline"
                   palette={palette}
-                  tone="neutral"
+                  tone="success"
                   disabled={items.length === 0 || priceState.incompleteCount > 0 || savingAll}
                   onPress={completeToday}
                 />
@@ -1755,12 +1779,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 18,
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   emptyIcon: {
     width: 48,
     height: 48,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1853,7 +1877,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   shopPickerText: {
     flex: 1,
@@ -1874,34 +1898,37 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
+    alignItems: "center",
     padding: 12,
   },
   centeredModalOverlay: {
     justifyContent: "center",
   },
   shopSheet: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
-    gap: 12,
-    ...adminShadow("#000000", 0.22, 18, 18),
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm + 2,
+    gap: adminSpacing.sm,
+    ...adminElevation(3),
   },
   categorySheet: {
     width: "100%",
+    maxWidth: 520,
     maxHeight: "82%",
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
-    gap: 12,
-    ...adminShadow("#000000", 0.22, 18, 18),
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm + 2,
+    gap: adminSpacing.sm,
+    ...adminElevation(3),
   },
   actionSheet: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
-    gap: 12,
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm + 2,
+    gap: adminSpacing.sm,
     maxHeight: "82%",
-    ...adminShadow("#000000", 0.22, 18, 18),
+    ...adminElevation(3),
   },
   actionSheetScroll: {
     flexGrow: 0,
@@ -1917,7 +1944,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   actionSheetOptionText: {
     flex: 1,
@@ -1972,13 +1999,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   shopOption: {
-    minHeight: 46,
+    minHeight: 48,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   shopOptionText: {
     flex: 1,
@@ -1987,15 +2014,15 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   importSelectionBar: {
-    minHeight: 46,
+    minHeight: 48,
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 7,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   importSelectionText: {
     flex: 1,
@@ -2007,7 +2034,7 @@ const styles = StyleSheet.create({
   categoryFilterButton: {
     flex: 1,
     minWidth: 0,
-    minHeight: 46,
+    minHeight: 48,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 11,
@@ -2036,7 +2063,7 @@ const styles = StyleSheet.create({
     minHeight: 42,
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -2068,7 +2095,7 @@ const styles = StyleSheet.create({
     maxWidth: 148,
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -2099,7 +2126,8 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 16,
     lineHeight: 20,
-    fontWeight: "900",
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
   statLabel: {
     fontSize: 10,
@@ -2109,7 +2137,7 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     gap: 12,
   },
@@ -2193,10 +2221,10 @@ const styles = StyleSheet.create({
     minHeight: 68,
     borderWidth: 1,
     borderRadius: 12,
-    padding: 10,
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   loadingThumb: {
     width: 44,
@@ -2237,10 +2265,10 @@ const styles = StyleSheet.create({
   priceRow: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 10,
+    padding: 12,
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 12,
   },
   priceText: {
     flex: 1,
@@ -2254,10 +2282,10 @@ const styles = StyleSheet.create({
   priceHistoryRow: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 10,
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   priceHistoryValue: {
     width: 104,
@@ -2276,8 +2304,8 @@ const styles = StyleSheet.create({
   priceHistoryPanel: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 10,
-    gap: 10,
+    padding: 12,
+    gap: 12,
   },
   historyIconButton: {
     width: 36,
@@ -2338,7 +2366,7 @@ const styles = StyleSheet.create({
   assumptionMain: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 12,
   },
   assumptionText: {
     flex: 1,

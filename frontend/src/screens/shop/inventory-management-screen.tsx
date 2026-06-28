@@ -72,7 +72,7 @@ type MovementHistoryParams = {
   range_end_date: string | null;
 };
 type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
-const HISTORY_BUTTON_GREEN = "#147D52";
+const HISTORY_BUTTON_GREEN = "#4F46E5";
 const SHOP_INVENTORY_PAGE_SIZE = 50;
 
 type InventoryCursor = {
@@ -697,7 +697,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
             borderRadius={14}
             backgroundColor="#F4F7F2"
             icon="warehouse"
-            iconColor="#6C7A70"
+            iconColor="#64748B"
           />
           <View className="min-w-0 flex-1">
             <Text className="text-base font-extrabold text-ink" numberOfLines={2}>{itemName}</Text>
@@ -767,7 +767,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
             width: "100%",
             minHeight: 52,
             borderWidth: 1,
-            borderRadius: 14,
+            borderRadius: 12,
             paddingHorizontal: 22,
             backgroundColor: historyOpen ? "#FFFFFF" : HISTORY_BUTTON_GREEN,
             borderColor: HISTORY_BUTTON_GREEN,
@@ -830,7 +830,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                       minHeight: 40,
                       borderWidth: 1,
                       borderRadius: 10,
-                      paddingHorizontal: 10,
+                      paddingHorizontal: 12,
                       flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "center",
@@ -971,7 +971,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   );
 
   return (
-    <View className="flex-1 bg-cream">
+    <View className="flex-1 bg-background">
       <Screen scroll={false}>
         <FlatList
           data={items}
@@ -981,7 +981,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
             <RefreshControl refreshing={refreshing} onRefresh={refreshInventory} tintColor="#244734" colors={["#244734"]} />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 28, gap: 14 }}
+          contentContainerStyle={{ paddingBottom: 28, gap: 16 }}
           ListHeaderComponent={(
             <>
               {errorMessage ? (
@@ -990,7 +990,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                 </Card>
               ) : null}
               {shopName ? (
-                <View className="rounded-[14px] border border-border bg-card px-4 py-3">
+                <View className="rounded-control border border-border bg-card px-4 py-3">
                   <Text className="text-xs font-extrabold uppercase tracking-[1px] text-muted">
                     {t("inventory.branchName", { branchName: shopName })}
                   </Text>
@@ -1044,7 +1044,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
               }}
             >
               <View
-                className="w-full self-center rounded-[20px] border border-border bg-card p-4 shadow-soft"
+                className="w-full self-center rounded-[20px] border border-border bg-card p-4 "
                 style={{ maxWidth: 460 }}
               >
                 {selectedItem ? (
@@ -1064,7 +1064,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                     </View>
 
                     {mode === InventoryMovementType.USE || mode === "TRANSFER" ? (
-                      <View className="items-center rounded-[16px] border border-accent bg-accentSoft px-4 py-3">
+                      <View className="items-center rounded-card border border-accent bg-accentSoft px-4 py-3">
                         <Text className="text-[11px] font-semibold uppercase tracking-[1px] text-muted">
                           {t("inventory.available")}
                         </Text>
@@ -1074,7 +1074,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                       </View>
                     ) : null}
                     {mode === InventoryMovementType.USE && selectedItem.category_usage.length > 0 ? (
-                      <View className="items-center rounded-[16px] border border-border bg-card px-4 py-3">
+                      <View className="items-center rounded-card border border-border bg-card px-4 py-3">
                         <Text className="text-[11px] font-semibold uppercase tracking-[1px] text-muted">
                           {selectedItem.base_unit === BaseUnit.KG ? "Total to use (kg)" : "Total to use (units)"}
                         </Text>
@@ -1156,7 +1156,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                               ref={(node) => {
                                 movementCategoryFieldRefs.current[category.category_id] = node;
                               }}
-                              className="min-h-[62px] flex-row items-center gap-3 rounded-[14px] border border-border bg-surface px-3 py-2"
+                              className="min-h-[62px] flex-row items-center gap-3 rounded-control border border-border bg-surface px-3 py-2"
                             >
                               <View className="min-w-0 flex-1">
                                 <Text className="text-sm font-semibold text-ink" numberOfLines={1}>
@@ -1166,7 +1166,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                                   {t("inventory.used")} {formatQuantity(category.used_quantity, selectedItem.base_unit)}
                                 </Text>
                               </View>
-                              <View className="h-14 w-40 flex-row items-center rounded-[12px] border border-border bg-card px-3">
+                              <View className="h-14 w-40 flex-row items-center rounded-control border border-border bg-card px-3">
                                 <TextInput
                                   keyboardType="decimal-pad"
                                   placeholder={selectedItem.base_unit === BaseUnit.KG ? t("common.exampleKg") : t("common.exampleUnits")}

@@ -39,18 +39,16 @@ const styles = StyleSheet.create({
   },
   centeredModalOverlay: {
     justifyContent: "center",
+    alignItems: "center",
     padding: 16,
   },
   shopSheet: {
+    width: "100%",
+    maxWidth: 520,
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
     gap: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
   },
   sheetTitle: {
     fontSize: 18,
@@ -63,7 +61,7 @@ const styles = StyleSheet.create({
   iconButton: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "transparent",

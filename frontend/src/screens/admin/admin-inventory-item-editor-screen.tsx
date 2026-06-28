@@ -406,12 +406,13 @@ export function AdminInventoryItemEditorScreen({
               )}
             </View>
             <View style={styles.row}>
-              <ActionButton label="Pick image" icon="image-edit-outline" palette={palette} onPress={() => void pickImage()} />
+              <ActionButton label="Pick image" icon="image-edit-outline" palette={palette} tone="info" onPress={() => void pickImage()} />
               {canRemoveImage ? (
                 <ActionButton
                   label={removeImage ? "Undo" : "Remove"}
                   icon={removeImage ? "undo" : "image-remove-outline"}
                   palette={palette}
+                  tone={removeImage ? "warning" : "danger"}
                   onPress={removeOrUndoImage}
                 />
               ) : null}
@@ -532,7 +533,7 @@ export function AdminInventoryItemEditorScreen({
 
             <View style={styles.row}>
               <ActionButton label="Cancel" icon="close-circle-outline" palette={palette} onPress={() => navigation.goBack()} />
-              <ActionButton label={saving ? "Saving" : "Save"} icon="content-save-outline" palette={palette} active loading={saving} onPress={() => void saveItem()} />
+              <ActionButton label={saving ? "Saving" : "Save"} icon="content-save-outline" palette={palette} tone="primary" active loading={saving} onPress={() => void saveItem()} />
             </View>
           </>
         )}
@@ -694,6 +695,7 @@ function ActionButton({
   label,
   icon,
   palette,
+  tone,
   active = false,
   loading = false,
   onPress,
@@ -701,16 +703,41 @@ function ActionButton({
   label: string;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
   palette: ThemePalette;
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   active?: boolean;
   loading?: boolean;
   onPress: () => void;
 }) {
-  const fg = active ? palette.onPrimary : palette.textPrimary;
-  const bg = active ? palette.inventory : palette.card;
-  const border = active ? palette.inventory : palette.border;
+  let fg = active ? palette.onPrimary : palette.textPrimary;
+  let bg = active ? palette.inventory : palette.card;
+  let border = active ? palette.inventory : palette.border;
+
+  if (tone === "danger") {
+    fg = palette.danger;
+    bg = active ? palette.dangerSoft : palette.card;
+    border = palette.danger;
+  } else if (tone === "success") {
+    fg = active ? palette.onPrimary : palette.success;
+    bg = active ? palette.success : palette.successSoft;
+    border = palette.success;
+  } else if (tone === "warning") {
+    fg = active ? palette.onCash : palette.warning;
+    bg = active ? palette.cash : palette.warningSoft;
+    border = palette.warning;
+  } else if (tone === "info") {
+    fg = active ? palette.onPrimary : palette.primaryStrong;
+    bg = active ? palette.primary : palette.primarySoft;
+    border = palette.primaryStrong;
+  } else if (tone === "primary") {
+    fg = active ? palette.onPrimary : palette.primaryStrong;
+    bg = active ? palette.primary : palette.primarySoft;
+    border = palette.primary;
+  }
+
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: loading }}
       disabled={loading}
       onPress={onPress}
       style={[styles.actionButton, { borderColor: border, backgroundColor: bg, opacity: loading ? 0.65 : 1 }]}
@@ -777,7 +804,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignSelf: "center",
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -786,20 +813,20 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0 },
   fieldInput: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontSize: 15, fontWeight: "800" },
   dropdownWrap: { gap: 8 },
-  dropdownSelect: { minHeight: 58, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10 },
+  dropdownSelect: { minHeight: 58, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 12 },
   dropdownIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   dropdownText: { flex: 1, minWidth: 0, gap: 2 },
   dropdownLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
   dropdownValue: { fontSize: 15, fontWeight: "900", letterSpacing: 0 },
   dropdownMenu: { borderWidth: 1, borderRadius: 12, padding: 6, gap: 4 },
-  dropdownOption: { minHeight: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 9 },
+  dropdownOption: { minHeight: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 9 },
   dropdownOptionTextWrap: { flex: 1, minWidth: 0, gap: 2 },
   dropdownOptionText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "900", letterSpacing: 0 },
   dropdownOptionSubtext: { fontSize: 11, fontWeight: "700", letterSpacing: 0 },
-  dropdownEmpty: { paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, fontWeight: "800", letterSpacing: 0 },
-  mappingList: { gap: 10 },
+  dropdownEmpty: { paddingHorizontal: 12, paddingVertical: 8, fontSize: 12, fontWeight: "800", letterSpacing: 0 },
+  mappingList: { gap: 12 },
   categoryChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   categoryChip: { minHeight: 36, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 6 },
   chipText: { fontSize: 12, fontWeight: "900", letterSpacing: 0 },
-  toggleRow: { minHeight: 46, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  toggleRow: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
 });

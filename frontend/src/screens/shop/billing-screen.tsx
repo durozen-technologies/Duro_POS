@@ -106,36 +106,34 @@ const CatalogueDropdown = memo(function CatalogueDropdown({
         accessibilityLabel={label}
         accessibilityState={{ expanded: open }}
         onPress={onToggle}
-        className="rounded-[18px] border border-border bg-card px-4 py-3 shadow-soft"
+        className="rounded-card border border-border bg-card px-4 py-3"
       >
         <View className="flex-row items-center gap-3">
-          <View className="h-10 w-10 items-center justify-center rounded-[14px] bg-accentSoft">
-            <MaterialCommunityIcons name="filter-variant" size={20} color="#147D52" />
-          </View>
+          <MaterialCommunityIcons name="filter-variant" size={20} color="#64748B" />
 
           <View className="min-w-0 flex-1">
-            <Text className="text-[11px] font-semibold uppercase tracking-[1.2px] text-accentDeep">
+            <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted">
               {label}
             </Text>
-            <Text className="mt-0.5 text-base font-bold text-ink" numberOfLines={1}>
+            <Text className="mt-0.5 text-base font-semibold text-ink" numberOfLines={1}>
               {selectedLabel}
             </Text>
           </View>
 
-          <Text className="text-xs font-semibold text-muted" numberOfLines={1}>
+          <Text className="text-xs font-semibold tabular-nums text-muted" numberOfLines={1}>
             {itemCountLabel}
           </Text>
 
           <MaterialCommunityIcons
             name={open ? "chevron-up" : "chevron-down"}
             size={22}
-            color="#6C7A70"
+            color="#64748B"
           />
         </View>
       </Pressable>
 
       {open ? (
-        <View className="mt-2 overflow-hidden rounded-[18px] border border-border bg-card shadow-soft">
+        <View className="mt-2 overflow-hidden rounded-card border border-border bg-card">
           {options.map((option, index) => {
             const selected = option.key === selectedKey;
             const optionIcon = option.isUncategorized
@@ -157,18 +155,18 @@ const CatalogueDropdown = memo(function CatalogueDropdown({
                 <MaterialCommunityIcons
                   name={optionIcon}
                   size={18}
-                  color={selected ? "#147D52" : "#6C7A70"}
+                  color={selected ? "#4F46E5" : "#64748B"}
                 />
                 <Text
                   className={cn(
                     "min-w-0 flex-1 text-sm font-semibold",
-                    selected ? "text-accentDeep" : "text-ink",
+                    selected ? "text-accent" : "text-ink",
                   )}
                   numberOfLines={1}
                 >
                   {option.label}
                 </Text>
-                <Text className="text-xs font-semibold text-muted">
+                <Text className="text-xs font-semibold tabular-nums text-muted">
                   {option.count}
                 </Text>
               </Pressable>
@@ -201,26 +199,26 @@ const ProductCard = memo(
         <View className="flex-row gap-3">
           {itemImageUri ? (
             <View
-              className="w-[108px] overflow-hidden rounded-[18px] border border-border/70 bg-surface"
+              className="w-[108px] overflow-hidden rounded-control border border-border bg-surface"
               style={{ aspectRatio: 1 }}
             >
               <ItemThumbnail
                 uri={itemImageUri}
                 recyclingKey={item.item_id}
                 size={108}
-                borderRadius={18}
-                backgroundColor="#F4F7F2"
+                borderRadius={8}
+                backgroundColor="#E2E8F0"
                 icon="food-drumstick-outline"
-                iconColor="#6C7A70"
+                iconColor="#64748B"
                 iconSize={28}
               />
             </View>
           ) : (
             <View
-              className="w-[108px] items-center justify-center rounded-[18px] border border-dashed border-border bg-surface"
+              className="w-[108px] items-center justify-center rounded-control border border-dashed border-border bg-surface"
               style={{ aspectRatio: 1 }}
             >
-              <MaterialCommunityIcons name="food-drumstick-outline" size={28} color="#6C7A70" />
+              <MaterialCommunityIcons name="food-drumstick-outline" size={28} color="#64748B" />
             </View>
           )}
 
@@ -230,7 +228,7 @@ const ProductCard = memo(
                 {itemName}
               </Text>
 
-              <Text className="mt-1 text-sm font-semibold text-accentDeep">
+              <Text className="mt-1 text-sm font-semibold tabular-nums text-ink">
                 {priceText}
               </Text>
             </View>
@@ -250,7 +248,6 @@ const ProductCard = memo(
                 label={buttonLabel}
                 onPress={() => onAddToCart(item, quantity)}
                 disabled={!hasPrice}
-                className={hasPrice ? "border-[#147D52] bg-[#147D52]" : undefined}
               />
             </View>
           </View>
@@ -297,14 +294,10 @@ const CartLine = memo(
   }: CartLineProps) => (
     <Card className="mb-3">
       <View className="flex-row items-start gap-3">
-        <View className="h-10 w-10 items-center justify-center rounded-[14px] bg-accentSoft">
-          <MaterialCommunityIcons name="basket-outline" size={18} color="#147D52" />
-        </View>
-
         <View className="min-w-0 flex-1">
           <View className="flex-row items-start justify-between gap-3">
             <View className="min-w-0 flex-1">
-              <Text className="text-base font-bold leading-6 text-ink" numberOfLines={2}>
+              <Text className="text-base font-semibold leading-6 text-ink" numberOfLines={2}>
                 {itemName}
               </Text>
               <Text className="mt-1 text-sm leading-5 text-muted">
@@ -312,7 +305,7 @@ const CartLine = memo(
               </Text>
             </View>
 
-            <Text className="text-right text-base font-bold text-ink">
+            <Text className="text-right text-base font-semibold tabular-nums text-ink">
               {totalText}
             </Text>
           </View>

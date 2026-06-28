@@ -2,22 +2,26 @@ import logging
 import socket
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import get_settings
+from app.core.errors import http_exception_handler
+from app.core.logging import configure_logging, log_event
 from app.core.middleware import (
     RequestIdMiddleware,
+    RequestTimingMiddleware,
+    SecurityHeadersMiddleware,
     SelectiveGZipMiddleware,
-    SlowAdminRouteLoggingMiddleware,
 )
 from app.db.startup import run_database_startup_tasks
 from app.routers import api_router
 
 settings = get_settings()
+configure_logging(production=settings.production)
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +35,13 @@ async def lifespan(app: FastAPI):
         app.state.database_ready = True
     except Exception as exc:
         app.state.database_error = str(exc)
+        log_event(
+            logger,
+            logging.ERROR,
+            "database_startup_failed",
+            "database initialization failed during startup",
+            error=str(exc),
+        )
         logger.exception("Database initialization failed during startup.")
         if settings.production:
             raise
@@ -47,8 +58,19 @@ app = FastAPI(
 )
 
 
+@app.exception_handler(HTTPException)
+async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
+    return await http_exception_handler(request, exc)
+
+
 @app.exception_handler(SQLAlchemyError)
 async def handle_database_error(_: Request, exc: SQLAlchemyError) -> JSONResponse:
+    log_event(
+        logger,
+        logging.ERROR,
+        "database_request_failed",
+        "database request failed",
+    )
     logger.exception("Database request failed.", exc_info=exc)
     return JSONResponse(
         status_code=503,
@@ -60,6 +82,12 @@ async def handle_database_error(_: Request, exc: SQLAlchemyError) -> JSONRespons
 
 @app.exception_handler(socket.gaierror)
 async def handle_database_dns_error(_: Request, exc: socket.gaierror) -> JSONResponse:
+    log_event(
+        logger,
+        logging.ERROR,
+        "database_dns_failed",
+        "database host resolution failed",
+    )
     logger.exception("Database host resolution failed.", exc_info=exc)
     return JSONResponse(
         status_code=503,
@@ -76,8 +104,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware, enable_hsts=settings.production)
 app.add_middleware(RequestIdMiddleware)
-app.add_middleware(SlowAdminRouteLoggingMiddleware)
+app.add_middleware(
+    RequestTimingMiddleware,
+    threshold_seconds=settings.slow_request_threshold_seconds,
+)
 app.add_middleware(SelectiveGZipMiddleware, minimum_size=1024)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 

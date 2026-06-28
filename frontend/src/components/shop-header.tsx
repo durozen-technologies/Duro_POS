@@ -45,14 +45,14 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
           accessibilityState={{ busy: refreshing, disabled: refreshing }}
           disabled={refreshing}
           onPress={onRefresh}
-          className={`min-h-10 w-10 items-center justify-center rounded-[12px] border border-border bg-card shadow-soft ${
+          className={`min-h-10 w-10 items-center justify-center rounded-control border border-border bg-card ${
             refreshing ? "opacity-90" : ""
           }`}
         >
           {refreshing ? (
-            <ActivityIndicator size="small" color="#147D52" />
+            <ActivityIndicator size="small" color="#4F46E5" />
           ) : (
-            <MaterialCommunityIcons name="sync" size={18} color="#147D52" />
+            <MaterialCommunityIcons name="sync" size={18} color="#4F46E5" />
           )}
         </Pressable>
       ) : null}
@@ -69,19 +69,17 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
         accessibilityLabel="Menu"
         accessibilityState={{ expanded: menuOpen }}
         onPress={() => setMenuOpen(true)}
-        className="min-h-10 min-w-[70px] flex-row items-center justify-center gap-1 rounded-[12px] border border-border bg-card px-2.5 shadow-soft"
+        className="min-h-10 min-w-[70px] flex-row items-center justify-center gap-1 rounded-control border border-border bg-card px-2.5"
       >
-        <MaterialCommunityIcons name="menu" size={18} color="#147D52" />
-        <Text className="text-[11px] font-semibold leading-6 tracking-[0.3px] text-ink">
-          Menu
-        </Text>
+        <MaterialCommunityIcons name="menu" size={18} color="#4F46E5" />
+        <Text className="text-[11px] font-semibold leading-6 text-ink">Menu</Text>
       </Pressable>
 
       <Modal transparent visible={menuOpen} animationType="fade" onRequestClose={closeMenu}>
         <TouchableWithoutFeedback onPress={closeMenu}>
           <View className="flex-1 bg-black/20">
             <TouchableWithoutFeedback>
-              <View className="absolute right-5 top-16 w-[280px] overflow-hidden rounded-[18px] border border-border bg-card shadow-soft">
+              <View className="absolute right-5 top-16 w-[280px] overflow-hidden rounded-card border border-border bg-card shadow-float">
                 <MenuItem
                   icon="warehouse"
                   label={t("inventory.title")}
@@ -98,16 +96,7 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
                   onPress={() => handleMenuAction(onPrinter)}
                 />
                 <View className="border-t border-border p-3">
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t("action.logout")}
-                    onPress={() => handleMenuAction(onLogout)}
-                    className="min-h-[50px] w-full items-center justify-center rounded-[16px] border border-[#9F4335] bg-[#9F4335] px-5"
-                  >
-                    <Text className="text-center text-lg font-extrabold text-white">
-                      {t("action.logout")}
-                    </Text>
-                  </Pressable>
+                  <Button label={t("action.logout")} onPress={() => handleMenuAction(onLogout)} variant="danger" />
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -132,11 +121,11 @@ function MenuItem({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      className="min-h-[80px] flex-row items-center gap-5 border-b border-border/70 px-6"
+      className="min-h-12 flex-row items-center gap-4 border-b border-border/70 px-4"
     >
-      <MaterialCommunityIcons name={icon} size={30} color="#147D52" />
-      <Text className="flex-1 text-base font-extrabold text-ink">{label}</Text>
-      <MaterialCommunityIcons name="chevron-right" size={28} color="#6C7A70" />
+      <MaterialCommunityIcons name={icon} size={22} color="#4F46E5" />
+      <Text className="flex-1 text-base font-semibold text-ink">{label}</Text>
+      <MaterialCommunityIcons name="chevron-right" size={22} color="#64748B" />
     </Pressable>
   );
 }
@@ -154,15 +143,15 @@ export const ShopHeaderTitle = memo(function ShopHeaderTitle({ titleKey, shopNam
     <View className="min-w-0">
       {displayShopName ? (
         <>
-          <Text className="max-w-[220px] text-xl font-extrabold leading-7 text-ink" numberOfLines={1}>
+          <Text className="max-w-[220px] text-lg font-bold leading-7 text-ink" numberOfLines={1}>
             {displayShopName}
           </Text>
-          <Text className="text-[11px] font-semibold leading-4 text-muted" numberOfLines={1}>
+          <Text className="text-[11px] font-semibold uppercase leading-4 tracking-wide text-muted" numberOfLines={1}>
             {t(titleKey)}
           </Text>
         </>
       ) : (
-        <Text className="text-lg font-extrabold leading-6 text-ink">{t(titleKey)}</Text>
+        <Text className="text-lg font-bold leading-6 text-ink">{t(titleKey)}</Text>
       )}
     </View>
   );

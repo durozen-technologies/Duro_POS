@@ -71,8 +71,8 @@ const SHOP_CALENDAR_COLORS: CalendarPickerColors = {
   border: "#D8E0D8",
   textPrimary: "#1E2B22",
   textSecondary: "#4B5C50",
-  textMuted: "#6C7A70",
-  accent: "#147D52",
+  textMuted: "#64748B",
+  accent: "#4F46E5",
   accentSoft: "#DDEEE6",
   onAccent: "#FFFFFF",
 };
@@ -120,7 +120,7 @@ function ExpenseRow({
       accessibilityRole="button"
       accessibilityLabel={`Update amount for ${displayName}`}
       onPress={() => onPress(item)}
-      className="mb-3 rounded-[18px] border border-border bg-card p-4 shadow-soft"
+      className="mb-3 rounded-card border border-border bg-card p-4 "
     >
       <View className="flex-row items-center gap-3">
         <ItemThumbnail
@@ -131,7 +131,7 @@ function ExpenseRow({
           backgroundColor="#DDEEE6"
           borderColor="#B9DCCB"
           icon="cash-minus"
-          iconColor="#147D52"
+          iconColor="#4F46E5"
           iconSize={22}
         />
         <View className="min-w-0 flex-1">
@@ -145,7 +145,7 @@ function ExpenseRow({
             {tapToUpdateLabel}
           </Text>
         </View>
-        <MaterialCommunityIcons name="chevron-right" size={22} color="#6C7A70" />
+        <MaterialCommunityIcons name="chevron-right" size={22} color="#64748B" />
       </View>
     </Pressable>
   );
@@ -153,10 +153,10 @@ function ExpenseRow({
 
 function HistoryRow({ entry }: { entry: ExpenseEntryRead }) {
   return (
-    <View className="mb-3 rounded-[16px] border border-border bg-card p-4">
+    <View className="mb-3 rounded-card border border-border bg-card p-4">
       <View className="flex-row items-start gap-3">
         <View className="h-10 w-10 items-center justify-center rounded-[13px] bg-accentSoft">
-          <MaterialCommunityIcons name="receipt-text-clock-outline" size={20} color="#147D52" />
+          <MaterialCommunityIcons name="receipt-text-clock-outline" size={20} color="#4F46E5" />
         </View>
         <View className="min-w-0 flex-1">
           <View className="flex-row items-start gap-3">
@@ -287,12 +287,12 @@ function ShopHistoryFilterControls({
   })();
 
   return (
-    <View className="mb-3 gap-3 rounded-[18px] border border-border bg-card p-3">
+    <View className="mb-3 gap-3 rounded-card border border-border bg-card p-3">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Select history interval"
         onPress={() => setOpen(true)}
-        className="min-h-[58px] flex-row items-center gap-2 rounded-[14px] border border-border bg-cream px-3"
+        className="min-h-[58px] flex-row items-center gap-2 rounded-control border border-border bg-background px-3"
       >
         <View className="min-w-0 flex-1">
           <Text className="text-[11px] font-black uppercase leading-4 text-muted">Interval</Text>
@@ -303,14 +303,14 @@ function ShopHistoryFilterControls({
         <MaterialCommunityIcons
           name={selectedOption.icon as React.ComponentProps<typeof MaterialCommunityIcons>["name"]}
           size={20}
-          color="#147D52"
+          color="#4F46E5"
         />
-        <MaterialCommunityIcons name="chevron-down" size={22} color="#6C7A70" />
+        <MaterialCommunityIcons name="chevron-down" size={22} color="#64748B" />
       </Pressable>
 
       {inputForInterval}
 
-      <View className="min-h-[68px] flex-row items-center gap-3 rounded-[14px] border border-accent bg-accentSoft p-3">
+      <View className="min-h-[68px] flex-row items-center gap-3 rounded-control border border-accent bg-accentSoft p-3">
         <View className="min-w-0 flex-1">
           <Text className="text-xs font-extrabold leading-4 text-muted">
             Total for {range.isValid ? range.label : selectedOption.label}
@@ -325,7 +325,7 @@ function ShopHistoryFilterControls({
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.dropdownBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
-          <View className="max-h-[82%] w-full max-w-[520px] gap-2 rounded-[18px] border border-border bg-card p-4">
+          <View className="max-h-[82%] w-full max-w-[520px] gap-2 rounded-card border border-border bg-card p-4">
             <View className="min-h-10 flex-row items-center justify-between gap-3">
               <Text className="min-w-0 flex-1 text-lg font-extrabold text-ink">Select interval</Text>
               <Pressable accessibilityRole="button" onPress={() => setOpen(false)} className="h-10 w-10 items-center justify-center">
@@ -343,19 +343,19 @@ function ShopHistoryFilterControls({
                     updateFilter({ interval: option.key });
                     setOpen(false);
                   }}
-                  className={`min-h-12 flex-row items-center gap-2 rounded-[12px] border px-3 ${
-                    selected ? "border-accent bg-accentSoft" : "border-border bg-cream"
+                  className={`min-h-12 flex-row items-center gap-2 rounded-control border px-3 ${
+                    selected ? "border-accent bg-accentSoft" : "border-border bg-background"
                   }`}
                 >
                   <MaterialCommunityIcons
                     name={option.icon as React.ComponentProps<typeof MaterialCommunityIcons>["name"]}
                     size={18}
-                    color={selected ? "#147D52" : "#6C7A70"}
+                    color={selected ? "#4F46E5" : "#64748B"}
                   />
                   <Text className="min-w-0 flex-1 text-sm font-extrabold text-ink" numberOfLines={1}>
                     {option.label}
                   </Text>
-                  {selected ? <MaterialCommunityIcons name="check" size={18} color="#147D52" /> : null}
+                  {selected ? <MaterialCommunityIcons name="check" size={18} color="#4F46E5" /> : null}
                 </Pressable>
               );
             })}
@@ -394,10 +394,10 @@ function ShopHistoryInput({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#6C7A70"
+        placeholderTextColor="#64748B"
         autoCapitalize="none"
         keyboardType="numbers-and-punctuation"
-        className="min-h-[46px] rounded-[12px] border border-border bg-cream px-3 text-sm font-bold text-ink"
+        className="min-h-[46px] rounded-control border border-border bg-background px-3 text-sm font-bold text-ink"
       />
     </View>
   );
@@ -634,13 +634,13 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
   const renderListHeader = () => (
     <View className="mb-4 gap-4">
       {errorMessage ? (
-        <View className="flex-row items-center gap-2 rounded-[16px] border border-[#B42318] bg-[#FEE4E2] px-4 py-3">
+        <View className="flex-row items-center gap-2 rounded-card border border-[#B42318] bg-[#FEE4E2] px-4 py-3">
           <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#B42318" />
           <Text className="min-w-0 flex-1 text-sm font-semibold text-[#B42318]">{errorMessage}</Text>
         </View>
       ) : null}
       {apiConnection.status === "offline" ? (
-        <View className="flex-row items-center gap-2 rounded-[16px] border border-[#B42318] bg-[#FEE4E2] px-4 py-3">
+        <View className="flex-row items-center gap-2 rounded-card border border-[#B42318] bg-[#FEE4E2] px-4 py-3">
           <MaterialCommunityIcons name="database-alert-outline" size={18} color="#B42318" />
           <Text className="min-w-0 flex-1 text-sm font-semibold text-[#B42318]">
             Backend offline at {apiConnection.baseUrl || "configured API URL"}. {apiConnection.message}
@@ -666,7 +666,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
 
   const renderListFooter = () => (
     <View className="gap-4 pt-2">
-      {loadingMore ? <ActivityIndicator color="#147D52" style={styles.footerLoader} /> : null}
+      {loadingMore ? <ActivityIndicator color="#4F46E5" style={styles.footerLoader} /> : null}
       <Button
         label={historyOpen ? "Hide history" : "History"}
         onPress={toggleHistory}
@@ -682,7 +682,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
             onChange={setHistoryFilter}
           />
           {historyLoading && historyRows.length === 0 ? (
-            <ActivityIndicator color="#147D52" />
+            <ActivityIndicator color="#4F46E5" />
           ) : historyRows.length === 0 ? (
             <EmptyState title="No expense history" description="Recorded expense entries will show here." />
           ) : (
@@ -708,7 +708,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
   }
 
   return (
-    <SafeAreaView edges={["left", "right"]} className="flex-1 bg-cream">
+    <SafeAreaView edges={["left", "right"]} className="flex-1 bg-background">
       <FlatList
         data={visibleItems}
         keyExtractor={(item) => item.id}
@@ -728,7 +728,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
           />
         }
         ListFooterComponent={renderListFooter}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadItems(true)} tintColor="#147D52" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadItems(true)} tintColor="#4F46E5" />}
         onEndReached={loadMoreItems}
         onEndReachedThreshold={0.45}
         keyboardShouldPersistTaps="handled"

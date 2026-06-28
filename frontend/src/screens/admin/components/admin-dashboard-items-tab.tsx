@@ -34,7 +34,7 @@ import {
   type ManageableItemWorkspace,
   PriceStatus,
 } from "../admin-items-model";
-import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
+import { type ThemePalette } from "../admin-dashboard-theme";
 import { SearchField } from "./admin-dashboard-primitives";
 
 export type ShopItemFormState = {
@@ -238,34 +238,41 @@ const ActionButton = memo(function ActionButton({
   icon?: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
   onPress: () => void;
   palette: ThemePalette;
-  variant?: "primary" | "secondary" | "danger" | "ghost";
+  variant?: "primary" | "secondary" | "danger" | "ghost" | "success" | "warning" | "info";
   disabled?: boolean;
   loading?: boolean;
   flex?: number;
   fullWidth?: boolean;
 }) {
-  const backgroundColor =
-    variant === "primary"
-      ? palette.success
-      : variant === "danger"
-        ? palette.danger
-        : variant === "ghost"
-          ? "rgba(255,255,255,0.12)"
-          : palette.card;
-  const borderColor =
-    variant === "primary"
-      ? palette.success
-      : variant === "danger"
-        ? palette.danger
-        : variant === "ghost"
-          ? "rgba(255,255,255,0.42)"
-          : palette.border;
-  const textColor =
-    variant === "primary"
-      ? palette.onPrimary
-      : variant === "danger" || variant === "ghost"
-        ? "#FFFFFF"
-        : palette.textPrimary;
+  let backgroundColor = palette.card;
+  let borderColor = palette.border;
+  let textColor = palette.textPrimary;
+
+  if (variant === "primary") {
+    backgroundColor = palette.primary;
+    borderColor = palette.primary;
+    textColor = palette.onPrimary;
+  } else if (variant === "success") {
+    backgroundColor = palette.success;
+    borderColor = palette.success;
+    textColor = palette.onPrimary;
+  } else if (variant === "warning") {
+    backgroundColor = palette.warning;
+    borderColor = palette.warning;
+    textColor = palette.onCash;
+  } else if (variant === "info") {
+    backgroundColor = palette.primaryStrong;
+    borderColor = palette.primaryStrong;
+    textColor = palette.onPrimary;
+  } else if (variant === "danger") {
+    backgroundColor = palette.danger;
+    borderColor = palette.danger;
+    textColor = "#FFFFFF";
+  } else if (variant === "ghost") {
+    backgroundColor = "rgba(255,255,255,0.12)";
+    borderColor = "rgba(255,255,255,0.42)";
+    textColor = "#FFFFFF";
+  }
 
   return (
     <TButton
@@ -432,7 +439,7 @@ const ImageActions = memo(function ImageActions({
             icon="image-edit-outline"
             onPress={onPickImage}
             palette={palette}
-            variant="secondary"
+            variant="info"
             fullWidth
           />
           {hasImageDraft ? (
@@ -441,7 +448,7 @@ const ImageActions = memo(function ImageActions({
               icon="image-remove-outline"
               onPress={onClearImage}
               palette={palette}
-              variant="danger"
+              variant="warning"
               fullWidth
             />
           ) : null}
@@ -678,7 +685,7 @@ const AttributeEditor = memo(function AttributeEditor({
           writeObject({ ...parsed, [`attribute_${index}`]: "" });
         }}
         palette={palette}
-        variant="secondary"
+        variant="success"
         fullWidth
       />
       {errorText ? <SmallText color={palette.danger}>{errorText}</SmallText> : <SmallText color={palette.textMuted}>Optional structured item details for filtering, notes, and future customization.</SmallText>}
@@ -753,7 +760,7 @@ const EmptyPanel = memo(function EmptyPanel({
           <SmallText color={palette.textMuted}>{subtitle}</SmallText>
         </YStack>
         {actionLabel && onAction ? (
-          <ActionButton label={actionLabel} icon="plus-circle-outline" onPress={onAction} palette={palette} />
+          <ActionButton label={actionLabel} icon="plus-circle-outline" onPress={onAction} palette={palette} variant="success" />
         ) : null}
       </YStack>
     </Card>
@@ -821,7 +828,6 @@ const ShopItemCard = memo(function ShopItemCard({
       borderWidth={1}
       borderColor={palette.border}
       backgroundColor={palette.card}
-      style={adminShadow(palette.shadow, 0.04, 8, 14)}
     >
       <XStack gap={12} alignItems="flex-start">
         <Stack width={84}>
@@ -870,7 +876,7 @@ const ShopItemCard = memo(function ShopItemCard({
               icon="pencil-outline"
               onPress={onEdit}
               palette={palette}
-              variant="secondary"
+              variant="info"
               flex={1}
             />
             {item.can_delete ? (
@@ -902,7 +908,7 @@ const ShopItemCard = memo(function ShopItemCard({
                 icon={isAllocated ? "link-variant-off" : "link-variant"}
                 onPress={onToggleAllocation}
                 palette={palette}
-                variant={isAllocated ? "secondary" : "primary"}
+                variant={isAllocated ? "warning" : "success"}
                 loading={allocating}
               />
               <SmallText color={palette.textMuted}>
@@ -1125,7 +1131,7 @@ const AdminItemsPriceView = memo(function AdminItemsPriceView({
                     loading={savingSelectedPrice}
                     disabled={saveSelectedPriceDisabled}
                     palette={palette}
-                    variant="secondary"
+                    variant="primary"
                     flex={1}
                   />
                 ) : null}
@@ -1136,6 +1142,7 @@ const AdminItemsPriceView = memo(function AdminItemsPriceView({
                   loading={savingPrice}
                   disabled={savePriceDisabled}
                   palette={palette}
+                  variant="primary"
                   flex={1}
                 />
               </XStack>
@@ -1263,7 +1270,7 @@ const ShopSelectorPanel = memo(function ShopSelectorPanel({
         <TitleText color={palette.textPrimary} size="sm">Shop</TitleText>
         <Chip label={selectedShop?.name ?? "Required"} active tone={selectedShop ? "primary" : "gold"} palette={palette} />
       </XStack>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 16 }}>
         {shops.map((shop) => (
           <Chip
             key={shop.id}
@@ -1352,7 +1359,6 @@ const ItemEditorPanel = memo(function ItemEditorPanel({
       borderWidth={1}
       borderColor={palette.border}
       backgroundColor={palette.card}
-      style={adminShadow(palette.shadow, 0.05, 8, 14)}
     >
       <YStack gap={15}>
         <XStack alignItems="flex-start" gap={12}>
@@ -1475,7 +1481,7 @@ const ItemEditorPanel = memo(function ItemEditorPanel({
                 icon="close-circle-outline"
                 onPress={onCancelEdit}
                 palette={palette}
-                variant="secondary"
+                variant="warning"
                 flex={1}
               />
               <ActionButton
@@ -1485,6 +1491,7 @@ const ItemEditorPanel = memo(function ItemEditorPanel({
                 loading={savingItem}
                 disabled={itemSubmitDisabled}
                 palette={palette}
+                variant="primary"
                 flex={1}
               />
             </XStack>
@@ -1536,6 +1543,7 @@ const ItemsToolbar = memo(function ItemsToolbar({
             )
           }
           palette={palette}
+          variant="success"
         />
       </XStack>
 

@@ -1,12 +1,15 @@
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+import logging
+
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
+from app.core.logging import log_event
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models import DailyPrice, Item, ShopItemAllocation, User, UserRole
 from app.schemas.auth import (
@@ -17,6 +20,9 @@ from app.schemas.auth import (
     UserSession,
     normalize_username,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
@@ -99,14 +105,38 @@ async def login_user(db: AsyncSession, username: str, password: str) -> LoginRes
         .where(func.lower(User.username) == normalized_username)
     )
     if user is None or not verify_password(password, user.password_hash):
+        log_event(
+            logger,
+            logging.WARNING,
+            "login_failed",
+            "login failed",
+            username=normalized_username,
+            reason="invalid_credentials",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
         )
     if not user.is_active:
+        log_event(
+            logger,
+            logging.WARNING,
+            "login_failed",
+            "login failed",
+            username=normalized_username,
+            reason="inactive_user",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
         )
     if user.role == UserRole.SHOP_ACCOUNT and (user.shop is None or not user.shop.is_active):
+        log_event(
+            logger,
+            logging.WARNING,
+            "login_failed",
+            "login failed",
+            username=normalized_username,
+            reason="inactive_shop",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
         )
@@ -114,6 +144,15 @@ async def login_user(db: AsyncSession, username: str, password: str) -> LoginRes
     user.last_login_at = datetime.now(UTC)
     await db.flush()
     await db.commit()
+
+    log_event(
+        logger,
+        logging.INFO,
+        "login_succeeded",
+        "login succeeded",
+        user_id=str(user.id),
+        role=user.role.value,
+    )
 
     token = create_access_token(user.id)
     session = await build_user_session(db, user)

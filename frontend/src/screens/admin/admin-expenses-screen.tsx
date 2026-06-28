@@ -63,7 +63,7 @@ import {
 import { formatCurrency, formatDateTime } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
-import { adminShadow, type ThemePalette } from "./admin-dashboard-theme";
+import { adminElevation, adminRadii, type ThemePalette } from "./admin-dashboard-theme";
 import {
   buildMonthOptions,
   buildWeekOptions,
@@ -422,6 +422,7 @@ function ActionButton({
   label,
   icon,
   palette,
+  tone,
   active = false,
   disabled = false,
   onPress,
@@ -429,14 +430,38 @@ function ActionButton({
   label: string;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
   palette: ThemePalette;
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   active?: boolean;
   disabled?: boolean;
   onPress: () => void;
 }) {
   const isDisabled = disabled;
-  const fg = isDisabled ? palette.textMuted : active ? palette.onPrimary : palette.textPrimary;
-  const bg = isDisabled ? palette.surfaceMuted : active ? palette.inventory : palette.card;
-  const border = isDisabled ? palette.border : active ? palette.inventory : palette.border;
+  let fg = isDisabled ? palette.textMuted : active ? palette.onPrimary : palette.textPrimary;
+  let bg = isDisabled ? palette.surfaceMuted : active ? palette.inventory : palette.card;
+  let border = isDisabled ? palette.border : active ? palette.inventory : palette.border;
+
+  if (tone === "danger") {
+    fg = palette.danger;
+    bg = active ? palette.dangerSoft : palette.card;
+    border = palette.danger;
+  } else if (tone === "success") {
+    fg = active ? palette.onPrimary : palette.success;
+    bg = active ? palette.success : palette.successSoft;
+    border = palette.success;
+  } else if (tone === "warning") {
+    fg = active ? palette.onCash : palette.warning;
+    bg = active ? palette.cash : palette.warningSoft;
+    border = palette.warning;
+  } else if (tone === "info") {
+    fg = active ? palette.onPrimary : palette.primaryStrong;
+    bg = active ? palette.primary : palette.primarySoft;
+    border = palette.primaryStrong;
+  } else if (tone === "primary") {
+    fg = active ? palette.onPrimary : palette.primaryStrong;
+    bg = active ? palette.primary : palette.primarySoft;
+    border = palette.primary;
+  }
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -1138,7 +1163,6 @@ function ExpenseItemRow({
     <View
       style={[
         styles.expenseItemCard,
-        adminShadow(palette.shadow, 0.04, 8, 12),
         { backgroundColor: palette.card, borderColor: palette.border },
       ]}
     >
@@ -1202,7 +1226,6 @@ function AllocationRow({
     <View
       style={[
         styles.expenseItemCard,
-        adminShadow(palette.shadow, 0.04, 8, 12),
         { backgroundColor: palette.card, borderColor: palette.border },
       ]}
     >
@@ -1845,19 +1868,20 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
           label="Arrange order"
           icon="sort"
           palette={palette}
+          tone="info"
           disabled={!selectedShop || allocationRows.length === 0}
           onPress={() => selectedShop && navigation.navigate("AdminShopExpensesOrder", {
             shopId: selectedShop.id,
             shopName: selectedShop.name,
           })}
-          active={!!(selectedShop && allocationRows.length > 0)}
         />
         <ActionButton
           label={selectedCandidateIds.size > 0 ? `Import (${selectedCandidateIds.size})` : "Import"}
-          icon="plus-circle"
+          icon="tray-arrow-down"
           palette={palette}
-          disabled={!selectedShop || selectedCandidateIds.size === 0}
+          tone="success"
           active
+          disabled={!selectedShop || selectedCandidateIds.size === 0}
           onPress={importSelectedCandidates}
         />
       </View>
@@ -1956,7 +1980,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
             Independent from billing items. No price, unit, image, category, or checkout fields.
           </Text>
         </View>
-        <ActionButton label="New item" icon="plus" palette={palette} active onPress={openCreateEditor} />
+        <ActionButton label="New item" icon="plus" palette={palette} tone="success" active onPress={openCreateEditor} />
       </View>
       <View style={[styles.searchBox, { borderColor: palette.border, backgroundColor: palette.card }]}>
         <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
@@ -2095,8 +2119,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
             <View
               style={[
                 styles.modalCard,
-                adminShadow(palette.shadow, 0.16, 18, 24),
-                { backgroundColor: palette.card, borderColor: palette.border },
+                adminElevation(3),
+                { backgroundColor: palette.card },
               ]}
             >
               <View style={styles.modalHeader}>
@@ -2186,11 +2210,12 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
                 </Pressable>
               </ScrollView>
               <View style={styles.modalActions}>
-                <ActionButton label="Cancel" icon="close" palette={palette} onPress={closeEditor} />
+                <ActionButton label="Cancel" icon="close" palette={palette} tone="warning" onPress={closeEditor} />
                 <ActionButton
                   label={editingItem ? "Save changes" : "Save"}
                   icon="content-save-outline"
                   palette={palette}
+                  tone="success"
                   active
                   onPress={saveExpenseItem}
                 />
@@ -2211,10 +2236,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   adminButton: {
-    minHeight: 46,
+    minHeight: 48,
     borderRadius: 12,
     borderWidth: 1,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2240,18 +2265,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   adminEmptyCard: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderStyle: "dashed",
     paddingHorizontal: 18,
     paddingVertical: 28,
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   adminEmptyIcon: {
     width: 52,
     height: 52,
-    borderRadius: 26,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -2278,7 +2303,7 @@ const styles = StyleSheet.create({
   adminLoadingIcon: {
     width: 68,
     height: 68,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -2303,7 +2328,7 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderRadius: 12,
     borderWidth: 1,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     fontSize: 15,
     fontWeight: "800",
   },
@@ -2312,14 +2337,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingHorizontal: 16,
     paddingBottom: 10,
   },
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2340,8 +2365,8 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   tabButton: {
@@ -2361,11 +2386,11 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   listContent: {
-    gap: 10,
-    padding: 14,
+    gap: 12,
+    padding: 16,
   },
   listHeader: {
-    gap: 10,
+    gap: 12,
   },
   sectionTitle: {
     fontSize: 18,
@@ -2380,11 +2405,11 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   searchBox: {
-    minHeight: 46,
-    borderRadius: 13,
+    minHeight: 48,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
     flexDirection: "row",
@@ -2406,7 +2431,7 @@ const styles = StyleSheet.create({
     minWidth: 84,
     borderRadius: 12,
     borderWidth: 1,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 8,
   },
   countValue: {
@@ -2421,15 +2446,15 @@ const styles = StyleSheet.create({
   },
   rowCard: {
     minHeight: 82,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 11,
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 12,
   },
   expenseItemCard: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 12,
     gap: 11,
@@ -2448,7 +2473,7 @@ const styles = StyleSheet.create({
   expenseItemTitleLine: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 12,
   },
   expenseItemFooter: {
     minHeight: 42,
@@ -2456,7 +2481,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 16,
   },
   expenseItemMetaText: {
     flex: 1,
@@ -2475,7 +2500,7 @@ const styles = StyleSheet.create({
   rowIcon: {
     width: 42,
     height: 42,
-    borderRadius: 13,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2545,7 +2570,7 @@ const styles = StyleSheet.create({
   },
   dropdownSelect: {
     minHeight: 58,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
     flexDirection: "row",
@@ -2578,17 +2603,17 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 520,
     maxHeight: "82%",
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 14,
-    gap: 10,
+    padding: 16,
+    gap: 12,
   },
   dropdownSheetHeader: {
     minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   dropdownSheetTitle: {
     flex: 1,
@@ -2642,7 +2667,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: "30%",
     minHeight: 42,
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -2665,18 +2690,18 @@ const styles = StyleSheet.create({
   historyCalendarContent: {
     paddingHorizontal: 0,
     paddingBottom: 0,
-    gap: 10,
+    gap: 12,
   },
   historyCalendarHeader: {
     minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   historyCalendarIconButton: {
     width: 42,
     height: 42,
-    borderRadius: 15,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -2717,7 +2742,7 @@ const styles = StyleSheet.create({
   },
   historyCalendarDayButton: {
     height: 38,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -2728,15 +2753,15 @@ const styles = StyleSheet.create({
   },
   historyRangeFooter: {
     marginTop: 4,
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 10,
-    gap: 10,
+    padding: 12,
+    gap: 12,
   },
   historyRangeDatesRow: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 10,
+    gap: 12,
   },
   historyRangeDateBlock: {
     minWidth: 0,
@@ -2758,7 +2783,7 @@ const styles = StyleSheet.create({
   },
   historyRangeApplyButton: {
     minHeight: 44,
-    borderRadius: 15,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2768,12 +2793,12 @@ const styles = StyleSheet.create({
   },
   historyQuickFilterPanel: {
     minHeight: 58,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   historyQuickFilterText: {
     flex: 1,
@@ -2784,7 +2809,7 @@ const styles = StyleSheet.create({
   },
   totalPanel: {
     minHeight: 68,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 12,
     flexDirection: "row",
@@ -2818,7 +2843,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   candidateTitle: {
     fontSize: 14,
@@ -2832,7 +2857,7 @@ const styles = StyleSheet.create({
   },
   errorBanner: {
     minHeight: 44,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 9,
@@ -2870,7 +2895,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 520,
     maxHeight: "86%",
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 18,
     gap: 16,
@@ -2883,7 +2908,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalScrollContent: {
-    gap: 14,
+    gap: 16,
     paddingBottom: 2,
   },
   modalTitle: {
@@ -2894,14 +2919,14 @@ const styles = StyleSheet.create({
   modalCloseButton: {
     width: 42,
     height: 42,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   imagePanel: {
     minHeight: 104,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 12,
     flexDirection: "row",
@@ -2924,7 +2949,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
     borderRadius: 11,
     borderWidth: 1,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -2936,12 +2961,12 @@ const styles = StyleSheet.create({
   },
   switchRow: {
     minHeight: 62,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 11,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   switchIcon: {
     width: 36,
@@ -2962,6 +2987,6 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
   },
 });

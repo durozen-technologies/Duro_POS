@@ -386,6 +386,10 @@ cd backend
 uv run ruff check app --select F401,F841
 ```
 
+## API pagination
+
+Cursor-paginated list endpoints accept `limit` plus cursor fields from the previous response (`next_cursor_*`). Supply both cursor fields together or omit both — partial cursors return 422.
+
 ## Current Gaps
 
-- rate limiting is still in-memory per process, so multiple workers apply limits independently
+- Application-level rate limiting is not implemented; auth throttling is handled at the Caddy edge

@@ -982,8 +982,8 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           </View>
         </View>
         <View style={styles.rowActions}>
-          <IconButton icon="pencil-outline" label="Edit" palette={palette} onPress={() => openEditEditor(item)} />
-          <IconButton icon="delete-outline" label="Delete" palette={palette} danger onPress={() => confirmDeleteItem(item)} />
+          <IconButton icon="pencil-outline" label="Edit" tone="info" palette={palette} onPress={() => openEditEditor(item)} />
+          <IconButton icon="delete-outline" label="Delete" tone="danger" palette={palette} onPress={() => confirmDeleteItem(item)} />
         </View>
       </View>
     );
@@ -1195,7 +1195,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
             style={[styles.input, { color: palette.textPrimary }]}
           />
         </View>
-        <ActionButton label="Save" icon="content-save-outline" palette={palette} active loading={saving} onPress={() => void saveCategory()} />
+        <ActionButton label="Save" icon="content-save-outline" palette={palette} tone="primary" active loading={saving} onPress={() => void saveCategory()} />
       </View>
       {categories.map((category) => {
         const editing = editingCategoryId === category.id;
@@ -1214,8 +1214,8 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
             <View style={styles.rowActions}>
               {editing ? (
                 <>
-                  <IconButton icon="check" label="Save" palette={palette} onPress={() => void saveCategoryRename(category)} />
-                  <IconButton icon="close" label="Cancel" palette={palette} onPress={() => setEditingCategoryId(null)} />
+                  <IconButton icon="check" label="Save" tone="primary" palette={palette} onPress={() => void saveCategoryRename(category)} />
+                  <IconButton icon="close" label="Cancel" tone="warning" palette={palette} onPress={() => setEditingCategoryId(null)} />
                 </>
               ) : (
                 <>
@@ -1228,7 +1228,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                       setEditingCategoryName(category.name);
                     }}
                   />
-                  <IconButton icon="delete-outline" label="Delete" palette={palette} danger onPress={() => confirmDeleteCategory(category)} />
+                  <IconButton icon="delete-outline" label="Delete" tone="danger" palette={palette} onPress={() => confirmDeleteCategory(category)} />
                 </>
               )}
             </View>
@@ -1391,6 +1391,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
               label="Inactive"
               icon="cancel"
               palette={palette}
+              tone="neutral"
               disabled
               onPress={() => undefined}
             />
@@ -1399,6 +1400,8 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
               label={item.allocation_active ? "Pause" : "Activate"}
               icon={item.allocation_active ? "pause-circle-outline" : "play-circle-outline"}
               palette={palette}
+              tone={item.allocation_active ? "warning" : "success"}
+              active
               loading={busy}
               disabled={allocationDisabled}
               onPress={() => void toggleAllocation(item)}
@@ -1408,6 +1411,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
               label="Allocate"
               icon="link-variant-plus"
               palette={palette}
+              tone="success"
               active
               loading={busy}
               disabled={allocationDisabled}
@@ -1626,7 +1630,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           {activeTab === "items" && (
             <>
               <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
-                <View style={[styles.row, { gap: 10 }]}>
+                <View style={[styles.row, { gap: 12 }]}>
                   <View style={[styles.search, { flex: 1, borderColor: palette.border, backgroundColor: palette.card }]}>
                     <MaterialCommunityIcons name="magnify" size={18} color={palette.textMuted} />
                     <TextInput
@@ -1637,7 +1641,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                       style={[styles.input, { color: palette.textPrimary }]}
                     />
                   </View>
-                  <ActionButton label="Add" icon="plus" palette={palette} active onPress={openCreateEditor} />
+                  <ActionButton label="Add" icon="plus" palette={palette} tone="success" active onPress={openCreateEditor} />
                 </View>
               </View>
               <FlatList
@@ -1773,6 +1777,7 @@ function ActionButton({
   label,
   icon,
   palette,
+  tone,
   active = false,
   danger = false,
   loading = false,
@@ -1782,15 +1787,39 @@ function ActionButton({
   label: string;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
   palette: ThemePalette;
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   active?: boolean;
   danger?: boolean;
   loading?: boolean;
   disabled?: boolean;
   onPress: () => void;
 }) {
-  const fg = disabled ? palette.textMuted : danger ? palette.danger : active ? palette.onPrimary : palette.textPrimary;
-  const bg = disabled ? palette.surfaceMuted : danger ? palette.dangerSoft : active ? palette.inventory : palette.card;
-  const border = disabled ? palette.border : danger ? palette.danger : active ? palette.inventory : palette.border;
+  let fg = disabled ? palette.textMuted : danger ? palette.danger : active ? palette.onPrimary : palette.textPrimary;
+  let bg = disabled ? palette.surfaceMuted : danger ? palette.dangerSoft : active ? palette.inventory : palette.card;
+  let border = disabled ? palette.border : danger ? palette.danger : active ? palette.inventory : palette.border;
+
+  if (tone === "danger") {
+    fg = palette.danger;
+    bg = active ? palette.dangerSoft : palette.card;
+    border = palette.danger;
+  } else if (tone === "success") {
+    fg = active ? palette.onPrimary : palette.success;
+    bg = active ? palette.success : palette.successSoft;
+    border = palette.success;
+  } else if (tone === "warning") {
+    fg = active ? palette.onCash : palette.warning;
+    bg = active ? palette.cash : palette.warningSoft;
+    border = palette.warning;
+  } else if (tone === "info") {
+    fg = active ? palette.onPrimary : palette.primaryStrong;
+    bg = active ? palette.primary : palette.primarySoft;
+    border = palette.primaryStrong;
+  } else if (tone === "primary") {
+    fg = active ? palette.onPrimary : palette.primaryStrong;
+    bg = active ? palette.primary : palette.primarySoft;
+    border = palette.primary;
+  }
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -1809,18 +1838,28 @@ function IconButton({
   icon,
   label,
   palette,
+  tone,
   danger = false,
   onPress,
 }: {
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
   label: string;
   palette: ThemePalette;
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   danger?: boolean;
   onPress: () => void;
 }) {
+  let fg = danger ? palette.danger : palette.textMuted;
+  if (!danger && tone) {
+    if (tone === "danger") fg = palette.danger;
+    else if (tone === "success") fg = palette.success;
+    else if (tone === "warning") fg = palette.warning;
+    else if (tone === "info") fg = palette.primaryStrong;
+    else if (tone === "primary") fg = palette.primary;
+  }
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.iconButton}>
-      <MaterialCommunityIcons name={icon} size={19} color={danger ? palette.danger : palette.textMuted} />
+      <MaterialCommunityIcons name={icon} size={19} color={fg} />
     </Pressable>
   );
 }
@@ -1841,24 +1880,24 @@ const styles = StyleSheet.create({
   titleWrap: { flex: 1, minWidth: 0 },
   title: { fontSize: 20, fontWeight: "900", letterSpacing: 0 },
   subtitle: { fontSize: 12, fontWeight: "700", letterSpacing: 0 },
-  content: { padding: 16, gap: 14 },
+  content: { padding: 16, gap: 16 },
   tabsScroll: { flexGrow: 0 },
   tabs: { flexDirection: "row", borderWidth: 1, borderRadius: 12, padding: 4, gap: 4 },
   tab: { minHeight: 42, borderRadius: 9, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, paddingHorizontal: 12 },
   tabText: { fontSize: 12, fontWeight: "800", letterSpacing: 0 },
-  section: { gap: 10 },
-  itemsHeader: { gap: 10 },
+  section: { gap: 12 },
+  itemsHeader: { gap: 12 },
   listSeparator: { height: 10 },
   listFooter: { minHeight: 56, alignItems: "center", justifyContent: "center" },
   listFooterSpacer: { height: 10 },
-  itemCountText: { paddingVertical: 14, textAlign: "center", fontSize: 12, fontWeight: "800", letterSpacing: 0 },
+  itemCountText: { paddingVertical: 16, textAlign: "center", fontSize: 12, fontWeight: "800", letterSpacing: 0 },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   historyToggleRow: { flexDirection: "row", justifyContent: "center", marginTop: 8 },
   historyButton: {
     width: "100%",
     minHeight: 52,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 22,
     flexDirection: "row",
     alignItems: "center",
@@ -1866,24 +1905,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   historyButtonText: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
-  historyFilterPanel: { borderWidth: 1, borderRadius: 14, padding: 10, gap: 10 },
+  historyFilterPanel: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 12 },
   historyModeRow: { flexDirection: "row", gap: 8 },
-  historyModeButton: { flex: 1, minHeight: 40, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  historyModeButton: { flex: 1, minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   historyModeText: { fontSize: 12, fontWeight: "900", letterSpacing: 0 },
-  historyDateRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  search: { minHeight: 46, flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  historyDateRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  search: { minHeight: 48, flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   input: { flex: 1, minHeight: 42, fontSize: 14, fontWeight: "700" },
-  itemRow: { borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  stockItemCard: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 10 },
-  stockItemHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  itemRow: { borderWidth: 1, borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  stockItemCard: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 12 },
+  stockItemHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   categoryUsageList: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, gap: 7 },
-  categoryUsageRow: { minHeight: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 8 },
+  categoryUsageRow: { minHeight: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 8 },
   categoryUsageName: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: "900", letterSpacing: 0 },
   categoryUsageTotals: { alignItems: "flex-end", gap: 5 },
   categoryUsageTotal: { alignItems: "flex-end", gap: 1 },
   categoryUsageLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
   categoryUsageValue: { fontSize: 15, fontWeight: "900", letterSpacing: 0 },
-  movementRow: { borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  movementRow: { borderWidth: 1, borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "center", gap: 12 },
   itemText: { flex: 1, minWidth: 0, gap: 2 },
   itemName: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
   itemSub: { fontSize: 13, fontWeight: "700", letterSpacing: 0 },
@@ -1896,41 +1935,41 @@ const styles = StyleSheet.create({
   mappingLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
   mappingEmpty: { fontSize: 12, fontWeight: "800", letterSpacing: 0 },
   mappingChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  mappingChip: { maxWidth: "100%", minHeight: 28, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  mappingChip: { maxWidth: "100%", minHeight: 28, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   mappingChipText: { flexShrink: 1, fontSize: 12, fontWeight: "900", letterSpacing: 0, lineHeight: 16 },
-  itemQuantityRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 3 },
+  itemQuantityRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 3 },
   itemQuantityGroup: { gap: 1 },
   quantityLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
   quantityValue: { fontSize: 16, fontWeight: "900", letterSpacing: 0 },
   rowActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   iconButton: { minWidth: 34, minHeight: 34, alignItems: "center", justifyContent: "center" },
-  actionButton: { minHeight: 40, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
+  actionButton: { minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
   actionText: { fontSize: 12, fontWeight: "900", letterSpacing: 0 },
   errorBox: { borderWidth: 1, borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   errorText: { flex: 1, fontSize: 13, fontWeight: "700" },
   loadingText: { paddingVertical: 24, textAlign: "center", fontSize: 14, fontWeight: "800" },
   flex: { flex: 1 },
-  renameInput: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, fontSize: 14, fontWeight: "800" },
+  renameInput: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, fontSize: 14, fontWeight: "800" },
   dropdownWrap: { gap: 8 },
-  branchSelect: { minHeight: 58, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10 },
+  branchSelect: { minHeight: 58, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 12 },
   branchSelectIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   branchSelectText: { flex: 1, minWidth: 0, gap: 2 },
   dropdownLabel: { fontSize: 10, fontWeight: "900", letterSpacing: 0, textTransform: "uppercase" },
   dropdownValue: { fontSize: 15, fontWeight: "900", letterSpacing: 0 },
-  dropdownMenu: { borderWidth: 1, borderRadius: 14, padding: 6, gap: 4 },
-  dropdownOption: { minHeight: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 9 },
+  dropdownMenu: { borderWidth: 1, borderRadius: 12, padding: 6, gap: 4 },
+  dropdownOption: { minHeight: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 9 },
   dropdownOptionText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "900", letterSpacing: 0 },
   sectionTitle: { fontSize: 15, fontWeight: "900", letterSpacing: 0, marginTop: 4 },
-  historyBar: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
-  historyBarIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  historyBar: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, marginBottom: 12 },
+  historyBarIcon: { width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   historyBarContent: { flex: 1, minWidth: 0, gap: 2 },
   historyBarLabel: { fontSize: 9, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase" },
-  historyBarBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
+  historyBarBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
   historyBarBadgeText: { fontSize: 11, fontWeight: "900", letterSpacing: 0 },
   historyDateBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
   historyDateBtnText: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
   // Purchase rate row
-  prRow: { borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  prRow: { borderWidth: 1, borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "center", gap: 12 },
   prInfo: { flex: 1, minWidth: 0, gap: 2 },
   prStatusPill: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginTop: 4 },
   prStatusDot: { width: 6, height: 6, borderRadius: 999 },

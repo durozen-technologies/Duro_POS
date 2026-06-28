@@ -189,8 +189,8 @@ export function AdminShopExpensesOrderScreen({
           style={[
             styles.saveButton,
             {
-              backgroundColor: !dirty || saving || loading ? palette.shellControl : palette.cash,
-              borderColor: !dirty || saving || loading ? palette.shellBorder : palette.cash,
+              backgroundColor: !dirty || saving || loading ? palette.shellControl : palette.primary,
+              borderColor: !dirty || saving || loading ? palette.shellBorder : palette.primary,
               opacity: !dirty || saving || loading ? 0.65 : 1,
             },
           ]}
@@ -198,9 +198,9 @@ export function AdminShopExpensesOrderScreen({
           <MaterialCommunityIcons
             name="content-save-outline"
             size={17}
-            color={!dirty || saving || loading ? palette.onShellMuted : palette.onCash}
+            color={!dirty || saving || loading ? palette.onShellMuted : palette.onPrimary}
           />
-          <Text style={[styles.saveButtonText, { color: !dirty || saving || loading ? palette.onShellMuted : palette.onCash }]}>
+          <Text style={[styles.saveButtonText, { color: !dirty || saving || loading ? palette.onShellMuted : palette.onPrimary }]}>
             {saving ? "Saving" : "Save"}
           </Text>
         </Pressable>
@@ -226,7 +226,7 @@ export function AdminShopExpensesOrderScreen({
           }}
           activationDistance={8}
           containerStyle={{ flex: 1, backgroundColor: palette.background }}
-          contentContainerStyle={{ padding: 14, paddingBottom: 42 + insets.bottom, gap: 8 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 42 + insets.bottom, gap: 8 }}
           ListEmptyComponent={<OrderEmptyState palette={palette} />}
         />
       )}
@@ -243,14 +243,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingHorizontal: 16,
     paddingBottom: 10,
   },
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
   loadingIcon: {
     width: 68,
     height: 68,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -304,18 +304,18 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   emptyState: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderStyle: "dashed",
     paddingHorizontal: 18,
     paddingVertical: 28,
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   emptyIcon: {
     width: 52,
     height: 52,
-    borderRadius: 26,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
     margin: 14,
     marginBottom: 0,
     minHeight: 44,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 9,
@@ -354,17 +354,17 @@ const styles = StyleSheet.create({
   orderRow: {
     minHeight: 76,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 9,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   dragIconWrap: {
     width: 42,
     height: 42,
-    borderRadius: 13,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },

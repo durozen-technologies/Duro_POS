@@ -265,7 +265,7 @@ export function LoginScreen() {
                       >
                         <Image
                           source={logoImage}
-                          style={{ width: 74, height: 74, borderRadius: 16, overflow: "hidden" }}
+                          style={{ width: 74, height: 74, borderRadius: 12, overflow: "hidden" }}
                           contentFit="contain"
                         />
                       </Stack>

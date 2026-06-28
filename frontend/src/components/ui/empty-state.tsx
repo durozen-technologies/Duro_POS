@@ -13,13 +13,11 @@ type EmptyStateProps = {
 
 export function EmptyState({ title, description, actionLabel, onAction }: EmptyStateProps) {
   return (
-    <Card className="items-center gap-4 border-dashed bg-card py-9">
-      <View className="rounded-full bg-accentSoft p-4">
-        <MaterialCommunityIcons name="leaf-circle-outline" size={24} color="#183224" />
-      </View>
+    <Card className="items-center gap-4 border-dashed py-8">
+      <MaterialCommunityIcons name="clipboard-text-outline" size={28} color="#64748B" />
       <View className="items-center gap-2">
-        <Text className="text-lg font-semibold text-ink">{title}</Text>
-        <Text className="max-w-[320px] text-center text-sm leading-6 text-muted">{description}</Text>
+        <Text className="text-base font-semibold text-ink">{title}</Text>
+        <Text className="max-w-[320px] text-center text-sm leading-5 text-muted">{description}</Text>
       </View>
       {actionLabel && onAction ? <Button label={actionLabel} onPress={onAction} variant="secondary" /> : null}
     </Card>

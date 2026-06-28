@@ -26,7 +26,7 @@ import { isApiRequestCanceled, toApiError } from "@/api/client";
 import type { AdminReportsScreenProps } from "@/navigation/types";
 import { AnalyticsPeriod, type ShopRead, type UUID } from "@/types/api";
 
-import { adminShadow, type ThemePalette } from "./admin-dashboard-theme";
+import { adminElevation, type ThemePalette } from "./admin-dashboard-theme";
 import {
   buildDateOptions,
   buildMonthOptions,
@@ -472,7 +472,6 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     <View
       style={[
         styles.calendarPanel,
-        adminShadow(palette.shadow, 0.03, 7, 10),
         { backgroundColor: palette.card, borderColor: palette.border },
       ]}
     >
@@ -746,7 +745,6 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                 onPress={() => handleToggleSection(option.key)}
                 style={[
                   styles.sectionCard,
-                  adminShadow(palette.shadow, selected ? 0.07 : 0.03, 6, 8),
                   {
                     backgroundColor: selected ? palette.primarySoft : palette.card,
                     borderColor: selected ? palette.primary : palette.border,
@@ -905,7 +903,6 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         onPress={handleGenerate}
         style={[
           styles.generateButton,
-          adminShadow(palette.shadow, 0.08, 10, 14),
           {
             backgroundColor: canGenerate ? palette.primary : palette.surfaceMuted,
             opacity: canGenerate ? 1 : 0.72,
@@ -1013,13 +1010,13 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    gap: 10,
+    gap: 12,
   },
   contentHeader: {
-    gap: 14,
+    gap: 16,
   },
   sectionBlock: {
-    gap: 10,
+    gap: 12,
   },
   sectionTitle: {
     fontSize: 15,
@@ -1030,7 +1027,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -1051,7 +1048,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
   },
   periodChipText: {
     fontSize: 13,
@@ -1078,18 +1075,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   calendarPanel: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 12,
-    gap: 10,
+    gap: 12,
   },
   calendarHeader: {
     minHeight: 50,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   calendarIconButton: {
     width: 42,
@@ -1148,12 +1145,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
     borderRadius: 12,
     borderWidth: 1,
-    padding: 10,
+    padding: 12,
   },
   rangeDatesRow: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 10,
+    gap: 12,
   },
   rangeDateBlock: {
     minWidth: 0,
@@ -1196,14 +1193,14 @@ const styles = StyleSheet.create({
   sectionGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 12,
   },
   sectionCard: {
     width: "48%",
     minHeight: 58,
     borderRadius: 12,
     borderWidth: 1,
-    padding: 10,
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -1236,13 +1233,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   branchDropdown: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 8,
     gap: 8,
@@ -1258,10 +1255,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   branchIcon: {
     width: 34,
@@ -1302,7 +1299,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   overallStatementTitleWrap: {
     flex: 1,
@@ -1332,7 +1329,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   reportMetricText: {
     flex: 1,
@@ -1364,7 +1361,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   inventoryReportTitleWrap: {
     flex: 1,
@@ -1395,7 +1392,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   billingReportTitleWrap: {
     flex: 1,
@@ -1444,7 +1441,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
   },
   reportEmptyText: {
     fontSize: 12,
@@ -1465,7 +1462,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingTop: 14,
     paddingHorizontal: 16,
-    gap: 10,
+    gap: 12,
   },
   generateButton: {
     minHeight: 54,
@@ -1473,7 +1470,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 12,
     paddingHorizontal: 18,
   },
   generateButtonText: {

@@ -11,7 +11,7 @@ import {
 
 import type { UUID } from "@/types/api";
 
-import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
+import { type ThemePalette } from "../admin-dashboard-theme";
 import type { MetricCardViewModel } from "../hooks/use-admin-dashboard-view-model";
 import { DashboardErrorBanner, MetricCard } from "./admin-dashboard-primitives";
 
@@ -131,22 +131,14 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
         <YStack
           gap={16}
           padding={16}
-          borderRadius={22}
+          borderRadius={12}
           borderWidth={1}
           borderColor={palette.border}
           backgroundColor={palette.card}
-          style={adminShadow(palette.shadow, 0.05, 8, 16)}
         >
-          <Stack
-            height={4}
-            width={76}
-            borderRadius={99}
-            backgroundColor={palette.primary}
-          />
-
           <YStack gap={12}>
             <YStack minWidth={0} gap={4}>
-              <Text style={{ color: palette.textPrimary, fontSize: 20, lineHeight: 25, fontWeight: "900" }}>
+              <Text style={{ color: palette.textPrimary, fontSize: 16, lineHeight: 20, fontWeight: "700" }}>
                 Performance Snapshot
               </Text>
             </YStack>
@@ -166,12 +158,9 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
                   value={metric.value}
                   formatter={metric.formatter}
                   note={metric.note}
-                  noteIcon={metric.noteIcon}
                   icon={metric.icon}
                   accent={metric.accent}
                   accentSoft={metric.accentSoft}
-                  sparklineLabel={metric.sparklineLabel}
-                  sparklineValues={metric.sparklineValues}
                   fullWidth={useCompactMetricCards}
                   palette={palette}
                 />

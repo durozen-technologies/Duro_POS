@@ -796,7 +796,7 @@ function AdminItemsRoute({
       loadingMore={catalogueState.loadingMore}
       hasMore={catalogueState.hasMore}
       palette={palette}
-      bottomPadding={42 + insets.bottom}
+      bottomPadding={48 + insets.bottom}
       onRefresh={refreshCatalogue}
       onLoadMore={() => {
         void catalogueState.loadMore().catch((error) => {
@@ -857,7 +857,7 @@ function AdminItemsRoute({
         savingItemId={savingAssumptionId}
         error={catalogueState.error}
         palette={palette}
-        bottomPadding={42 + insets.bottom}
+        bottomPadding={48 + insets.bottom}
         onRefresh={refreshCurrentItemsPage}
         onChangeDraft={changeAssumptionDraft}
         onSaveRow={saveAssumptionRow}
@@ -870,7 +870,7 @@ function AdminItemsRoute({
     if (!selectedShop) {
       return (
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: 42 + insets.bottom }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 48 + insets.bottom }]}
           style={{ backgroundColor: palette.background }}
         >
           {commonHeader}
@@ -916,7 +916,7 @@ function AdminItemsRoute({
             loadingMore={availableCatalogueState.loadingMore}
             hasMore={availableCatalogueState.hasMore}
             palette={palette}
-            bottomPadding={42 + insets.bottom}
+            bottomPadding={48 + insets.bottom}
             extraData={`${selectedImportKey}:${importingImportKey}`}
             onRefresh={refreshImportItems}
             onLoadMore={() => {
@@ -975,7 +975,7 @@ function AdminItemsRoute({
         loadingMore={shopItemsState.loadingMore}
         hasMore={shopItemsState.hasMore}
         palette={palette}
-        bottomPadding={42 + insets.bottom}
+        bottomPadding={48 + insets.bottom}
         onRefresh={refreshShopItems}
         onLoadMore={() => {
           void shopItemsState.loadMore().catch((error) => {
@@ -1044,7 +1044,7 @@ function AdminItemsRoute({
     if (!selectedShop) {
       return (
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: 42 + insets.bottom }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 48 + insets.bottom }]}
           style={{ backgroundColor: palette.background }}
         >
           {commonHeader}
@@ -1078,7 +1078,7 @@ function AdminItemsRoute({
           historyLoading={priceHistoryLoading}
           historyError={priceHistoryError}
           palette={palette}
-          bottomPadding={42 + insets.bottom}
+          bottomPadding={48 + insets.bottom}
           onRefresh={priceHistoryOpen ? refreshPriceHistory : refreshPrices}
           onBackToItems={() => navigation.navigate("AdminShopItems", { shopId: selectedShop.id })}
           onToggleHistory={togglePriceHistory}
@@ -1174,18 +1174,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   topBar: {
-    minHeight: 62,
+    minHeight: 64,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
   backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1205,10 +1205,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     gap: 12,
-    padding: 14,
+    padding: 16,
   },
   fixedHeader: {
-    padding: 14,
+    padding: 16,
     paddingBottom: 0,
   },
 });

@@ -32,7 +32,7 @@ import {
 } from "@/types/api";
 import { toMoneyString, toQuantityString } from "@/utils/decimal";
 
-import { adminShadow } from "./admin-dashboard-theme";
+import { adminElevation, type ThemePalette } from "./admin-dashboard-theme";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { useAdminTheme } from "./use-admin-theme";
 
@@ -462,7 +462,6 @@ export function AdminOverallReportPreviewScreen({
       <View
         style={[
           styles.statementPanel,
-          adminShadow(palette.shadow, 0.04, 8, 10),
           { backgroundColor: palette.card, borderColor: palette.border },
         ]}
       >
@@ -628,7 +627,6 @@ export function AdminOverallReportPreviewScreen({
         onPress={() => void handleGenerate(language)}
         style={[
           styles.generateButton,
-          adminShadow(palette.shadow, 0.08, 10, 14),
           {
             backgroundColor: canGenerate ? palette.primary : palette.surfaceMuted,
             opacity: canGenerate ? 1 : 0.72,
@@ -780,7 +778,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -818,7 +816,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   reportEmptyText: { fontSize: 12, fontWeight: "800", textAlign: "center" },
-  footer: { paddingHorizontal: 16, paddingTop: 12, gap: 10 },
+  footer: { paddingHorizontal: 16, paddingTop: 12, gap: 12 },
   languageToggle: {
     flexDirection: "row",
     borderRadius: 10,
@@ -834,7 +832,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
   },
   languageChipText: { fontSize: 13, fontWeight: "700" },
   languageChipTextSub: { fontSize: 11, fontWeight: "600" },
@@ -844,7 +842,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 12,
     paddingHorizontal: 18,
   },
   generateButtonText: { fontSize: 15, fontWeight: "800" },

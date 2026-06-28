@@ -7,11 +7,9 @@ type LoadingStateProps = {
 
 export function LoadingState({ label = "Loading...", fullscreen = false }: LoadingStateProps) {
   return (
-    <View className={fullscreen ? "flex-1 items-center justify-center bg-cream px-6" : "items-center justify-center py-10"}>
-      <View className="rounded-full border border-border bg-card p-5 shadow-pos">
-        <ActivityIndicator size="large" color="#244734" />
-      </View>
-      <Text className="mt-4 text-sm text-muted">{label}</Text>
+    <View className={fullscreen ? "flex-1 items-center justify-center gap-3 px-6" : "items-center justify-center gap-3 py-10"}>
+      <ActivityIndicator color="#4F46E5" size="large" />
+      <Text className="text-sm text-muted">{label}</Text>
     </View>
   );
 }

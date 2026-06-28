@@ -558,7 +558,7 @@ function DiscoverySection({
       {loading && devices.length === 0 ? (
         <Card style={{
           alignItems: "center", justifyContent: "center",
-          borderRadius: 16, borderWidth: 1, borderStyle: "dashed",
+          borderRadius: 12, borderWidth: 1, borderStyle: "dashed",
           borderColor: C.border, backgroundColor: C.surface,
           padding: 28,
         }}>
@@ -570,7 +570,7 @@ function DiscoverySection({
       ) : devices.length === 0 ? (
         <Card style={{
           alignItems: "center", justifyContent: "center",
-          borderRadius: 16, borderWidth: 1, borderStyle: "dashed",
+          borderRadius: 12, borderWidth: 1, borderStyle: "dashed",
           borderColor: C.border, backgroundColor: C.surface,
           padding: 28,
         }}>
@@ -771,17 +771,12 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
         {/* ═══ PRINTER STATUS CARD ═══════════════════════════════════════════ */}
         <YStack paddingHorizontal={20} marginTop={4}>
           <Card
-            borderRadius={18}
+            borderRadius={12}
             borderWidth={1}
             padding={16}
             style={{
               backgroundColor: preferredPrinter ? C.successBg : C.warningBg,
               borderColor: preferredPrinter ? C.successBorder : C.warningBorder,
-              elevation: 2,
-              shadowColor: "#0F172A",
-              shadowOffset: { width: 0, height: 6 },
-              shadowOpacity: 0.08,
-              shadowRadius: 14,
             }}
           >
             <XStack alignItems="flex-start" gap={12}>

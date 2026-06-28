@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import { Controller, Control, useForm, useWatch } from "react-hook-form";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { checkoutBill, previewBill } from "@/api/billing";
 import { toApiError } from "@/api/client";
@@ -56,48 +55,28 @@ const CheckoutPrinterCard = memo(function CheckoutPrinterCard({
   const printerConfigured = Boolean(printerLabel);
 
   return (
-    <View className="rounded-[26px] border border-border bg-surface p-4">
+    <View className="rounded-card border border-border bg-card p-4">
       <View className="mb-3 flex-row flex-wrap items-center justify-between gap-2">
-        <View className="flex-row items-center gap-2">
-          <View
-            className={`h-7 w-7 items-center justify-center rounded-full border ${printerConfigured ? "border-[#BFE8D4] bg-[#EAF7F1]" : "border-border bg-surface"
-              }`}
-          >
-            <MaterialCommunityIcons
-              name={printerConfigured ? "printer-check-outline" : "printer-off-outline"}
-              size={16}
-              color={printerConfigured ? "#147D52" : "#6C7A70"}
-            />
-          </View>
-          <Text className="text-[11px] font-semibold uppercase tracking-[1.4px] text-muted">
-            {t("common.savedPrinter")}
-          </Text>
-        </View>
+        <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+          {t("common.savedPrinter")}
+        </Text>
         <StatusPill
-          label={
-            printerConfigured ? t("common.ready") : t("common.notConfigured")
-          }
+          label={printerConfigured ? t("common.ready") : t("common.notConfigured")}
           tone={printerConfigured ? "success" : "warning"}
         />
       </View>
-      <View className="gap-3 rounded-[22px] bg-card px-4 py-4">
-        <Text className="text-base font-semibold text-ink">
-          {printerLabel ?? t("printer.noPrinterSavedYet")}
-        </Text>
-        <Text className="text-sm leading-6 text-muted">
-          {printerConfigured
-            ? printerDetail
-            : t("printer.savedPrinterHint")}
-        </Text>
-        <Button
-          label={
-            printerConfigured ? t("action.managePrinter") : t("action.setUpPrinter")
-          }
-          onPress={onManagePrinter}
-          variant="secondary"
-          className="self-start min-w-[170px]"
-        />
-      </View>
+      <Text className="text-base font-semibold text-ink">
+        {printerLabel ?? t("printer.noPrinterSavedYet")}
+      </Text>
+      <Text className="mt-2 text-sm leading-5 text-muted">
+        {printerConfigured ? printerDetail : t("printer.savedPrinterHint")}
+      </Text>
+      <Button
+        label={printerConfigured ? t("action.managePrinter") : t("action.setUpPrinter")}
+        onPress={onManagePrinter}
+        variant="secondary"
+        className="mt-4 self-start min-w-[170px]"
+      />
     </View>
   );
 });
@@ -133,9 +112,9 @@ const CheckoutPaymentStatus = memo(function CheckoutPaymentStatus({
 
   return (
     <>
-      <View className="rounded-[26px] border border-border bg-surface p-4">
+      <View className="rounded-card border border-border bg-card p-4">
         <View className="mb-3 flex-row flex-wrap items-center justify-between gap-2">
-          <Text className="text-[11px] font-semibold uppercase tracking-[1.4px] text-muted">{t("checkout.receiptControl")}</Text>
+          <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted">{t("checkout.receiptControl")}</Text>
           {paymentSummary.isExact ? (
             <StatusPill label={t("checkout.paymentMatched")} tone="success" />
           ) : paymentSummary.isOverpaid ? (
@@ -144,16 +123,16 @@ const CheckoutPaymentStatus = memo(function CheckoutPaymentStatus({
             <StatusPill label={t("checkout.pendingBalance")} tone="warning" />
           )}
         </View>
-        <View className="gap-3 rounded-[22px] bg-card px-4 py-4">
+        <View className="gap-3">
           <View className="flex-row flex-wrap items-center justify-between gap-2">
             <Text className="text-sm text-muted">{t("common.paidAmount")}</Text>
-            <Text className="text-base font-semibold text-ink">{paymentSummary.paidAmountText}</Text>
+            <Text className="text-base font-semibold tabular-nums text-ink">{paymentSummary.paidAmountText}</Text>
           </View>
           <View className="flex-row flex-wrap items-center justify-between gap-2">
             <Text className="text-sm text-muted">{t("common.balanceAmount")}</Text>
-            <Text className="text-base font-semibold text-ink">{paymentSummary.balanceAmountText}</Text>
+            <Text className="text-base font-semibold tabular-nums text-ink">{paymentSummary.balanceAmountText}</Text>
           </View>
-          <Text className="text-sm leading-6 text-muted">
+          <Text className="text-sm leading-5 text-muted">
             {paymentSummary.isExact
               ? t("checkout.paymentMatchedDescription")
               : paymentSummary.isOverpaid
@@ -296,7 +275,6 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
     <Screen topInset={false} contentTopPadding={4}>
       <Card className="gap-4">
         <SectionHeading
-          eyebrow={t("checkout.splitPayment")}
           title={t("checkout.enterPaymentAmounts")}
           subtitle={t("checkout.enterPaymentAmountsSubtitle")}
         />

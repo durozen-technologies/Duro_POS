@@ -591,20 +591,6 @@ export async function fetchCatalogueItem(itemId: UUID, options: ApiRequestOption
   return data;
 }
 
-export async function fetchInventoryItems(
-  params?: { q?: string; active?: boolean | null },
-  options: ApiRequestOptions = {},
-) {
-  const { data } = await apiClient.get<InventoryItemRead[]>("/api/v1/admin/inventory/items", {
-    params: {
-      q: params?.q || undefined,
-      active: params?.active ?? undefined,
-    },
-    signal: options.signal,
-  });
-  return data;
-}
-
 export type FetchInventoryItemsParams = {
   q?: string;
   active?: boolean | null;

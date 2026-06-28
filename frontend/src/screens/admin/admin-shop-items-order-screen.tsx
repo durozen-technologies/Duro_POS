@@ -109,6 +109,7 @@ function ActionButton({
   label,
   icon,
   palette,
+  tone = "primary",
   disabled = false,
   loading = false,
   onPress,
@@ -116,10 +117,35 @@ function ActionButton({
   label: string;
   icon: ComponentProps<typeof MaterialCommunityIcons>["name"];
   palette: ThemePalette;
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   disabled?: boolean;
   loading?: boolean;
   onPress: () => void;
 }) {
+  let fg = disabled ? palette.onShellMuted : palette.onPrimary;
+  let bg = disabled ? palette.shellControl : palette.primary;
+  let border = disabled ? palette.shellBorder : palette.primary;
+
+  if (!disabled) {
+    if (tone === "danger") {
+      bg = palette.danger;
+      border = palette.danger;
+    } else if (tone === "success") {
+      bg = palette.success;
+      border = palette.success;
+    } else if (tone === "warning") {
+      bg = palette.warning;
+      border = palette.warning;
+      fg = palette.onCash;
+    } else if (tone === "info") {
+      bg = palette.primaryStrong;
+      border = palette.primaryStrong;
+    } else if (tone === "primary") {
+      bg = palette.primary;
+      border = palette.primary;
+    }
+  }
+
   return (
     <TButton
       accessibilityRole="button"
@@ -129,23 +155,23 @@ function ActionButton({
       borderRadius={10}
       paddingHorizontal={12}
       borderWidth={1}
-      borderColor={disabled ? palette.shellBorder : palette.items}
-      backgroundColor={disabled ? palette.shellControl : palette.items}
+      borderColor={border}
+      backgroundColor={bg}
       opacity={disabled ? 0.55 : 1}
       pressStyle={{ opacity: 0.9, scale: 0.99 }}
     >
       {loading ? (
-        <Spinner color={palette.onPrimary} size="small" />
+        <Spinner color={fg} size="small" />
       ) : (
         <XStack alignItems="center" justifyContent="center" gap={6}>
           <MaterialCommunityIcons
             name={icon}
             size={17}
-            color={disabled ? palette.onShellMuted : palette.onPrimary}
+            color={fg}
           />
           <Text
             numberOfLines={1}
-            style={[styles.actionButtonText, { color: disabled ? palette.onShellMuted : palette.onPrimary }]}
+            style={[styles.actionButtonText, { color: fg }]}
           >
             {label}
           </Text>
@@ -311,6 +337,7 @@ export function AdminShopItemsOrderScreen({
           label="Save order"
           icon="content-save-outline"
           palette={palette}
+          tone="primary"
           disabled={!dirty || saving || loading}
           loading={saving}
           onPress={saveOrder}
@@ -380,7 +407,7 @@ export function AdminShopItemsOrderScreen({
         }}
         activationDistance={8}
         containerStyle={{ flex: 1, backgroundColor: palette.background }}
-        contentContainerStyle={{ padding: 14, paddingBottom: 42 + insets.bottom, gap: 8 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 42 + insets.bottom, gap: 8 }}
         ListEmptyComponent={
           loading ? (
             <YStack gap={8}>
@@ -411,14 +438,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingHorizontal: 16,
     paddingBottom: 10,
   },
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -443,9 +470,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   header: {
-    padding: 14,
+    padding: 16,
     paddingBottom: 0,
-    gap: 10,
+    gap: 12,
   },
   categoryChips: {
     gap: 8,
@@ -456,7 +483,7 @@ const styles = StyleSheet.create({
     maxWidth: 180,
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -481,7 +508,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   orderText: {
     flex: 1,

@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { PrimaryButton } from "@/screens/admin/components/admin-dashboard-primitives";
 import type { ThemePalette } from "@/screens/admin/admin-dashboard-theme";
-import { adminShadow } from "@/screens/admin/admin-dashboard-theme";
+import { adminRadii, adminSpacing, adminTypography } from "@/screens/admin/admin-dashboard-theme";
 import {
   formatCompactCurrency,
   formatRelativeTime,
@@ -32,13 +32,9 @@ export const InventoryItemCard = memo(function InventoryItemCard({
     <View
       style={[
         styles.itemCard,
-        adminShadow(palette.shadow, 0.04, 6, 10),
         { backgroundColor: palette.card, borderColor: palette.border },
       ]}
     >
-      <View style={[styles.itemIconWrap, { backgroundColor: palette.analyticsSoft }]}>
-        <MaterialCommunityIcons name="chart-line" size={18} color={palette.analytics} />
-      </View>
       <View style={styles.itemContent}>
         <View style={styles.itemHeader}>
           <View style={styles.itemTextWrap}>
@@ -47,18 +43,13 @@ export const InventoryItemCard = memo(function InventoryItemCard({
               {getUnitLabel(item.base_unit, item.quantity_sold)} · {item.bill_count} bills
             </Text>
           </View>
-          <View style={[styles.stateChip, { backgroundColor: isHot ? palette.successSoft : palette.billingSoft }]}>
-            <MaterialCommunityIcons
-              name={isHot ? "trending-up" : "trending-neutral"}
-              size={14}
-              color={isHot ? palette.success : palette.billing}
-            />
-            <Text style={[styles.stateChipText, { color: isHot ? palette.success : palette.billingStrong }]}>
+          <View style={[styles.stateChip, { backgroundColor: isHot ? palette.successSoft : palette.surfaceMuted }]}>
+            <Text style={[styles.stateChipText, { color: isHot ? palette.success : palette.textMuted }]}>
               {isHot ? "Hot" : "Steady"}
             </Text>
           </View>
         </View>
-        <Text style={[styles.itemAmount, { color: palette.billing }]}>{formatCurrency(item.total_amount)}</Text>
+        <Text style={[styles.itemAmount, { color: palette.textPrimary }]}>{formatCurrency(item.total_amount)}</Text>
       </View>
     </View>
   );
@@ -94,20 +85,14 @@ export const BranchControlCard = memo(function BranchControlCard({
     <View
       style={[
         styles.branchCard,
-        adminShadow(palette.shadow, 0.04, 8, 14),
         { backgroundColor: palette.card, borderColor: palette.border },
       ]}
     >
       <View style={styles.branchHeader}>
         <View style={styles.branchIdentity}>
-          <View style={[styles.branchIconWrap, { backgroundColor: palette.settingsSoft, borderColor: palette.border }]}>
-            <MaterialCommunityIcons name="storefront-outline" size={20} color={palette.settings} />
-          </View>
           <View style={styles.branchTextWrap}>
             <View style={styles.branchTitleRow}>
-              <View style={[styles.rankBadge, { backgroundColor: palette.settingsSoft }]}>
-                <Text style={[styles.rankBadgeText, { color: palette.settingsStrong }]}>#{rank}</Text>
-              </View>
+              <Text style={[styles.rankBadgeText, { color: palette.textMuted }]}>#{rank}</Text>
               <Text style={[styles.branchName, { color: palette.textPrimary }]}>{row.shop.name}</Text>
             </View>
             <Text style={[styles.branchStatusNote, { color: palette.textSecondary }]}>{row.shop.username}</Text>
@@ -122,7 +107,7 @@ export const BranchControlCard = memo(function BranchControlCard({
       <View style={styles.branchMetricsRow}>
         <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
           <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Revenue</Text>
-          <Text style={[styles.branchMetricValue, { color: palette.billing }]}>
+          <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>
             {formatCompactCurrency(row.totalSales)}
           </Text>
         </View>
@@ -144,13 +129,10 @@ export const BranchControlCard = memo(function BranchControlCard({
             <PrimaryButton
               label="Manage Access"
               onPress={() => onManage(row.shop)}
-              variant="secondary"
+              variant="info"
               icon="pencil-box-outline"
               fullWidth
               palette={palette}
-              backgroundColorOverride={palette.settingsSoft}
-              borderColorOverride={palette.settings}
-              textColorOverride={palette.settingsStrong}
             />
           </View>
           <View style={styles.branchActionButton}>
@@ -158,13 +140,10 @@ export const BranchControlCard = memo(function BranchControlCard({
               label={row.shop.is_active ? "Pause" : "Activate"}
               onPress={() => onToggle(row.shop.id, !row.shop.is_active)}
               loading={statusUpdating}
-              variant="secondary"
+              variant={row.shop.is_active ? "warning" : "success"}
               icon={row.shop.is_active ? "pause-circle-outline" : "check-circle-outline"}
               fullWidth
               palette={palette}
-              backgroundColorOverride={row.shop.is_active ? palette.cashSoft : palette.successSoft}
-              borderColorOverride={row.shop.is_active ? palette.cash : palette.success}
-              textColorOverride={row.shop.is_active ? palette.cash : palette.success}
             />
           </View>
         </View>
@@ -184,13 +163,10 @@ export const AdminLogoutCard = memo(function AdminLogoutCard({ palette, onLogout
       onPress={onLogout}
       style={[
         styles.logoutRow,
-        adminShadow(palette.shadow, 0.04, 6, 10),
         { backgroundColor: palette.dangerSoft, borderColor: palette.danger },
       ]}
     >
-      <View style={[styles.logoutIconWrap, { backgroundColor: palette.card }]}>
-        <MaterialCommunityIcons name="logout" size={18} color={palette.danger} />
-      </View>
+      <MaterialCommunityIcons name="logout" size={20} color={palette.danger} />
       <View style={styles.logoutTextWrap}>
         <Text style={[styles.logoutText, { color: palette.textPrimary }]}>Sign Out Admin</Text>
         <Text style={[styles.logoutHint, { color: palette.textMuted }]}>Clears session and returns to login</Text>
@@ -204,11 +180,11 @@ const styles = StyleSheet.create({
   logoutRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 16,
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
   logoutIconWrap: {
     width: 38,
@@ -231,18 +207,8 @@ const styles = StyleSheet.create({
   },
   itemCard: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 12,
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
-  itemIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm,
   },
   itemContent: {
     flex: 1,
@@ -266,8 +232,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   itemAmount: {
-    fontSize: 15,
-    fontWeight: "700",
+    ...adminTypography.money,
   },
   stateChip: {
     minHeight: 26,
@@ -285,21 +250,21 @@ const styles = StyleSheet.create({
   },
   branchCard: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 12,
+    padding: 16,
     gap: 12,
   },
   branchHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
     alignItems: "flex-start",
   },
   branchIdentity: {
     flex: 1,
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 12,
   },
   branchIconWrap: {
     width: 40,
@@ -356,7 +321,7 @@ const styles = StyleSheet.create({
     gap: 3,
     borderWidth: 1,
     borderRadius: 12,
-    padding: 10,
+    padding: 12,
   },
   branchMetricLabel: {
     fontSize: 10,
@@ -365,13 +330,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   branchMetricValue: {
-    fontSize: 13,
-    fontWeight: "600",
+    ...adminTypography.bodyStrong,
+    fontVariant: ["tabular-nums"],
   },
   branchFooter: {
     borderTopWidth: 1,
     paddingTop: 12,
-    gap: 10,
+    gap: 12,
   },
   branchActionRow: {
     flexDirection: "row",
@@ -382,6 +347,6 @@ const styles = StyleSheet.create({
   branchActionButton: {
     flex: 1,
     minWidth: 110,
-    minHeight: 46,
+    minHeight: 48,
   },
 });

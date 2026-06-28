@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     item_image_max_bytes: int = 5 * 1024 * 1024
     item_image_thumbnail_size: int = 192
     item_image_full_max_size: int = 1024
+    slow_request_threshold_seconds: float = 0.75
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE_PATH),
@@ -147,6 +148,10 @@ class Settings(BaseSettings):
         if not self.rustfs_enabled:
             raise ValueError(
                 "RustFS must be configured in production because item images are RustFS-only"
+            )
+        if self.shop_default_password == "ml123":
+            raise ValueError(
+                "SHOP_DEFAULT_PASSWORD must be changed from the default in production"
             )
 
         return self

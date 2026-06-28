@@ -18,6 +18,8 @@ from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from app.db import storage as item_storage
+from app.db.storage import images as storage_images
+from app.db.storage import objects as storage_objects
 from app.models import (
     BaseUnit,
     Bill,
@@ -74,7 +76,6 @@ from app.services.inventory import (
     get_inventory_summary,
     get_inventory_item,
     list_inventory_item_rows,
-    list_inventory_items,
     list_inventory_movements,
     list_inventory_stock_rows,
     update_inventory_item as update_inventory_management_item,
@@ -120,6 +121,8 @@ class ServiceUnitTests(BackendTestCase):
                     "Kitchen Use\n4 Kg",
                     "0 Kg",
                     "11 Kg",
+                    "Rs. 50.00",
+                    "Rs. 500.00",
                     "Chicken",
                     "3 Kg",
                     "2 Kg",
@@ -178,15 +181,15 @@ class ServiceUnitTests(BackendTestCase):
             ],
         )
 
-        rows = _over_report_sheet_rows(statement)
+        rows = _over_report_sheet_rows(statement.inventory_items, statement)
 
         self.assertTrue(rows)
         for row in rows:
             self.assertEqual(len(row), len(headers))
         subtotal_row = rows[-1]
-        self.assertEqual(subtotal_row[6], "")
-        self.assertEqual(subtotal_row[7], "")
-        self.assertEqual(subtotal_row[8], "Subtotal")
+        self.assertEqual(subtotal_row[8], "")
+        self.assertEqual(subtotal_row[9], "")
+        self.assertEqual(subtotal_row[10], "Subtotal")
 
     def test_over_report_accounts_for_inventory_transfers(self) -> None:
         _actor, shop = self.run_async(
@@ -226,7 +229,6 @@ class ServiceUnitTests(BackendTestCase):
                             inventory_item_id=inventory_item.id,
                             movement_type=InventoryMovementType.ADD,
                             quantity=Decimal("20"),
-                            unit=BaseUnit.KG,
                             created_at=before_period,
                         ),
                         InventoryMovement(
@@ -234,7 +236,6 @@ class ServiceUnitTests(BackendTestCase):
                             inventory_item_id=inventory_item.id,
                             movement_type=InventoryMovementType.USE,
                             quantity=Decimal("3"),
-                            unit=BaseUnit.KG,
                             created_at=before_period,
                         ),
                         InventoryTransfer(
@@ -250,7 +251,6 @@ class ServiceUnitTests(BackendTestCase):
                             inventory_item_id=inventory_item.id,
                             movement_type=InventoryMovementType.ADD,
                             quantity=Decimal("10"),
-                            unit=BaseUnit.KG,
                             created_at=in_period,
                         ),
                         InventoryMovement(
@@ -258,7 +258,6 @@ class ServiceUnitTests(BackendTestCase):
                             inventory_item_id=inventory_item.id,
                             movement_type=InventoryMovementType.USE,
                             quantity=Decimal("2"),
-                            unit=BaseUnit.KG,
                             created_at=in_period,
                         ),
                         InventoryTransfer(
@@ -744,7 +743,7 @@ class ServiceUnitTests(BackendTestCase):
                     self.assertIn("Chicken With", text_content)
                     self.assertIn("Chicken Without", text_content)
                     self.assertIn("3 Unit", text_content)
-                    self.assertIn("No mapped billing sales", text_content)
+                    self.assertIn("No mapped billing Items", text_content)
                     self.assertIn("Rs. 936.00", text_content)
                     self.assertIn("Rs. 250.00", text_content)
                     self.assertIn("Rs. 25.00", text_content)
@@ -947,8 +946,8 @@ class ServiceUnitTests(BackendTestCase):
                         category_ids=[category_a.id, category_b.id],
                     ),
                 )
-                listed_items = await list_inventory_items(db, q="inventory")
-                listed_item = next(row for row in listed_items if row.id == item.id)
+                listed_page = await list_inventory_item_rows(db, q="inventory", limit=100)
+                listed_item = next(row for row in listed_page.items if row.id == item.id)
                 self.assertEqual(listed_item.category_ids, [category_a.id, category_b.id])
                 self.assertEqual(
                     [category.name for category in listed_item.categories],
@@ -975,7 +974,11 @@ class ServiceUnitTests(BackendTestCase):
                         db,
                         current_shop,
                         unallocated_item.id,
-                        InventoryAddRequest(quantity=Decimal("1")),
+                        InventoryAddRequest(
+                            quantity=Decimal("1"),
+                            driver_name="Test Driver",
+                            vehicle_number="TN01AB1234",
+                        ),
                     )
                 self.assertEqual(unallocated_ctx.exception.status_code, 404)
 
@@ -1308,14 +1311,6 @@ class ServiceUnitTests(BackendTestCase):
                     {category_a.id: chicken.id, category_b.id: mutton.id},
                 )
 
-                listed = await list_inventory_items(db, q="Mapped Chicken")
-                listed_item = next(row for row in listed if row.id == item.id)
-                self.assertEqual(set(listed_item.billing_item_ids), {chicken.id, mutton.id})
-                self.assertEqual(
-                    listed_item.category_billing_item_ids,
-                    {category_a.id: chicken.id, category_b.id: mutton.id},
-                )
-
                 rows_page = await list_inventory_item_rows(db, q="Mapped Chicken", limit=10)
                 paged_item = next(row for row in rows_page.items if row.id == item.id)
                 self.assertEqual(set(paged_item.billing_item_ids), {chicken.id, mutton.id})
@@ -1470,7 +1465,11 @@ class ServiceUnitTests(BackendTestCase):
                         db,
                         current_shop,
                         item.id,
-                        InventoryAddRequest(quantity=Decimal("1.5")),
+                        InventoryAddRequest(
+                            quantity=Decimal("1.5"),
+                            driver_name="Test Driver",
+                            vehicle_number="TN01AB1234",
+                        ),
                     )
                 self.assertEqual(quantity_ctx.exception.status_code, 422)
 
@@ -1478,7 +1477,11 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     item.id,
-                    InventoryAddRequest(quantity=Decimal("2")),
+                    InventoryAddRequest(
+                        quantity=Decimal("2"),
+                        driver_name="Test Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
                 )
                 await use_shop_inventory_stock(
                     db,
@@ -1608,7 +1611,11 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     item.id,
-                    InventoryAddRequest(quantity=Decimal("2")),
+                    InventoryAddRequest(
+                        quantity=Decimal("2"),
+                        driver_name="Test Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
                     include_summary=True,
                 )
 
@@ -1740,7 +1747,11 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     current_shop,
                     alpha.id,
-                    InventoryAddRequest(quantity=Decimal("4")),
+                    InventoryAddRequest(
+                        quantity=Decimal("4"),
+                        driver_name="Test Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
                 )
 
                 first_page = await list_inventory_stock_rows(
@@ -1871,7 +1882,11 @@ class ServiceUnitTests(BackendTestCase):
                         db,
                         current_branch_b,
                         item.id,
-                        InventoryAddRequest(quantity=Decimal("1")),
+                        InventoryAddRequest(
+                            quantity=Decimal("1"),
+                            driver_name="Test Driver",
+                            vehicle_number="TN01AB1234",
+                        ),
                     )
                 self.assertEqual(paused_add_ctx.exception.status_code, 422)
 
@@ -1894,7 +1909,11 @@ class ServiceUnitTests(BackendTestCase):
                 self.assertEqual(item.categories, [])
 
                 listed_item = next(
-                    row for row in await list_inventory_items(db, q="No Category") if row.id == item.id
+                    row
+                    for row in (
+                        await list_inventory_item_rows(db, q="No Category", limit=100)
+                    ).items
+                    if row.id == item.id
                 )
                 self.assertEqual(listed_item.category_ids, [])
                 self.assertEqual(listed_item.categories, [])
@@ -1966,9 +1985,9 @@ class ServiceUnitTests(BackendTestCase):
                 session.commit()
 
                 with (
-                    patch.object(item_storage, "_stream_object", fake_stream_object),
-                    patch.object(item_storage, "_download_object", fake_download_object),
-                    patch.object(item_storage, "_upload_bytes", fake_upload_bytes),
+                    patch.object(storage_objects, "_stream_object", fake_stream_object),
+                    patch.object(storage_objects, "_download_object", fake_download_object),
+                    patch.object(storage_objects, "_upload_bytes", fake_upload_bytes),
                 ):
                     payload = await item_storage.get_item_image_response_payload(
                         chicken,
@@ -2008,7 +2027,7 @@ class ServiceUnitTests(BackendTestCase):
                 session.commit()
 
                 with (
-                    patch.object(item_storage, "_stream_object", fake_stream_object),
+                    patch.object(storage_objects, "_stream_object", fake_stream_object),
                     self.assertRaises(HTTPException) as ctx,
                 ):
                     await item_storage.get_item_image_response_payload(
@@ -2061,8 +2080,8 @@ class ServiceUnitTests(BackendTestCase):
 
                     db.commit = fail_commit
                     with (
-                        patch.object(item_storage, "_upload_bytes", fake_upload_bytes),
-                        patch.object(item_storage, "_delete_object_if_present", fake_delete_object),
+                        patch.object(storage_images, "_upload_bytes", fake_upload_bytes),
+                        patch.object(storage_images, "_delete_object_if_present", fake_delete_object),
                         self.assertRaises(RuntimeError),
                     ):
                         await item_storage.save_item_image_content(
@@ -2114,8 +2133,8 @@ class ServiceUnitTests(BackendTestCase):
                     session.commit()
 
                     with (
-                        patch.object(item_storage, "_upload_bytes", fake_upload_bytes),
-                        patch.object(item_storage, "_delete_object_if_present", fake_delete_object),
+                        patch.object(storage_images, "_upload_bytes", fake_upload_bytes),
+                        patch.object(storage_images, "_delete_object_if_present", fake_delete_object),
                     ):
                         result = await item_storage.save_item_image_content(
                             AsyncSessionAdapter(session),
@@ -2203,7 +2222,7 @@ class ServiceUnitTests(BackendTestCase):
                     )
                     session.commit()
 
-                    with patch.object(item_storage, "_upload_bytes", fake_upload_bytes):
+                    with patch.object(storage_objects, "_upload_bytes", fake_upload_bytes):
                         migrated_count = await item_storage.migrate_item_image_data_to_rustfs(
                             AsyncSessionAdapter(session)
                         )

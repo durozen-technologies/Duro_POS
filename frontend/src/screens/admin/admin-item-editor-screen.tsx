@@ -925,14 +925,15 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                 {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
                 {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
                 <XStack gap={8} flexWrap="wrap">
-                  <EditorButton label="Pick image" icon="image-edit-outline" onPress={pickImage} palette={palette} />
+                  <EditorButton label="Pick image" icon="image-edit-outline" onPress={pickImage} palette={palette} tone="info" active />
                   {imageDraft || hasStoredImage || removeImageRequested ? (
                     <EditorButton
                       label={removeImageRequested ? "Undo remove" : imageDraft ? "Clear" : "Remove"}
-                      icon="image-remove-outline"
+                      icon={removeImageRequested ? "undo" : "image-remove-outline"}
                       onPress={removeImage}
                       palette={palette}
-                      danger
+                      tone={removeImageRequested || imageDraft ? "warning" : "danger"}
+                      active
                     />
                   ) : null}
                 </XStack>
@@ -1020,12 +1021,13 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           ) : null}
 
           <XStack gap={10}>
-            <EditorButton label="Cancel" icon="close-circle-outline" onPress={() => navigation.goBack()} palette={palette} flex />
+            <EditorButton label="Cancel" icon="close-circle-outline" onPress={() => navigation.goBack()} palette={palette} flex tone="warning" active />
             <EditorButton
               label={saving ? "Saving..." : "Save item"}
               icon="content-save-outline"
               onPress={saveItem}
               palette={palette}
+              tone="primary"
               active
               loading={saving}
               disabled={saveDisabled}
@@ -1323,7 +1325,7 @@ function AttributeEditor({
           <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Custom attributes</Text>
           <Text style={[styles.sectionHint, { color: palette.textMuted }]}>Typed key/value details for future filtering and shop customization.</Text>
         </YStack>
-        <EditorButton label="Add" icon="plus" onPress={onAppend} palette={palette} />
+        <EditorButton label="Add" icon="plus" onPress={onAppend} palette={palette} tone="success" active />
       </XStack>
 
       {fields.length === 0 ? (
@@ -1425,6 +1427,7 @@ function AttributeEditor({
 function EditorButton({
   label,
   icon,
+  tone = "primary",
   active,
   danger,
   loading,
@@ -1435,6 +1438,7 @@ function EditorButton({
 }: {
   label: string;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   active?: boolean;
   danger?: boolean;
   loading?: boolean;
@@ -1443,9 +1447,35 @@ function EditorButton({
   palette: ThemePalette;
   onPress: () => void;
 }) {
-  const backgroundColor = active ? palette.items : danger ? palette.dangerSoft : palette.card;
-  const borderColor = active ? palette.items : danger ? palette.danger : palette.border;
-  const textColor = active ? palette.onPrimary : danger ? palette.danger : palette.textPrimary;
+  let backgroundColor = active ? palette.primary : palette.card;
+  let borderColor = active ? palette.primary : palette.border;
+  let textColor = active ? palette.onPrimary : palette.textPrimary;
+
+  if (danger) {
+    backgroundColor = palette.dangerSoft;
+    borderColor = palette.danger;
+    textColor = palette.danger;
+  } else if (active) {
+    if (tone === "danger") {
+      backgroundColor = palette.danger;
+      borderColor = palette.danger;
+      textColor = "#FFFFFF";
+    } else if (tone === "success") {
+      backgroundColor = palette.success;
+      borderColor = palette.success;
+    } else if (tone === "warning") {
+      backgroundColor = palette.warning;
+      borderColor = palette.warning;
+      textColor = palette.onCash;
+    } else if (tone === "info") {
+      backgroundColor = palette.primaryStrong;
+      borderColor = palette.primaryStrong;
+    } else if (tone === "primary") {
+      backgroundColor = palette.primary;
+      borderColor = palette.primary;
+    }
+  }
+
   return (
     <TButton
       accessibilityRole="button"
@@ -1488,7 +1518,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1510,15 +1540,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 12,
   },
   content: {
-    gap: 14,
+    gap: 16,
     padding: 16,
   },
   panel: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     flexDirection: "row",
     gap: 12,
@@ -1527,7 +1557,7 @@ const styles = StyleSheet.create({
   imagePreview: {
     width: 88,
     height: 88,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     overflow: "hidden",
     alignItems: "center",
@@ -1535,10 +1565,10 @@ const styles = StyleSheet.create({
   },
   infoBox: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     flexDirection: "row",
-    gap: 9,
+    gap: 8,
   },
   infoText: {
     flex: 1,
@@ -1584,7 +1614,7 @@ const styles = StyleSheet.create({
   },
   errorBox: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -1603,7 +1633,7 @@ const styles = StyleSheet.create({
   },
   categoryPanel: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     gap: 12,
   },
@@ -1622,12 +1652,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   categorySelectTextWrap: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
+    gap: 4,
   },
   categorySelectText: {
     fontSize: 15,
@@ -1638,15 +1668,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 18,
+    padding: 16,
   },
   categorySheet: {
     width: "100%",
     maxWidth: 520,
     maxHeight: "82%",
     borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 12,
+    padding: 16,
     gap: 12,
   },
   sheetTitle: {
@@ -1673,7 +1703,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 8,
   },
   categoryOptionText: {
     flex: 1,
@@ -1692,12 +1722,12 @@ const styles = StyleSheet.create({
   },
   attributesPanel: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     gap: 12,
   },
   emptyAttributes: {
-    minHeight: 46,
+    minHeight: 48,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
@@ -1708,7 +1738,7 @@ const styles = StyleSheet.create({
     padding: 8,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
   },
   attributeKey: {
     flex: 1,

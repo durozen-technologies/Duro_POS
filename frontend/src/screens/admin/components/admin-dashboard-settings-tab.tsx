@@ -4,7 +4,7 @@ import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View }
 
 import type { ShopRead, UUID } from "@/types/api";
 
-import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
+import { type ThemePalette } from "../admin-dashboard-theme";
 import type { ShopDashboardRow } from "../hooks/use-admin-dashboard-data";
 import { AdminLogoutCard, BranchControlCard } from "./admin-dashboard-tab-cards";
 import {
@@ -59,8 +59,7 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         onPress={onCreateBranch}
         style={[
           styles.createShopBtn,
-          adminShadow(palette.shadow, 0.06, 8, 14),
-          { backgroundColor: palette.settings },
+          { backgroundColor: palette.primary },
         ]}
       >
         <MaterialCommunityIcons name="store-plus-outline" size={20} color={palette.background} />
@@ -70,11 +69,10 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         onPress={onOpenReports}
         style={[
           styles.reportBtn,
-          adminShadow(palette.shadow, 0.05, 7, 12),
           { backgroundColor: palette.card, borderColor: palette.border },
         ]}
       >
-        <MaterialCommunityIcons name="file-chart-outline" size={20} color={palette.settings} />
+        <MaterialCommunityIcons name="file-chart-outline" size={20} color={palette.primary} />
         <Text style={[styles.reportBtnText, { color: palette.textPrimary }]}>Generate Reports</Text>
       </Pressable>
     </View>
@@ -106,7 +104,7 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         />
       }
       ListFooterComponent={<AdminLogoutCard palette={palette} onLogout={onLogout} />}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomPadding, gap: 10 }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomPadding, gap: 12 }}
       keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl
@@ -129,14 +127,14 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
 const styles = StyleSheet.create({
   header: {
     gap: 12,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   createShopBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
-    borderRadius: 16,
+    gap: 12,
+    borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 20,
   },
@@ -149,10 +147,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 12,
     borderRadius: 12,
     borderWidth: 1,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 20,
   },
   reportBtnText: {

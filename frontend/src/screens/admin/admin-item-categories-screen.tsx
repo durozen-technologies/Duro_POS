@@ -209,6 +209,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
               label={creating ? "Adding" : "Add"}
               icon="plus"
               palette={palette}
+              tone="success"
               active
               loading={creating}
               disabled={creating}
@@ -298,7 +299,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                     <IconAction
                       icon="check"
                       label="Save category name"
-                      color={palette.items}
+                      color={palette.primary}
                       disabled={rowBusy}
                       loading={savingId === item.id}
                       onPress={() => void saveRename(item)}
@@ -306,7 +307,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                     <IconAction
                       icon="close"
                       label="Cancel rename"
-                      color={palette.textMuted}
+                      color={palette.warning}
                       disabled={rowBusy}
                       onPress={cancelRename}
                     />
@@ -323,7 +324,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                       <IconAction
                         icon="pencil-outline"
                         label={`Rename ${item.name}`}
-                        color={palette.textMuted}
+                        color={palette.primaryStrong}
                         disabled={rowBusy}
                         onPress={() => beginRename(item)}
                       />
@@ -350,6 +351,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
 function CategoryButton({
   label,
   icon,
+  tone = "primary",
   active,
   loading,
   disabled,
@@ -358,15 +360,36 @@ function CategoryButton({
 }: {
   label: string;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+  tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   active?: boolean;
   loading?: boolean;
   disabled?: boolean;
   palette: ThemePalette;
   onPress: () => void;
 }) {
-  const backgroundColor = active ? palette.success : palette.card;
-  const borderColor = active ? palette.success : palette.border;
-  const textColor = active ? palette.onPrimary : palette.textPrimary;
+  let backgroundColor = active ? palette.primary : palette.card;
+  let borderColor = active ? palette.primary : palette.border;
+  let textColor = active ? palette.onPrimary : palette.textPrimary;
+
+  if (active) {
+    if (tone === "danger") {
+      backgroundColor = palette.danger;
+      borderColor = palette.danger;
+    } else if (tone === "success") {
+      backgroundColor = palette.success;
+      borderColor = palette.success;
+    } else if (tone === "warning") {
+      backgroundColor = palette.warning;
+      borderColor = palette.warning;
+      textColor = palette.onCash;
+    } else if (tone === "info") {
+      backgroundColor = palette.primaryStrong;
+      borderColor = palette.primaryStrong;
+    } else if (tone === "primary") {
+      backgroundColor = palette.primary;
+      borderColor = palette.primary;
+    }
+  }
   return (
     <TButton
       accessibilityRole="button"
@@ -439,7 +462,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -461,7 +484,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 12,
   },
   content: {
     gap: 12,
@@ -469,7 +492,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
   },
   sectionTitle: {
@@ -490,7 +513,7 @@ const styles = StyleSheet.create({
   },
   errorBox: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -510,12 +533,12 @@ const styles = StyleSheet.create({
   categoryRow: {
     minHeight: 58,
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 10,
+    borderRadius: 12,
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   categoryMain: {
     flex: 1,
@@ -544,7 +567,7 @@ const styles = StyleSheet.create({
   emptyBox: {
     minHeight: 150,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 18,
     alignItems: "center",
     justifyContent: "center",

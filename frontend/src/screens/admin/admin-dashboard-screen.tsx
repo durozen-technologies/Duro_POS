@@ -30,7 +30,7 @@ import { usePrinterStore } from "@/store/printer-store";
 import { usePriceStore } from "@/store/price-store";
 import { AnalyticsPeriod, type BillRead, type ShopRead, type UUID } from "@/types/api";
 
-import { adminShadow } from "./admin-dashboard-theme";
+import { adminElevation, adminShadow } from "./admin-dashboard-theme";
 import { useAdminTheme } from "./use-admin-theme";
 import {
   AdminBillingTab,
@@ -47,6 +47,7 @@ import {
   EmptyStateCard,
   ToastBanner,
   TopAppBar,
+  usePressAnimation,
 } from "./components/admin-dashboard-primitives";
 import {
   BillPreviewSheet,
@@ -771,10 +772,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         <View
           style={[
             styles.floatingDropdown,
-            adminShadow(palette.shadow, 0.08, 12, 18),
+            adminElevation(2),
             {
               backgroundColor: palette.card,
-              borderColor: palette.border,
               maxHeight: floatingDropdownMaxHeight,
               top: insets.top + 82,
             },
@@ -843,10 +843,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         <View
           style={[
             styles.floatingDropdown,
-            adminShadow(palette.shadow, 0.08, 12, 18),
+            adminElevation(2),
             {
               backgroundColor: palette.card,
-              borderColor: palette.border,
               maxHeight: floatingDropdownMaxHeight,
               top: insets.top + 82,
             },
@@ -1145,32 +1144,24 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
 
       {activeNav === "dashboard" || activeNav === "settings" ? (
         <>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Navigate to purchase rates"
+          <FabButton
+            label="Purchase Rate"
+            icon="cart-arrow-down"
             onPress={handleOpenPurchaseRates}
-            style={[
-              styles.fab,
-              adminShadow(palette.shadow, 0.12, 14, 20),
-              { backgroundColor: palette.primary, bottom: fabOffset + 58 },
-            ]}
-          >
-            <MaterialCommunityIcons name="cart-arrow-down" size={18} color={palette.onPrimary} />
-            <Text style={[styles.fabLabel, { color: palette.onPrimary }]}>Purchase Rate</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Navigate to price setup"
+            palette={palette}
+            bottom={fabOffset + 58}
+            backgroundColor={palette.primary}
+            textColor={palette.onPrimary}
+          />
+          <FabButton
+            label="Update Price"
+            icon="cash-edit"
             onPress={handleOpenPriceNavigation}
-            style={[
-              styles.fab,
-              adminShadow(palette.shadow, 0.12, 14, 20),
-              { backgroundColor: palette.success, bottom: fabOffset },
-            ]}
-          >
-            <MaterialCommunityIcons name="cash-edit" size={18} color={palette.background} />
-            <Text style={[styles.fabLabel, { color: palette.background }]}>Update Price</Text>
-          </Pressable>
+            palette={palette}
+            bottom={fabOffset}
+            backgroundColor={palette.success}
+            textColor={palette.background}
+          />
         </>
       ) : null}
 
@@ -1219,6 +1210,47 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   );
 }
 
+function FabButton({
+  label,
+  icon,
+  onPress,
+  palette,
+  bottom,
+  backgroundColor,
+  textColor,
+}: {
+  label: string;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+  onPress: () => void;
+  palette: any;
+  bottom: number;
+  backgroundColor: string;
+  textColor: string;
+}) {
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Navigate to ${label}`}
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={{ position: "absolute", right: 16, bottom }}
+    >
+      <Animated.View
+        style={[
+          styles.fab,
+          adminShadow(palette.shadow, 0.12, 14, 20),
+          { backgroundColor, opacity, transform: [{ scale }], position: "relative", right: 0, bottom: 0 },
+        ]}
+      >
+        <MaterialCommunityIcons name={icon} size={18} color={textColor} />
+        <Text style={[styles.fabLabel, { color: textColor }]}>{label}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -1231,7 +1263,7 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     zIndex: 100,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
     overflow: "hidden",
     maxHeight: 360,
@@ -1248,7 +1280,7 @@ const styles = StyleSheet.create({
   },
   selectorOption: {
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1263,7 +1295,7 @@ const styles = StyleSheet.create({
   selectorOptionIcon: {
     width: 36,
     height: 36,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1280,7 +1312,7 @@ const styles = StyleSheet.create({
   },
   selectorOptionStatusChip: {
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 5,
   },
   selectorOptionStatusText: {
@@ -1289,12 +1321,12 @@ const styles = StyleSheet.create({
   },
   referenceOption: {
     minHeight: 48,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   referenceOptionText: {
     fontSize: 14,
@@ -1302,8 +1334,8 @@ const styles = StyleSheet.create({
   },
   segmentButton: {
     flex: 1,
-    minHeight: 46,
-    borderRadius: 18,
+    minHeight: 48,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1315,18 +1347,18 @@ const styles = StyleSheet.create({
   calendarContent: {
     paddingHorizontal: 12,
     paddingBottom: 12,
-    gap: 10,
+    gap: 12,
   },
   calendarHeader: {
     minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   calendarIconButton: {
     width: 42,
     height: 42,
-    borderRadius: 15,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1367,7 +1399,7 @@ const styles = StyleSheet.create({
   },
   calendarDayButton: {
     height: 38,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1378,15 +1410,15 @@ const styles = StyleSheet.create({
   },
   rangeFooter: {
     marginTop: 4,
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 10,
-    gap: 10,
+    padding: 12,
+    gap: 12,
   },
   rangeDatesRow: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 10,
+    gap: 12,
   },
   rangeDateBlock: {
     minWidth: 0,
@@ -1408,7 +1440,7 @@ const styles = StyleSheet.create({
   },
   rangeApplyButton: {
     minHeight: 44,
-    borderRadius: 15,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1422,7 +1454,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 11,
-    minHeight: 46,
+    minHeight: 48,
     borderWidth: 0,
     flexDirection: "row",
     alignItems: "center",

@@ -29,7 +29,7 @@ import { WebView } from "react-native-webview";
 import { buildReceiptHtml } from "@/api/receipts";
 import type { BillRead } from "@/types/api";
 
-import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
+import { adminElevation, type ThemePalette } from "../admin-dashboard-theme";
 import { EmptyStateCard, PrimaryButton } from "./admin-dashboard-primitives";
 
 type ShopEditorSheetProps = {
@@ -139,7 +139,7 @@ export function ShopEditorSheet({
               padding={18}
               gap={16}
               style={[
-                adminShadow(palette.shadow, 0.16, 18, 24),
+                adminElevation(3),
                 {
                   backgroundColor: palette.card,
                   borderColor: palette.border,
@@ -441,12 +441,12 @@ export function ShopEditorSheet({
         <View style={styles.centeredKeyboardWrap} pointerEvents="box-none">
           <View
             style={[
-              adminShadow(palette.shadow, 0.16, 18, 24),
+              adminElevation(3),
               {
                 width: "100%",
                 maxWidth: 540,
                 maxHeight: "86%",
-                borderRadius: 24,
+                borderRadius: 12,
                 borderWidth: 1,
                 padding: 18,
                 backgroundColor: palette.card,
@@ -593,12 +593,9 @@ export function ShopEditorSheet({
                   loading={loading}
                   disabled={deleting || statusLoading}
                   icon="content-save-outline"
-                  variant="secondary"
+                  variant="primary"
                   fullWidth
                   palette={palette}
-                  backgroundColorOverride={palette.settingsSoft}
-                  borderColorOverride={palette.settings}
-                  textColorOverride={palette.settingsStrong}
                 />
 
                 <View style={styles.actionsRow}>
@@ -609,13 +606,10 @@ export function ShopEditorSheet({
                         onPress={onToggleActive}
                         loading={statusLoading}
                         disabled={loading || deleting}
-                        variant="secondary"
+                        variant={isActive ? "warning" : "success"}
                         icon={isActive ? "pause-circle-outline" : "check-circle-outline"}
                         fullWidth
                         palette={palette}
-                        backgroundColorOverride={isActive ? palette.cashSoft : palette.successSoft}
-                        borderColorOverride={isActive ? palette.cash : palette.success}
-                        textColorOverride={isActive ? palette.cash : palette.success}
                       />
                     </View>
                   ) : null}
@@ -626,12 +620,9 @@ export function ShopEditorSheet({
                         onPress={onDelete}
                         loading={deleting}
                         disabled={loading || statusLoading}
-                        variant="secondary"
+                        variant="danger"
                         fullWidth
                         palette={palette}
-                        backgroundColorOverride={palette.dangerSoft}
-                        borderColorOverride={palette.danger}
-                        textColorOverride={palette.danger}
                       />
                     </View>
                   ) : null}
@@ -656,9 +647,6 @@ export function ShopEditorSheet({
                       icon="close"
                       fullWidth
                       palette={palette}
-                      backgroundColorOverride={palette.dangerSoft}
-                      borderColorOverride={palette.danger}
-                      textColorOverride={palette.danger}
                     />
                   </View>
                   <View style={styles.sheetActionButton}>
@@ -667,12 +655,9 @@ export function ShopEditorSheet({
                       onPress={onSubmit}
                       loading={loading}
                       icon="store-plus-outline"
-                      variant="secondary"
+                      variant="primary"
                       fullWidth
                       palette={palette}
-                      backgroundColorOverride={palette.settingsSoft}
-                      borderColorOverride={palette.settings}
-                      textColorOverride={palette.settingsStrong}
                     />
                   </View>
                 </View>
@@ -746,7 +731,7 @@ export function BillPreviewSheet({
             {...panResponder.panHandlers}
             style={[
               styles.bottomSheet,
-              adminShadow(palette.shadow, 0.16, 18, 24),
+              adminElevation(3),
               {
                 backgroundColor: palette.card,
                 borderColor: palette.border,
@@ -887,14 +872,14 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   headerTextWrap: {
     flex: 1,
   },
   headerSaveButton: {
     minHeight: 40,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
     flexDirection: "row",
@@ -910,7 +895,7 @@ const styles = StyleSheet.create({
   iconButton: {
     width: 40,
     height: 40,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -927,14 +912,14 @@ const styles = StyleSheet.create({
   loadingWrap: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 12,
     paddingVertical: 32,
   },
   loadingText: {
     fontSize: 13,
   },
   sheetContent: {
-    gap: 14,
+    gap: 16,
     paddingBottom: 14,
   },
   sheetScroll: {
@@ -951,13 +936,13 @@ const styles = StyleSheet.create({
   },
   sheetField: {
     minHeight: 54,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   sheetFieldValue: {
     flex: 1,
@@ -965,7 +950,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   optionMenu: {
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
     overflow: "hidden",
   },
@@ -983,7 +968,7 @@ const styles = StyleSheet.create({
   },
   previewCard: {
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 12,
     padding: 16,
     gap: 6,
   },
@@ -1025,7 +1010,7 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 12,
     padding: 15,
     gap: 8,
   },
@@ -1052,7 +1037,7 @@ const styles = StyleSheet.create({
   receiptPreviewFrame: {
     overflow: "hidden",
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 12,
   },
   createActionsWrap: {
     marginTop: 8,

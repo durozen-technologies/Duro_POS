@@ -1,32 +1,18 @@
 import { Text, View } from "react-native";
 
-import { useShopTranslation } from "@/hooks/use-shop-translation";
 import { cn } from "@/utils/cn";
 
 type SectionHeadingProps = {
   title: string;
   subtitle?: string;
-  eyebrow?: string;
 };
 
-export function SectionHeading({ title, subtitle, eyebrow }: SectionHeadingProps) {
-  const { isTamil } = useShopTranslation();
-
+export function SectionHeading({ title, subtitle }: SectionHeadingProps) {
   return (
-    <View className="gap-2">
-      {eyebrow ? (
-        <Text
-          className={cn(
-            "font-semibold text-accentDeep",
-            isTamil ? "text-xs leading-5 tracking-[0px]" : "text-[11px] uppercase tracking-[2.4px]",
-          )}
-        >
-          {eyebrow}
-        </Text>
-      ) : null}
-      <Text className={cn("font-bold text-ink", isTamil ? "text-[23px] leading-9" : "text-[24px] leading-8")}>{title}</Text>
+    <View className="gap-1">
+      <Text className="text-lg font-bold text-ink">{title}</Text>
       {subtitle ? (
-        <Text className={cn("max-w-[640px] text-[14px] text-muted", isTamil ? "leading-7" : "leading-6")}>{subtitle}</Text>
+        <Text className="max-w-[640px] text-sm leading-5 text-muted">{subtitle}</Text>
       ) : null}
     </View>
   );

@@ -201,7 +201,7 @@ export function AdminTransferShopsTab() {
 
       {/* SEARCH AND ADD */}
       <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', gap: 12 }}>
-        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, borderRadius: 14, paddingHorizontal: 12, height: 46 }}>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, borderRadius: 12, paddingHorizontal: 12, height: 46 }}>
           <MaterialCommunityIcons name="magnify" size={20} color={palette.textSecondary} />
           <TextInput
             style={{ flex: 1, marginLeft: 8, fontSize: 15, color: palette.textPrimary }}
@@ -212,7 +212,7 @@ export function AdminTransferShopsTab() {
           />
         </View>
         <Pressable
-          style={{ height: 46, paddingHorizontal: 16, backgroundColor: palette.inventory, borderRadius: 14, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 6 }}
+          style={{ height: 46, paddingHorizontal: 16, backgroundColor: palette.inventory, borderRadius: 12, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 6 }}
           onPress={() => setCreateModalOpen(true)}
         >
           <MaterialCommunityIcons name="plus" size={18} color={palette.onPrimary} />
@@ -460,15 +460,16 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 24,
   },
   modalContent: {
-    borderRadius: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 20,
+    width: "100%",
+    maxWidth: 520,
+    maxHeight: "86%",
+    borderRadius: 12,
+    ...adminElevation(3),
   },
   modalHeader: {
     flexDirection: "row",

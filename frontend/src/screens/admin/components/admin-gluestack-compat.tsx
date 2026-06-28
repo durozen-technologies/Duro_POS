@@ -15,7 +15,14 @@ import {
 } from "@/components/gluestack";
 import { cn } from "@/utils/cn";
 
-import { adminShadow, getAdminPalette } from "../admin-dashboard-theme";
+import {
+  adminPressOpacity,
+  adminPressScale,
+  adminRadii,
+  adminSpacing,
+  adminTypography,
+  getAdminPalette,
+} from "../admin-dashboard-theme";
 
 type ButtonProps = {
   label: string;
@@ -42,7 +49,7 @@ export const Button = memo(function Button({
   const isSecondary = variant === "secondary";
   const isDisabled = disabled || loading;
   const backgroundColor = isSecondary
-    ? palette.surfaceMuted
+    ? palette.card
     : variant === "danger"
       ? palette.danger
       : palette.primary;
@@ -62,10 +69,9 @@ export const Button = memo(function Button({
         {
           backgroundColor,
           borderColor,
+          opacity: isDisabled ? 0.55 : pressed ? adminPressOpacity : 1,
+          transform: [{ scale: pressed && !isDisabled ? adminPressScale : 1 }],
         },
-        !isSecondary && adminShadow(palette.shadow, 0.14, 14, 8),
-        isDisabled && styles.disabled,
-        pressed && !isDisabled && styles.pressed,
       ]}
     >
       <View style={styles.buttonInner}>
@@ -153,12 +159,9 @@ export function EmptyState({ title, description, actionLabel, onAction }: EmptyS
           backgroundColor: palette.card,
           borderColor: palette.border,
         },
-        adminShadow(palette.shadow, 0.08, 16, 8),
       ]}
     >
-      <View style={[styles.emptyIcon, { backgroundColor: palette.primarySoft }]}>
-        <MaterialCommunityIcons name="view-dashboard-outline" size={24} color={palette.primaryStrong} />
-      </View>
+      <MaterialCommunityIcons name="clipboard-text-outline" size={28} color={palette.textMuted} />
       <View style={styles.emptyCopy}>
         <Text style={[styles.emptyTitle, { color: palette.textPrimary }]}>{title}</Text>
         <Text style={[styles.emptyDescription, { color: palette.textMuted }]}>{description}</Text>
@@ -184,15 +187,7 @@ export function LoadingState({ label = "Loading...", fullscreen = false }: Loadi
         { backgroundColor: fullscreen ? palette.background : "transparent" },
       ]}
     >
-      <View
-        style={[
-          styles.loadingBadge,
-          { backgroundColor: palette.card, borderColor: palette.border },
-          adminShadow(palette.shadow, 0.08, 14, 6),
-        ]}
-      >
-        <ActivityIndicator color={palette.primary} size="large" />
-      </View>
+      <ActivityIndicator color={palette.primary} size="large" />
       <Text style={[styles.loadingLabel, { color: palette.textMuted }]}>{label}</Text>
     </View>
   );
@@ -205,112 +200,71 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   buttonMd: {
-    borderRadius: 14,
-    minHeight: 50,
-    paddingHorizontal: 20,
+    borderRadius: adminRadii.control,
+    minHeight: 48,
+    paddingHorizontal: adminSpacing.lg,
   },
   buttonSm: {
-    borderRadius: 12,
+    borderRadius: adminRadii.control,
     minHeight: 40,
-    paddingHorizontal: 16,
+    paddingHorizontal: adminSpacing.md,
   },
   buttonInner: {
     alignItems: "center",
     justifyContent: "center",
     width: "100%",
   },
-  buttonText: {
-    fontSize: 15,
-    letterSpacing: 0,
-    lineHeight: 20,
-  },
+  buttonText: adminTypography.bodyStrong,
   buttonTextSm: {
     fontSize: 14,
   },
-  disabled: {
-    opacity: 0.62,
-  },
-  pressed: {
-    opacity: 0.86,
-    transform: [{ scale: 0.98 }],
-  },
   fieldStack: {
-    gap: 10,
+    gap: adminSpacing.sm,
   },
-  fieldLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0,
-    lineHeight: 16,
-  },
+  fieldLabel: adminTypography.caption,
   fieldShell: {
     alignItems: "center",
-    borderRadius: 14,
+    borderRadius: adminRadii.control,
     borderWidth: 1,
     flexDirection: "row",
-    paddingHorizontal: 16,
+    paddingHorizontal: adminSpacing.md,
   },
   fieldInput: {
     flex: 1,
     fontSize: 16,
     lineHeight: 22,
-    minHeight: 52,
+    minHeight: 48,
   },
-  fieldSuffix: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0,
-  },
-  fieldError: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
+  fieldSuffix: adminTypography.caption,
+  fieldError: adminTypography.body,
   emptyCard: {
     alignItems: "center",
-    borderRadius: 18,
+    borderRadius: adminRadii.card,
     borderStyle: "dashed",
     borderWidth: 1,
-    gap: 16,
-    paddingHorizontal: 22,
-    paddingVertical: 34,
-  },
-  emptyIcon: {
-    borderRadius: 999,
-    padding: 14,
+    gap: adminSpacing.md,
+    paddingHorizontal: adminSpacing.lg,
+    paddingVertical: adminSpacing.xl,
   },
   emptyCopy: {
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    lineHeight: 24,
-    textAlign: "center",
-  },
+  emptyTitle: adminTypography.sectionTitle,
   emptyDescription: {
-    fontSize: 14,
-    lineHeight: 22,
+    ...adminTypography.body,
     maxWidth: 320,
     textAlign: "center",
   },
   loadingShell: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 40,
+    paddingVertical: adminSpacing.xl,
+    gap: adminSpacing.sm,
   },
   loadingFullscreen: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: adminSpacing.lg,
   },
-  loadingBadge: {
-    borderRadius: 999,
-    borderWidth: 1,
-    padding: 20,
-  },
-  loadingLabel: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 16,
-  },
+  loadingLabel: adminTypography.body,
 });

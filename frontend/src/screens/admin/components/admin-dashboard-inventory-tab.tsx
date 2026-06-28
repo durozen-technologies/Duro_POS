@@ -65,15 +65,15 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
       }
       ListEmptyComponent={
         <EmptyStateCard
-          title="No item movement found"
-          subtitle="Try a different branch or search term."
-          actionLabel="Clear Search"
-          onAction={() => onChangeSearch("")}
+          title={itemSearch.trim() ? "No matches found" : "No items sold"}
+          subtitle={itemSearch.trim() ? "Try a different search term." : "No sales data available for this period."}
+          actionLabel={itemSearch.trim() ? "Clear Search" : undefined}
+          onAction={itemSearch.trim() ? () => onChangeSearch("") : undefined}
           icon="cart-off"
           palette={palette}
         />
       }
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomPadding, gap: 10 }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomPadding, gap: 12 }}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       refreshControl={
@@ -96,7 +96,7 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
 
 const styles = StyleSheet.create({
   header: {
-    gap: 12,
-    marginBottom: 10,
+    gap: 16,
+    marginBottom: 12,
   },
 });

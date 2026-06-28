@@ -15,8 +15,10 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
+  adminElevation,
+  adminPressOpacity,
+  adminPressScale,
   adminRadii,
-  adminShadow,
   adminSpacing,
   adminTypography,
   type ThemePalette,
@@ -79,7 +81,6 @@ export const AdminCard = memo(function AdminCard({
     <View
       style={[
         styles.card,
-        adminShadow(palette.shadow, 0.05, 8, 12),
         { backgroundColor: palette.card, borderColor: palette.border },
         style,
       ]}
@@ -157,8 +158,8 @@ export const AdminBottomNav = memo(function AdminBottomNav({
     <View
       style={[
         styles.bottomNav,
-        adminShadow(palette.shadow, 0.12, 10, 16),
-        { bottom: bottomOffset + adminSpacing.sm, backgroundColor: palette.navBackdrop, borderColor: palette.glassBorder },
+        adminElevation(2),
+        { bottom: bottomOffset + adminSpacing.sm, backgroundColor: palette.navBackdrop },
       ]}
     >
       {items.map((item) => {
@@ -170,7 +171,11 @@ export const AdminBottomNav = memo(function AdminBottomNav({
             accessibilityState={{ selected: active }}
             accessibilityLabel={item.label}
             onPress={() => onSelect(item.key)}
-            style={[styles.bottomNavItem, active && { backgroundColor: palette.primarySoft }]}
+            style={({ pressed }) => [
+              styles.bottomNavItem,
+              active && { backgroundColor: palette.primarySoft },
+              pressed && { opacity: adminPressOpacity, transform: [{ scale: adminPressScale }] },
+            ]}
           >
             <MaterialCommunityIcons name={item.icon} size={20} color={active ? palette.primary : palette.textMuted} />
             {active ? (
@@ -300,7 +305,15 @@ export const AdminPrimaryButton = memo(function AdminPrimaryButton({
       accessibilityState={{ disabled: blocked }}
       disabled={blocked}
       onPress={onPress}
-      style={[styles.primaryButton, { backgroundColor: palette.primary, borderColor: palette.primary, opacity: disabled ? 0.7 : 1 }]}
+      style={({ pressed }) => [
+        styles.primaryButton,
+        {
+          backgroundColor: palette.primary,
+          borderColor: palette.primary,
+          opacity: disabled ? 0.55 : pressed ? adminPressOpacity : 1,
+          transform: [{ scale: pressed && !blocked ? adminPressScale : 1 }],
+        },
+      ]}
     >
       {loading ? (
         <ActivityIndicator color={palette.onPrimary} />
@@ -408,7 +421,6 @@ const styles = StyleSheet.create({
     left: adminSpacing.md,
     right: adminSpacing.md,
     minHeight: 58,
-    borderWidth: 1,
     borderRadius: adminRadii.card,
     padding: adminSpacing.xs,
     flexDirection: "row",
@@ -512,7 +524,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "900",
+    fontWeight: "600",
     flexShrink: 1,
   },
   empty: {

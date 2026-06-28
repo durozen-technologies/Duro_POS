@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   RefreshControl,
   SectionList,
@@ -12,12 +13,13 @@ import {
 
 import type { UUID } from "@/types/api";
 
-import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
+import { type ThemePalette } from "../admin-dashboard-theme";
 import type { BillingSection } from "../hooks/use-admin-dashboard-view-model";
 import {
   DashboardErrorBanner,
   EmptyStateCard,
   TabSectionHeader,
+  usePressAnimation,
 } from "./admin-dashboard-primitives";
 
 type AdminBillingTabProps = {
@@ -94,22 +96,27 @@ function BillCard({
   palette: ThemePalette;
   onPress: () => void;
 }) {
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Open bill ${bill.bill_no}, ${bill.formattedAmount}`}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.billCard,
-        adminShadow(palette.shadow, 0.05, 6, 12),
-        {
-          backgroundColor: palette.card,
-          borderColor: pressed ? palette.billing : palette.border,
-          opacity: pressed ? 0.9 : 1,
-          transform: [{ scale: pressed ? 0.99 : 1 }],
-        },
-      ]}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
     >
+      <Animated.View
+        style={[
+          styles.billCard,
+          {
+            backgroundColor: palette.card,
+            borderColor: palette.border,
+            opacity,
+            transform: [{ scale }],
+          },
+        ]}
+      >
       <View style={[styles.billIconWrap, { backgroundColor: palette.billingSoft }]}>
         <MaterialCommunityIcons name="receipt-text-outline" size={20} color={palette.billing} />
       </View>
@@ -144,6 +151,54 @@ function BillCard({
           <MaterialCommunityIcons name="chevron-right" size={18} color={palette.billing} />
         </View>
       </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function PrintAllButton({
+  printingAll,
+  onPrintAll,
+  visibleBillsLength,
+  palette,
+}: {
+  printingAll: boolean;
+  onPrintAll: () => void;
+  visibleBillsLength: number;
+  palette: ThemePalette;
+}) {
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation(printingAll);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Print ${visibleBillsLength} visible bills`}
+      accessibilityState={{ disabled: printingAll }}
+      disabled={printingAll}
+      onPress={onPrintAll}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+    >
+      <Animated.View
+        style={[
+          styles.printAllBtn,
+          {
+            backgroundColor: printingAll ? palette.surfaceMuted : palette.primarySoft,
+            borderColor: palette.primary,
+            opacity: printingAll ? 0.6 : opacity,
+            transform: [{ scale }],
+          },
+        ]}
+      >
+        {printingAll ? (
+          <ActivityIndicator size="small" color={palette.billing} />
+        ) : (
+          <MaterialCommunityIcons name="printer-outline" size={18} color={palette.billing} />
+        )}
+        <Text style={[styles.printAllBtnText, { color: palette.billingStrong }]}>
+          {printingAll ? "Opening printer..." : `Print ${visibleBillsLength} receipts`}
+        </Text>
+      </Animated.View>
     </Pressable>
   );
 }
@@ -209,42 +264,26 @@ export const AdminBillingTab = memo(function AdminBillingTab({
             </View>
           ) : null}
           {hasBills ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Print ${visibleBillsLength} visible bills`}
-              accessibilityState={{ disabled: printingAll }}
-              disabled={printingAll}
-              onPress={onPrintAll}
-              style={[
-                styles.printAllBtn,
-                adminShadow(palette.shadow, 0.04, 4, 8),
-                {
-                  backgroundColor: printingAll ? palette.surfaceMuted : palette.billingSoft,
-                  borderColor: palette.billing,
-                },
-              ]}
-            >
-              {printingAll ? (
-                <ActivityIndicator size="small" color={palette.billing} />
-              ) : (
-                <MaterialCommunityIcons name="printer-outline" size={18} color={palette.billing} />
-              )}
-              <Text style={[styles.printAllBtnText, { color: palette.billingStrong }]}>
-                {printingAll ? "Opening printer..." : `Print ${visibleBillsLength} receipts`}
-              </Text>
-            </Pressable>
+            <PrintAllButton
+              printingAll={printingAll}
+              onPrintAll={onPrintAll}
+              visibleBillsLength={visibleBillsLength}
+              palette={palette}
+            />
           ) : null}
         </View>
       }
       ListEmptyComponent={
-        <EmptyStateCard
-          title="No bills in this range"
-          subtitle="This branch and period have no receipts yet."
-          actionLabel="Refresh"
-          onAction={onRefresh}
-          icon="receipt-text-remove-outline"
-          palette={palette}
-        />
+        <View style={styles.emptyContainer}>
+          <EmptyStateCard
+            title="No bills in this range"
+            subtitle="This branch and period have no receipts yet."
+            actionLabel="Refresh"
+            onAction={onRefresh}
+            icon="receipt-text-remove-outline"
+            palette={palette}
+          />
+        </View>
       }
       ListFooterComponent={
         dailyBillsLoadingMore ? (
@@ -284,11 +323,16 @@ export const AdminBillingTab = memo(function AdminBillingTab({
 
 const styles = StyleSheet.create({
   billingListHeader: {
-    gap: 12,
-    marginBottom: 10,
+    gap: 16,
+    marginBottom: 12,
+  },
+  emptyContainer: {
+    flex: 1,
+    paddingVertical: 32,
+    justifyContent: "center",
   },
   billingListFooter: {
-    minHeight: 42,
+    minHeight: 40,
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
@@ -296,10 +340,10 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderRadius: 999,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    marginTop: 6,
-    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
   },
   footerText: {
     fontSize: 12,
@@ -322,10 +366,10 @@ const styles = StyleSheet.create({
   statChip: {
     flex: 1,
     minWidth: 0,
-    minHeight: 54,
+    minHeight: 56,
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 10,
+    borderRadius: 12,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
@@ -356,8 +400,8 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 48,
     borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 11,
+    borderRadius: 12,
+    paddingVertical: 12,
     paddingHorizontal: 16,
   },
   printAllBtnText: {
@@ -386,8 +430,8 @@ const styles = StyleSheet.create({
   billCard: {
     flexDirection: "row",
     borderWidth: 1,
-    borderRadius: 16,
-    marginBottom: 10,
+    borderRadius: 12,
+    marginBottom: 12,
     padding: 12,
     gap: 12,
     alignItems: "center",
@@ -395,7 +439,7 @@ const styles = StyleSheet.create({
   billIconWrap: {
     width: 42,
     height: 42,
-    borderRadius: 13,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -432,7 +476,7 @@ const styles = StyleSheet.create({
     minHeight: 32,
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -447,7 +491,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 3,
+    gap: 4,
   },
   billActionText: {
     fontSize: 11,

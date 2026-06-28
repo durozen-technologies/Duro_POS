@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   AccessibilityRole,
   ActivityIndicator,
   Animated,
+  Easing,
   Pressable,
   StyleSheet,
   StyleProp,
@@ -15,7 +16,15 @@ import {
   ViewStyle,
 } from "react-native";
 
-import { adminShadow, type ThemePalette } from "../admin-dashboard-theme";
+import {
+  adminElevation,
+  adminPressOpacity,
+  adminPressScale,
+  adminRadii,
+  adminSpacing,
+  adminTypography,
+  type ThemePalette,
+} from "../admin-dashboard-theme";
 import { triggerHaptic, type ToastTone } from "../admin-dashboard-utils";
 
 type MetricCardProps = {
@@ -27,9 +36,10 @@ type MetricCardProps = {
   accent: string;
   accentSoft: string;
   palette: ThemePalette;
+  /** @deprecated Sparklines removed — kept for call-site compat. */
   sparklineValues?: number[];
+  /** @deprecated Sparklines removed — kept for call-site compat. */
   sparklineLabel?: string;
-  noteIcon?: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
   fullWidth?: boolean;
 };
 
@@ -56,7 +66,7 @@ type PrimaryButtonProps = {
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
-  variant?: "primary" | "secondary" | "danger" | "accent" | "warning" | "contrast";
+  variant?: "primary" | "secondary" | "danger" | "accent" | "warning" | "success" | "info" | "contrast";
   fullWidth?: boolean;
   palette: ThemePalette;
   icon?: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -102,28 +112,6 @@ type TopAppBarProps = {
   onRefresh?: () => void;
 };
 
-function adminNavAccent(key: string, palette: ThemePalette) {
-  if (key === "items") {
-    return { accent: palette.items, accentSoft: palette.itemsSoft };
-  }
-  if (key === "sales") {
-    return { accent: palette.analytics, accentSoft: palette.analyticsSoft };
-  }
-  if (key === "inventory") {
-    return { accent: palette.inventory, accentSoft: palette.inventorySoft };
-  }
-  if (key === "billing") {
-    return { accent: palette.billing, accentSoft: palette.billingSoft };
-  }
-  if (key === "expenses") {
-    return { accent: palette.cash, accentSoft: palette.cashSoft };
-  }
-  if (key === "settings") {
-    return { accent: palette.settings, accentSoft: palette.settingsSoft };
-  }
-  return { accent: palette.primary, accentSoft: palette.primarySoft };
-}
-
 type DashboardErrorBannerProps = {
   dashboardError: string | null;
   hasShops: boolean;
@@ -145,68 +133,46 @@ type SectionHintProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-function CountUpText({
-  value,
-  formatter,
-  style,
-}: {
-  value: number;
-  formatter: (value: number) => string;
-  style: StyleProp<TextStyle>;
-}) {
-  const emphasis = useRef(new Animated.Value(1)).current;
-  const previousValueRef = useRef(value);
-  const formattedValue = useMemo(() => formatter(value), [formatter, value]);
+export function usePressAnimation(disabled = false) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    if (previousValueRef.current === value) {
-      return;
-    }
+  const onPressIn = useCallback(() => {
+    if (disabled) return;
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: adminPressScale,
+        duration: 100,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: adminPressOpacity,
+        duration: 100,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [disabled, opacity, scale]);
 
-    previousValueRef.current = value;
-    emphasis.setValue(0.96);
-    Animated.spring(emphasis, {
-      toValue: 1,
-      speed: 20,
-      bounciness: 3,
-      useNativeDriver: true,
-    }).start();
-  }, [emphasis, value]);
+  const onPressOut = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.bezier(0.25, 1, 0.5, 1),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [opacity, scale]);
 
-  return (
-    <Animated.Text
-      adjustsFontSizeToFit
-      minimumFontScale={0.74}
-      numberOfLines={1}
-      style={[style, { transform: [{ scale: emphasis }] }]}
-    >
-      {formattedValue}
-    </Animated.Text>
-  );
-}
-
-function Sparkline({
-  values,
-  accent,
-}: {
-  values: number[];
-  accent: string;
-}) {
-  const normalizedHeights = useMemo(() => {
-    const max = Math.max(...values, 1);
-    return values.map((value) => Math.max(10, (value / max) * 34));
-  }, [values]);
-
-  return (
-    <View style={styles.sparklineRow}>
-      {normalizedHeights.map((height, index) => (
-        <View
-          key={`${height}-${index}`}
-          style={[styles.sparklineBar, { height, backgroundColor: accent }]}
-        />
-      ))}
-    </View>
-  );
+  return { scale, opacity, onPressIn, onPressOut };
 }
 
 export const MetricCard = memo(function MetricCard({
@@ -218,45 +184,42 @@ export const MetricCard = memo(function MetricCard({
   accent,
   accentSoft,
   palette,
-  sparklineValues = [4, 6, 5, 8, 7, 9],
-  sparklineLabel = "Scope spread",
-  noteIcon = "information-outline",
   fullWidth = false,
 }: MetricCardProps) {
+  const formattedValue = useMemo(() => formatter(value), [formatter, value]);
+
   return (
     <View
       accessible
-      accessibilityLabel={`${label} ${formatter(value)}`}
+      accessibilityLabel={`${label} ${formattedValue}`}
       style={[
         styles.metricCard,
         fullWidth && styles.metricCardFullWidth,
-        adminShadow(palette.shadow, 0.06, 8, 16),
         {
           backgroundColor: palette.card,
           borderColor: palette.border,
         },
       ]}
     >
-      <View style={[styles.metricAccentBar, { backgroundColor: accent }]} />
       <View style={styles.metricHeader}>
         <View style={styles.metricHeaderText}>
-          <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>{label}</Text>
-          <CountUpText value={value} formatter={formatter} style={[styles.metricValue, { color: palette.textPrimary }]} />
+          <Text style={[styles.metricLabel, { color: palette.textMuted }]}>{label}</Text>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+            numberOfLines={1}
+            style={[styles.metricValue, { color: palette.textPrimary }]}
+          >
+            {formattedValue}
+          </Text>
         </View>
-        <View style={[styles.metricIconWrap, { backgroundColor: accentSoft, borderColor: palette.border }]}>
-          <MaterialCommunityIcons name={icon} size={18} color={accent} />
-        </View>
+        <MaterialCommunityIcons name={icon} size={18} color={palette.textMuted} accessibilityElementsHidden />
       </View>
-      <View style={styles.metricTrendRow}>
-        <Text style={[styles.metricTrendLabel, { color: palette.textMuted }]}>{sparklineLabel}</Text>
-        <Sparkline values={sparklineValues} accent={accent} />
-      </View>
-      <View style={[styles.metricNoteWrap, { backgroundColor: accentSoft }]}>
-        <MaterialCommunityIcons name={noteIcon} size={14} color={accent} style={styles.metricNoteIcon} />
-        <Text numberOfLines={2} style={[styles.metricNote, { color: palette.textPrimary }]}>
+      {note ? (
+        <Text numberOfLines={2} style={[styles.metricNote, { color: palette.textSecondary }]}>
           {note}
         </Text>
-      </View>
+      ) : null}
     </View>
   );
 });
@@ -270,11 +233,26 @@ export const SectionCard = memo(function SectionCard({
   children,
   palette,
 }: SectionCardProps) {
+  const rotation = useRef(new Animated.Value(collapsed ? 0 : 1)).current;
+
+  useEffect(() => {
+    Animated.timing(rotation, {
+      toValue: collapsed ? 0 : 1,
+      duration: 250,
+      easing: Easing.bezier(0.25, 1, 0.5, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [collapsed, rotation]);
+
+  const spin = rotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "180deg"],
+  });
+
   return (
     <View
       style={[
         styles.sectionCard,
-        adminShadow(palette.shadow, 0.05, 8, 16),
         { backgroundColor: palette.card, borderColor: palette.border },
       ]}
     >
@@ -291,13 +269,13 @@ export const SectionCard = memo(function SectionCard({
         <View style={styles.sectionHeaderActions}>
           {action}
           {onToggle ? (
-            <View style={[styles.chevronWrap, { backgroundColor: palette.backgroundElevated }]}>
+            <Animated.View style={[styles.chevronWrap, { backgroundColor: palette.backgroundElevated, transform: [{ rotate: spin }] }]}>
               <MaterialCommunityIcons
-                name={collapsed ? "chevron-down" : "chevron-up"}
+                name="chevron-down"
                 size={18}
                 color={palette.textSecondary}
               />
-            </View>
+            </Animated.View>
           ) : null}
         </View>
       </Pressable>
@@ -354,6 +332,8 @@ export const ChipButton = memo(function ChipButton({
   icon?: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
   accessibilityRole?: AccessibilityRole;
 }) {
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+
   return (
     <Pressable
       accessibilityRole={accessibilityRole}
@@ -361,16 +341,23 @@ export const ChipButton = memo(function ChipButton({
         triggerHaptic();
         onPress();
       }}
-      style={[
-        styles.chipButton,
-        {
-          backgroundColor: active ? palette.primarySoft : palette.surfaceMuted,
-          borderColor: active ? palette.primary : palette.border,
-        },
-      ]}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
     >
-      {icon ? <MaterialCommunityIcons name={icon} size={14} color={active ? palette.primaryStrong : palette.textMuted} /> : null}
-      <Text style={[styles.chipText, { color: active ? palette.primaryStrong : palette.textSecondary }]}>{label}</Text>
+      <Animated.View
+        style={[
+          styles.chipButton,
+          {
+            backgroundColor: active ? palette.primarySoft : palette.surfaceMuted,
+            borderColor: active ? palette.primary : palette.border,
+            opacity,
+            transform: [{ scale }],
+          },
+        ]}
+      >
+        {icon ? <MaterialCommunityIcons name={icon} size={14} color={active ? palette.primaryStrong : palette.textMuted} /> : null}
+        <Text style={[styles.chipText, { color: active ? palette.primaryStrong : palette.textSecondary }]}>{label}</Text>
+      </Animated.View>
     </Pressable>
   );
 });
@@ -393,14 +380,20 @@ export const PrimaryButton = memo(function PrimaryButton({
   const isDanger = variant === "danger";
   const isAccent = variant === "accent";
   const isWarning = variant === "warning";
+  const isSuccess = variant === "success";
+  const isInfo = variant === "info";
   const isContrast = variant === "contrast";
   const isDisabled = loading || disabled;
-  const isSolid = isPrimary || isDanger || isAccent || isWarning || isContrast;
+  const isSolid = isPrimary || isDanger || isAccent || isWarning || isSuccess || isInfo || isContrast;
 
   const buttonBackground = backgroundColorOverride ?? (isPrimary
     ? palette.primary
     : isDanger
       ? palette.danger
+      : isSuccess
+        ? palette.success
+        : isInfo
+          ? palette.primaryStrong
       : isAccent
         ? palette.upi
         : isWarning
@@ -412,6 +405,10 @@ export const PrimaryButton = memo(function PrimaryButton({
     ? palette.primary
     : isDanger
       ? palette.danger
+      : isSuccess
+        ? palette.success
+        : isInfo
+          ? palette.primaryStrong
       : isAccent
         ? palette.upi
         : isWarning
@@ -423,6 +420,10 @@ export const PrimaryButton = memo(function PrimaryButton({
     ? palette.onPrimary
     : isDanger
       ? "#FFFFFF"
+      : isSuccess
+        ? "#FFFFFF"
+        : isInfo
+          ? "#FFFFFF"
       : isAccent
         ? "#FFFFFF"
       : isWarning
@@ -430,6 +431,8 @@ export const PrimaryButton = memo(function PrimaryButton({
           : isContrast
             ? palette.background
             : palette.textPrimary);
+
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation(isDisabled);
 
   return (
     <Pressable
@@ -443,27 +446,33 @@ export const PrimaryButton = memo(function PrimaryButton({
         triggerHaptic(isSolid ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
         onPress();
       }}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.buttonBase,
-        adminShadow(palette.shadow, isSolid ? 0.1 : 0.04, 8, 16),
-        {
-          width: fullWidth ? "100%" : undefined,
-          backgroundColor: buttonBackground,
-          borderColor: buttonBorder,
-          opacity: disabled && !loading ? 0.75 : 1,
-          transform: [{ scale: pressed && !isDisabled ? 0.99 : 1 }, { translateY: pressed && !isDisabled ? 1 : 0 }],
-        },
-      ]}
+      style={{ width: fullWidth ? "100%" : undefined }}
     >
-      {loading ? (
-        <ActivityIndicator color={textColor} />
-      ) : (
-        <View style={styles.buttonContent}>
-          {icon ? <MaterialCommunityIcons name={icon} size={17} color={textColor} /> : null}
-          <Text style={[styles.buttonLabel, { color: textColor }]}>{label}</Text>
-        </View>
-      )}
+      <Animated.View
+        style={[
+          styles.buttonBase,
+          isSolid ? null : { borderWidth: 1 },
+          {
+            backgroundColor: buttonBackground,
+            borderColor: buttonBorder,
+            opacity: isDisabled ? 0.55 : opacity,
+            transform: [{ scale }],
+            width: fullWidth ? "100%" : undefined,
+          },
+        ]}
+      >
+        {loading ? (
+          <ActivityIndicator color={textColor} />
+        ) : (
+          <View style={styles.buttonContent}>
+            {icon ? <MaterialCommunityIcons name={icon} size={17} color={textColor} /> : null}
+            <Text style={[styles.buttonLabel, { color: textColor }]}>{label}</Text>
+          </View>
+        )}
+      </Animated.View>
     </Pressable>
   );
 });
@@ -484,12 +493,14 @@ export const EmptyStateCard = memo(function EmptyStateCard({
       <Text style={[styles.emptyTitle, { color: palette.textPrimary }]}>{title}</Text>
       <Text style={[styles.emptySubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
       {actionLabel && onAction ? (
-        <PrimaryButton
-          label={actionLabel}
-          onPress={onAction}
-          palette={palette}
-          variant="secondary"
-        />
+        <View style={{ marginTop: adminSpacing.sm }}>
+          <PrimaryButton
+            label={actionLabel}
+            onPress={onAction}
+            palette={palette}
+            variant="secondary"
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -563,7 +574,7 @@ export function ToastBanner({ toast, palette, animatedValue }: ToastBannerProps)
       pointerEvents="none"
       style={[
         styles.toastContainer,
-        adminShadow(palette.shadow, 0.08, 8, 14),
+        adminElevation(2),
         {
           backgroundColor: toneBackground,
           borderColor: toneColor,
@@ -572,7 +583,7 @@ export function ToastBanner({ toast, palette, animatedValue }: ToastBannerProps)
             {
               translateY: animatedValue.interpolate({
                 inputRange: [0, 1],
-                outputRange: [-18, 0],
+                outputRange: [-12, 0],
               }),
             },
           ],
@@ -647,18 +658,71 @@ export function DashboardSkeleton({ palette }: { palette: ThemePalette }) {
   return (
     <View style={{ flex: 1, backgroundColor: palette.background }}>
       <View style={styles.skeletonWrap}>
-        <ShimmerBlock height={210} borderRadius={28} palette={palette} />
+        <ShimmerBlock height={210} borderRadius={adminRadii.card} palette={palette} />
         <View style={styles.skeletonMetricGrid}>
           {Array.from({ length: 4 }).map((_, index) => (
-            <ShimmerBlock key={index} height={122} borderRadius={24} palette={palette} />
+            <ShimmerBlock key={index} height={88} borderRadius={adminRadii.card} palette={palette} />
           ))}
         </View>
-        <ShimmerBlock height={180} borderRadius={26} palette={palette} />
-        <ShimmerBlock height={180} borderRadius={26} palette={palette} />
+        <ShimmerBlock height={160} borderRadius={adminRadii.card} palette={palette} />
+        <ShimmerBlock height={160} borderRadius={adminRadii.card} palette={palette} />
       </View>
     </View>
   );
 }
+
+const BottomNavItem = memo(function BottomNavItem({
+  item,
+  activeKey,
+  onSelect,
+  palette,
+}: {
+  item: { key: string; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"] };
+  activeKey: string;
+  onSelect: (key: string) => void;
+  palette: ThemePalette;
+}) {
+  const active = item.key === activeKey;
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+
+  return (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={item.label}
+      onPress={() => {
+        triggerHaptic(Haptics.ImpactFeedbackStyle.Light);
+        onSelect(item.key);
+      }}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={styles.bottomNavItemBase}
+    >
+      <Animated.View
+        style={[
+          styles.bottomNavItem,
+          active && { backgroundColor: palette.primarySoft },
+          { opacity, transform: [{ scale }] },
+        ]}
+      >
+        <MaterialCommunityIcons
+          name={item.icon}
+          size={20}
+          color={active ? palette.primary : palette.onShellMuted}
+        />
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.bottomNavLabel,
+            { color: active ? palette.primaryStrong : palette.onShellMuted },
+          ]}
+        >
+          {item.label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+});
 
 export const BottomNav = memo(function BottomNav({
   items,
@@ -671,57 +735,22 @@ export const BottomNav = memo(function BottomNav({
     <View
       style={[
         styles.bottomNavWrap,
-        adminShadow(palette.shadow, 0.14, 20, 28),
+        adminElevation(2),
         {
           backgroundColor: palette.shell,
-          borderColor: palette.shellBorder,
-          bottom: bottomOffset + 8,
+          bottom: bottomOffset + adminSpacing.xs,
         },
       ]}
     >
-      {items.map((item) => {
-        const active = item.key === activeKey;
-        const navAccent = adminNavAccent(item.key, palette);
-        return (
-          <Pressable
-            key={item.key}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={item.label}
-            onPress={() => {
-              triggerHaptic(Haptics.ImpactFeedbackStyle.Light);
-              onSelect(item.key);
-            }}
-            style={styles.bottomNavItem}
-          >
-            <View
-              style={[
-                styles.activeNavIndicator,
-                {
-                  backgroundColor: active ? navAccent.accentSoft : "transparent",
-                  borderColor: active ? navAccent.accent : "transparent",
-                },
-              ]}
-            />
-            <MaterialCommunityIcons
-              name={item.icon}
-              size={active ? 21 : 20}
-              color={active ? navAccent.accent : palette.onShellMuted}
-            />
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.78}
-              style={[
-                styles.bottomNavLabel,
-                { color: active ? navAccent.accent : palette.onShellMuted },
-              ]}
-            >
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+      {items.map((item) => (
+        <BottomNavItem
+          key={item.key}
+          item={item}
+          activeKey={activeKey}
+          onSelect={onSelect}
+          palette={palette}
+        />
+      ))}
     </View>
   );
 });
@@ -743,324 +772,253 @@ export const TopAppBar = memo(function TopAppBar({
     <View
       style={[
         styles.topAppBar,
-        adminShadow(palette.shadow, 0.04, 6, 10),
-        { paddingTop: topInset + 10, backgroundColor: palette.shell, borderBottomColor: palette.shellBorder },
+        { paddingTop: topInset + adminSpacing.sm, backgroundColor: palette.shell, borderBottomColor: palette.shellBorder },
       ]}
     >
       {/* LEFT: Shop + Period stacked */}
       <View style={styles.topAppLeft}>
-        <Pressable onPress={onShopPress} style={styles.topAppShopRow} accessibilityRole="button" accessibilityLabel="Switch branch">
+        <TopAppBarIconRow onPress={onShopPress} label="Switch branch" palette={palette} isPeriod={false}>
           <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.primary} />
           <Text style={[styles.topAppShopName, { color: palette.onShell }]} numberOfLines={1}>{shopName}</Text>
           <MaterialCommunityIcons name="chevron-down" size={18} color={palette.onShellMuted} />
-        </Pressable>
-        <Pressable onPress={onPeriodPress} style={styles.topAppPeriodRow} accessibilityRole="button" accessibilityLabel="Change analytics period">
+        </TopAppBarIconRow>
+        <TopAppBarIconRow onPress={onPeriodPress} label="Change analytics period" palette={palette} isPeriod={true}>
           <View style={[styles.liveDot, { backgroundColor: isOffline ? palette.gold : palette.success }]} />
           <Text style={[styles.topAppPeriodText, { color: palette.onShellMuted }]}>{periodLabel}</Text>
           <MaterialCommunityIcons name="chevron-down" size={14} color={palette.onShellMuted} />
-        </Pressable>
+        </TopAppBarIconRow>
       </View>
 
       {/* RIGHT: Action icons */}
       <View style={styles.topAppActions}>
-        <Pressable
+        <TopAppBarIconButton
           onPress={onRefresh}
-          style={[styles.topAppIconBtn, { backgroundColor: palette.shellControl, borderColor: palette.shellBorder }]}
-          accessibilityRole="button"
-          accessibilityLabel="Refresh"
+          label="Refresh"
+          palette={palette}
         >
           <MaterialCommunityIcons name="refresh" size={19} color={palette.onShell} />
-        </Pressable>
-        <Pressable
+        </TopAppBarIconButton>
+        <TopAppBarIconButton
           onPress={onThemeToggle}
-          style={[styles.topAppIconBtn, { backgroundColor: palette.shellControl, borderColor: palette.shellBorder }]}
-          accessibilityRole="button"
-          accessibilityLabel={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          palette={palette}
         >
           <MaterialCommunityIcons
             name={isDark ? "white-balance-sunny" : "weather-night"}
             size={19}
             color={palette.onShell}
           />
-        </Pressable>
+        </TopAppBarIconButton>
       </View>
     </View>
   );
 });
+
+function TopAppBarIconRow({ onPress, label, children, palette, isPeriod }: { onPress: () => void; label: string; children: React.ReactNode; palette: ThemePalette; isPeriod: boolean }) {
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+  return (
+    <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} accessibilityRole="button" accessibilityLabel={label}>
+      <Animated.View style={[isPeriod ? styles.topAppPeriodRow : styles.topAppShopRow, { transform: [{ scale }], opacity }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function TopAppBarIconButton({ onPress, label, children, palette }: { onPress?: () => void; label: string; children: React.ReactNode; palette: ThemePalette }) {
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+  return (
+    <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} accessibilityRole="button" accessibilityLabel={label}>
+      <Animated.View style={[styles.topAppIconBtn, { backgroundColor: palette.shellControl, borderColor: palette.shellBorder, transform: [{ scale }], opacity }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 const styles = StyleSheet.create({
   metricCard: {
     flexBasis: "47.2%",
     flexGrow: 1,
     minWidth: 0,
-    minHeight: 148,
-    borderRadius: 18,
+    minHeight: 96,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    padding: 14,
-    gap: 8,
+    padding: adminSpacing.md,
+    gap: adminSpacing.xs,
     justifyContent: "space-between",
-    overflow: "hidden",
-    position: "relative",
   },
   metricCardFullWidth: {
     flexBasis: "100%",
-  },
-  metricAccentBar: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
   },
   metricHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   metricHeaderText: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
-  },
-  metricIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  metricTrendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  metricTrendLabel: {
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  sparklineRow: {
-    height: 20,
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "flex-end",
-    gap: 3,
-  },
-  sparklineBar: {
-    width: 3,
-    borderRadius: 999,
-    opacity: 0.4,
+    gap: adminSpacing.xxs,
   },
   metricLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    ...adminTypography.caption,
   },
   metricValue: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: "700",
-  },
-  metricNoteWrap: {
-    minHeight: 44,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  metricNoteIcon: {
-    marginTop: 1,
+    ...adminTypography.metric,
   },
   metricNote: {
-    fontSize: 11,
-    lineHeight: 16,
-    minHeight: 32,
-    flex: 1,
+    ...adminTypography.body,
   },
   sectionCard: {
-    marginTop: 14,
+    marginTop: adminSpacing.sm,
     borderWidth: 1,
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.md,
   },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   sectionHeaderText: {
     flex: 1,
-    gap: 3,
+    gap: adminSpacing.xxs,
   },
   sectionHeaderActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
-  sectionTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "700",
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-  },
+  sectionTitle: adminTypography.sectionTitle,
+  sectionSubtitle: adminTypography.body,
   chevronWrap: {
     width: 32,
     height: 32,
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     alignItems: "center",
     justifyContent: "center",
   },
   searchField: {
-    minHeight: 44,
-    borderRadius: 12,
+    minHeight: 48,
+    borderRadius: adminRadii.control,
     borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    ...adminTypography.body,
   },
   chipButton: {
     minHeight: 36,
-    borderRadius: 999,
+    borderRadius: adminRadii.pill,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: adminSpacing.sm,
+    paddingVertical: adminSpacing.xxs + 3,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: adminSpacing.xxs + 1,
   },
-  chipText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  chipText: adminTypography.bodyStrong,
   buttonBase: {
-    minHeight: 46,
-    borderRadius: 14,
-    paddingHorizontal: 16,
+    minHeight: 48,
+    borderRadius: adminRadii.control,
+    paddingHorizontal: adminSpacing.md,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
   },
   buttonContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
-    width: "100%",
+    gap: adminSpacing.xs - 1,
   },
   buttonLabel: {
-    fontSize: 13,
-    fontWeight: "600",
+    ...adminTypography.bodyStrong,
     flexShrink: 1,
     textAlign: "center",
   },
   emptyCard: {
-    borderRadius: 16,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    padding: 18,
-    gap: 10,
-    alignItems: "flex-start",
+    padding: adminSpacing.lg,
+    gap: adminSpacing.sm,
+    alignItems: "center",
   },
   emptyIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: adminRadii.icon,
     alignItems: "center",
     justifyContent: "center",
   },
   emptyTitle: {
-    fontSize: 14,
-    fontWeight: "600",
+    ...adminTypography.cardTitle,
+    textAlign: "center",
   },
   emptySubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
+    ...adminTypography.body,
+    textAlign: "center",
   },
   inlineBanner: {
     borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: adminRadii.control,
+    paddingHorizontal: adminSpacing.sm + 2,
+    paddingVertical: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: adminSpacing.sm,
   },
-  inlineBannerText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-  },
+  inlineBannerText: adminTypography.body,
   tabSectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 4,
+    gap: adminSpacing.sm,
+    marginBottom: adminSpacing.xxs,
   },
-  tabSectionTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    flex: 1,
-  },
+  tabSectionTitle: adminTypography.pageTitle,
   sectionBadge: {
     justifyContent: "center",
   },
   sectionBadgeText: {
     overflow: "hidden",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    fontSize: 11,
-    fontWeight: "600",
+    borderRadius: adminRadii.pill,
+    paddingHorizontal: adminSpacing.sm,
+    paddingVertical: adminSpacing.xxs,
+    ...adminTypography.badge,
   },
-  sectionHint: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
+  sectionHint: adminTypography.body,
   toastContainer: {
     position: "absolute",
-    top: 12,
-    left: 16,
-    right: 16,
+    top: adminSpacing.sm,
+    left: adminSpacing.md,
+    right: adminSpacing.md,
     zIndex: 50,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: adminRadii.control,
+    paddingHorizontal: adminSpacing.sm + 2,
+    paddingVertical: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: adminSpacing.sm,
   },
   toastText: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
+    ...adminTypography.bodyStrong,
   },
   skeletonWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 12,
+    paddingHorizontal: adminSpacing.md,
+    paddingTop: adminSpacing.md,
+    gap: adminSpacing.sm,
   },
   skeletonMetricGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: adminSpacing.sm,
   },
   skeletonBlock: {
     overflow: "hidden",
@@ -1075,94 +1033,77 @@ const styles = StyleSheet.create({
   },
   bottomNavWrap: {
     position: "absolute",
-    left: 14,
-    right: 14,
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 7,
+    left: adminSpacing.sm + 2,
+    right: adminSpacing.sm + 2,
+    borderRadius: adminRadii.card,
+    paddingHorizontal: adminSpacing.xs,
+    paddingVertical: adminSpacing.xxs + 3,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  bottomNavItem: {
+  bottomNavItemBase: {
     minWidth: 0,
+    flex: 1,
+  },
+  bottomNavItem: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    minHeight: 58,
-    paddingHorizontal: 2,
-    borderRadius: 18,
-  },
-  activeNavIndicator: {
-    position: "absolute",
-    top: 3,
-    bottom: 3,
-    left: 3,
-    right: 3,
-    borderRadius: 17,
-    borderWidth: 1,
+    gap: adminSpacing.xxs,
+    minHeight: 48,
+    paddingHorizontal: adminSpacing.xxs,
+    borderRadius: adminRadii.control,
   },
   bottomNavLabel: {
     maxWidth: "100%",
     fontSize: 9,
     lineHeight: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     textAlign: "center",
-    letterSpacing: 0,
   },
-  // Top App Bar
   topAppBar: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
+    paddingHorizontal: adminSpacing.lg,
+    paddingBottom: adminSpacing.sm,
     borderBottomWidth: 1,
     zIndex: 20,
   },
   topAppLeft: {
     flex: 1,
-    gap: 4,
-    marginRight: 12,
+    gap: adminSpacing.xxs,
+    marginRight: adminSpacing.sm,
   },
   topAppShopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: adminSpacing.xs - 2,
   },
-  topAppShopName: {
-    fontSize: 19,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    flexShrink: 1,
-  },
+  topAppShopName: adminTypography.pageTitle,
   topAppPeriodRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: adminSpacing.xxs + 1,
   },
-  topAppPeriodText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
+  topAppPeriodText: adminTypography.bodyStrong,
   topAppActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: adminSpacing.sm,
   },
   topAppIconBtn: {
     width: 40,
     height: 40,
-    borderRadius: 999,
+    borderRadius: adminRadii.pill,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
+    width: 8,
+    height: 8,
+    borderRadius: adminRadii.pill,
   },
 });

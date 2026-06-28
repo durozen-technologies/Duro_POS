@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.accent,
     shadowOffset: { width: 0, height: 16 },
     shadowOpacity: 0.16,
-    shadowRadius: 28,
+    shadowRadius: 8,
     elevation: 8,
   },
   logoImage: {
