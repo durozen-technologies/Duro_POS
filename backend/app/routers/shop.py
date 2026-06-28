@@ -5,9 +5,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_shop, require_roles
+from app.auth import get_current_shop, get_current_user, require_roles
 from app.db.database import get_db
-from app.models import Shop, UserRole
+from app.models import Shop, User, UserRole
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutPreviewRead,
@@ -30,6 +30,7 @@ from app.schemas.inventory import (
     InventoryUseRequest,
     InventoryUseSplitRequest,
 )
+from app.schemas.inventory_policy import InventoryBackdatePolicyRead
 from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse
 from app.schemas.transfer import (
     InventoryTransferCreate,
@@ -52,6 +53,7 @@ from app.services.inventory import (
     use_shop_inventory_stock,
     use_shop_inventory_stock_split,
 )
+from app.services.inventory_policy import get_inventory_backdate_policy
 from app.services.pricing import create_daily_prices, get_shop_bootstrap, get_today_prices
 from app.services.transfer import create_inventory_transfer, list_transfer_shops
 
@@ -264,6 +266,19 @@ async def shop_expense_history(
     )
 
 
+@router.get(
+    "/inventory/backdate-policy",
+    response_model=InventoryBackdatePolicyRead,
+    summary="Get Inventory Backdate Policy",
+)
+async def shop_inventory_backdate_policy(
+    db: AsyncSession = Depends(get_db),
+    _shop: Shop = Depends(get_current_shop),
+) -> InventoryBackdatePolicyRead:
+    """Return shop backdating rules for inventory transaction UI."""
+    return await get_inventory_backdate_policy(db)
+
+
 @router.post(
     "/inventory/items/{item_id}/add",
     response_model=InventoryMovementCreateResult,
@@ -276,10 +291,13 @@ async def add_inventory_stock(
     payload: InventoryAddRequest,
     include_summary: bool = Query(False, description="Include the full inventory summary in the response."),
     shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InventoryMovementCreateResult:
     """Add kg/unit stock to an allocated inventory item."""
-    return await add_shop_inventory_stock(db, shop, item_id, payload, include_summary=include_summary)
+    return await add_shop_inventory_stock(
+        db, shop, item_id, payload, actor=actor, include_summary=include_summary
+    )
 
 
 @router.post(
@@ -294,10 +312,13 @@ async def use_inventory_stock(
     payload: InventoryUseRequest,
     include_summary: bool = Query(False, description="Include the full inventory summary in the response."),
     shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InventoryMovementCreateResult:
     """Use kg/unit stock from an allocated inventory item by category."""
-    return await use_shop_inventory_stock(db, shop, item_id, payload, include_summary=include_summary)
+    return await use_shop_inventory_stock(
+        db, shop, item_id, payload, actor=actor, include_summary=include_summary
+    )
 
 
 @router.post(
@@ -312,6 +333,7 @@ async def use_inventory_stock_split(
     payload: InventoryUseSplitRequest,
     include_summary: bool = Query(False, description="Include the full inventory summary in the response."),
     shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InventoryMovementSplitCreateResult:
     """Use kg/unit stock from an allocated inventory item split across categories."""
@@ -320,6 +342,7 @@ async def use_inventory_stock_split(
         shop,
         item_id,
         payload,
+        actor=actor,
         include_summary=include_summary,
     )
 
@@ -334,6 +357,7 @@ async def transfer_inventory_stock(
     item_id: UUID,
     payload: InventoryTransferCreate,
     shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> InventoryTransferRead:
     """Transfer kg/unit stock to a transfer shop destination."""
@@ -343,6 +367,7 @@ async def transfer_inventory_stock(
         inventory_item_id=item_id,
         payload=payload,
         user_id=shop.owner_user_id,
+        actor=actor,
     )
 
 

@@ -174,15 +174,15 @@ async def _overall_report_inventory_items(
     context: ReportContext,
     shop_id: UUID,
 ) -> dict[UUID, OverallReportInventoryItem]:
-    before_start = InventoryMovement.created_at < context.start
+    before_start = InventoryMovement.occurred_at < context.start
     in_period = and_(
-        InventoryMovement.created_at >= context.start,
-        InventoryMovement.created_at < context.end,
+        InventoryMovement.occurred_at >= context.start,
+        InventoryMovement.occurred_at < context.end,
     )
-    transfer_before_start = InventoryTransfer.created_at < context.start
+    transfer_before_start = InventoryTransfer.occurred_at < context.start
     transfer_in_period = and_(
-        InventoryTransfer.created_at >= context.start,
-        InventoryTransfer.created_at < context.end,
+        InventoryTransfer.occurred_at >= context.start,
+        InventoryTransfer.occurred_at < context.end,
     )
     transfer_totals = (
         select(
@@ -364,8 +364,8 @@ async def _populate_overall_report_used_stock_breakdown(
             .where(
                 InventoryMovement.shop_id == shop_id,
                 InventoryMovement.inventory_item_id.in_(list(inventory_items)),
-                InventoryMovement.created_at >= context.start,
-                InventoryMovement.created_at < context.end,
+                InventoryMovement.occurred_at >= context.start,
+                InventoryMovement.occurred_at < context.end,
                 InventoryMovement.movement_type == InventoryMovementType.USE,
             )
             .group_by(
@@ -445,8 +445,8 @@ async def _populate_overall_report_billing_items(
         )
         .where(
             InventoryMovement.shop_id == shop_id,
-            InventoryMovement.created_at >= context.start,
-            InventoryMovement.created_at < context.end,
+            InventoryMovement.occurred_at >= context.start,
+            InventoryMovement.occurred_at < context.end,
             InventoryMovement.movement_type == InventoryMovementType.USE,
             InventoryMovement.category_id.is_not(None),
         )

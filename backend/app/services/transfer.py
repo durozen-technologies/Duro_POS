@@ -11,6 +11,7 @@ from ..models import (
     InventoryTransfer,
     Shop,
     TransferShop,
+    User,
 )
 from ..schemas.transfer import (
     InventoryTransferCreate,
@@ -20,7 +21,8 @@ from ..schemas.transfer import (
     TransferShopRead,
     TransferShopUpdate,
 )
-from .inventory import _available_quantity_for_item
+from .inventory import _available_quantity_at, _get_allocated_inventory_item_for_shop, _resolve_inventory_actor
+from .inventory_backdate import prepare_inventory_occurred_at
 
 # =====================================================================
 # Transfer Shop CRUD
@@ -132,6 +134,8 @@ async def create_inventory_transfer(
     inventory_item_id: UUID,
     payload: InventoryTransferCreate,
     user_id: UUID,
+    *,
+    actor: User | None = None,
 ) -> InventoryTransferRead:
     # 1. Validate destination
     transfer_shop = await db.scalar(
@@ -162,7 +166,11 @@ async def create_inventory_transfer(
         )
 
     # 3. Check allocation (is it allocated to source_shop?)
-    from .inventory import _get_allocated_inventory_item_for_shop
+    occurred_at = await prepare_inventory_occurred_at(
+        db,
+        actor=await _resolve_inventory_actor(db, source_shop, actor),
+        raw=payload.occurred_at,
+    )
     item, allocation = await _get_allocated_inventory_item_for_shop(db, source_shop, inventory_item_id)
     if not allocation.is_active:
          raise HTTPException(
@@ -174,7 +182,7 @@ async def create_inventory_transfer(
     validate_inventory_quantity_for_unit(item.base_unit, payload.quantity)
 
     # 5. Check available stock
-    available_quantity = await _available_quantity_for_item(db, source_shop.id, item.id)
+    available_quantity = await _available_quantity_at(db, source_shop.id, item.id, as_of=occurred_at)
     if payload.quantity > available_quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -188,6 +196,7 @@ async def create_inventory_transfer(
         inventory_item_id=item.id,
         quantity=payload.quantity,
         unit=item.base_unit,
+        occurred_at=occurred_at,
     )
     db.add(transfer)
     await db.flush()
@@ -248,16 +257,16 @@ async def list_inventory_transfers(
     if reference_date is not None:
         start_dt = datetime.combine(reference_date, time.min, tzinfo=UTC)
         end_dt = datetime.combine(reference_date, time.max, tzinfo=UTC)
-        query = query.where(InventoryTransfer.created_at.between(start_dt, end_dt))
+        query = query.where(InventoryTransfer.occurred_at.between(start_dt, end_dt))
     else:
         if range_start_date is not None:
             start_dt = datetime.combine(range_start_date, time.min, tzinfo=UTC)
-            query = query.where(InventoryTransfer.created_at >= start_dt)
+            query = query.where(InventoryTransfer.occurred_at >= start_dt)
         if range_end_date is not None:
             end_dt = datetime.combine(range_end_date, time.max, tzinfo=UTC)
-            query = query.where(InventoryTransfer.created_at <= end_dt)
+            query = query.where(InventoryTransfer.occurred_at <= end_dt)
 
-    query = query.order_by(desc(InventoryTransfer.created_at), desc(InventoryTransfer.id))
+    query = query.order_by(desc(InventoryTransfer.occurred_at), desc(InventoryTransfer.id))
     query = query.limit(limit + 1).offset(offset)
 
     rows = (await db.execute(query)).all()

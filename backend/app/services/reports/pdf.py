@@ -944,7 +944,7 @@ def _inventory_totals_subquery(context: ReportContext, *, period_only: bool):
     if context.shop_ids:
         filters.append(InventoryMovement.shop_id.in_(context.shop_ids))
     if period_only:
-        filters.extend([InventoryMovement.created_at >= context.start, InventoryMovement.created_at < context.end])
+        filters.extend([InventoryMovement.occurred_at >= context.start, InventoryMovement.occurred_at < context.end])
     added_quantity = func.coalesce(
         func.sum(
             case(
@@ -1585,7 +1585,7 @@ async def _write_transfers_section(
         date_line,
     )
 
-    filters: list[object] = [InventoryTransfer.created_at >= context.start, InventoryTransfer.created_at < context.end]
+    filters: list[object] = [InventoryTransfer.occurred_at >= context.start, InventoryTransfer.occurred_at < context.end]
     if context.shop_ids:
         filters.append(InventoryTransfer.source_shop_id.in_(context.shop_ids))
 
@@ -1609,7 +1609,7 @@ async def _write_transfers_section(
 
     result = await db.execute(
         select(
-            InventoryTransfer.created_at,
+            InventoryTransfer.occurred_at,
             Shop.name.label("source_shop_name"),
             TransferShop.name.label("transfer_shop_name"),
             InventoryItem.name.label("item_name"),
@@ -1620,13 +1620,13 @@ async def _write_transfers_section(
         .join(TransferShop, TransferShop.id == InventoryTransfer.transfer_shop_id)
         .join(InventoryItem, InventoryItem.id == InventoryTransfer.inventory_item_id)
         .where(*filters)
-        .order_by(InventoryTransfer.created_at.asc(), InventoryTransfer.id.asc())
+        .order_by(InventoryTransfer.occurred_at.asc(), InventoryTransfer.id.asc())
     )
     page = result.all()
     for row in page:
         writer.table_row(
             [
-                row.created_at.strftime("%d/%m/%Y") if row.created_at else "",
+                row.occurred_at.strftime("%d/%m/%Y") if row.occurred_at else "",
                 row.source_shop_name,
                 row.transfer_shop_name,
                 row.item_name,

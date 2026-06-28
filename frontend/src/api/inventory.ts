@@ -1,6 +1,8 @@
 import { apiClient } from "@/api/client";
 import {
   InventoryAddRequest,
+  InventoryBackdatePolicyRead,
+  InventoryBackdatePolicyUpdate,
   InventoryMovementCreateResult,
   InventoryMovementPage,
   InventoryMovementSplitCreateResult,
@@ -107,5 +109,27 @@ export async function transferInventoryStock(itemId: UUID, payload: InventoryTra
 
 export async function getActiveTransferShops() {
   const { data } = await apiClient.get<TransferShopRead[]>("/api/v1/shop/inventory/transfer-shops");
+  return data;
+}
+
+export async function fetchShopInventoryBackdatePolicy() {
+  const { data } = await apiClient.get<InventoryBackdatePolicyRead>(
+    "/api/v1/shop/inventory/backdate-policy",
+  );
+  return data;
+}
+
+export async function fetchAdminInventoryBackdatePolicy() {
+  const { data } = await apiClient.get<InventoryBackdatePolicyRead>(
+    "/api/v1/admin/inventory/backdate-policy",
+  );
+  return data;
+}
+
+export async function updateAdminInventoryBackdatePolicy(payload: InventoryBackdatePolicyUpdate) {
+  const { data } = await apiClient.put<InventoryBackdatePolicyRead>(
+    "/api/v1/admin/inventory/backdate-policy",
+    payload,
+  );
   return data;
 }

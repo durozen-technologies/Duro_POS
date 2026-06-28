@@ -93,7 +93,13 @@ from app.routers.admin import (
 from app.routers.auth import login, me, register
 from app.routers.catalog import get_item_image as get_catalog_item_image
 from app.routers.health import health_check
+from app.routers.admin.inventory import (
+    allocate_shop_inventory,
+    get_admin_inventory_backdate_policy,
+    put_admin_inventory_backdate_policy,
+)
 from app.routers.shop import (
+    add_inventory_stock,
     bootstrap,
     checkout,
     preview_checkout,
@@ -101,7 +107,10 @@ from app.routers.shop import (
     save_daily_prices,
     shop_expense_history,
     shop_expense_items,
+    shop_inventory_backdate_policy,
+    shop_inventory_movements,
     today_prices,
+    use_inventory_stock,
 )
 from app.schemas.admin import (
     ItemCategoryCreate,
@@ -133,6 +142,7 @@ from app.schemas.expenses import (
     ShopExpenseItemsOrderUpdate,
 )
 from app.schemas.inventory import (
+    InventoryAddRequest,
     InventoryCategoryCreate as InventoryCategoryCreatePayload,
 )
 from app.schemas.inventory import (
@@ -141,7 +151,10 @@ from app.schemas.inventory import (
 from app.schemas.inventory import (
     InventoryItemPurchaseRateUpdate,
     InventoryItemUpdate as InventoryItemUpdatePayload,
+    InventoryUseRequest,
+    ShopInventoryAllocationBulkCreate,
 )
+from app.schemas.inventory_policy import InventoryBackdatePolicyUpdate
 from app.schemas.pricing import DailyPriceCreate, DailyPriceEntry, DailyPriceUpdate
 
 
@@ -2271,5 +2284,114 @@ class BackendApiIntegrationTests(BackendTestCase):
                     shop_id, ShopStatusUpdate(is_active=False), db
                 )
                 self.assertFalse(disabled_shop.is_active)
+
+        self.run_async(scenario())
+
+    def test_inventory_backdate_policy_endpoints(self) -> None:
+        shop_actor, shop = self.run_async(self.harness.create_shop_user())
+        admin_user = self.run_async(self.harness.create_admin_user())
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                shop_user = session.scalar(select(User).where(User.id == shop_actor.id))
+
+                category = await create_admin_inventory_category(
+                    InventoryCategoryCreatePayload(name="Cold"),
+                    db=db,
+                )
+                item = await create_admin_inventory_item_metadata(
+                    InventoryItemCreatePayload(
+                        name="Backdate Lamb",
+                        tamil_name="ஆட்டு",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        category_ids=[],
+                    ),
+                    db=db,
+                )
+                await allocate_shop_inventory(
+                    ShopInventoryAllocationBulkCreate(item_ids=[item.id]),
+                    shop=current_shop,
+                    db=db,
+                )
+
+                default_policy = await get_admin_inventory_backdate_policy(db)
+                self.assertFalse(default_policy.allow_shop_backdated_inventory)
+
+                shop_policy = await shop_inventory_backdate_policy(db=db, _shop=current_shop)
+                self.assertFalse(shop_policy.allow_shop_backdated_inventory)
+
+                yesterday = datetime.now(UTC) - timedelta(days=1)
+                with self.assertRaises(HTTPException) as denied:
+                    await add_inventory_stock(
+                        item.id,
+                        InventoryAddRequest(
+                            quantity=Decimal("5"),
+                            driver_name="Driver",
+                            vehicle_number="TN01AB1234",
+                            occurred_at=yesterday,
+                        ),
+                        shop=current_shop,
+                        actor=shop_user,
+                        db=db,
+                    )
+                self.assertEqual(denied.exception.status_code, 422)
+
+                updated_policy = await put_admin_inventory_backdate_policy(
+                    InventoryBackdatePolicyUpdate(
+                        allow_shop_backdated_inventory=True,
+                        shop_backdate_window_days=3,
+                    ),
+                    db=db,
+                )
+                self.assertTrue(updated_policy.allow_shop_backdated_inventory)
+
+                add_result = await add_inventory_stock(
+                    item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("5"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                        occurred_at=yesterday,
+                    ),
+                    shop=current_shop,
+                    actor=shop_user,
+                    db=db,
+                )
+                self.assertEqual(add_result.movement.occurred_at.date(), yesterday.date())
+
+                from app.services.inventory import list_inventory_movements
+
+                history = await list_inventory_movements(
+                    db,
+                    shop_id=current_shop.id,
+                    reference_date=yesterday.date(),
+                    limit=30,
+                )
+                self.assertEqual(len(history.items), 1)
+
+                with self.assertRaises(HTTPException) as use_denied:
+                    await use_inventory_stock(
+                        item.id,
+                        InventoryUseRequest(quantity=Decimal("10"), occurred_at=yesterday),
+                        shop=current_shop,
+                        actor=shop_user,
+                        db=db,
+                    )
+                self.assertEqual(use_denied.exception.status_code, 409)
+
+                await add_inventory_stock(
+                    item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("5"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
+                    shop=current_shop,
+                    actor=admin_user,
+                    db=db,
+                )
 
         self.run_async(scenario())

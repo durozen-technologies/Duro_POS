@@ -21,6 +21,7 @@ import {
 
 import {
   addShopInventoryStock,
+  fetchShopInventoryBackdatePolicy,
   fetchShopInventoryRows,
   fetchShopInventoryMovements,
   fetchShopInventoryTransfers,
@@ -50,6 +51,7 @@ import {
 import {
   BaseUnit,
   InventoryMovementType,
+  type InventoryBackdatePolicyRead,
   type InventoryItemStockRead,
   type InventoryMovementRead,
   type InventoryTransferRead,
@@ -74,6 +76,30 @@ type MovementHistoryParams = {
 type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
 const HISTORY_BUTTON_GREEN = "#0F7642";
 const SHOP_INVENTORY_PAGE_SIZE = 50;
+
+function buildOccurredAtPayload(dateValue: string, timeValue: string) {
+  const match = /^(\d{2}):(\d{2})$/.exec(timeValue.trim());
+  const hours = match ? match[1] : "00";
+  const minutes = match ? match[2] : "00";
+  const parsed = new Date(`${dateValue}T${hours}:${minutes}:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+}
+
+function currentTimeDraft() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+function movementRecordedLabel(occurredAt: string, createdAt: string) {
+  const delta = Math.abs(new Date(createdAt).getTime() - new Date(occurredAt).getTime());
+  if (delta <= 60_000) {
+    return null;
+  }
+  return `Recorded ${formatDateTime(createdAt)}`;
+}
 
 type InventoryCursor = {
   sortOrder: number | null;
@@ -169,6 +195,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const keyboardInsetRef = useRef(0);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [categoryQuantities, setCategoryQuantities] = useState<Record<UUID, string>>({});
+  const [backdatePolicy, setBackdatePolicy] = useState<InventoryBackdatePolicyRead | null>(null);
+  const [movementDate, setMovementDate] = useState(() => toDateInputValue(new Date()));
+  const [movementTime, setMovementTime] = useState(currentTimeDraft);
+  const [movementCalendarOpen, setMovementCalendarOpen] = useState(false);
   const inventoryCursorRef = useRef<InventoryCursor>(EMPTY_INVENTORY_CURSOR);
   const inventoryHasMoreRef = useRef(false);
   const inventoryLoadingRef = useRef(false);
@@ -240,12 +270,13 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     }
     setErrorMessage(null);
     try {
-      const [page, activeShops] = await Promise.all([
+      const [page, activeShops, policy] = await Promise.all([
         fetchShopInventoryRows(
           { limit: SHOP_INVENTORY_PAGE_SIZE },
           { signal: controller.signal },
         ),
         getActiveTransferShops(),
+        fetchShopInventoryBackdatePolicy(),
       ]);
       if (controller.signal.aborted || requestId !== inventoryRequestIdRef.current) {
         return;
@@ -253,6 +284,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       setShopName(page.shop_name);
       setItems(page.items);
       setTransferShops(activeShops);
+      setBackdatePolicy(policy);
       setInventoryHasMore(page.has_more);
       const nextCursor = {
         sortOrder: page.next_cursor_sort_order ?? null,
@@ -437,7 +469,25 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     setDriverName("");
     setVehicleNumber("");
     setCategoryQuantities({});
+    setMovementDate(toDateInputValue(new Date()));
+    setMovementTime(currentTimeDraft());
   }, [loadInventory]);
+
+  const movementOccurredAt = useMemo(() => {
+    if (!backdatePolicy?.allow_shop_backdated_inventory) {
+      return undefined;
+    }
+    return buildOccurredAtPayload(movementDate, movementTime) ?? undefined;
+  }, [backdatePolicy, movementDate, movementTime]);
+
+  const movementDateBounds = useMemo(() => {
+    const today = new Date();
+    const maxDate = toDateInputValue(today);
+    const windowDays = backdatePolicy?.shop_backdate_window_days ?? 0;
+    const earliest = new Date(today);
+    earliest.setDate(earliest.getDate() - windowDays);
+    return { minDate: toDateInputValue(earliest), maxDate };
+  }, [backdatePolicy]);
 
   const closeMovement = useCallback(() => {
     setSelectedItem(null);
@@ -446,6 +496,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     setDriverName("");
     setVehicleNumber("");
     setCategoryQuantities({});
+    setMovementCalendarOpen(false);
     setKeyboardInset(0);
     keyboardInsetRef.current = 0;
     movementScrollOffsetRef.current = 0;
@@ -583,6 +634,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     setSaving(true);
     try {
       let changedItem: InventoryItemStockRead;
+      const occurredAt = movementOccurredAt;
       if (mode === InventoryMovementType.ADD) {
         if (!driverName.trim() || !vehicleNumber.trim()) {
           Alert.alert(t("inventory.driverVehicleRequiredTitle" as any), t("inventory.driverVehicleRequiredMessage" as any));
@@ -593,6 +645,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           quantity: rawQuantity,
           driver_name: driverName.trim(),
           vehicle_number: vehicleNumber.trim(),
+          occurred_at: occurredAt,
         });
         changedItem = result.item;
         if (result.summary) {
@@ -609,10 +662,11 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
         await transferInventoryStock(selectedItem.id, {
           transfer_shop_id: transferShopId,
           quantity: rawQuantity,
+          occurred_at: occurredAt,
         });
         void loadInventory(true);
       } else if (selectedItem.category_usage.length === 0) {
-        const result = await useShopInventoryStock(selectedItem.id, { quantity: rawQuantity });
+        const result = await useShopInventoryStock(selectedItem.id, { quantity: rawQuantity, occurred_at: occurredAt });
         changedItem = result.item;
         if (result.summary) {
           setItems(visibleStockRows(result.summary.items));
@@ -626,6 +680,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
             category_id: category.category_id,
             quantity: categoryQuantities[category.category_id]?.trim() || "0",
           })),
+          occurred_at: occurredAt,
         });
         changedItem = result.item;
         if (result.summary) {
@@ -669,7 +724,8 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     selectedItem,
     splitState.canSave,
     t,
-    vehicleNumber,
+    transferShopId,
+    movementOccurredAt,
   ]);
 
   if (loading && items.length === 0) {
@@ -914,8 +970,13 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                         Transferred to: {transfer.transfer_shop_name} · {formatQuantity(transfer.quantity, transfer.unit as BaseUnit)}
                       </Text>
                       <Text className="mt-0.5 text-[11px] font-semibold text-muted">
-                        {formatDateTime(transfer.created_at)}
+                        {formatDateTime(transfer.occurred_at)}
                       </Text>
+                      {movementRecordedLabel(transfer.occurred_at, transfer.created_at) ? (
+                        <Text className="mt-0.5 text-[11px] font-semibold text-muted">
+                          {movementRecordedLabel(transfer.occurred_at, transfer.created_at)}
+                        </Text>
+                      ) : null}
                     </View>
                   </Card>
                 );
@@ -958,8 +1019,13 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                       </Text>
                     ) : null}
                     <Text className="mt-0.5 text-[11px] font-semibold text-muted">
-                      {formatDateTime(movement.created_at)}
+                      {formatDateTime(movement.occurred_at)}
                     </Text>
+                    {movementRecordedLabel(movement.occurred_at, movement.created_at) ? (
+                      <Text className="mt-0.5 text-[11px] font-semibold text-muted">
+                        {movementRecordedLabel(movement.occurred_at, movement.created_at)}
+                      </Text>
+                    ) : null}
                   </View>
                 </Card>
               );
@@ -1062,6 +1128,28 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                         <MaterialCommunityIcons name="close" size={22} color="#1E2B22" />
                       </Pressable>
                     </View>
+
+                    {backdatePolicy?.allow_shop_backdated_inventory ? (
+                      <View className="gap-3 rounded-card border border-border bg-surface px-3 py-3">
+                        <Text className="text-[11px] font-semibold uppercase tracking-[1px] text-muted">
+                          Transaction date
+                        </Text>
+                        <CalendarDateField
+                          label="Date"
+                          value={movementDate}
+                          colors={historyCalendarColors}
+                          onPress={() => setMovementCalendarOpen(true)}
+                        />
+                        <TextField
+                          label="Time"
+                          placeholder="HH:MM"
+                          value={movementTime}
+                          onChangeText={setMovementTime}
+                          keyboardType="numbers-and-punctuation"
+                          selectTextOnFocus={false}
+                        />
+                      </View>
+                    ) : null}
 
                     {mode === InventoryMovementType.USE || mode === "TRANSFER" ? (
                       <View className="items-center rounded-card border border-accent bg-accentSoft px-4 py-3">
@@ -1233,6 +1321,24 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
         colors={historyCalendarColors}
         onSelect={selectHistoryDate}
         onClose={() => setHistoryCalendarTarget(null)}
+      />
+
+      <CalendarDatePickerModal
+        visible={movementCalendarOpen}
+        title="Transaction date"
+        value={movementDate}
+        colors={historyCalendarColors}
+        onSelect={(selectedDate) => {
+          if (selectedDate < movementDateBounds.minDate) {
+            setMovementDate(movementDateBounds.minDate);
+          } else if (selectedDate > movementDateBounds.maxDate) {
+            setMovementDate(movementDateBounds.maxDate);
+          } else {
+            setMovementDate(selectedDate);
+          }
+          setMovementCalendarOpen(false);
+        }}
+        onClose={() => setMovementCalendarOpen(false)}
       />
     </View>
   );

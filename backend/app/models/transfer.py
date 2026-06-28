@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    func,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -63,6 +64,13 @@ class InventoryTransfer(Base, BaseModelMixin):
             "created_at",
             "id",
         ),
+        Index(
+            "ix_inventory_transfers_shop_item_occurred",
+            "source_shop_id",
+            "inventory_item_id",
+            "occurred_at",
+            "id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
@@ -82,6 +90,12 @@ class InventoryTransfer(Base, BaseModelMixin):
         nullable=False,
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        nullable=False,
+    )
     unit: Mapped[BaseUnit] = mapped_column(Enum(BaseUnit), nullable=False)
 
     source_shop = relationship("Shop", foreign_keys=[source_shop_id])

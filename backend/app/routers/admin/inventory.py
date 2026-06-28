@@ -371,9 +371,10 @@ async def adjust_shop_inventory_stock(
     item_id: UUID,
     payload: InventoryStockAdjustRequest,
     shop: ShopDep,
+    actor: Annotated[User, Depends(get_current_user)],
     db: DBSession,
 ) -> InventoryItemStockRead:
-    return await admin_set_shop_inventory_stock(db, shop, item_id, payload)
+    return await admin_set_shop_inventory_stock(db, shop, item_id, payload, actor=actor)
 
 
 @router.get(
@@ -414,5 +415,109 @@ async def get_admin_inventory_movements(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         limit=limit,
+    )
+
+
+@router.get(
+    "/inventory/backdate-policy",
+    response_model=InventoryBackdatePolicyRead,
+    summary="Get Inventory Backdate Policy",
+)
+async def get_admin_inventory_backdate_policy(db: DBSession) -> InventoryBackdatePolicyRead:
+    return await get_inventory_backdate_policy(db)
+
+
+@router.put(
+    "/inventory/backdate-policy",
+    response_model=InventoryBackdatePolicyRead,
+    summary="Update Inventory Backdate Policy",
+)
+async def put_admin_inventory_backdate_policy(
+    payload: InventoryBackdatePolicyUpdate,
+    db: DBSession,
+) -> InventoryBackdatePolicyRead:
+    return await update_inventory_backdate_policy(db, payload)
+
+
+@router.post(
+    "/shops/{shop_id}/inventory/items/{item_id}/add",
+    response_model=InventoryMovementCreateResult,
+    response_model_exclude_unset=True,
+    status_code=201,
+    summary="Admin Add Inventory Stock",
+)
+async def admin_add_inventory_stock(
+    item_id: UUID,
+    payload: InventoryAddRequest,
+    shop: ShopDep,
+    actor: Annotated[User, Depends(get_current_user)],
+    db: DBSession,
+    include_summary: bool = Query(False),
+) -> InventoryMovementCreateResult:
+    return await add_shop_inventory_stock(
+        db, shop, item_id, payload, actor=actor, include_summary=include_summary
+    )
+
+
+@router.post(
+    "/shops/{shop_id}/inventory/items/{item_id}/use",
+    response_model=InventoryMovementCreateResult,
+    response_model_exclude_unset=True,
+    status_code=201,
+    summary="Admin Use Inventory Stock",
+)
+async def admin_use_inventory_stock(
+    item_id: UUID,
+    payload: InventoryUseRequest,
+    shop: ShopDep,
+    actor: Annotated[User, Depends(get_current_user)],
+    db: DBSession,
+    include_summary: bool = Query(False),
+) -> InventoryMovementCreateResult:
+    return await use_shop_inventory_stock(
+        db, shop, item_id, payload, actor=actor, include_summary=include_summary
+    )
+
+
+@router.post(
+    "/shops/{shop_id}/inventory/items/{item_id}/use-split",
+    response_model=InventoryMovementSplitCreateResult,
+    response_model_exclude_unset=True,
+    status_code=201,
+    summary="Admin Use Inventory Stock Split",
+)
+async def admin_use_inventory_stock_split(
+    item_id: UUID,
+    payload: InventoryUseSplitRequest,
+    shop: ShopDep,
+    actor: Annotated[User, Depends(get_current_user)],
+    db: DBSession,
+    include_summary: bool = Query(False),
+) -> InventoryMovementSplitCreateResult:
+    return await use_shop_inventory_stock_split(
+        db, shop, item_id, payload, actor=actor, include_summary=include_summary
+    )
+
+
+@router.post(
+    "/shops/{shop_id}/inventory/items/{item_id}/transfer",
+    response_model=InventoryTransferRead,
+    status_code=201,
+    summary="Admin Transfer Inventory Stock",
+)
+async def admin_transfer_inventory_stock(
+    item_id: UUID,
+    payload: InventoryTransferCreate,
+    shop: ShopDep,
+    actor: Annotated[User, Depends(get_current_user)],
+    db: DBSession,
+) -> InventoryTransferRead:
+    return await create_inventory_transfer(
+        db,
+        source_shop=shop,
+        inventory_item_id=item_id,
+        payload=payload,
+        user_id=actor.id,
+        actor=actor,
     )
 

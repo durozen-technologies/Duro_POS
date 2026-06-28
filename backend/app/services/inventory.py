@@ -32,6 +32,7 @@ from app.models import (
     Item,
     Shop,
     ShopInventoryAllocation,
+    User,
 )
 from app.schemas.inventory import (
     InventoryAddRequest,
@@ -62,6 +63,7 @@ from app.schemas.inventory import (
 )
 
 from ..schemas.transfer import InventoryTransferPage, InventoryTransferRead
+from .inventory_backdate import prepare_inventory_occurred_at
 
 ZERO = Decimal("0")
 THREE_DECIMALS = Decimal("0.001")
@@ -1128,12 +1130,36 @@ async def delete_inventory_item(db: AsyncSession, item_id: UUID) -> None:
     await delete_item_image_storage(image_object_key, thumbnail_object_key)
 
 
+async def _resolve_inventory_actor(db: AsyncSession, shop: Shop, actor: User | None) -> User:
+    if actor is not None:
+        return actor
+    resolved = await db.scalar(select(User).where(User.id == shop.owner_user_id))
+    if resolved is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Shop owner account is missing",
+        )
+    return resolved
+
+
+async def _prepare_occurred_at(
+    db: AsyncSession,
+    *,
+    actor: User | None,
+    shop: Shop,
+    raw: datetime | None,
+) -> datetime:
+    resolved_actor = await _resolve_inventory_actor(db, shop, actor)
+    return await prepare_inventory_occurred_at(db, actor=resolved_actor, raw=raw)
+
+
 async def _movement_totals(
     db: AsyncSession,
     shop_id: UUID,
     item_ids: list[UUID],
     *,
     used_since: date | None = None,
+    as_of: datetime | None = None,
 ) -> tuple[dict[UUID, Decimal], dict[UUID, Decimal], dict[tuple[UUID, UUID], Decimal], dict[UUID, Decimal]]:
     """Return (added, used, category_used) totals for the given items.
 
@@ -1146,18 +1172,21 @@ async def _movement_totals(
     if not item_ids:
         return {}, {}, {}, {}
 
-    # ADD movements — always all-time so that available_quantity is correct
+    # ADD movements — all-time unless point-in-time ``as_of`` is set
+    add_filter = [
+        InventoryMovement.shop_id == shop_id,
+        InventoryMovement.inventory_item_id.in_(item_ids),
+        InventoryMovement.movement_type == InventoryMovementType.ADD,
+    ]
+    if as_of is not None:
+        add_filter.append(InventoryMovement.occurred_at <= as_of)
     add_rows = (
         await db.execute(
             select(
                 InventoryMovement.inventory_item_id,
                 func.coalesce(func.sum(InventoryMovement.quantity), 0).label("quantity"),
             )
-            .where(
-                InventoryMovement.shop_id == shop_id,
-                InventoryMovement.inventory_item_id.in_(item_ids),
-                InventoryMovement.movement_type == InventoryMovementType.ADD,
-            )
+            .where(*add_filter)
             .group_by(InventoryMovement.inventory_item_id)
         )
     ).all()
@@ -1173,8 +1202,10 @@ async def _movement_totals(
     ]
     if used_since is not None:
         use_filter.append(
-            InventoryMovement.created_at >= datetime.combine(used_since, time.min, tzinfo=UTC)
+            InventoryMovement.occurred_at >= datetime.combine(used_since, time.min, tzinfo=UTC)
         )
+    if as_of is not None:
+        use_filter.append(InventoryMovement.occurred_at <= as_of)
 
     use_rows = (
         await db.execute(
@@ -1208,17 +1239,20 @@ async def _movement_totals(
         (row.inventory_item_id, row.category_id): row.quantity or ZERO for row in category_rows
     }
 
-    # TRANSFERRED_OUT movements — always all-time so that available_quantity is correct
+    # TRANSFERRED_OUT — all-time unless point-in-time ``as_of`` is set
+    transfer_filter = [
+        InventoryTransfer.source_shop_id == shop_id,
+        InventoryTransfer.inventory_item_id.in_(item_ids),
+    ]
+    if as_of is not None:
+        transfer_filter.append(InventoryTransfer.occurred_at <= as_of)
     transfer_rows = (
         await db.execute(
             select(
                 InventoryTransfer.inventory_item_id,
                 func.coalesce(func.sum(InventoryTransfer.quantity), 0).label("quantity"),
             )
-            .where(
-                InventoryTransfer.source_shop_id == shop_id,
-                InventoryTransfer.inventory_item_id.in_(item_ids),
-            )
+            .where(*transfer_filter)
             .group_by(InventoryTransfer.inventory_item_id)
         )
     ).all()
@@ -1602,9 +1636,19 @@ async def _get_allocated_inventory_item_for_shop(
     return item, allocation
 
 
-async def _available_quantity_for_item(db: AsyncSession, shop_id: UUID, item_id: UUID) -> Decimal:
-    added, used, _, transferred = await _movement_totals(db, shop_id, [item_id])
+async def _available_quantity_at(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_id: UUID,
+    *,
+    as_of: datetime,
+) -> Decimal:
+    added, used, _, transferred = await _movement_totals(db, shop_id, [item_id], as_of=as_of)
     return added.get(item_id, ZERO) - used.get(item_id, ZERO) - transferred.get(item_id, ZERO)
+
+
+async def _available_quantity_for_item(db: AsyncSession, shop_id: UUID, item_id: UUID) -> Decimal:
+    return await _available_quantity_at(db, shop_id, item_id, as_of=datetime.now(UTC))
 
 
 async def _stock_item_for_shop_inventory_item(
@@ -1657,6 +1701,7 @@ def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:
         unit=item.base_unit if item is not None else BaseUnit.KG,
         driver_name=movement.driver_name,
         vehicle_number=movement.vehicle_number,
+        occurred_at=movement.occurred_at,
         created_at=movement.created_at,
     )
 
@@ -1686,24 +1731,24 @@ async def list_inventory_movements(
     if range_start_date is not None or range_end_date is not None:
         if range_start_date is not None:
             query = query.where(
-                InventoryMovement.created_at
+                InventoryMovement.occurred_at
                 >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
             )
         if range_end_date is not None:
             query = query.where(
-                InventoryMovement.created_at
+                InventoryMovement.occurred_at
                 < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
             )
     elif reference_date is not None:
         query = query.where(
-            InventoryMovement.created_at
+            InventoryMovement.occurred_at
             >= datetime.combine(reference_date, time.min, tzinfo=UTC),
-            InventoryMovement.created_at
+            InventoryMovement.occurred_at
             < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
         )
     rows = (
         await db.scalars(
-            query.order_by(InventoryMovement.created_at.desc(), InventoryMovement.id.desc()).limit(limit + 1)
+            query.order_by(InventoryMovement.occurred_at.desc(), InventoryMovement.id.desc()).limit(limit + 1)
         )
     ).all()
     page_rows = rows[:limit]
@@ -1736,24 +1781,24 @@ async def list_inventory_transfers(
     if range_start_date is not None or range_end_date is not None:
         if range_start_date is not None:
             query = query.where(
-                InventoryTransfer.created_at
+                InventoryTransfer.occurred_at
                 >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
             )
         if range_end_date is not None:
             query = query.where(
-                InventoryTransfer.created_at
+                InventoryTransfer.occurred_at
                 < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
             )
     elif reference_date is not None:
         query = query.where(
-            InventoryTransfer.created_at
+            InventoryTransfer.occurred_at
             >= datetime.combine(reference_date, time.min, tzinfo=UTC),
-            InventoryTransfer.created_at
+            InventoryTransfer.occurred_at
             < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
         )
     rows = (
         await db.scalars(
-            query.order_by(InventoryTransfer.created_at.desc(), InventoryTransfer.id.desc()).limit(limit + 1)
+            query.order_by(InventoryTransfer.occurred_at.desc(), InventoryTransfer.id.desc()).limit(limit + 1)
         )
     ).all()
     page_rows = rows[:limit]
@@ -1780,10 +1825,12 @@ async def add_shop_inventory_stock(
     item_id: UUID,
     payload: InventoryAddRequest,
     *,
+    actor: User | None = None,
     include_summary: bool = False,
 ) -> InventoryMovementCreateResult:
     item, allocation = await _get_allocated_inventory_item_for_shop(db, shop, item_id)
     quantity = _normalize_quantity(item.base_unit, payload.quantity)
+    occurred_at = await _prepare_occurred_at(db, actor=actor, shop=shop, raw=payload.occurred_at)
     movement = InventoryMovement(
         shop_id=shop.id,
         inventory_item_id=item.id,
@@ -1791,6 +1838,7 @@ async def add_shop_inventory_stock(
         quantity=quantity,
         driver_name=payload.driver_name.strip(),
         vehicle_number=payload.vehicle_number.strip(),
+        occurred_at=occurred_at,
     )
     db.add(movement)
     await db.commit()
@@ -1825,10 +1873,12 @@ async def use_shop_inventory_stock(
     item_id: UUID,
     payload: InventoryUseRequest,
     *,
+    actor: User | None = None,
     include_summary: bool = False,
 ) -> InventoryMovementCreateResult:
     item, allocation = await _get_allocated_inventory_item_for_shop(db, shop, item_id)
     quantity = _normalize_quantity(item.base_unit, payload.quantity)
+    occurred_at = await _prepare_occurred_at(db, actor=actor, shop=shop, raw=payload.occurred_at)
     category_ids = {link.category_id for link in item.category_links}
     if category_ids and payload.category_id not in category_ids:
         raise HTTPException(
@@ -1840,7 +1890,7 @@ async def use_shop_inventory_stock(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Inventory category is not linked to this item",
         )
-    available_quantity = await _available_quantity_for_item(db, shop.id, item.id)
+    available_quantity = await _available_quantity_at(db, shop.id, item.id, as_of=occurred_at)
     if quantity > available_quantity:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1852,6 +1902,7 @@ async def use_shop_inventory_stock(
         category_id=payload.category_id,
         movement_type=InventoryMovementType.USE,
         quantity=quantity,
+        occurred_at=occurred_at,
     )
     db.add(movement)
     await db.commit()
@@ -1886,10 +1937,12 @@ async def use_shop_inventory_stock_split(
     item_id: UUID,
     payload: InventoryUseSplitRequest,
     *,
+    actor: User | None = None,
     include_summary: bool = False,
 ) -> InventoryMovementSplitCreateResult:
     item, allocation = await _get_allocated_inventory_item_for_shop(db, shop, item_id)
     total_quantity = _normalize_quantity(item.base_unit, payload.total_quantity)
+    occurred_at = await _prepare_occurred_at(db, actor=actor, shop=shop, raw=payload.occurred_at)
     linked_category_ids = {link.category_id for link in item.category_links}
     split_quantities: dict[UUID, Decimal] = {}
     for line in payload.categories:
@@ -1911,7 +1964,7 @@ async def use_shop_inventory_stock_split(
             detail="Category split total must match the inventory use quantity",
         )
 
-    available_quantity = await _available_quantity_for_item(db, shop.id, item.id)
+    available_quantity = await _available_quantity_at(db, shop.id, item.id, as_of=occurred_at)
     if total_quantity > available_quantity:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1925,6 +1978,7 @@ async def use_shop_inventory_stock_split(
             category_id=category_id,
             movement_type=InventoryMovementType.USE,
             quantity=quantity,
+            occurred_at=occurred_at,
         )
         for category_id, quantity in split_quantities.items()
     ]
@@ -1942,7 +1996,7 @@ async def use_shop_inventory_stock_split(
                 selectinload(InventoryMovement.item),
                 selectinload(InventoryMovement.category),
             )
-            .order_by(InventoryMovement.created_at, InventoryMovement.id)
+            .order_by(InventoryMovement.occurred_at, InventoryMovement.id)
         )
     ).all()
     summary = None
@@ -1965,12 +2019,15 @@ async def admin_set_shop_inventory_stock(
     shop: Shop,
     item_id: UUID,
     payload: InventoryStockAdjustRequest,
+    *,
+    actor: User | None = None,
 ) -> InventoryItemStockRead:
     """Admin override: set available and/or used stock by creating adjustment movements.
 
     Available stock is adjusted via ADD (positive delta) or USE (negative delta).
     Used stock (today's display) is adjusted via USE (positive delta) or ADD (negative delta).
     """
+    occurred_at = await _prepare_occurred_at(db, actor=actor, shop=shop, raw=payload.occurred_at)
     allocation = await db.scalar(
         select(ShopInventoryAllocation)
         .where(
@@ -2017,6 +2074,7 @@ async def admin_set_shop_inventory_stock(
                 category_id=payload.category_id,
                 movement_type=InventoryMovementType.USE,
                 quantity=delta_used,
+                occurred_at=occurred_at,
             ))
 
     if payload.available_quantity is not None:
@@ -2029,6 +2087,7 @@ async def admin_set_shop_inventory_stock(
                 inventory_item_id=item_id,
                 movement_type=InventoryMovementType.ADD,
                 quantity=delta_available,
+                occurred_at=occurred_at,
             ))
 
     for movement in movements_added:

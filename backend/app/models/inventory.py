@@ -286,6 +286,28 @@ class InventoryMovement(Base, BaseModelMixin):
             "id",
         ),
         Index(
+            "ix_inventory_movements_shop_item_occurred",
+            "shop_id",
+            "inventory_item_id",
+            "occurred_at",
+            "id",
+        ),
+        Index(
+            "ix_inventory_movements_shop_category_occurred",
+            "shop_id",
+            "category_id",
+            "occurred_at",
+            "id",
+        ),
+        Index(
+            "ix_inventory_movements_shop_item_category_occurred",
+            "shop_id",
+            "inventory_item_id",
+            "category_id",
+            "occurred_at",
+            "id",
+        ),
+        Index(
             "ix_inventory_movements_shop_category_type",
             "shop_id",
             "category_id",
@@ -313,6 +335,12 @@ class InventoryMovement(Base, BaseModelMixin):
         Enum(InventoryMovementType), nullable=False
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        nullable=False,
+    )
     driver_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     vehicle_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
 

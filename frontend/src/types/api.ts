@@ -238,6 +238,7 @@ export interface InventoryMovementRead {
   unit: BaseUnit;
   driver_name?: string | null;
   vehicle_number?: string | null;
+  occurred_at: string;
   created_at: string;
 }
 
@@ -251,11 +252,13 @@ export interface InventoryAddRequest {
   quantity: string;
   driver_name: string;
   vehicle_number: string;
+  occurred_at?: string | null;
 }
 
 export interface InventoryUseRequest {
   category_id?: UUID | null;
   quantity: string;
+  occurred_at?: string | null;
 }
 
 export interface InventoryUseSplitLine {
@@ -266,6 +269,7 @@ export interface InventoryUseSplitLine {
 export interface InventoryUseSplitRequest {
   total_quantity: string;
   categories: InventoryUseSplitLine[];
+  occurred_at?: string | null;
 }
 
 export interface InventoryTransferRead {
@@ -275,6 +279,7 @@ export interface InventoryTransferRead {
   inventory_item_id: UUID;
   quantity: string;
   unit: BaseUnit;
+  occurred_at: string;
   created_at: string;
   source_shop_name?: string | null;
   transfer_shop_name?: string | null;
@@ -849,6 +854,16 @@ export interface TransferShopUpdate {
   is_active?: boolean | null;
 }
 
+export interface InventoryBackdatePolicyRead {
+  allow_shop_backdated_inventory: boolean;
+  shop_backdate_window_days: number | null;
+}
+
+export interface InventoryBackdatePolicyUpdate {
+  allow_shop_backdated_inventory: boolean;
+  shop_backdate_window_days: number | null;
+}
+
 export interface TransferShopRead {
   id: UUID;
   name: string;
@@ -861,6 +876,7 @@ export interface TransferShopRead {
 export interface InventoryTransferCreate {
   transfer_shop_id: UUID;
   quantity: string;
+  occurred_at?: string | null;
 }
 
 export interface InventoryTransferRead {
@@ -870,6 +886,7 @@ export interface InventoryTransferRead {
   inventory_item_id: UUID;
   quantity: string;
   unit: BaseUnit;
+  occurred_at: string;
   created_at: string;
   source_shop_name?: string | null;
   transfer_shop_name?: string | null;

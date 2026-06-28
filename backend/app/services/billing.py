@@ -230,6 +230,7 @@ def _inventory_movement_for_assumption(shop: Shop, line: PreparedBillLine) -> In
         category_id=line.assumption_inventory_category_id,
         movement_type=InventoryMovementType.USE,
         quantity=quantity,
+        occurred_at=datetime.now(UTC),
     )
 
 

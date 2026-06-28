@@ -36,6 +36,10 @@ import {
   updateShopInventoryAllocation,
   adminSetShopInventoryStock,
 } from "@/api/admin";
+import {
+  fetchAdminInventoryBackdatePolicy,
+  updateAdminInventoryBackdatePolicy,
+} from "@/api/inventory";
 import { isApiRequestCanceled, toApiError } from "@/api/client";
 import {
   CalendarDateField,
@@ -48,6 +52,7 @@ import {
   BaseUnit,
   InventoryMovementType,
   type InventoryCategoryRead,
+  type InventoryBackdatePolicyRead,
   type InventoryItemRead,
   type InventoryItemStockRead,
   type InventoryMovementRead,
@@ -172,6 +177,8 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const [movementCalendarTarget, setMovementCalendarTarget] = useState<MovementHistoryCalendarTarget | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [backdatePolicy, setBackdatePolicy] = useState<InventoryBackdatePolicyRead | null>(null);
+  const [backdatePolicySaving, setBackdatePolicySaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
@@ -434,12 +441,14 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     }
     setErrorMessage(null);
     try {
-      const [nextCategories, nextShops] = await Promise.all([
+      const [nextCategories, nextShops, nextPolicy] = await Promise.all([
         fetchInventoryCategories(),
         fetchShops(),
+        fetchAdminInventoryBackdatePolicy(),
       ]);
       setCategories(nextCategories);
       setShops(nextShops);
+      setBackdatePolicy(nextPolicy);
       setSelectedShopId((currentShopId) =>
         currentShopId && nextShops.some((shop) => shop.id === currentShopId)
           ? currentShopId
@@ -466,6 +475,47 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       setRefreshing(false);
     }
   }, [loadInventoryRows]);
+
+  const saveBackdatePolicy = useCallback(async (windowDays: number) => {
+    if (!backdatePolicy || backdatePolicySaving) {
+      return;
+    }
+    setBackdatePolicySaving(true);
+    setErrorMessage(null);
+    try {
+      const updated = await updateAdminInventoryBackdatePolicy({
+        allow_shop_backdated_inventory: true,
+        shop_backdate_window_days: windowDays,
+      });
+      setBackdatePolicy(updated);
+    } catch (error) {
+      triggerHaptic();
+      setErrorMessage(getRequestMessage(error, "Unable to update backdate policy."));
+    } finally {
+      setBackdatePolicySaving(false);
+    }
+  }, [backdatePolicy, backdatePolicySaving]);
+
+  const toggleBackdatePolicy = useCallback(async () => {
+    if (!backdatePolicy || backdatePolicySaving) {
+      return;
+    }
+    setBackdatePolicySaving(true);
+    setErrorMessage(null);
+    try {
+      const nextAllowed = !backdatePolicy.allow_shop_backdated_inventory;
+      const updated = await updateAdminInventoryBackdatePolicy({
+        allow_shop_backdated_inventory: nextAllowed,
+        shop_backdate_window_days: nextAllowed ? (backdatePolicy.shop_backdate_window_days ?? 0) : 0,
+      });
+      setBackdatePolicy(updated);
+    } catch (error) {
+      triggerHaptic();
+      setErrorMessage(getRequestMessage(error, "Unable to update backdate policy."));
+    } finally {
+      setBackdatePolicySaving(false);
+    }
+  }, [backdatePolicy, backdatePolicySaving]);
 
   const loadShopData = useCallback(async (shopId: UUID) => {
     stockAbortRef.current?.abort();
@@ -1619,6 +1669,53 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       >
         <View style={styles.section}>{renderTabs()}</View>
 
+        <View style={[styles.policyCard, { borderColor: palette.border, backgroundColor: palette.card }]}>
+          <Text style={[styles.policyTitle, { color: palette.textPrimary }]}>Shop backdating</Text>
+          <Text style={[styles.policyCopy, { color: palette.textMuted }]}>
+            Allow branch users to record inventory with a past transaction date.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void toggleBackdatePolicy()}
+            style={[
+              styles.policyToggle,
+              {
+                borderColor: backdatePolicy?.allow_shop_backdated_inventory ? palette.inventory : palette.border,
+                backgroundColor: backdatePolicy?.allow_shop_backdated_inventory ? palette.inventorySoft : palette.surfaceMuted,
+              },
+            ]}
+          >
+            <Text style={[styles.policyToggleText, { color: palette.textPrimary }]}>
+              {backdatePolicy?.allow_shop_backdated_inventory ? "Enabled for shops" : "Disabled for shops"}
+            </Text>
+          </Pressable>
+          {backdatePolicy?.allow_shop_backdated_inventory ? (
+            <View style={styles.policyChipRow}>
+              {[0, 1, 3, 7, 30].map((days) => {
+                const active = (backdatePolicy.shop_backdate_window_days ?? 0) === days;
+                return (
+                  <Pressable
+                    key={days}
+                    accessibilityRole="button"
+                    onPress={() => void saveBackdatePolicy(days)}
+                    style={[
+                      styles.policyChip,
+                      {
+                        borderColor: active ? palette.inventory : palette.border,
+                        backgroundColor: active ? palette.inventorySoft : palette.surfaceMuted,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.policyChipText, { color: active ? palette.inventoryStrong : palette.textPrimary }]}>
+                      {days === 0 ? "Today" : `${days}d`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
+
         <View style={styles.flex}>
           {errorMessage ? (
             <View style={[styles.errorBox, { borderColor: palette.danger, backgroundColor: palette.dangerSoft }]}>
@@ -1914,6 +2011,14 @@ const styles = StyleSheet.create({
   input: { flex: 1, minHeight: 42, fontSize: 14, fontWeight: "700" },
   itemRow: { borderWidth: 1, borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 12 },
   stockItemCard: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 12 },
+  policyCard: { marginHorizontal: 16, marginBottom: 8, borderWidth: 1, borderRadius: 12, padding: 12, gap: 10 },
+  policyTitle: { fontSize: 15, fontWeight: "800" },
+  policyCopy: { fontSize: 13, fontWeight: "600", lineHeight: 18 },
+  policyToggle: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
+  policyToggleText: { fontSize: 13, fontWeight: "700" },
+  policyChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  policyChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  policyChipText: { fontSize: 12, fontWeight: "700" },
   stockItemHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   categoryUsageList: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, gap: 7 },
   categoryUsageRow: { minHeight: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 8 },

@@ -26,7 +26,7 @@ import { isApiRequestCanceled, toApiError } from "@/api/client";
 import { BaseUnit, type InventoryTransferRead, type TransferShopRead, type UUID } from "@/types/api";
 import { triggerHaptic } from "../admin-dashboard-utils";
 import { useAdminTheme } from "../use-admin-theme";
-import type { ThemePalette } from "../admin-dashboard-theme";
+import { adminElevation, type ThemePalette } from "../admin-dashboard-theme";
 import { money } from "@/utils/decimal";
 
 function getRequestMessage(error: unknown, fallback: string) {

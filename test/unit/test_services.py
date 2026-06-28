@@ -230,6 +230,7 @@ class ServiceUnitTests(BackendTestCase):
                             movement_type=InventoryMovementType.ADD,
                             quantity=Decimal("20"),
                             created_at=before_period,
+                            occurred_at=before_period,
                         ),
                         InventoryMovement(
                             shop_id=current_shop.id,
@@ -237,6 +238,7 @@ class ServiceUnitTests(BackendTestCase):
                             movement_type=InventoryMovementType.USE,
                             quantity=Decimal("3"),
                             created_at=before_period,
+                            occurred_at=before_period,
                         ),
                         InventoryTransfer(
                             source_shop_id=current_shop.id,
@@ -245,6 +247,7 @@ class ServiceUnitTests(BackendTestCase):
                             quantity=Decimal("4"),
                             unit=BaseUnit.KG,
                             created_at=before_period,
+                            occurred_at=before_period,
                         ),
                         InventoryMovement(
                             shop_id=current_shop.id,
@@ -252,6 +255,7 @@ class ServiceUnitTests(BackendTestCase):
                             movement_type=InventoryMovementType.ADD,
                             quantity=Decimal("10"),
                             created_at=in_period,
+                            occurred_at=in_period,
                         ),
                         InventoryMovement(
                             shop_id=current_shop.id,
@@ -259,6 +263,7 @@ class ServiceUnitTests(BackendTestCase):
                             movement_type=InventoryMovementType.USE,
                             quantity=Decimal("2"),
                             created_at=in_period,
+                            occurred_at=in_period,
                         ),
                         InventoryTransfer(
                             source_shop_id=current_shop.id,
@@ -267,6 +272,7 @@ class ServiceUnitTests(BackendTestCase):
                             quantity=Decimal("5"),
                             unit=BaseUnit.KG,
                             created_at=in_period,
+                            occurred_at=in_period,
                         ),
                     ]
                 )
@@ -1010,8 +1016,8 @@ class ServiceUnitTests(BackendTestCase):
                 use_movement = session.scalar(
                     select(InventoryMovement).where(InventoryMovement.id == use_result.movement.id)
                 )
-                add_movement.created_at = datetime(2026, 6, 1, 10, tzinfo=UTC)
-                use_movement.created_at = datetime(2026, 6, 3, 11, tzinfo=UTC)
+                add_movement.occurred_at = datetime(2026, 6, 1, 10, tzinfo=UTC)
+                use_movement.occurred_at = datetime(2026, 6, 3, 11, tzinfo=UTC)
                 session.commit()
 
                 date_movements = await list_inventory_movements(
@@ -2645,5 +2651,114 @@ class ServiceUnitTests(BackendTestCase):
                 self.assertEqual(use_movements[0].quantity, Decimal("7.800"))
                 self.assertEqual(use_movements[0].inventory_item_id, inventory_item.id)
                 self.assertEqual(use_movements[0].category_id, category.id)
+
+        self.run_async(scenario())
+
+    def test_inventory_backdate_policy_and_point_in_time_stock(self) -> None:
+        shop_actor, shop = self.run_async(self.harness.create_shop_user())
+        admin_user = self.run_async(self.harness.create_admin_user())
+
+        async def scenario() -> None:
+            from app.models.inventory_policy import InventoryBackdatePolicy
+            from app.services.inventory import _available_quantity_at
+            from app.services.inventory_backdate import assert_inventory_occurred_at_allowed
+            from app.services.inventory_policy import update_inventory_backdate_policy
+            from app.schemas.inventory_policy import InventoryBackdatePolicyUpdate
+
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                category = await create_inventory_category(
+                    db, InventoryCategoryCreate(name="Fresh")
+                )
+                _ = category
+                item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Backdate Chicken",
+                        tamil_name="சிக்கன்",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        category_ids=[],
+                    ),
+                )
+                await allocate_shop_inventory_items(db, current_shop, [item.id])
+
+                policy = InventoryBackdatePolicy(
+                    id=1,
+                    allow_shop_backdated_inventory=False,
+                    shop_backdate_window_days=0,
+                )
+                yesterday = datetime.now(UTC) - timedelta(days=1)
+                with self.assertRaises(HTTPException) as denied:
+                    assert_inventory_occurred_at_allowed(
+                        actor=shop_actor,
+                        occurred_at=yesterday,
+                        policy=policy,
+                    )
+                self.assertEqual(denied.exception.status_code, 422)
+
+                policy.allow_shop_backdated_inventory = True
+                policy.shop_backdate_window_days = 3
+                assert_inventory_occurred_at_allowed(
+                    actor=shop_actor,
+                    occurred_at=yesterday,
+                    policy=policy,
+                )
+
+                await update_inventory_backdate_policy(
+                    db,
+                    InventoryBackdatePolicyUpdate(
+                        allow_shop_backdated_inventory=True,
+                        shop_backdate_window_days=7,
+                    ),
+                )
+
+                past_add = datetime.now(UTC) - timedelta(days=2)
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("10"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                        occurred_at=past_add,
+                    ),
+                    actor=shop_actor,
+                )
+                self.assertEqual(
+                    await _available_quantity_at(db, current_shop.id, item.id, as_of=past_add),
+                    Decimal("10.000"),
+                )
+
+                with self.assertRaises(HTTPException) as use_denied:
+                    await use_shop_inventory_stock(
+                        db,
+                        current_shop,
+                        item.id,
+                        InventoryUseRequest(
+                            quantity=Decimal("5"),
+                            occurred_at=past_add - timedelta(hours=1),
+                        ),
+                        actor=shop_actor,
+                    )
+                self.assertEqual(use_denied.exception.status_code, 409)
+
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("10"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
+                    actor=admin_user,
+                )
+                self.assertEqual(
+                    await _available_quantity_at(db, current_shop.id, item.id, as_of=datetime.now(UTC)),
+                    Decimal("20.000"),
+                )
 
         self.run_async(scenario())

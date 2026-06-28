@@ -32,6 +32,7 @@ class TransferShopRead(ORMModel):
 class InventoryTransferCreate(BaseModel):
     transfer_shop_id: UUID
     quantity: Decimal = Field(gt=0)
+    occurred_at: datetime | None = None
 
 
 class InventoryTransferRead(ORMModel):
@@ -41,6 +42,7 @@ class InventoryTransferRead(ORMModel):
     inventory_item_id: UUID
     quantity: Decimal
     unit: BaseUnit
+    occurred_at: datetime
     created_at: datetime
 
     # These will be populated from joins in the service

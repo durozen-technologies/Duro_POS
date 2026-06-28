@@ -89,7 +89,12 @@ from app.schemas.inventory import (
     InventoryItemRowsPage,
     InventoryItemStockRead,
     InventoryItemUpdate,
+    InventoryMovementCreateResult,
     InventoryMovementPage,
+    InventoryMovementSplitCreateResult,
+    InventoryAddRequest,
+    InventoryUseRequest,
+    InventoryUseSplitRequest,
     InventoryPurchaseRatesConfirmRead,
     InventoryStockRowsPage,
     InventorySummaryRead,
@@ -98,6 +103,7 @@ from app.schemas.inventory import (
     ShopInventoryAllocationBulkRead,
     ShopInventoryAllocationUpdate,
 )
+from app.schemas.inventory_policy import InventoryBackdatePolicyRead, InventoryBackdatePolicyUpdate
 from app.schemas.pricing import (
     DailyPriceCreate,
     DailyPriceRead,
@@ -106,7 +112,9 @@ from app.schemas.pricing import (
     ShopBootstrapResponse,
 )
 from app.schemas.transfer import (
+    InventoryTransferCreate,
     InventoryTransferPage,
+    InventoryTransferRead,
     TransferShopCreate,
     TransferShopRead,
     TransferShopUpdate,
@@ -172,6 +180,7 @@ from app.services.expenses import (
     upload_expense_item_image,
 )
 from app.services.inventory import (
+    add_shop_inventory_stock,
     admin_set_shop_inventory_stock,
     allocate_shop_inventory_items,
     confirm_inventory_purchase_rates_today,
@@ -188,6 +197,12 @@ from app.services.inventory import (
     update_inventory_category,
     update_inventory_item_purchase_rate,
     update_shop_inventory_allocation,
+    use_shop_inventory_stock,
+    use_shop_inventory_stock_split,
+)
+from app.services.inventory_policy import (
+    get_inventory_backdate_policy,
+    update_inventory_backdate_policy,
 )
 from app.services.inventory import (
     create_inventory_item as create_inventory_management_item,
@@ -220,6 +235,7 @@ from app.services.reports import (
 )
 from app.services.storage import delete_item_image
 from app.services.transfer import (
+    create_inventory_transfer,
     create_transfer_shop,
     list_inventory_transfers,
     list_transfer_shops,

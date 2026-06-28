@@ -186,6 +186,7 @@ class InventoryMovementRead(BaseModel):
     unit: BaseUnit
     driver_name: str | None = None
     vehicle_number: str | None = None
+    occurred_at: datetime
     created_at: datetime
 
 
@@ -199,11 +200,13 @@ class InventoryAddRequest(BaseModel):
     quantity: Decimal = Field(gt=0)
     driver_name: str = Field(min_length=1, max_length=100)
     vehicle_number: str = Field(min_length=1, max_length=50)
+    occurred_at: datetime | None = None
 
 
 class InventoryUseRequest(BaseModel):
     category_id: UUID | None = None
     quantity: Decimal = Field(gt=0)
+    occurred_at: datetime | None = None
 
 
 class InventoryUseSplitLine(BaseModel):
@@ -214,12 +217,14 @@ class InventoryUseSplitLine(BaseModel):
 class InventoryUseSplitRequest(BaseModel):
     total_quantity: Decimal = Field(gt=0)
     categories: list[InventoryUseSplitLine] = Field(min_length=1)
+    occurred_at: datetime | None = None
 
 
 class InventoryStockAdjustRequest(BaseModel):
     available_quantity: Decimal | None = Field(default=None, ge=0)
     used_quantity: Decimal | None = Field(default=None, ge=0)
     category_id: UUID | None = None
+    occurred_at: datetime | None = None
 
 
 class InventoryMovementCreateResult(BaseModel):

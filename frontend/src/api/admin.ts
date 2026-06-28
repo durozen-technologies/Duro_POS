@@ -943,6 +943,7 @@ export type InventoryStockAdjustRequest = {
   available_quantity?: string | null;
   used_quantity?: string | null;
   category_id?: string | null;
+  occurred_at?: string | null;
 };
 
 export async function adminSetShopInventoryStock(
