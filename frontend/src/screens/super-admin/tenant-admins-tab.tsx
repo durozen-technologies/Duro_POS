@@ -28,6 +28,21 @@ function formatLastLogin(value?: string | null) {
   return date.toLocaleString();
 }
 
+// ponytail: simple inline chip — no external dep needed
+function StatusBadge({ active }: { active: boolean }) {
+  return (
+    <View
+      className={`rounded-full px-2 py-0.5 ${active ? "bg-successSoft" : "bg-surface"}`}
+    >
+      <Text
+        className={`text-xs font-medium ${active ? "text-success" : "text-muted"}`}
+      >
+        {active ? "Active" : "Disabled"}
+      </Text>
+    </View>
+  );
+}
+
 export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
   const {
     admins,
@@ -109,16 +124,21 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
     ({ item }: { item: TenantAdminRead }) => (
       <Pressable
         accessibilityRole="button"
-        className="mt-3 rounded-card border border-border bg-card p-4 shadow-sm active:opacity-80"
+        accessibilityLabel={`Manage ${item.username}`}
+        className="mb-2 rounded-card border border-border bg-card px-4 py-3 active:opacity-80"
         onPress={() => void openManageSheet(item)}
       >
-        <Text className="font-medium text-ink">{item.username}</Text>
-        <Text className="mt-1 text-sm text-muted">
+        <View className="flex-row items-center justify-between">
+          <Text className="flex-1 font-medium text-ink" numberOfLines={1}>
+            {item.username}
+          </Text>
+          <StatusBadge active={item.is_active} />
+        </View>
+        <Text className="mt-0.5 text-sm text-muted" numberOfLines={1}>
           {item.organization_name}
         </Text>
-        <Text className="mt-1 text-xs text-muted">
-          {item.is_active ? "Active" : "Disabled"} ·{" "}
-          {formatLastLogin(item.last_login_at)}
+        <Text className="mt-0.5 text-xs text-muted">
+          Last login: {formatLastLogin(item.last_login_at)}
         </Text>
       </Pressable>
     ),
@@ -136,8 +156,8 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
       <Text
         className={
           statusFilter === key
-            ? "font-medium text-white"
-            : "font-medium text-ink"
+            ? "text-sm font-semibold text-white"
+            : "text-sm font-medium text-ink"
         }
       >
         {label}
@@ -147,12 +167,38 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
 
   const listHeader = (
     <View>
-      <Text className="text-lg font-semibold text-ink">Tenant admins</Text>
-      <Text className="mt-1 text-sm text-muted">
-        {counts ? `${counts.active}/${counts.all} active` : "Loading counts..."}
-      </Text>
+      {/* Summary */}
+      <View className="flex-row items-baseline justify-between">
+        <Text className="text-base font-semibold text-ink">Tenant Admins</Text>
+        {counts ? (
+          <Text className="text-sm text-muted">
+            {counts.active}/{counts.all} active
+          </Text>
+        ) : null}
+      </View>
 
-      <Text className="mt-4 text-sm font-medium text-ink">
+      {/* Search */}
+      <TextInput
+        accessibilityLabel="Search tenant admins by username"
+        autoCapitalize="none"
+        autoCorrect={false}
+        className="mt-4 min-h-[44px] rounded-control border border-border bg-card px-4 py-2 text-ink"
+        placeholder="Search by username…"
+        placeholderTextColor="#4B6356"
+        returnKeyType="search"
+        value={search}
+        onChangeText={setSearch}
+      />
+
+      {/* Status filter */}
+      <View className="mt-2 flex-row gap-2">
+        {renderStatusChip("all", "All")}
+        {renderStatusChip("active", "Active")}
+        {renderStatusChip("disabled", "Disabled")}
+      </View>
+
+      {/* Org filter */}
+      <Text className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">
         Filter by organization
       </Text>
       <ScrollView
@@ -170,8 +216,8 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
           <Text
             className={
               organizationFilter === "all"
-                ? "font-medium text-white"
-                : "font-medium text-ink"
+                ? "text-sm font-semibold text-white"
+                : "text-sm font-medium text-ink"
             }
           >
             All
@@ -192,8 +238,8 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
             <Text
               className={
                 organizationFilter === org.id
-                  ? "font-medium text-white"
-                  : "font-medium text-ink"
+                  ? "text-sm font-semibold text-white"
+                  : "text-sm font-medium text-ink"
               }
             >
               {org.name}
@@ -202,32 +248,19 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
         ))}
       </ScrollView>
 
-      <TextInput
-        accessibilityLabel="Search tenant admins"
-        autoCapitalize="none"
-        autoCorrect={false}
-        className="mt-3 min-h-[44px] rounded-control border border-border bg-card px-4 py-2"
-        placeholder="Search by username"
-        value={search}
-        onChangeText={setSearch}
-      />
-
-      <View className="mt-2 flex-row flex-wrap gap-2">
-        {renderStatusChip("all", "All")}
-        {renderStatusChip("active", "Active")}
-        {renderStatusChip("disabled", "Disabled")}
-      </View>
-
-      <Text className="mt-8 text-lg font-semibold text-ink">
+      {/* Add admin form */}
+      <Text className="mt-6 text-base font-semibold text-ink">
         Add Tenant Admin
       </Text>
       {activeOrgs.length === 0 ? (
-        <Text className="mt-2 text-sm text-warning">
-          Create an active organization on the Organizations tab first.
-        </Text>
+        <View className="mt-2 rounded-control border border-warningSoft bg-warningSoft px-4 py-3">
+          <Text className="text-sm text-warning">
+            Create an active organization first.
+          </Text>
+        </View>
       ) : (
         <>
-          <Text className="mt-2 text-sm font-medium text-ink">
+          <Text className="mt-3 text-xs font-medium uppercase tracking-wide text-muted">
             Organization
           </Text>
           <ScrollView
@@ -247,8 +280,8 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
                 <Text
                   className={
                     selectedOrgId === org.id
-                      ? "font-medium text-white"
-                      : "font-medium text-ink"
+                      ? "text-sm font-semibold text-white"
+                      : "text-sm font-medium text-ink"
                   }
                 >
                   {org.name}
@@ -257,26 +290,33 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
             ))}
           </ScrollView>
           <TextInput
+            accessibilityLabel="New admin username"
             autoCapitalize="none"
             autoCorrect={false}
-            className="mt-3 min-h-[44px] rounded-control border border-border bg-card px-4 py-2"
-            placeholder="Username"
+            className="mt-3 min-h-[44px] rounded-control border border-border bg-card px-4 py-2 text-ink"
+            placeholder="Username (min 3 characters)"
+            placeholderTextColor="#4B6356"
+            returnKeyType="next"
             value={newAdminUsername}
             onChangeText={setNewAdminUsername}
           />
           <TextInput
+            accessibilityLabel="New admin password"
             autoCapitalize="none"
             autoCorrect={false}
-            className="mt-2 min-h-[44px] rounded-control border border-border bg-card px-4 py-2"
-            placeholder="Password (8+ characters)"
+            className="mt-2 min-h-[44px] rounded-control border border-border bg-card px-4 py-2 text-ink"
+            placeholder="Password (min 8 characters)"
+            placeholderTextColor="#4B6356"
             secureTextEntry
+            returnKeyType="done"
             value={newAdminPassword}
             onChangeText={setNewAdminPassword}
+            onSubmitEditing={() => void handleCreate()}
           />
           <Pressable
             accessibilityRole="button"
-            className={`mt-3 min-h-[44px] items-center justify-center rounded-control px-4 py-2 shadow-sm ${
-              creating ? "bg-muted opacity-50" : "bg-accent active:opacity-80"
+            className={`mt-3 min-h-[44px] items-center justify-center rounded-control px-4 py-2 ${
+              creating ? "bg-accent opacity-50" : "bg-accent active:opacity-80"
             }`}
             disabled={creating}
             onPress={() => void handleCreate()}
@@ -284,15 +324,22 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
             {creating ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text className="font-medium text-white">Add Admin</Text>
+              <Text className="text-sm font-semibold text-white">
+                Add Admin
+              </Text>
             )}
           </Pressable>
         </>
       )}
 
-      {error ? <Text className="mt-3 text-sm text-danger">{error}</Text> : null}
-      <Text className="mt-6 text-sm font-medium text-ink">
-        All tenant admins
+      {error ? (
+        <View className="mt-3 rounded-control border border-dangerSoft bg-dangerSoft px-4 py-3">
+          <Text className="text-sm text-danger">{error}</Text>
+        </View>
+      ) : null}
+
+      <Text className="mb-3 mt-6 text-base font-semibold text-ink">
+        All Admins
       </Text>
     </View>
   );
@@ -311,8 +358,8 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
           contentContainerStyle={{ paddingBottom: 24 }}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
-            <Text className="mt-3 text-sm text-muted">
-              No tenant admins found matching your criteria.
+            <Text className="mt-6 text-center text-sm text-muted">
+              No admins found matching your criteria.
             </Text>
           }
           ListFooterComponent={

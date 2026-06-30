@@ -174,9 +174,7 @@ export function SuperAdminDashboardScreen() {
           <Text className="text-3xl font-bold tracking-tight text-ink">
             Super Admin
           </Text>
-          <Text className="mt-1 text-base text-muted">
-            {user?.username}
-          </Text>
+          <Text className="mt-1 text-base text-muted">{user?.username}</Text>
 
           {/* Org stats */}
           {orgCounts ? (
