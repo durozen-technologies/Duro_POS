@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from uuid import uuid4
+from app.core.ids import uuid7
 
 import sqlalchemy as sa
 from alembic import op
@@ -82,7 +82,7 @@ def _backfill_categories(bind) -> None:
         key = category_name.lower()
         category_id = categories_by_name.get(key)
         if category_id is None:
-            category_id = uuid4()
+            category_id = uuid7()
             now = datetime.now(UTC)
             bind.execute(
                 item_categories.insert().values(

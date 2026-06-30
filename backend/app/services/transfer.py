@@ -13,6 +13,7 @@ from ..models import (
     TransferShop,
     User,
 )
+from ..services.tenant_query import resolve_organization_id
 from ..schemas.transfer import (
     InventoryTransferCreate,
     InventoryTransferPage,
@@ -60,12 +61,17 @@ async def list_transfer_shops(
 
 
 async def create_transfer_shop(
-    db: AsyncSession, payload: TransferShopCreate, user_id: UUID
+    db: AsyncSession,
+    payload: TransferShopCreate,
+    user_id: UUID,
+    organization_id: UUID | None = None,
 ) -> TransferShopRead:
+    org_id = organization_id or await resolve_organization_id(db)
     shop = TransferShop(
         name=payload.name,
         tamil_name=payload.tamil_name,
         is_active=payload.is_active,
+        organization_id=org_id,
     )
     db.add(shop)
     await db.flush()

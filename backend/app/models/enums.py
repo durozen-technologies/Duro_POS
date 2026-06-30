@@ -2,8 +2,29 @@ from enum import Enum
 
 
 class UserRole(str, Enum):
-    ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
+    TENANT_ADMIN = "tenant_admin"
     SHOP_ACCOUNT = "shop_account"
+
+
+def parse_user_role(raw: str | UserRole) -> UserRole:
+    if isinstance(raw, UserRole):
+        return raw
+    if raw == "admin":
+        return UserRole.TENANT_ADMIN
+    return UserRole(raw)
+
+
+def is_super_admin(role: UserRole) -> bool:
+    return role == UserRole.SUPER_ADMIN
+
+
+def is_tenant_admin(role: UserRole) -> bool:
+    return role == UserRole.TENANT_ADMIN
+
+
+def normalize_user_role(role: UserRole) -> UserRole:
+    return role
 
 
 class UnitType(str, Enum):

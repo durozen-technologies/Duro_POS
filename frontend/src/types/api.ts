@@ -1,7 +1,8 @@
 export type UUID = string;
 
 export enum UserRole {
-  ADMIN = "admin",
+  SUPER_ADMIN = "super_admin",
+  TENANT_ADMIN = "tenant_admin",
   SHOP_ACCOUNT = "shop_account",
 }
 
@@ -57,6 +58,8 @@ export interface UserSession {
   role: UserRole;
   is_active: boolean;
   created_at: string;
+  organization_id?: UUID | null;
+  permissions?: string[];
   shop_id?: UUID | null;
   shop_name?: string | null;
   requires_price_setup?: boolean;

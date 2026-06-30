@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_admin, get_shop_or_404
+from app.core.deps import get_current_admin, get_tenant_shop_or_404
 from app.db.database import get_db
 from app.models import Shop, User
 from app.schemas.admin import (
@@ -139,7 +139,7 @@ DashboardBillsLimitParam = Annotated[
 ]
 DBSession = Annotated[AsyncSession, Depends(get_db)]
 AdminUserDep = Annotated[User, Depends(get_current_admin)]
-ShopDep = Annotated[Shop, Depends(get_shop_or_404)]
+ShopDep = Annotated[Shop, Depends(get_tenant_shop_or_404)]
 ItemImageUploadOptional = Annotated[
     UploadFile | None,
     File(

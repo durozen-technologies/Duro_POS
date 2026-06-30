@@ -11,13 +11,16 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import require_roles
+from app.auth import TenantContext, get_tenant_context
+from app.auth.dependencies import require_tenant_admin
 from app.db.database import get_db
-from app.models import Shop, User, UserRole
+from app.models import Shop, User
+from app.services.tenant_query import get_shop_for_tenant_or_404
+from app.models import Shop, User
 
 
 def get_current_admin(
-    user: User = Depends(require_roles(UserRole.ADMIN)),
+    user: User = Depends(require_tenant_admin()),
 ) -> User:
     """
     Returns the already-authenticated admin User object.
@@ -51,3 +54,12 @@ async def get_shop_or_404(
             detail="Shop not found",
         )
     return shop
+
+
+async def get_tenant_shop_or_404(
+    shop_id: UUID,
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: AsyncSession = Depends(get_db),
+) -> Shop:
+    org_id = ctx.require_organization_id()
+    return await get_shop_for_tenant_or_404(db, shop_id, org_id)

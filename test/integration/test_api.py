@@ -4,7 +4,7 @@ from collections.abc import AsyncIterable
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
-from uuid import uuid4
+from app.core.ids import uuid7
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -90,7 +90,8 @@ from app.routers.admin import (
     update_shop_expense_order,
     update_shop_status,
 )
-from app.routers.auth import login, me, register
+from app.routers.auth import me, register
+from app.services.auth import login_user
 from app.routers.catalog import get_item_image as get_catalog_item_image
 from app.routers.health import health_check
 from app.routers.admin.inventory import (
@@ -167,7 +168,7 @@ async def _read_streaming_response_body(body_iterator: AsyncIterable[bytes | str
 
 class BackendApiIntegrationTests(BackendTestCase):
     def test_health_endpoint(self) -> None:
-        from unittest.mock import Mock
+        from unittest.mock import Mock, patch
 
         from fastapi import Request
 
@@ -176,10 +177,19 @@ class BackendApiIntegrationTests(BackendTestCase):
         mock_request.app.state.database_error = None
         import json
 
-        response = health_check(mock_request)
+        with patch("app.routers.health.redis_health_status", return_value="disabled"), patch(
+            "app.routers.health._rustfs_health_status", return_value="disabled"
+        ):
+            response = self.run_async(health_check(mock_request))
         self.assertEqual(
             json.loads(response.body),
-            {"status": "ok", "database": "connected", "error": None},
+            {
+                "status": "ok",
+                "database": "connected",
+                "redis": "disabled",
+                "rustfs": "disabled",
+                "error": None,
+            },
         )
 
     def test_auth_endpoints(self) -> None:
@@ -194,7 +204,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     ),
                     db,
                 )
-                self.assertEqual(registered.user.role.value, "admin")
+                self.assertEqual(registered.user.role.value, "tenant_admin")
                 self.assertEqual(registered.user.next_screen, "admin_dashboard")
                 self.assertTrue(registered.access_token)
 
@@ -204,9 +214,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 current_session = await me(current_user=admin_user, db=db)
                 self.assertEqual(current_session.username, "admin")
 
-                logged_in = await login(
-                    LoginRequest(username="admin", password="password123"), db
-                )
+                logged_in = await login_user(db, "admin", "password123")
                 self.assertEqual(logged_in.user.username, "admin")
                 self.assertTrue(logged_in.access_token)
 
@@ -324,6 +332,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 session.commit()
 
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 response = await admin_report_pdf(
                     sections=["sales", "billing", "items", "inventory"],
                     detail_level="summary",
@@ -389,6 +398,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 with self.assertRaises(HTTPException) as empty_sections_ctx:
                     await admin_report_pdf(sections=[], db=db)
                 self.assertEqual(empty_sections_ctx.exception.status_code, 422)
@@ -410,6 +420,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 catalogue_chicken = session.scalar(
                     select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
@@ -500,6 +511,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 catalogue_items = session.scalars(
                     select(Item).where(
@@ -549,6 +561,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 catalogue_items = session.scalars(
                     select(Item).where(
@@ -649,9 +662,10 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
-                poultry = await create_admin_item_category(ItemCategoryCreate(name="Order Poultry"), db)
-                seafood = await create_admin_item_category(ItemCategoryCreate(name="Order Seafood"), db)
+                poultry = await create_admin_item_category(ItemCategoryCreate(name="Order Poultry"), db, admin_user)
+                seafood = await create_admin_item_category(ItemCategoryCreate(name="Order Seafood"), db, admin_user)
 
                 chicken = await create_inventory_item(
                     name="Filter Chicken",
@@ -659,6 +673,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வடிகட்டி கோழி",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     sort_order=10,
@@ -671,6 +686,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வடிகட்டி இறால்",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     sort_order=20,
@@ -683,6 +699,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வடிகட்டி பொது",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     sort_order=30,
@@ -765,6 +782,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 other_current_shop = session.scalar(select(Shop).where(Shop.id == other_shop.id))
 
@@ -774,6 +792,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வரிசை ஒன்று",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     sort_order=10,
@@ -785,6 +804,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வரிசை இரண்டு",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     sort_order=20,
@@ -882,11 +902,13 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 other_current_shop = session.scalar(select(Shop).where(Shop.id == other_shop.id))
 
                 session.add(
                     Item(
+                        organization_id=current_shop.organization_id,
                         name="Tea Expense",
                         tamil_name="பில் தேநீர்",
                         unit_type=UnitType.WEIGHT,
@@ -1117,6 +1139,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 catalogue_items = session.scalars(
                     select(Item).where(
@@ -1134,7 +1157,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     db,
                 )
 
-                first_page = await get_catalogue_item_rows(db, limit=1)
+                first_page = await get_catalogue_item_rows(db, admin_user, limit=1)
                 self.assertEqual(len(first_page.items), 1)
                 self.assertTrue(first_page.has_more)
                 self.assertFalse(first_page.items[0].allocated)
@@ -1142,6 +1165,7 @@ class BackendApiIntegrationTests(BackendTestCase):
 
                 next_page = await get_catalogue_item_rows(
                     db,
+                    admin_user,
                     limit=10,
                     cursor_sort_order=first_page.next_cursor_sort_order,
                     cursor_name=first_page.next_cursor_name,
@@ -1152,10 +1176,10 @@ class BackendApiIntegrationTests(BackendTestCase):
                     {"Chicken", "Duck", "Quail"},
                 )
 
-                search_page = await get_catalogue_item_rows(db, q="qua", limit=10)
+                search_page = await get_catalogue_item_rows(db, admin_user, q="qua", limit=10)
                 self.assertEqual([item.name for item in search_page.items], ["Quail"])
 
-                counts = await get_catalogue_item_counts(db)
+                counts = await get_catalogue_item_counts(db, admin_user)
                 self.assertEqual(counts.all, 3)
                 self.assertEqual(counts.allocated, 1)
                 self.assertEqual(counts.available, 2)
@@ -1171,6 +1195,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 inactive_item = session.scalar(
                     select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
@@ -1207,7 +1232,7 @@ class BackendApiIntegrationTests(BackendTestCase):
 
                 with self.assertRaises(HTTPException) as missing_context:
                     await allocate_shop_catalogue_items(
-                        ShopItemAllocationBulkCreate(item_ids=[uuid4()]),
+                        ShopItemAllocationBulkCreate(item_ids=[uuid7()]),
                         current_shop,
                         db,
                     )
@@ -1223,6 +1248,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
 
                 created_item = await create_inventory_item(
@@ -1231,6 +1257,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="சிறப்பு கோழி",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes='{"grade":"A","cut":"curry"}',
                     image=None,
@@ -1265,6 +1292,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வரிசை அ",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     sort_order=20,
@@ -1276,16 +1304,18 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வரிசை ஆ",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     sort_order=10,
                     image=None,
                 )
-                sorted_first_page = await get_catalogue_items(db, q="Sorted", limit=1)
+                sorted_first_page = await get_catalogue_items(db, admin_user, q="Sorted", limit=1)
                 self.assertEqual([item.id for item in sorted_first_page.items], [sorted_beta.id])
                 self.assertEqual(sorted_first_page.next_cursor_sort_order, 10)
                 sorted_second_page = await get_catalogue_items(
                     db,
+                    admin_user,
                     q="Sorted",
                     limit=1,
                     cursor_sort_order=sorted_first_page.next_cursor_sort_order,
@@ -1302,6 +1332,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
 
                 created_item = await create_inventory_item(
@@ -1310,6 +1341,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="பட்டியல் சோதனை",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     image=None,
@@ -1319,7 +1351,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 item_row.image_content_type = "image/jpeg"
                 session.commit()
 
-                catalogue_page = await get_catalogue_items(db, q="Catalogue Trial", limit=10)
+                catalogue_page = await get_catalogue_items(db, admin_user, q="Catalogue Trial", limit=10)
                 self.assertEqual(catalogue_page.total_count, 1)
                 self.assertEqual(catalogue_page.counts.catalogue, 1)
                 self.assertEqual(catalogue_page.items[0].id, created_item.id)
@@ -1328,7 +1360,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 self.assertFalse(catalogue_page.items[0].allocated)
 
                 await allocate_shop_catalogue_item(created_item.id, current_shop, db)
-                allocated_page = await get_catalogue_items(db, q="Catalogue Trial", allocated=True, limit=10)
+                allocated_page = await get_catalogue_items(db, admin_user, q="Catalogue Trial", allocated=True, limit=10)
                 self.assertEqual(allocated_page.total_count, 1)
                 self.assertTrue(allocated_page.items[0].allocated)
                 self.assertFalse(allocated_page.items[0].can_delete)
@@ -1387,6 +1419,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
                 chicken.image_object_key = "items/chicken/original/image.jpg"
                 chicken.image_content_type = "image/jpeg"
@@ -1456,6 +1489,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken"))
                 chicken.image_object_key = "items/chicken/original/image.jpg"
                 chicken.image_content_type = "image/jpeg"
@@ -1530,6 +1564,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 category = await create_admin_inventory_category(
                     InventoryCategoryCreatePayload(name="Cold Storage"),
                     db,
@@ -1590,6 +1625,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 created_item = await create_admin_inventory_item_metadata(
                     InventoryItemCreatePayload(
                         name="Chicken Whole",
@@ -1616,6 +1652,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 created_item = await create_admin_inventory_item_metadata(
                     InventoryItemCreatePayload(
                         name="Mutton Curry Cut",
@@ -1656,11 +1693,12 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
 
                 created_category = await create_admin_item_category(
-                    ItemCategoryCreate(name="Fresh Cuts"), db
+                    ItemCategoryCreate(name="Fresh Cuts"), db, admin_user
                 )
-                listed_categories = await get_item_categories(db)
+                listed_categories = await get_item_categories(db, admin_user)
                 self.assertIn(created_category.id, {category.id for category in listed_categories})
 
                 created_item = await create_inventory_item(
@@ -1669,16 +1707,17 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வகை சோதனை",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     category_id=created_category.id,
                     image=None,
                 )
-                detail = await get_catalogue_item_detail(created_item.id, db)
+                detail = await get_catalogue_item_detail(created_item.id, db, admin_user)
                 self.assertEqual(detail.category_id, created_category.id)
                 self.assertEqual(detail.category, "Fresh Cuts")
 
-                response = await delete_admin_item_category(created_category.id, db)
+                response = await delete_admin_item_category(created_category.id, db, admin_user)
                 self.assertEqual(response.status_code, 204)
                 session.expire_all()
                 cleared_item = session.scalar(select(Item).where(Item.id == created_item.id))
@@ -1691,9 +1730,10 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
 
                 created_category = await create_admin_item_category(
-                    ItemCategoryCreate(name="Fresh Cuts"), db
+                    ItemCategoryCreate(name="Fresh Cuts"), db, admin_user
                 )
                 created_item = await create_inventory_item(
                     name="Rename Category Trial",
@@ -1701,6 +1741,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="வகை பெயர் சோதனை",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes="{}",
                     category_id=created_category.id,
@@ -1711,14 +1752,15 @@ class BackendApiIntegrationTests(BackendTestCase):
                     created_category.id,
                     ItemCategoryUpdate(name="Premium Cuts"),
                     db,
+                    admin_user,
                 )
                 self.assertEqual(renamed_category.name, "Premium Cuts")
 
-                listed_categories = await get_item_categories(db)
+                listed_categories = await get_item_categories(db, admin_user)
                 listed_category = next(category for category in listed_categories if category.id == created_category.id)
                 self.assertEqual(listed_category.name, "Premium Cuts")
 
-                detail = await get_catalogue_item_detail(created_item.id, db)
+                detail = await get_catalogue_item_detail(created_item.id, db, admin_user)
                 self.assertEqual(detail.category_id, created_category.id)
                 self.assertEqual(detail.category, "Premium Cuts")
 
@@ -1728,12 +1770,13 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
 
                 first_category = await create_admin_item_category(
-                    ItemCategoryCreate(name="Seafood"), db
+                    ItemCategoryCreate(name="Seafood"), db, admin_user
                 )
                 second_category = await create_admin_item_category(
-                    ItemCategoryCreate(name="Poultry"), db
+                    ItemCategoryCreate(name="Poultry"), db, admin_user
                 )
 
                 with self.assertRaises(HTTPException) as duplicate_context:
@@ -1741,14 +1784,16 @@ class BackendApiIntegrationTests(BackendTestCase):
                         second_category.id,
                         ItemCategoryUpdate(name=first_category.name.lower()),
                         db,
+                        admin_user,
                     )
                 self.assertEqual(duplicate_context.exception.status_code, 409)
 
                 with self.assertRaises(HTTPException) as missing_context:
                     await update_admin_item_category(
-                        uuid4(),
+                        uuid7(),
                         ItemCategoryUpdate(name="Missing Category"),
                         db,
+                        admin_user,
                     )
                 self.assertEqual(missing_context.exception.status_code, 404)
 
@@ -1758,6 +1803,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
 
                 created_item = await create_inventory_item(
                     name="Noop Metadata Trial",
@@ -1765,6 +1811,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     base_unit=BaseUnit.KG,
                     tamil_name="மாற்றமில்லை சோதனை",
                     db=db,
+                    current_user=admin_user,
                     is_active=True,
                     custom_attributes='{"grade":"A"}',
                     sort_order=7,
@@ -1808,6 +1855,7 @@ class BackendApiIntegrationTests(BackendTestCase):
 
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id))
 
@@ -1840,6 +1888,7 @@ class BackendApiIntegrationTests(BackendTestCase):
             await self.harness.create_items_for_shop(shop.id, ("Chicken", "Duck"))
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 items = session.scalars(
                     select(Item).where(Item.shop_id == shop.id).order_by(Item.name)
@@ -1897,12 +1946,13 @@ class BackendApiIntegrationTests(BackendTestCase):
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 catalogue_chicken = session.scalar(
                     select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
                 )
 
-                catalogue_detail = await get_catalogue_item_detail(catalogue_chicken.id, db)
+                catalogue_detail = await get_catalogue_item_detail(catalogue_chicken.id, db, admin_user)
                 self.assertEqual(catalogue_detail.id, catalogue_chicken.id)
                 self.assertEqual(catalogue_detail.scope, ItemScope.GLOBAL)
                 self.assertEqual(catalogue_detail.allocated_shop_count, 0)
@@ -1938,6 +1988,7 @@ class BackendApiIntegrationTests(BackendTestCase):
             await self.harness.create_items_for_shop(shop.id, ("Chicken", "Duck"))
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 items = session.scalars(
                     select(Item).where(Item.shop_id == shop.id).order_by(Item.name)
@@ -1969,6 +2020,7 @@ class BackendApiIntegrationTests(BackendTestCase):
             await self.harness.create_items_for_shop(shop.id, ("Chicken",))
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id))
 
@@ -2031,13 +2083,13 @@ class BackendApiIntegrationTests(BackendTestCase):
 
                 with self.assertRaises(HTTPException) as missing_ctx:
                     await bill_details(
-                        BillDetailBatchRequest(bill_ids=[created_bill.id, uuid4()]),
+                        BillDetailBatchRequest(bill_ids=[created_bill.id, uuid7()]),
                         db,
                     )
                 self.assertEqual(missing_ctx.exception.status_code, 404)
 
                 with self.assertRaises(ValidationError):
-                    BillDetailBatchRequest(bill_ids=[uuid4() for _ in range(51)])
+                    BillDetailBatchRequest(bill_ids=[uuid7() for _ in range(51)])
 
         self.run_async(scenario())
 
@@ -2066,7 +2118,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 self.assertEqual(created_shop.username, "ml1")
                 shop_id = created_shop.id
 
-                listed_shops = await get_shops(db)
+                listed_shops = await get_shops(db, admin_user)
                 self.assertEqual(len(listed_shops), 1)
                 self.assertIsNone(listed_shops[0].last_active_at)
 
@@ -2102,9 +2154,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 admin_shop_bootstrap = await shop_prices_bootstrap(current_shop, db)
                 self.assertTrue(admin_shop_bootstrap.prices_set)
 
-                shop_login = await login(
-                    LoginRequest(username="ml1", password="password"), db
-                )
+                shop_login = await login_user(db, "ml1", "password")
                 self.assertEqual(shop_login.user.next_screen, "billing")
 
                 shop_user = await db.scalar(
@@ -2113,8 +2163,14 @@ class BackendApiIntegrationTests(BackendTestCase):
                     .where(User.id == shop_login.user.id)
                 )
                 self.assertIsNotNone(shop_user.last_login_at)
-                listed_shops = await get_shops(db)
-                self.assertEqual(listed_shops[0].last_active_at, shop_user.last_login_at)
+                listed_shops = await get_shops(db, admin_user)
+                last_active = listed_shops[0].last_active_at
+                last_login = shop_user.last_login_at
+                if last_active is not None and last_active.tzinfo is None:
+                    last_active = last_active.replace(tzinfo=UTC)
+                if last_login is not None and last_login.tzinfo is None:
+                    last_login = last_login.replace(tzinfo=UTC)
+                self.assertEqual(last_active, last_login)
                 shop_session = await me(current_user=shop_user, db=db)
                 self.assertEqual(shop_session.shop_id, shop_id)
 
@@ -2281,7 +2337,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 self.assertEqual(len(range_bill_rows.items), 1)
 
                 disabled_shop = await update_shop_status(
-                    shop_id, ShopStatusUpdate(is_active=False), db
+                    shop_id, ShopStatusUpdate(is_active=False), db, admin_user
                 )
                 self.assertFalse(disabled_shop.is_active)
 
@@ -2289,11 +2345,11 @@ class BackendApiIntegrationTests(BackendTestCase):
 
     def test_inventory_backdate_policy_endpoints(self) -> None:
         shop_actor, shop = self.run_async(self.harness.create_shop_user())
-        admin_user = self.run_async(self.harness.create_admin_user())
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
                 db = AsyncSessionAdapter(session)
+                admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
                 shop_user = session.scalar(select(User).where(User.id == shop_actor.id))
 

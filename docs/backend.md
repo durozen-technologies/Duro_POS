@@ -63,7 +63,7 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ## Core Environment
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/meat_billing
+DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/duro_pos
 SECRET_KEY=replace-this-in-production
 PRODUCTION=False
 ALLOWED_HOSTS=["*"]

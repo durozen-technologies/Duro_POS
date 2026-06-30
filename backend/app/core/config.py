@@ -36,9 +36,9 @@ def parse_list_setting(value: object) -> list[str]:
 
 
 class Settings(BaseSettings):
-    app_name: str = "Meat Billing System API"
+    app_name: str = "Duro POS API"
     api_v1_prefix: str = "/api/v1"
-    database_url: str = "postgresql+asyncpg://postgres:root@localhost:5432/meat_billing"
+    database_url: str = "postgresql+asyncpg://postgres:root@localhost:5432/duro_pos"
     production: bool = False
     secret_key: str = ""
     jwt_algorithm: str = "HS256"

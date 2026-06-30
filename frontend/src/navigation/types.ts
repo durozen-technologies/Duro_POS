@@ -15,6 +15,7 @@ export type AppStackParamList = {
   AppLoading: undefined;
   BootstrapState: undefined;
   Login: undefined;
+  SuperAdminDashboard: undefined;
   AdminDashboard: undefined;
   AdminItemsCatalogue: undefined;
   AdminItemAssumption: undefined;

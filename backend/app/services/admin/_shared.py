@@ -64,6 +64,7 @@ from app.schemas.admin import (
     ShopUpdate,
 )
 from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
+from app.services.tenant_query import resolve_organization_id
 
 __all__ = [
     "_shop_to_read",
@@ -270,8 +271,11 @@ def _record_item_event(
     )
 
 
-def _shop_item_visibility_filter(shop_id: UUID):
-    return or_(Item.shop_id.is_(None), Item.shop_id == shop_id)
+def _shop_item_visibility_filter(shop_id: UUID, organization_id: UUID):
+    return and_(
+        Item.organization_id == organization_id,
+        or_(Item.shop_id.is_(None), Item.shop_id == shop_id),
+    )
 
 
 def _normalize_item_name(raw_name: str) -> str:
@@ -299,9 +303,14 @@ async def _ensure_unique_item_name(
     item_name: str,
     *,
     shop_id: UUID | None = None,
+    organization_id: UUID | None = None,
     exclude_item_id: UUID | None = None,
 ) -> None:
-    filters = [func.lower(Item.name) == item_name.lower()]
+    org_id = organization_id or await resolve_organization_id(db, shop_id=shop_id)
+    filters = [
+        func.lower(Item.name) == item_name.lower(),
+        Item.organization_id == org_id,
+    ]
     if shop_id is not None:
         filters.append(Item.shop_id == shop_id)
     else:
@@ -324,22 +333,31 @@ def _normalize_category_name(raw_name: str) -> str:
     return category_name
 
 
-async def list_item_categories(db: AsyncSession) -> list[ItemCategoryRead]:
+async def list_item_categories(db: AsyncSession, organization_id: UUID | None = None) -> list[ItemCategoryRead]:
+    org_id = organization_id or await resolve_organization_id(db)
     rows = await db.scalars(
-        select(ItemCategory).order_by(func.lower(ItemCategory.name), ItemCategory.id)
+        select(ItemCategory)
+        .where(ItemCategory.organization_id == org_id)
+        .order_by(func.lower(ItemCategory.name), ItemCategory.id)
     )
     return [ItemCategoryRead.model_validate(category) for category in rows.all()]
 
 
-async def create_item_category(db: AsyncSession, payload: ItemCategoryCreate) -> ItemCategoryRead:
+async def create_item_category(
+    db: AsyncSession, payload: ItemCategoryCreate, organization_id: UUID | None = None
+) -> ItemCategoryRead:
+    org_id = organization_id or await resolve_organization_id(db)
     category_name = _normalize_category_name(payload.name)
     existing = await db.scalar(
-        select(ItemCategory).where(func.lower(ItemCategory.name) == category_name.lower())
+        select(ItemCategory).where(
+            func.lower(ItemCategory.name) == category_name.lower(),
+            ItemCategory.organization_id == org_id,
+        )
     )
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category already exists")
 
-    category = ItemCategory(name=category_name)
+    category = ItemCategory(name=category_name, organization_id=org_id)
     db.add(category)
     await db.flush()
     await db.commit()
@@ -347,11 +365,17 @@ async def create_item_category(db: AsyncSession, payload: ItemCategoryCreate) ->
 
 
 async def update_item_category(
-    db: AsyncSession, category_id: UUID, payload: ItemCategoryUpdate
+    db: AsyncSession,
+    category_id: UUID,
+    payload: ItemCategoryUpdate,
+    organization_id: UUID | None = None,
 ) -> ItemCategoryRead:
+    org_id = organization_id or await resolve_organization_id(db)
     category_name = _normalize_category_name(payload.name)
     category = await db.scalar(
-        select(ItemCategory).where(ItemCategory.id == category_id).with_for_update()
+        select(ItemCategory)
+        .where(ItemCategory.id == category_id, ItemCategory.organization_id == org_id)
+        .with_for_update()
     )
     if category is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
@@ -362,7 +386,12 @@ async def update_item_category(
     category_key = category_name.lower()
     if category.name.lower() != category_key:
         existing = await db.scalar(
-            select(ItemCategory.id).where(func.lower(ItemCategory.name) == category_key).limit(1)
+            select(ItemCategory.id)
+            .where(
+                func.lower(ItemCategory.name) == category_key,
+                ItemCategory.organization_id == org_id,
+            )
+            .limit(1)
         )
         if existing is not None:
             raise HTTPException(
@@ -382,9 +411,14 @@ async def update_item_category(
     return ItemCategoryRead.model_validate(category)
 
 
-async def delete_item_category(db: AsyncSession, category_id: UUID) -> None:
+async def delete_item_category(
+    db: AsyncSession, category_id: UUID, organization_id: UUID | None = None
+) -> None:
+    org_id = organization_id or await resolve_organization_id(db)
     category = await db.scalar(
-        select(ItemCategory).where(ItemCategory.id == category_id).with_for_update()
+        select(ItemCategory)
+        .where(ItemCategory.id == category_id, ItemCategory.organization_id == org_id)
+        .with_for_update()
     )
     if category is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
@@ -398,14 +432,20 @@ async def delete_item_category(db: AsyncSession, category_id: UUID) -> None:
     await db.commit()
 
 
-async def _find_or_create_item_category(db: AsyncSession, category_name: str) -> ItemCategory:
+async def _find_or_create_item_category(
+    db: AsyncSession, category_name: str, organization_id: UUID | None = None
+) -> ItemCategory:
+    org_id = organization_id or await resolve_organization_id(db)
     normalized_name = _normalize_category_name(category_name)
     category = await db.scalar(
-        select(ItemCategory).where(func.lower(ItemCategory.name) == normalized_name.lower())
+        select(ItemCategory).where(
+            func.lower(ItemCategory.name) == normalized_name.lower(),
+            ItemCategory.organization_id == org_id,
+        )
     )
     if category is not None:
         return category
-    category = ItemCategory(name=normalized_name)
+    category = ItemCategory(name=normalized_name, organization_id=org_id)
     db.add(category)
     return category
 
@@ -415,16 +455,23 @@ async def _resolve_item_category(
     *,
     category_id: UUID | None,
     category_name: str | None,
+    organization_id: UUID | None = None,
 ) -> ItemCategory | None:
+    org_id = organization_id or await resolve_organization_id(db)
     if category_id is not None:
-        category = await db.scalar(select(ItemCategory).where(ItemCategory.id == category_id))
+        category = await db.scalar(
+            select(ItemCategory).where(
+                ItemCategory.id == category_id,
+                ItemCategory.organization_id == org_id,
+            )
+        )
         if category is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
         return category
     normalized_name = _coalesce_text(category_name)
     if normalized_name is None:
         return None
-    return await _find_or_create_item_category(db, normalized_name)
+    return await _find_or_create_item_category(db, normalized_name, organization_id=org_id)
 
 
 

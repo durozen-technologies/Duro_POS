@@ -48,8 +48,10 @@ class BackendImprovementTests(unittest.TestCase):
         )
 
         production_settings = Mock(production=True)
-        with patch("app.routers.health.get_settings", return_value=production_settings):
-            response = health_check(request)
+        with patch("app.routers.health.get_settings", return_value=production_settings), patch(
+            "app.routers.health.redis_health_status", return_value="disabled"
+        ), patch("app.routers.health._rustfs_health_status", return_value="disabled"):
+            response = asyncio.run(health_check(request))
 
         payload = response.body.decode()
         self.assertIn('"database":"unavailable"', payload)

@@ -70,7 +70,7 @@ cp .env.example .env
 Core settings used by the current backend:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/meat_billing
+DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/duro_pos
 SECRET_KEY=replace-this-in-production
 ACCESS_TOKEN_EXPIRE_MINUTES=720
 PRODUCTION=False
@@ -81,7 +81,7 @@ RUSTFS_ENDPOINT_URL=
 RUSTFS_ACCESS_KEY_ID=
 RUSTFS_SECRET_ACCESS_KEY=
 RUSTFS_REGION_NAME=us-east-1
-RUSTFS_BUCKET_NAME=pos-mlb-items
+RUSTFS_BUCKET_NAME=duro-pos
 RUSTFS_PUBLIC_BASE_URL=
 RUSTFS_PUBLIC_READ_ENABLED=False
 RUSTFS_CONNECT_TIMEOUT_SECONDS=5
@@ -89,11 +89,20 @@ RUSTFS_READ_TIMEOUT_SECONDS=15
 ITEM_IMAGE_MAX_BYTES=5242880
 ITEM_IMAGE_THUMBNAIL_SIZE=192
 ITEM_IMAGE_FULL_MAX_SIZE=1024
+REDIS_URL=
+REDIS_KEY_PREFIX=duropos
+REDIS_DEFAULT_TTL=60
 ```
+
+Optional Redis (cache only; app degrades when unset):
+
+- `REDIS_URL` — e.g. `redis://redis:6379/0` in production compose
+- `REDIS_KEY_PREFIX` — key namespace (default `duropos`)
+- Permission, dashboard bootstrap, super-admin org counts, and login rate-limit keys use this prefix
 
 Important backend defaults from [`app/core/config.py`](app/core/config.py):
 
-- `APP_NAME=Meat Billing System API`
+- `APP_NAME=Duro POS API`
 - `API_V1_PREFIX=/api/v1`
 - `SHOP_DEFAULT_PASSWORD=ml123`
 - `DB_POOL_SIZE=5`
@@ -135,9 +144,19 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 One-off migration:
 
 ```bash
-make backend-migrate
-# or: uv run python migrate.py
+cd backend
+uv run python migrate.py
+# or from repo root: make backend-migrate
 ```
+
+Bootstrap first super admin (production; run once after migrations):
+
+```bash
+cd backend
+uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
+```
+
+Idempotent: fails if a super admin already exists. In production, `POST /api/v1/auth/register` is disabled; use this CLI or the super-admin API to provision tenant admins.
 
 Plain uvicorn after migrations:
 
@@ -221,7 +240,7 @@ Backend connectivity reference:
 Current Compose defaults point the backend to host services:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/meat_billing
+DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/duro_pos
 RUSTFS_ENDPOINT_URL=http://host.docker.internal:9000
 ```
 
@@ -343,6 +362,13 @@ Through Caddy:
 ## Testing
 
 Run all backend tests:
+
+```bash
+cd backend
+uv run --with pytest pytest ../test/ -q
+```
+
+Verbose:
 
 ```bash
 cd backend

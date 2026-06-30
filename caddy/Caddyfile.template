@@ -20,6 +20,24 @@
 			}
 		}
 
+		handle /api/v1/super-admin/* {
+			rate_limit {
+				zone super_admin_api {
+					key {remote_host}
+					events {$CADDY_SUPER_ADMIN_RATE_LIMIT_EVENTS:30}
+					window {$CADDY_SUPER_ADMIN_RATE_LIMIT_WINDOW:1m}
+				}
+			}
+			reverse_proxy {$CADDY_UPSTREAM} {
+				transport http {
+					dial_timeout 30s
+					response_header_timeout 60s
+					read_timeout 60s
+					write_timeout 60s
+				}
+			}
+		}
+
 		handle /api/v1/auth/login {
 			rate_limit {
 				zone auth_login {

@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
 from app.db.database import Base  # noqa: E402
 from app.core.security import get_password_hash  # noqa: E402
-from app.models import BaseUnit, DailyPrice, Item, Shop, UnitType, User, UserRole  # noqa: E402
+from app.models import BaseUnit, DailyPrice, Item, Organization, Shop, UnitType, User, UserRole  # noqa: E402
 
 TEST_ITEM_DEFINITIONS = {
     "Chicken": {
@@ -125,6 +125,9 @@ class DatabaseHarness:
             table.drop(self.engine, checkfirst=True)
         for table in Base.metadata.sorted_tables:
             table.create(self.engine, checkfirst=True)
+        with self.session_factory() as session:
+            session.add(Organization(name="Duro POS Default", slug="default", is_active=True))
+            session.commit()
 
     def start(self) -> None:
         self.reset_database()
@@ -140,9 +143,14 @@ class DatabaseHarness:
         self,
         item_names: tuple[str, ...] = ("Chicken", "Duck"),
     ) -> list[Item]:
+        org = await self.create_default_organization()
         with self.session_factory() as session:
             existing_items = session.scalars(
-                select(Item).where(Item.name.in_(item_names), Item.shop_id.is_(None))
+                select(Item).where(
+                    Item.name.in_(item_names),
+                    Item.shop_id.is_(None),
+                    Item.organization_id == org.id,
+                )
             ).all()
             items_by_name = {item.name: item for item in existing_items}
 
@@ -152,6 +160,7 @@ class DatabaseHarness:
 
                 attributes = _test_item_attributes(item_name)
                 item = Item(
+                    organization_id=org.id,
                     name=item_name,
                     tamil_name=str(attributes["tamil_name"]),
                     unit_type=attributes["unit_type"],
@@ -174,14 +183,21 @@ class DatabaseHarness:
         shop_id: UUID,
         item_names: tuple[str, ...] = ("Chicken", "Duck"),
     ) -> list[Item]:
+        org = await self.create_default_organization()
         with self.session_factory() as session:
+            shop = session.get(Shop, shop_id)
+            org_id = shop.organization_id if shop else org.id
             existing_items = session.scalars(
                 select(Item).where(Item.name.in_(item_names), Item.shop_id == shop_id)
             ).all()
             items_by_name = {item.name: item for item in existing_items}
 
             template_items = session.scalars(
-                select(Item).where(Item.name.in_(item_names), Item.shop_id.is_(None))
+                select(Item).where(
+                    Item.name.in_(item_names),
+                    Item.shop_id.is_(None),
+                    Item.organization_id == org_id,
+                )
             ).all()
             templates_by_name = {item.name: item for item in template_items}
 
@@ -192,6 +208,7 @@ class DatabaseHarness:
                 template = templates_by_name.get(item_name)
                 attributes = _test_item_attributes(item_name)
                 item = Item(
+                    organization_id=org_id,
                     shop_id=shop_id,
                     name=item_name,
                     tamil_name=template.tamil_name if template else str(attributes["tamil_name"]),
@@ -210,14 +227,46 @@ class DatabaseHarness:
 
             return [items_by_name[item_name] for item_name in item_names]
 
+    async def create_default_organization(
+        self,
+        name: str = "Duro POS Default",
+        slug: str = "default",
+    ) -> Organization:
+        with self.session_factory() as session:
+            org = session.scalar(select(Organization).where(Organization.slug == slug))
+            if org is None:
+                org = Organization(name=name, slug=slug, is_active=True)
+                session.add(org)
+                session.commit()
+                session.refresh(org)
+            return org
+
     async def create_admin_user(
         self, username: str = "admin", password: str = "password123"
+    ) -> User:
+        org = await self.create_default_organization()
+        with self.session_factory() as session:
+            user = User(
+                username=username,
+                password_hash=get_password_hash(password),
+                role=UserRole.TENANT_ADMIN,
+                organization_id=org.id,
+                is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            return user
+
+    async def create_super_admin_user(
+        self, username: str = "superadmin", password: str = "password123"
     ) -> User:
         with self.session_factory() as session:
             user = User(
                 username=username,
                 password_hash=get_password_hash(password),
-                role=UserRole.ADMIN,
+                role=UserRole.SUPER_ADMIN,
+                organization_id=None,
                 is_active=True,
             )
             session.add(user)
@@ -232,16 +281,19 @@ class DatabaseHarness:
         shop_name: str = "Main Shop",
         is_active: bool = True,
     ) -> tuple[User, Shop]:
+        org = await self.create_default_organization()
         with self.session_factory() as session:
             user = User(
                 username=username,
                 password_hash=get_password_hash(password),
                 role=UserRole.SHOP_ACCOUNT,
+                organization_id=org.id,
                 is_active=is_active,
             )
             shop = Shop(
                 name=shop_name,
                 owner=user,
+                organization_id=org.id,
                 is_active=is_active,
             )
             session.add_all([user, shop])
@@ -295,6 +347,12 @@ class BackendTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self.harness.reset_database()
+        self._admin_user = None
+
+    def ensure_admin_user(self):
+        if self._admin_user is None:
+            self._admin_user = self.run_async(self.harness.create_admin_user())
+        return self._admin_user
 
     def run_async(self, coro):
         return self.harness.run(coro)

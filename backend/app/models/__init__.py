@@ -1,5 +1,7 @@
 from ..db.database import Base
 from .audit_log import AuditLog
+from .organization import Organization
+from .rbac import AdminRole, AdminRolePermission, AdminUserRole, Permission
 from .base import BaseModelMixin
 from .bill import Bill, BillItem, MonthlyBillSequence
 from .daily_price import DailyPrice
@@ -75,4 +77,9 @@ __all__ = [
     "TransferShop",
     "InventoryTransfer",
     "AuditLog",
+    "Organization",
+    "Permission",
+    "AdminRole",
+    "AdminRolePermission",
+    "AdminUserRole",
 ]

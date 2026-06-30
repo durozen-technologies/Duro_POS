@@ -19,7 +19,7 @@ services:
     networks:
       - pos
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-meat_billing}
+      POSTGRES_DB: ${POSTGRES_DB:-duro_pos}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
@@ -77,6 +77,22 @@ services:
       retries: 5
       start_period: 20s
 
+  redis:
+    profiles: ["infra"]
+    image: redis:7-alpine
+    init: true
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - pos
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   backend:
     image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${BACKEND_IMAGE_REPO:-mlb-pos-backend}:${BACKEND_IMAGE_TAG:-${IMAGE_TAG:-latest}}
     init: true
@@ -89,10 +105,12 @@ services:
         condition: service_healthy
       rustfs:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      APP_NAME: ${BACKEND_APP_NAME:-Meat Billing System API}
+      APP_NAME: ${BACKEND_APP_NAME:-Duro POS API}
       SECRET_KEY: ${BACKEND_SECRET_KEY:?Set BACKEND_SECRET_KEY}
-      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meat_billing}}
+      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-duro_pos}}
       PRODUCTION: ${BACKEND_PRODUCTION:-True}
       ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:?Set BACKEND_ALLOWED_HOSTS}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["*"]}
@@ -108,6 +126,8 @@ services:
       TRUSTED_PROXIES: ${BACKEND_TRUSTED_PROXIES:-[]}
       TRUST_X_FORWARDED_PROTO: ${BACKEND_TRUST_X_FORWARDED_PROTO:-True}
       WEB_CONCURRENCY: ${BACKEND_WEB_CONCURRENCY:-1}
+      REDIS_URL: ${BACKEND_REDIS_URL:-redis://redis:6379/0}
+      REDIS_KEY_PREFIX: ${BACKEND_REDIS_KEY_PREFIX:-duropos}
     expose:
       - "8000"
     healthcheck:

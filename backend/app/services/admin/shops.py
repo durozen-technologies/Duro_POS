@@ -64,6 +64,7 @@ from app.schemas.admin import (
     ShopUpdate,
 )
 from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
+from app.services.tenant_query import resolve_organization_id
 
 from app.services.admin._shared import (
     _ensure_unique_item_name,
@@ -90,7 +91,18 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Username is required"
         )
 
-    existing_user = await db.scalar(select(User.id).where(func.lower(User.username) == username))
+    if actor.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant admin is not linked to an organization",
+        )
+
+    existing_user = await db.scalar(
+        select(User.id).where(
+            func.lower(User.username) == username,
+            User.organization_id == actor.organization_id,
+        )
+    )
     if existing_user is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
 
@@ -98,16 +110,24 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
         username=username,
         password_hash=get_password_hash(payload.password),
         role=UserRole.SHOP_ACCOUNT,
+        organization_id=actor.organization_id,
         is_active=True,
     )
-    shop = Shop(name=shop_name, owner=user, is_active=True)
+    shop = Shop(
+        name=shop_name,
+        owner=user,
+        organization_id=actor.organization_id,
+        is_active=True,
+    )
     db.add_all([user, shop])
     await db.flush()
     await db.commit()
     return _shop_to_read(shop)
 
 
-async def update_shop_account(db: AsyncSession, shop_id: UUID, payload: ShopUpdate) -> ShopRead:
+async def update_shop_account(
+    db: AsyncSession, shop_id: UUID, organization_id: UUID, payload: ShopUpdate
+) -> ShopRead:
     """Update a shop's name, username, and optionally its password.
 
     Uses a single JOIN SELECT with ``with_for_update()`` to avoid the
@@ -122,7 +142,7 @@ async def update_shop_account(db: AsyncSession, shop_id: UUID, payload: ShopUpda
         select(Shop)
         .join(Shop.owner)
         .options(contains_eager(Shop.owner))
-        .where(Shop.id == shop_id)
+        .where(Shop.id == shop_id, Shop.organization_id == organization_id)
         .with_for_update()
     )
     shop = result.scalar_one_or_none()
@@ -163,7 +183,7 @@ async def update_shop_account(db: AsyncSession, shop_id: UUID, payload: ShopUpda
     return _shop_to_read(shop)
 
 
-async def delete_shop_account(db: AsyncSession, shop_id: UUID) -> None:
+async def delete_shop_account(db: AsyncSession, shop_id: UUID, organization_id: UUID) -> None:
     """Delete a shop and its owner user in one transaction.
 
     Improvements over the previous version:
@@ -178,7 +198,7 @@ async def delete_shop_account(db: AsyncSession, shop_id: UUID) -> None:
         select(Shop)
         .join(Shop.owner)
         .options(contains_eager(Shop.owner))
-        .where(Shop.id == shop_id)
+        .where(Shop.id == shop_id, Shop.organization_id == organization_id)
         .with_for_update()
     )
     shop = result.scalar_one_or_none()
@@ -214,7 +234,7 @@ async def delete_shop_account(db: AsyncSession, shop_id: UUID) -> None:
     await db.commit()
 
 
-async def list_shops(db: AsyncSession) -> list[ShopRead]:
+async def list_shops(db: AsyncSession, organization_id: UUID) -> list[ShopRead]:
     """Return all shops projected to ShopRead in a single flat query.
 
     Uses a column-level projection instead of ``joinedload`` so only the
@@ -232,6 +252,7 @@ async def list_shops(db: AsyncSession) -> list[ShopRead]:
             User.last_login_at,
         )
         .join(Shop.owner)
+        .where(Shop.organization_id == organization_id)
         .order_by(Shop.id.asc())
     )
     return [
@@ -247,7 +268,7 @@ async def list_shops(db: AsyncSession) -> list[ShopRead]:
     ]
 
 
-async def get_shop_by_id(db: AsyncSession, shop_id: UUID) -> ShopRead:
+async def get_shop_by_id(db: AsyncSession, shop_id: UUID, organization_id: UUID) -> ShopRead:
     """Fetch a single shop by PK using a flat projection JOIN.
 
     One SQL JOIN selecting only the columns ShopRead needs — no ORM object
@@ -263,7 +284,7 @@ async def get_shop_by_id(db: AsyncSession, shop_id: UUID) -> ShopRead:
             User.last_login_at,
         )
         .join(Shop.owner)
-        .where(Shop.id == shop_id)
+        .where(Shop.id == shop_id, Shop.organization_id == organization_id)
     )
     result = row.mappings().one_or_none()
     if result is None:
@@ -284,15 +305,21 @@ async def create_item(
     payload: ItemCreate,
     image: UploadFile | None = None,
     shop_id: UUID | None = None,
+    organization_id: UUID | None = None,
 ) -> ItemRead:
+    org_id = organization_id or await resolve_organization_id(db, shop_id=shop_id)
     item_name = _normalize_item_name(payload.name)
-    await _ensure_unique_item_name(db, item_name, shop_id=shop_id)
+    await _ensure_unique_item_name(db, item_name, shop_id=shop_id, organization_id=org_id)
     item_category = await _resolve_item_category(
-        db, category_id=payload.category_id, category_name=payload.category
+        db,
+        category_id=payload.category_id,
+        category_name=payload.category,
+        organization_id=org_id,
     )
 
     item = Item(
         shop_id=shop_id,
+        organization_id=org_id,
         name=item_name,
         tamil_name=_normalize_tamil_item_name(payload.tamil_name),
         unit_type=payload.unit_type,
@@ -702,7 +729,9 @@ async def delete_item(db: AsyncSession, item_id: UUID, shop_id: UUID | None = No
     await delete_item_image_storage(image_object_key, image_thumbnail_object_key)
 
 
-async def set_shop_active_state(db: AsyncSession, shop_id: UUID, is_active: bool) -> ShopRead:
+async def set_shop_active_state(
+    db: AsyncSession, shop_id: UUID, organization_id: UUID, is_active: bool
+) -> ShopRead:
     """Toggle is_active on both Shop and its owner User in one transaction.
 
     Uses a single JOIN SELECT with ``with_for_update()`` to prevent a
@@ -712,7 +741,7 @@ async def set_shop_active_state(db: AsyncSession, shop_id: UUID, is_active: bool
         select(Shop)
         .join(Shop.owner)
         .options(contains_eager(Shop.owner))
-        .where(Shop.id == shop_id)
+        .where(Shop.id == shop_id, Shop.organization_id == organization_id)
         .with_for_update()
     )
     shop = result.scalar_one_or_none()

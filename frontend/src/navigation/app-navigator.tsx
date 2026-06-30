@@ -66,6 +66,8 @@ const SHOP_STACK_SCREEN_OPTIONS = {
 
 // ── Lazy loaders (unchanged) ─────────────────────────────────────────
 const getLoginScreen = () => require("@/screens/auth/login-screen").LoginScreen;
+const getSuperAdminDashboardScreen = () =>
+  require("@/screens/super-admin/super-admin-dashboard-screen").SuperAdminDashboardScreen;
 const getAdminDashboardScreen = () =>
   require("@/screens/admin/admin-dashboard-screen").AdminDashboardScreen;
 const getAdminItemsCatalogueScreen = () =>
@@ -331,6 +333,22 @@ function AuthStack() {
   );
 }
 
+// ── Super Admin Stack ────────────────────────────────────────────────
+function SuperAdminStack() {
+  return (
+    <Stack.Navigator
+      initialRouteName="SuperAdminDashboard"
+      screenOptions={ADMIN_STACK_SCREEN_OPTIONS}
+    >
+      <Stack.Screen
+        name="SuperAdminDashboard"
+        getComponent={getSuperAdminDashboardScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+    </Stack.Navigator>
+  );
+}
+
 // ── Admin Stack ──────────────────────────────────────────────────────
 function AdminStack() {
   return (
@@ -522,8 +540,13 @@ export function AppNavigator() {
     return <AuthStack />;
   }
 
-  // Admin route
-  if (user.role === UserRole.ADMIN) {
+  // Super Admin route
+  if (user.role === UserRole.SUPER_ADMIN) {
+    return <SuperAdminStack />;
+  }
+
+  // Admin route (tenant admin + legacy admin alias)
+  if (user.role === UserRole.TENANT_ADMIN) {
     return <AdminStack />;
   }
 

@@ -27,7 +27,7 @@ postgres:
 Important environment:
 
 ```env
-POSTGRES_DB=meat_billing
+POSTGRES_DB=duro_pos
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=...
 POSTGRES_DATA_DIR=/home/ubuntu/pos-postgress/data
@@ -36,7 +36,7 @@ POSTGRES_DATA_DIR=/home/ubuntu/pos-postgress/data
 The backend connects with:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:<password>@postgres:5432/meat_billing
+DATABASE_URL=postgresql+asyncpg://postgres:<password>@postgres:5432/duro_pos
 ```
 
 ## Persistence
@@ -66,13 +66,13 @@ pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
 If Postgres runs on the host, backend default local connection often looks like:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/meat_billing
+DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/duro_pos
 ```
 
 If backend runs inside Docker while Postgres runs on the host:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/meat_billing
+DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/duro_pos
 ```
 
 ## Operational Notes

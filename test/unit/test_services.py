@@ -215,6 +215,7 @@ class ServiceUnitTests(BackendTestCase):
                 destination = TransferShop(
                     name="Outside Branch",
                     tamil_name="வெளி கிளை",
+                    organization_id=current_shop.organization_id,
                 )
                 session.add(destination)
                 session.flush()
@@ -461,6 +462,7 @@ class ServiceUnitTests(BackendTestCase):
                     select(Item).where(Item.name == "Duck", Item.shop_id.is_(None))
                 )
                 quail = Item(
+                    organization_id=current_shop.organization_id,
                     name="Quail",
                     tamil_name="காடை",
                     unit_type=UnitType.COUNT,
@@ -658,7 +660,11 @@ class ServiceUnitTests(BackendTestCase):
                         checkout_token=preview.checkout_token,
                     ),
                 )
-                expense_item = ExpenseItem(name="Coolie", tamil_name="கூலி")
+                expense_item = ExpenseItem(
+                    name="Coolie",
+                    tamil_name="கூலி",
+                    organization_id=current_shop.organization_id,
+                )
                 session.add(expense_item)
                 session.flush()
                 session.add(
@@ -1225,6 +1231,7 @@ class ServiceUnitTests(BackendTestCase):
                     select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
                 )
                 egg_count = Item(
+                    organization_id=shop.organization_id,
                     name="Egg Count",
                     tamil_name="முட்டை",
                     unit_type=UnitType.COUNT,

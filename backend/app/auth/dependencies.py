@@ -9,9 +9,17 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import decode_access_token
 from app.db.database import get_db
-from app.models import Shop, User, UserRole
+from app.models import Organization, Shop, User, UserRole
+from app.models.enums import is_tenant_admin, parse_user_role
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_TENANT_ADMIN_ROLES = frozenset({UserRole.TENANT_ADMIN})
+
+
+def _role_allowed(current_role: UserRole, allowed: tuple[UserRole, ...]) -> bool:
+    normalized = parse_user_role(current_role)
+    return normalized in allowed
 
 
 async def get_current_user(
@@ -36,13 +44,46 @@ async def get_current_user(
     except (JWTError, KeyError, TypeError, ValueError) as exc:
         raise credentials_exception from exc
 
-    user = await db.get(User, user_id, options=(selectinload(User.shop),))
+    user = await db.get(
+        User,
+        user_id,
+        options=(
+            selectinload(User.shop).selectinload(Shop.organization),
+            selectinload(User.organization),
+        ),
+    )
     if user is None:
         raise credentials_exception
     return user
 
 
-async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
+async def _ensure_org_active_for_user(db: AsyncSession, user: User) -> None:
+    org_id: UUID | None = None
+    if is_tenant_admin(user.role):
+        org_id = user.organization_id
+    elif user.role == UserRole.SHOP_ACCOUNT and user.shop is not None:
+        org_id = user.shop.organization_id
+
+    if org_id is None:
+        return
+
+    org = user.organization
+    if user.role == UserRole.SHOP_ACCOUNT and user.shop is not None:
+        org = user.shop.organization if org is None else org
+
+    if org is None:
+        org = await db.get(Organization, org_id)
+    if org is None or not org.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization is disabled",
+        )
+
+
+async def get_current_active_user(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
@@ -55,18 +96,23 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
         )
+    await _ensure_org_active_for_user(db, current_user)
     return current_user
 
 
 def require_roles(*roles: UserRole) -> Callable[[User], User]:
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if current_user.role not in roles:
+        if not _role_allowed(current_user.role, roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
             )
         return current_user
 
     return dependency
+
+
+def require_tenant_admin() -> Callable[[User], User]:
+    return require_roles(UserRole.TENANT_ADMIN)
 
 
 async def get_current_shop(

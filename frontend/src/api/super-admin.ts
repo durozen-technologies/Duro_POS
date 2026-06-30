@@ -1,0 +1,210 @@
+import { apiClient } from "@/api/client";
+import type { UUID } from "@/types/api";
+
+export interface OrganizationRead {
+  id: UUID;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrganizationRowsPage {
+  items: OrganizationRead[];
+  limit: number;
+  has_more: boolean;
+  next_cursor_created_at?: string | null;
+  next_cursor_id?: UUID | null;
+}
+
+export interface OrganizationCounts {
+  all: number;
+  active: number;
+  inactive: number;
+}
+
+export interface AdminRoleRead {
+  id: UUID;
+  name: string;
+  is_system: boolean;
+}
+
+export interface TenantAdminRead {
+  id: UUID;
+  username: string;
+  role: string;
+  organization_id: UUID;
+  organization_name: string;
+  is_active: boolean;
+  role_ids: UUID[];
+  created_at: string;
+  last_login_at?: string | null;
+}
+
+export interface TenantAdminRowsPage {
+  items: TenantAdminRead[];
+  limit: number;
+  has_more: boolean;
+  next_cursor_created_at?: string | null;
+  next_cursor_id?: UUID | null;
+}
+
+export interface TenantAdminCounts {
+  all: number;
+  active: number;
+  inactive: number;
+}
+
+export interface AuditLogRead {
+  id: UUID;
+  action: string;
+  entity_type: string;
+  entity_id?: UUID | null;
+  organization_id?: UUID | null;
+  details: Record<string, unknown>;
+  created_at: string;
+  username?: string | null;
+}
+
+export interface AuditLogRowsPage {
+  items: AuditLogRead[];
+  limit: number;
+  has_more: boolean;
+  next_cursor_created_at?: string | null;
+  next_cursor_id?: UUID | null;
+}
+
+export type TenantAdminRowsParams = {
+  limit?: number;
+  organization_id?: UUID | null;
+  q?: string;
+  active?: boolean | null;
+  cursor_created_at?: string | null;
+  cursor_id?: UUID | null;
+};
+
+const SUPER_ADMIN_PREFIX = "/api/v1/super-admin";
+
+function tenantAdminRowParams(params: TenantAdminRowsParams = {}) {
+  const query: Record<string, string | number | boolean> = {};
+  if (params.limit != null) query.limit = params.limit;
+  if (params.organization_id) query.organization_id = params.organization_id;
+  if (params.q?.trim()) query.q = params.q.trim();
+  if (params.active != null) query.active = params.active;
+  if (params.cursor_created_at) query.cursor_created_at = params.cursor_created_at;
+  if (params.cursor_id) query.cursor_id = params.cursor_id;
+  return query;
+}
+
+export async function fetchOrganizationRows(limit = 50) {
+  const { data } = await apiClient.get<OrganizationRowsPage>(
+    `${SUPER_ADMIN_PREFIX}/organizations/rows`,
+    { params: { limit } },
+  );
+  return data;
+}
+
+export async function fetchOrganizationCounts() {
+  const { data } = await apiClient.get<OrganizationCounts>(
+    `${SUPER_ADMIN_PREFIX}/organizations/counts`,
+  );
+  return data;
+}
+
+export async function fetchOrganizationAdminRoles(organizationId: UUID) {
+  const { data } = await apiClient.get<AdminRoleRead[]>(
+    `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}/admin-roles`,
+  );
+  return data;
+}
+
+export async function fetchTenantAdminRows(params: TenantAdminRowsParams = {}) {
+  const { data } = await apiClient.get<TenantAdminRowsPage>(
+    `${SUPER_ADMIN_PREFIX}/tenant-admins/rows`,
+    { params: tenantAdminRowParams(params) },
+  );
+  return data;
+}
+
+export async function fetchTenantAdminCounts(organizationId?: UUID | null) {
+  const { data } = await apiClient.get<TenantAdminCounts>(
+    `${SUPER_ADMIN_PREFIX}/tenant-admins/counts`,
+    {
+      params: organizationId ? { organization_id: organizationId } : undefined,
+    },
+  );
+  return data;
+}
+
+export async function fetchTenantAdmin(userId: UUID) {
+  const { data } = await apiClient.get<TenantAdminRead>(
+    `${SUPER_ADMIN_PREFIX}/tenant-admins/${userId}`,
+  );
+  return data;
+}
+
+export async function fetchAuditLogRows(limit = 50) {
+  const { data } = await apiClient.get<AuditLogRowsPage>(
+    `${SUPER_ADMIN_PREFIX}/audit-logs/rows`,
+    { params: { limit } },
+  );
+  return data;
+}
+
+export async function createOrganization(payload: { name: string; slug?: string }) {
+  const { data } = await apiClient.post<OrganizationRead>(
+    `${SUPER_ADMIN_PREFIX}/organizations`,
+    payload,
+  );
+  return data;
+}
+
+export async function createTenantAdmin(payload: {
+  username: string;
+  password: string;
+  organization_id: UUID;
+}) {
+  const { data } = await apiClient.post<TenantAdminRead>(
+    `${SUPER_ADMIN_PREFIX}/tenant-admins`,
+    payload,
+  );
+  return data;
+}
+
+export async function patchTenantAdminStatus(userId: UUID, is_active: boolean) {
+  const { data } = await apiClient.patch<TenantAdminRead>(
+    `${SUPER_ADMIN_PREFIX}/tenant-admins/${userId}/status`,
+    { is_active },
+  );
+  return data;
+}
+
+export async function resetTenantAdminPassword(userId: UUID, password: string) {
+  const { data } = await apiClient.post<TenantAdminRead>(
+    `${SUPER_ADMIN_PREFIX}/tenant-admins/${userId}/reset-password`,
+    { password },
+  );
+  return data;
+}
+
+export async function updateTenantAdminRoles(userId: UUID, role_ids: UUID[]) {
+  const { data } = await apiClient.put<TenantAdminRead>(
+    `${SUPER_ADMIN_PREFIX}/tenant-admins/${userId}/roles`,
+    { role_ids },
+  );
+  return data;
+}
+
+export async function deleteTenantAdmin(userId: UUID) {
+  await apiClient.delete(`${SUPER_ADMIN_PREFIX}/tenant-admins/${userId}`);
+}
+
+export async function patchOrganizationStatus(organizationId: UUID, is_active: boolean) {
+  const { data } = await apiClient.patch<OrganizationRead>(
+    `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}/status`,
+    { is_active },
+  );
+  return data;
+}

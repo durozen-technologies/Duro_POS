@@ -6,7 +6,7 @@
 #     env_file:
 #       - ./backend/.env
 #     environment:
-#       DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://postgres:root@host.docker.internal:5432/meat_billing}
+#       DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://postgres:root@host.docker.internal:5432/duro_pos}
 #       PRODUCTION: ${BACKEND_PRODUCTION:-False}
 #       ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:-["*"]}
 #       RUSTFS_ENDPOINT_URL: ${BACKEND_RUSTFS_ENDPOINT_URL:-http://host.docker.internal:9000}
@@ -61,7 +61,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://postgres:root@host.docker.internal:5432/meat_billing}
+      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://postgres:root@host.docker.internal:5432/duro_pos}
       PRODUCTION: ${BACKEND_PRODUCTION:-False}
       ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:-["*"]}
       RUSTFS_ENDPOINT_URL: ${BACKEND_RUSTFS_ENDPOINT_URL:-http://host.docker.internal:9000}

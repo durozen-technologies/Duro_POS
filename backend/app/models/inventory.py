@@ -29,6 +29,12 @@ class InventoryCategory(Base, BaseModelMixin):
     __tablename__ = "inventory_categories"
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    organization_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -49,7 +55,12 @@ class InventoryCategory(Base, BaseModelMixin):
         CheckConstraint(
             "length(trim(name)) >= 1", name="ck_inventory_categories_name_not_blank"
         ),
-        Index("ix_inventory_categories_lower_name", func.lower(name), unique=True),
+        Index(
+            "ix_inventory_categories_org_lower_name",
+            "organization_id",
+            func.lower(name),
+            unique=True,
+        ),
     )
 
 
@@ -57,6 +68,12 @@ class InventoryItem(Base, BaseModelMixin):
     __tablename__ = "inventory_items"
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    organization_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     tamil_name: Mapped[str] = mapped_column(String(120), nullable=False)
     unit_type: Mapped[UnitType] = mapped_column(Enum(UnitType), nullable=False)

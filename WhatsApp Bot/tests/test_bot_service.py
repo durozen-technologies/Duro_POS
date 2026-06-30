@@ -237,7 +237,7 @@ class BotWebhookHandlingTests(unittest.IsolatedAsyncioTestCase):
 
         orchestrator = BotOrchestrator(
             Settings(
-                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/meat_billing"
+                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/duro_pos"
             ),
             session_factory=session_factory,
             conversation_store=ConversationStore(),
@@ -298,7 +298,7 @@ class BotWebhookHandlingTests(unittest.IsolatedAsyncioTestCase):
         whatsapp_client = RecordingWhatsAppClient()
         orchestrator = BotOrchestrator(
             Settings(
-                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/meat_billing"
+                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/duro_pos"
             ),
             session_factory=session_factory,
             conversation_store=ConversationStore(),
@@ -358,7 +358,7 @@ class BotWebhookHandlingTests(unittest.IsolatedAsyncioTestCase):
         whatsapp_client = RecordingWhatsAppClient()
         orchestrator = BotOrchestrator(
             Settings(
-                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/meat_billing"
+                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/duro_pos"
             ),
             session_factory=session_factory,
             conversation_store=ConversationStore(),
@@ -425,7 +425,7 @@ class BotWebhookHandlingTests(unittest.IsolatedAsyncioTestCase):
         whatsapp_client = RecordingWhatsAppClient()
         orchestrator = BotOrchestrator(
             Settings(
-                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/meat_billing"
+                DATABASE_URL="postgresql+asyncpg://postgres:root@localhost:5432/duro_pos"
             ),
             session_factory=session_factory,
             conversation_store=ConversationStore(),

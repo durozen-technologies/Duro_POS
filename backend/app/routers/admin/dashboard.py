@@ -1,4 +1,5 @@
 from app.routers.admin._common import *
+from app.routers.admin._common import _require_org_id
 from app.routers.admin._params import *
 
 router = APIRouter()
@@ -22,6 +23,7 @@ async def dashboard_bootstrap(
     ] = None,
     bills_limit: DashboardBillsLimitParam = 50,
     db: DBSession = None,
+    current_user: AdminUserDep = None,
 ) -> AdminDashboardBootstrap:
     """Return the admin dashboard bootstrap payload in a single request.
 
@@ -30,6 +32,7 @@ async def dashboard_bootstrap(
     """
     return await get_dashboard_bootstrap(
         db,
+        _require_org_id(current_user),
         period,
         reference_date,
         shop_id,

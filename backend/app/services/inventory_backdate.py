@@ -3,7 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User, UserRole
+from app.models import User
+from app.models.enums import is_tenant_admin
 from app.models.inventory_policy import InventoryBackdatePolicy
 
 _ADMIN_MAX_BACKDATE_DAYS = 365
@@ -36,7 +37,7 @@ def assert_inventory_occurred_at_allowed(
     if occurred_date == today:
         return
 
-    if actor.role == UserRole.ADMIN:
+    if is_tenant_admin(actor.role):
         oldest = today - timedelta(days=_ADMIN_MAX_BACKDATE_DAYS)
         if occurred_date < oldest:
             raise _backdate_not_allowed(

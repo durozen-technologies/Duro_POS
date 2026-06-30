@@ -196,7 +196,7 @@ async def list_shop_items(
                 ShopItemAllocation.shop_id == shop.id,
             ),
         )
-        .where(_shop_item_visibility_filter(shop.id))
+        .where(_shop_item_visibility_filter(shop.id, shop.organization_id))
     )
 
     search = q.strip() if q else ""
@@ -547,7 +547,7 @@ async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItem
             )
             .where(
                 Item.id == item_id,
-                _shop_item_visibility_filter(shop.id),
+                _shop_item_visibility_filter(shop.id, shop.organization_id),
             )
         )
     ).one_or_none()
@@ -1166,7 +1166,9 @@ async def list_shop_item_import_candidates(
     )
 
 
-def _catalogue_rows_query(q: str | None = None, active: bool | None = None):
+def _catalogue_rows_query(
+    organization_id: UUID, q: str | None = None, active: bool | None = None
+):
     query = select(
         Item.id,
         Item.shop_id,
@@ -1188,7 +1190,7 @@ def _catalogue_rows_query(q: str | None = None, active: bool | None = None):
         Item.image_content_type,
         Item.image_thumbnail_object_key,
         Item.image_thumbnail_content_type,
-    ).where(Item.shop_id.is_(None))
+    ).where(Item.shop_id.is_(None), Item.organization_id == organization_id)
 
     search = q.strip() if q else ""
     if search:
@@ -1239,6 +1241,7 @@ def _catalogue_row_to_shop_item(row) -> ShopItemRead:
 
 async def list_catalogue_item_rows(
     db: AsyncSession,
+    organization_id: UUID,
     *,
     q: str | None = None,
     active: bool | None = None,
@@ -1248,7 +1251,7 @@ async def list_catalogue_item_rows(
     cursor_id: UUID | None = None,
 ) -> AdminItemRowsPage:
     sort_name_expr = func.lower(Item.name)
-    query = _catalogue_rows_query(q, active)
+    query = _catalogue_rows_query(organization_id, q, active)
     cursor_condition = _cursor_filter(
         Item.sort_order,
         sort_name_expr,
@@ -1286,6 +1289,7 @@ async def list_catalogue_item_rows(
 
 async def count_catalogue_items(
     db: AsyncSession,
+    organization_id: UUID,
     *,
     q: str | None = None,
     active: bool | None = None,
@@ -1297,7 +1301,7 @@ async def count_catalogue_items(
         Item.id,
         Item.is_active,
         allocation_exists.label("is_allocated"),
-    ).where(Item.shop_id.is_(None))
+    ).where(Item.shop_id.is_(None), Item.organization_id == organization_id)
     search = q.strip() if q else ""
     if search:
         like_search = f"%{search.lower()}%"
@@ -1337,6 +1341,7 @@ async def count_catalogue_items(
 
 async def list_catalogue_items(
     db: AsyncSession,
+    organization_id: UUID,
     *,
     q: str | None = None,
     allocated: bool | None = None,
@@ -1395,7 +1400,7 @@ async def list_catalogue_items(
         .outerjoin(bill_counts, bill_counts.c.item_id == Item.id)
         .outerjoin(price_counts, price_counts.c.item_id == Item.id)
         .outerjoin(allocation_counts, allocation_counts.c.item_id == Item.id)
-        .where(Item.shop_id.is_(None))
+        .where(Item.shop_id.is_(None), Item.organization_id == organization_id)
     )
 
     search = q.strip() if q else ""
@@ -1532,7 +1537,7 @@ async def list_catalogue_items(
     )
 
 
-async def get_catalogue_item(db: AsyncSession, item_id: UUID) -> ShopItemRead:
+async def get_catalogue_item(db: AsyncSession, item_id: UUID, organization_id: UUID) -> ShopItemRead:
     bill_count_sq = (
         select(func.count(BillItem.id))
         .where(BillItem.item_id == Item.id)
@@ -1576,7 +1581,11 @@ async def get_catalogue_item(db: AsyncSession, item_id: UUID) -> ShopItemRead:
                 bill_count_sq.label("bill_count"),
                 price_count_sq.label("price_count"),
                 allocated_shop_count_sq.label("allocated_shop_count"),
-            ).where(Item.id == item_id, Item.shop_id.is_(None))
+            ).where(
+                Item.id == item_id,
+                Item.shop_id.is_(None),
+                Item.organization_id == organization_id,
+            )
         )
     ).one_or_none()
     if row is None:
@@ -1635,6 +1644,8 @@ async def allocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID) -
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only catalogue items can be allocated to a shop",
         )
+    if item.organization_id != shop.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     if not item.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1804,6 +1815,7 @@ async def update_catalogue_item_allocation(
             ShopItemAllocation.shop_id == shop.id,
             ShopItemAllocation.item_id == item_id,
             Item.shop_id.is_(None),
+            Item.organization_id == shop.organization_id,
         )
         .with_for_update()
     )

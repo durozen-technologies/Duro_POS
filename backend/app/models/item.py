@@ -52,6 +52,12 @@ class Item(Base, BaseModelMixin):
     )
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    organization_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
     shop_id: Mapped[UUID | None] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("shops.id", ondelete="CASCADE"), index=True, nullable=True
     )

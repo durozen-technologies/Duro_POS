@@ -1,4 +1,5 @@
 from app.routers.admin._common import *
+from app.routers.admin._common import _require_org_id
 from app.routers.admin._params import *
 
 router = APIRouter()
@@ -9,9 +10,11 @@ router = APIRouter()
     response_model_exclude_unset=True,
     summary="List Item Categories",
 )
-async def get_item_categories(db: DBSession) -> list[ItemCategoryRead]:
+async def get_item_categories(
+    db: DBSession, current_user: AdminUserDep
+) -> list[ItemCategoryRead]:
     """Return global item categories for catalogue item forms and filters."""
-    return await list_item_categories(db)
+    return await list_item_categories(db, _require_org_id(current_user))
 
 
 @router.post(
@@ -24,9 +27,10 @@ async def get_item_categories(db: DBSession) -> list[ItemCategoryRead]:
 async def create_admin_item_category(
     payload: ItemCategoryCreate,
     db: DBSession,
+    current_user: AdminUserDep,
 ) -> ItemCategoryRead:
     """Create a reusable global item category."""
-    return await create_item_category(db, payload)
+    return await create_item_category(db, payload, _require_org_id(current_user))
 
 
 @router.patch(
@@ -39,9 +43,11 @@ async def update_admin_item_category(
     category_id: UUID,
     payload: ItemCategoryUpdate,
     db: DBSession,
+    current_user: AdminUserDep,
 ) -> ItemCategoryRead:
     """Rename a category and refresh assigned item category labels."""
-    return await update_item_category(db, category_id, payload)
+    org_id = _require_org_id(current_user)
+    return await update_item_category(db, category_id, payload, organization_id=org_id)
 
 
 @router.delete(
@@ -49,9 +55,11 @@ async def update_admin_item_category(
     status_code=204,
     summary="Delete Item Category",
 )
-async def delete_admin_item_category(category_id: UUID, db: DBSession) -> Response:
+async def delete_admin_item_category(
+    category_id: UUID, db: DBSession, current_user: AdminUserDep
+) -> Response:
     """Delete a category and clear it from assigned catalogue items."""
-    await delete_item_category(db, category_id)
+    await delete_item_category(db, category_id, _require_org_id(current_user))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -485,6 +493,7 @@ async def delete_shop_inventory_item(
 )
 async def get_catalogue_item_rows(
     db: DBSession,
+    current_user: AdminUserDep,
     q: ItemSearchParam = None,
     active: ItemActiveParam = None,
     limit: ItemsLimitParam = 100,
@@ -495,6 +504,7 @@ async def get_catalogue_item_rows(
     """Return row-first global catalogue item data without count-heavy joins."""
     return await list_catalogue_item_rows(
         db,
+        _require_org_id(current_user),
         q=q,
         active=active,
         limit=limit,
@@ -512,11 +522,12 @@ async def get_catalogue_item_rows(
 )
 async def get_catalogue_item_counts(
     db: DBSession,
+    current_user: AdminUserDep,
     q: ItemSearchParam = None,
     active: ItemActiveParam = None,
 ) -> ShopItemCounts:
     """Return exact catalogue counts for background UI badges."""
-    return await count_catalogue_items(db, q=q, active=active)
+    return await count_catalogue_items(db, _require_org_id(current_user), q=q, active=active)
 
 
 @router.get(
@@ -527,6 +538,7 @@ async def get_catalogue_item_counts(
 )
 async def get_catalogue_items(
     db: DBSession,
+    current_user: AdminUserDep,
     q: ItemSearchParam = None,
     allocated: ItemAllocatedParam = None,
     active: ItemActiveParam = None,
@@ -538,6 +550,7 @@ async def get_catalogue_items(
     """Return global catalogue items with usage counts and pagination."""
     return await list_catalogue_items(
         db,
+        _require_org_id(current_user),
         q=q,
         allocated=allocated,
         active=active,
@@ -576,6 +589,7 @@ async def create_inventory_item(
         Form(min_length=1, max_length=120, description="Tamil display name of the item."),
     ],
     db: DBSession,
+    current_user: AdminUserDep,
     is_active: Annotated[
         bool,
         Form(
@@ -607,7 +621,7 @@ async def create_inventory_item(
         category=category,
         custom_attributes=_parse_custom_attributes(custom_attributes),
     )
-    return await create_item(db, payload, image=image)
+    return await create_item(db, payload, image=image, organization_id=_require_org_id(current_user))
 
 
 @router.get(
@@ -619,9 +633,10 @@ async def create_inventory_item(
 async def get_catalogue_item_detail(
     item_id: UUID,
     db: DBSession,
+    current_user: AdminUserDep,
 ) -> ShopItemRead:
     """Return a catalogue item with usage and delete eligibility for item routes."""
-    return await get_catalogue_item(db, item_id)
+    return await get_catalogue_item(db, item_id, _require_org_id(current_user))
 
 
 @router.patch(

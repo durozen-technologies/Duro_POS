@@ -19,7 +19,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user, require_roles
-from app.core.deps import get_current_admin, get_shop_or_404
+from app.core.deps import get_current_admin, get_tenant_shop_or_404
 from app.db.database import get_db
 from app.db.storage import upload_item_image
 from app.models import BaseUnit, Shop, UnitType, User, UserRole
@@ -241,3 +241,12 @@ from app.services.transfer import (
     list_transfer_shops,
     update_transfer_shop,
 )
+
+
+def _require_org_id(user: User) -> UUID:
+    if user.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant admin is not linked to an organization",
+        )
+    return user.organization_id

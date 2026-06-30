@@ -330,6 +330,7 @@ async def ensure_bucket_exists() -> None:
                             "Principal": "*",
                             "Action": ["s3:GetObject"],
                             "Resource": [
+                                f"arn:aws:s3:::{settings.rustfs_bucket_name}/orgs/*",
                                 f"arn:aws:s3:::{settings.rustfs_bucket_name}/items/*",
                                 f"arn:aws:s3:::{settings.rustfs_bucket_name}/inventory-items/*",
                                 f"arn:aws:s3:::{settings.rustfs_bucket_name}/expense-items/*",
@@ -365,15 +366,29 @@ def _guess_content_type(filename: str, provided_content_type: str | None = None)
     return "application/octet-stream"
 
 
+def legacy_object_key(object_key: str) -> str | None:
+    """ponytail: strip orgs/{id}/ prefix for pre-migration RustFS keys."""
+    if not object_key.startswith("orgs/"):
+        return None
+    parts = object_key.split("/", 2)
+    if len(parts) == 3 and parts[2]:
+        return parts[2]
+    return None
+
+
 def _get_object_key(
     item_id: UUID,
     filename: str,
     *,
     variant: ImageVariant,
     prefix: str = "items",
+    organization_id: UUID | None = None,
 ) -> str:
     suffix = Path(filename).suffix.lower() or ".bin"
-    return f"{prefix}/{item_id}/{variant}/{uuid7().hex}{suffix}"
+    leaf = f"{prefix}/{item_id}/{variant}/{uuid7().hex}{suffix}"
+    if organization_id is not None:
+        return f"orgs/{organization_id}/{leaf}"
+    return leaf
 
 
 def _encode_jpeg(image: Image.Image, *, size: int | None, quality: int) -> bytes:
@@ -462,9 +477,16 @@ async def _upload_bytes(
     content_type: str,
     variant: ImageVariant = "original",
     prefix: str = "items",
+    organization_id: UUID | None = None,
 ) -> tuple[str, str, str]:
     await ensure_bucket_exists()
-    object_key = _get_object_key(item_id, filename, variant=variant, prefix=prefix)
+    object_key = _get_object_key(
+        item_id,
+        filename,
+        variant=variant,
+        prefix=prefix,
+        organization_id=organization_id,
+    )
     resolved_content_type = _guess_content_type(filename, content_type)
     client = _get_storage_client()
 

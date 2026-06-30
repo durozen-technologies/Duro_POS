@@ -7,6 +7,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ExpenseEntry, ExpenseItem, Shop, ShopExpenseAllocation
+from app.services.tenant_query import resolve_organization_id
 from app.schemas.expenses import (
     ExpenseEntryCreate,
     ExpenseEntryPage,
@@ -62,9 +63,14 @@ async def _ensure_unique_expense_name(
     db: AsyncSession,
     name: str,
     *,
+    organization_id: UUID | None = None,
     exclude_item_id: UUID | None = None,
 ) -> None:
-    filters = [func.lower(ExpenseItem.name) == name.lower()]
+    org_id = organization_id or await resolve_organization_id(db)
+    filters = [
+        func.lower(ExpenseItem.name) == name.lower(),
+        ExpenseItem.organization_id == org_id,
+    ]
     if exclude_item_id is not None:
         filters.append(ExpenseItem.id != exclude_item_id)
     existing_id = await db.scalar(select(ExpenseItem.id).where(*filters).limit(1))
@@ -267,14 +273,18 @@ async def get_expense_item(db: AsyncSession, item_id: UUID) -> ExpenseItemRead:
     return _expense_item_to_read(item, allocated_shop_count=allocated_shop_count, entry_count=entry_count)
 
 
-async def create_expense_item(db: AsyncSession, payload: ExpenseItemCreate) -> ExpenseItemRead:
+async def create_expense_item(
+    db: AsyncSession, payload: ExpenseItemCreate, organization_id: UUID | None = None
+) -> ExpenseItemRead:
+    org_id = organization_id or await resolve_organization_id(db)
     name = _normalize_expense_name(payload.name)
-    await _ensure_unique_expense_name(db, name)
+    await _ensure_unique_expense_name(db, name, organization_id=org_id)
     item = ExpenseItem(
         name=name,
         tamil_name=_normalize_tamil_name(payload.tamil_name),
         sort_order=payload.sort_order,
         is_active=payload.is_active,
+        organization_id=org_id,
     )
     db.add(item)
     await db.commit()

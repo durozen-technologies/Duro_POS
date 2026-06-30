@@ -445,6 +445,7 @@ async def get_item_sales_summary(
 
 async def get_dashboard_bootstrap(
     db: AsyncSession,
+    organization_id: UUID,
     period: AnalyticsPeriod = "date",
     reference_date: date | None = None,
     shop_id: UUID | None = None,
@@ -459,8 +460,18 @@ async def get_dashboard_bootstrap(
     period has no bills, the expensive largest-bill, bill-page, and item-sales
     queries are skipped entirely.
     """
+    from app.core.redis_cache import cache_get_json, cache_set_json, dashboard_cache_key
+
+    cache_key = dashboard_cache_key(organization_id, shop_id=shop_id)
+    cached = await cache_get_json(cache_key)
+    if isinstance(cached, dict):
+        try:
+            return AdminDashboardBootstrap.model_validate(cached)
+        except Exception:
+            pass
+
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
-    shops = await list_shops(db)
+    shops = await list_shops(db, organization_id)
     base_filters = [
         Bill.created_at >= start,
         Bill.created_at < end,
@@ -483,6 +494,7 @@ async def get_dashboard_bootstrap(
         )
         .outerjoin(Bill, and_(Bill.shop_id == Shop.id, *base_filters))
         .outerjoin(Payment, Payment.bill_id == Bill.id)
+        .where(Shop.organization_id == organization_id)
     )
     if shop_id is not None:
         combined_query = combined_query.where(Shop.id == shop_id)
@@ -525,13 +537,15 @@ async def get_dashboard_bootstrap(
             next_cursor_created_at=None,
             next_cursor_id=None,
         )
-        return AdminDashboardBootstrap(
+        result = AdminDashboardBootstrap(
             shops=shops,
             sales_summary=sales_summary,
             payment_summary=payment_summary,
             bills=bills_page,
             item_sales=[],
         )
+        await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=45)
+        return result
 
     largest_result, item_sales = await asyncio.gather(
         db.execute(
@@ -576,10 +590,12 @@ async def get_dashboard_bootstrap(
         precalculated_largest_bill=largest_bill,
     )
 
-    return AdminDashboardBootstrap(
+    result = AdminDashboardBootstrap(
         shops=shops,
         sales_summary=sales_summary,
         payment_summary=payment_summary,
         bills=bills_page,
         item_sales=item_sales,
     )
+    await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=45)
+    return result

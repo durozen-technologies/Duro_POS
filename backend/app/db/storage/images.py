@@ -64,6 +64,7 @@ async def save_item_image_content(
             content=content,
             content_type=resolved_content_type,
             variant="original",
+            organization_id=item.organization_id,
         )
         uploaded_thumbnail_object_key, thumbnail_content_type, _ = await _upload_bytes(
             item_id=item.id,
@@ -71,6 +72,7 @@ async def save_item_image_content(
             content=thumbnail_content,
             content_type=thumbnail_content_type,
             variant="thumb",
+            organization_id=item.organization_id,
         )
     except Exception as exc:
         await _delete_object_if_present(uploaded_object_key)
@@ -244,6 +246,7 @@ async def save_inventory_item_image_content(
             content_type=resolved_content_type,
             variant="original",
             prefix="inventory-items",
+            organization_id=item.organization_id,
         )
         uploaded_thumbnail_object_key, thumbnail_content_type, _ = await _upload_bytes(
             item_id=item.id,
@@ -252,6 +255,7 @@ async def save_inventory_item_image_content(
             content_type=thumbnail_content_type,
             variant="thumb",
             prefix="inventory-items",
+            organization_id=item.organization_id,
         )
     except Exception as exc:
         await _delete_object_if_present(uploaded_object_key)
@@ -418,6 +422,7 @@ async def save_expense_item_image_content(
             content_type=resolved_content_type,
             variant="original",
             prefix="expense-items",
+            organization_id=item.organization_id,
         )
         uploaded_thumbnail_object_key, thumbnail_content_type, _ = await _upload_bytes(
             item_id=item.id,
@@ -426,6 +431,7 @@ async def save_expense_item_image_content(
             content_type=thumbnail_content_type,
             variant="thumb",
             prefix="expense-items",
+            organization_id=item.organization_id,
         )
     except Exception as exc:
         await _delete_object_if_present(uploaded_object_key)

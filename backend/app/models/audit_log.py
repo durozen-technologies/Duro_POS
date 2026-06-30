@@ -16,6 +16,12 @@ class AuditLog(Base, BaseModelMixin):
     user_id: Mapped[UUID | None] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
+    organization_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     shop_id: Mapped[UUID | None] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("shops.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -29,4 +35,5 @@ class AuditLog(Base, BaseModelMixin):
     )
 
     user = relationship("User")
+    organization = relationship("Organization")
     shop = relationship("Shop")

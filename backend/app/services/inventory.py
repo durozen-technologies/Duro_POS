@@ -34,6 +34,7 @@ from app.models import (
     ShopInventoryAllocation,
     User,
 )
+from app.services.tenant_query import resolve_organization_id
 from app.schemas.inventory import (
     InventoryAddRequest,
     InventoryBillingItemMappingRead,
@@ -242,9 +243,14 @@ async def _ensure_unique_inventory_item_name(
     db: AsyncSession,
     item_name: str,
     *,
+    organization_id: UUID | None = None,
     exclude_item_id: UUID | None = None,
 ) -> None:
-    filters = [func.lower(InventoryItem.name) == item_name.lower()]
+    org_id = organization_id or await resolve_organization_id(db)
+    filters = [
+        func.lower(InventoryItem.name) == item_name.lower(),
+        InventoryItem.organization_id == org_id,
+    ]
     if exclude_item_id is not None:
         filters.append(InventoryItem.id != exclude_item_id)
     existing_item = await db.scalar(select(InventoryItem.id).where(*filters).limit(1))
@@ -457,9 +463,14 @@ async def _replace_billing_mappings(
         )
 
 
-async def list_inventory_categories(db: AsyncSession) -> list[InventoryCategoryRead]:
+async def list_inventory_categories(
+    db: AsyncSession, organization_id: UUID | None = None
+) -> list[InventoryCategoryRead]:
+    org_id = organization_id or await resolve_organization_id(db)
     rows = await db.scalars(
-        select(InventoryCategory).order_by(func.lower(InventoryCategory.name), InventoryCategory.id)
+        select(InventoryCategory)
+        .where(InventoryCategory.organization_id == org_id)
+        .order_by(func.lower(InventoryCategory.name), InventoryCategory.id)
     )
     return [_category_to_read(category) for category in rows.all()]
 
@@ -468,16 +479,20 @@ async def create_inventory_category(
     db: AsyncSession,
     payload: InventoryCategoryCreate,
 ) -> InventoryCategoryRead:
+    org_id = await resolve_organization_id(db)
     category_name = _normalize_inventory_category_name(payload.name)
     existing = await db.scalar(
-        select(InventoryCategory.id).where(func.lower(InventoryCategory.name) == category_name.lower())
+        select(InventoryCategory.id).where(
+            func.lower(InventoryCategory.name) == category_name.lower(),
+            InventoryCategory.organization_id == org_id,
+        )
     )
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Inventory category already exists",
     )
-    category = InventoryCategory(name=category_name)
+    category = InventoryCategory(name=category_name, organization_id=org_id)
     db.add(category)
     try:
         await db.commit()
@@ -559,13 +574,18 @@ async def delete_inventory_category(db: AsyncSession, category_id: UUID) -> None
 async def _resolve_inventory_categories(
     db: AsyncSession,
     category_ids: list[UUID],
+    organization_id: UUID | None = None,
 ) -> list[InventoryCategory]:
+    org_id = organization_id or await resolve_organization_id(db)
     unique_category_ids = list(dict.fromkeys(category_ids))
     if not unique_category_ids:
         return []
     categories = (
         await db.scalars(
-            select(InventoryCategory).where(InventoryCategory.id.in_(unique_category_ids))
+            select(InventoryCategory).where(
+                InventoryCategory.id.in_(unique_category_ids),
+                InventoryCategory.organization_id == org_id,
+            )
         )
     ).all()
     categories_by_id = {category.id: category for category in categories}
@@ -851,11 +871,13 @@ async def create_inventory_item(
     db: AsyncSession,
     payload: InventoryItemCreate,
     image: UploadFile | None = None,
+    organization_id: UUID | None = None,
 ) -> InventoryItemRead:
+    org_id = organization_id or await resolve_organization_id(db)
     item_name = _normalize_inventory_item_name(payload.name)
     tamil_name = _normalize_tamil_inventory_item_name(payload.tamil_name)
-    await _ensure_unique_inventory_item_name(db, item_name)
-    categories = await _resolve_inventory_categories(db, payload.category_ids)
+    await _ensure_unique_inventory_item_name(db, item_name, organization_id=org_id)
+    categories = await _resolve_inventory_categories(db, payload.category_ids, organization_id=org_id)
     billing_mappings = await _resolve_billing_mappings(
         db,
         payload,
@@ -870,6 +892,7 @@ async def create_inventory_item(
         base_unit=payload.base_unit,
         sort_order=payload.sort_order,
         is_active=payload.is_active,
+        organization_id=org_id,
     )
     uploaded_image_object_key: str | None = None
     uploaded_thumbnail_object_key: str | None = None
@@ -917,8 +940,12 @@ async def update_inventory_item(
     item_name = _normalize_inventory_item_name(payload.name)
     tamil_name = _normalize_tamil_inventory_item_name(payload.tamil_name)
     if item.name.lower() != item_name.lower():
-        await _ensure_unique_inventory_item_name(db, item_name, exclude_item_id=item_id)
-    categories = await _resolve_inventory_categories(db, payload.category_ids)
+        await _ensure_unique_inventory_item_name(
+            db, item_name, organization_id=item.organization_id, exclude_item_id=item_id
+        )
+    categories = await _resolve_inventory_categories(
+        db, payload.category_ids, organization_id=item.organization_id
+    )
     billing_mappings = await _resolve_billing_mappings(
         db,
         payload,

@@ -83,10 +83,20 @@ Useful backend commands:
 
 ```bash
 cd backend
+
+# Migrations (Alembic + idempotent startup tasks)
+uv run python migrate.py
+
+# Bootstrap first super admin (production; idempotent — fails if one already exists)
+uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
+
+# Tests
+uv run --with pytest pytest ../test/ -q
+
+# Lint
 uv sync --group dev
 uv run ruff check .
 uv run ruff format .
-uv run --with pytest pytest ../test/ -v
 ```
 
 ## Local Frontend
@@ -315,7 +325,7 @@ Postgres is published on `0.0.0.0:5432`. You must also allow **TCP 5432** in the
 ```text
 Host:     <CADDY_PUBLIC_HOST or EC2 public IP>
 Port:     5432
-Database: meat_billing
+Database: druo_pos
 User:     postgres
 Password: <POSTGRES_PASSWORD secret>
 ```
@@ -336,7 +346,15 @@ Password: <POSTGRES_PASSWORD secret>
 
 4. Push to `main` or run the workflow manually — first deploy bootstraps infra
 
-5. Open EC2 security group: **80, 443** (API), **5432** (Postgres, optional/restrict by IP)
+5. After the first successful deploy, create the platform super admin (once per environment):
+
+   ```bash
+   cd backend && uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
+   ```
+
+   On the VM, run this inside the backend container or with the same `DATABASE_URL` as production. Public `POST /register` is disabled when `PRODUCTION=true`.
+
+6. Open EC2 security group: **80, 443** (API), **5432** (Postgres, optional/restrict by IP)
 
 ---
 
@@ -353,7 +371,7 @@ Password: <POSTGRES_PASSWORD secret>
 | `CADDY_PUBLIC_HOST` | Primary API hostname — TLS + backend allowed hosts |
 | `CADDY_ACME_EMAIL` | Let's Encrypt contact email |
 | `POSTGRES_PASSWORD` | Database password (must match existing data dir) |
-| `POSTGRES_DB`, `POSTGRES_USER` | Optional overrides (default `meat_billing` / `postgres`) |
+| `POSTGRES_DB`, `POSTGRES_USER` | Optional overrides (default `duro_pos` / `postgres`) |
 | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | Object storage |
 | `RUSTFS_SERVER_DOMAINS` | RustFS virtual-host domains, comma-separated (e.g. `16.112.68.20:9000,16.112.68.20:9001`). Console-only `:9001` values are expanded to `:9000` on deploy. Backend sends the `:9000` Host header while connecting to `rustfs:9000` internally. |
 | `BACKEND_SECRET_KEY` | 32+ char JWT secret |
@@ -449,8 +467,9 @@ When you change models or migration logic, commit under `backend/` and push to `
 #### Local commands
 
 ```bash
-make backend-migrate   # one-off migration
-make backend-dev       # dev server after migrations
+cd backend && uv run python migrate.py   # one-off migration
+make backend-migrate                     # same, from repo root
+make backend-dev                         # dev server after migrations
 ```
 
 #### Manual migration on the VM
@@ -636,6 +655,13 @@ Internal Docker upstream:
 ## Testing
 
 Backend tests:
+
+```bash
+cd backend
+uv run --with pytest pytest ../test/ -q
+```
+
+Verbose output:
 
 ```bash
 cd backend

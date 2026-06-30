@@ -8,6 +8,7 @@ from alembic import command
 from alembic.config import Config
 
 from app.db.database import close_database_connections
+from app.db.migration_repair import repair_alembic_version
 from app.db.startup import (
     migrate_legacy_item_images_before_schema_changes,
     run_database_startup_tasks,
@@ -22,6 +23,8 @@ BACKEND_ROOT = Path(__file__).resolve().parent
 def run_schema_migrations() -> None:
     alembic_config = Config(str(BACKEND_ROOT / "alembic.ini"))
     alembic_config.set_main_option("script_location", str(BACKEND_ROOT / "migrations"))
+    if repair_alembic_version(alembic_config):
+        logger.info("Repaired alembic_version before upgrade.")
     logger.info("Running Alembic migrations...")
     command.upgrade(alembic_config, "head")
     logger.info("Alembic migrations completed.")

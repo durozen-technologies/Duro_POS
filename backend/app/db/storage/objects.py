@@ -6,6 +6,7 @@ from app.db.storage.paths import (
     _items_table_has_legacy_image_data,
     _prepare_thumbnail,
     _upload_bytes,
+    legacy_object_key,
 )
 
 
@@ -103,6 +104,20 @@ async def _stream_object(
         raise
 
 
+async def _stream_object_resilient(
+    object_key: str,
+    *,
+    fallback_content_type: str | None = None,
+) -> StoredImageStreamPayload:
+    try:
+        return await _stream_object(object_key, fallback_content_type=fallback_content_type)
+    except StoredImageObjectNotFoundError:
+        legacy_key = legacy_object_key(object_key)
+        if legacy_key is None:
+            raise
+        return await _stream_object(legacy_key, fallback_content_type=fallback_content_type)
+
+
 async def _download_object(
     object_key: str,
     *,
@@ -148,6 +163,20 @@ async def _download_object(
         if _is_missing_object_error(exc):
             raise StoredImageObjectNotFoundError(object_key) from exc
         raise
+
+
+async def _download_object_resilient(
+    object_key: str,
+    *,
+    fallback_content_type: str | None = None,
+) -> StoredImagePayload:
+    try:
+        return await _download_object(object_key, fallback_content_type=fallback_content_type)
+    except StoredImageObjectNotFoundError:
+        legacy_key = legacy_object_key(object_key)
+        if legacy_key is None:
+            raise
+        return await _download_object(legacy_key, fallback_content_type=fallback_content_type)
 
 
 def _log_missing_image_object(
@@ -204,7 +233,7 @@ async def _get_or_create_thumbnail_payload(
 ) -> StoredImagePayload | StoredImageStreamPayload:
     if item.image_thumbnail_object_key:
         try:
-            return await _stream_object(
+            return await _stream_object_resilient(
                 item.image_thumbnail_object_key,
                 fallback_content_type=item.image_thumbnail_content_type,
             )
@@ -227,7 +256,7 @@ async def _get_or_create_thumbnail_payload(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
 
     try:
-        original = await _download_object(
+        original = await _download_object_resilient(
             item.image_object_key,
             fallback_content_type=item.image_content_type,
         )
@@ -301,7 +330,7 @@ async def get_item_image_response_payload(
     if not item.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
     try:
-        return await _stream_object(
+        return await _stream_object_resilient(
             item.image_object_key,
             fallback_content_type=item.image_content_type,
         )
@@ -376,7 +405,7 @@ async def _get_or_create_inventory_thumbnail_payload(
 ) -> StoredImagePayload | StoredImageStreamPayload:
     if item.image_thumbnail_object_key:
         try:
-            return await _stream_object(
+            return await _stream_object_resilient(
                 item.image_thumbnail_object_key,
                 fallback_content_type=item.image_thumbnail_content_type,
             )
@@ -399,7 +428,7 @@ async def _get_or_create_inventory_thumbnail_payload(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
 
     try:
-        original = await _download_object(
+        original = await _download_object_resilient(
             item.image_object_key,
             fallback_content_type=item.image_content_type,
         )
@@ -474,7 +503,7 @@ async def get_inventory_item_image_response_payload(
     if not item.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
     try:
-        return await _stream_object(
+        return await _stream_object_resilient(
             item.image_object_key,
             fallback_content_type=item.image_content_type,
         )
@@ -549,7 +578,7 @@ async def _get_or_create_expense_thumbnail_payload(
 ) -> StoredImagePayload | StoredImageStreamPayload:
     if item.image_thumbnail_object_key:
         try:
-            return await _stream_object(
+            return await _stream_object_resilient(
                 item.image_thumbnail_object_key,
                 fallback_content_type=item.image_thumbnail_content_type,
             )
@@ -572,7 +601,7 @@ async def _get_or_create_expense_thumbnail_payload(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
 
     try:
-        original = await _download_object(
+        original = await _download_object_resilient(
             item.image_object_key,
             fallback_content_type=item.image_content_type,
         )
@@ -647,7 +676,7 @@ async def get_expense_item_image_response_payload(
     if not item.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
     try:
-        return await _stream_object(
+        return await _stream_object_resilient(
             item.image_object_key,
             fallback_content_type=item.image_content_type,
         )

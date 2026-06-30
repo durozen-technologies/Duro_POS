@@ -1,7 +1,7 @@
 import gzip
 import logging
 from time import perf_counter
-from uuid import uuid4
+from app.core.ids import uuid7
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -23,7 +23,7 @@ class RequestIdMiddleware:
             await self.app(scope, receive, send)
             return
 
-        request_id = uuid4().hex
+        request_id = uuid7().hex
         scope["request_id"] = request_id
         bind_request_id(request_id)
 

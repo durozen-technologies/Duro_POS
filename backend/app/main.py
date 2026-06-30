@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.core.redis_cache import bind_app
+
+    bind_app(app)
     app.state.database_ready = False
     app.state.database_error = None
 
@@ -56,6 +59,13 @@ app = FastAPI(
     redoc_url=None if settings.production else "/redoc",
     openapi_url=None if settings.production else f"{settings.api_v1_prefix}/openapi.json",
 )
+
+try:
+    from redis_fastapi import FastAPIRedis
+
+    FastAPIRedis(app).lifespan().caching()
+except ImportError:
+    logger.warning("fastapi-redis-sdk not installed; Redis caching disabled")
 
 
 @app.exception_handler(HTTPException)

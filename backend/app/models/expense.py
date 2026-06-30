@@ -26,6 +26,12 @@ class ExpenseItem(Base, BaseModelMixin):
     __tablename__ = "expense_items"
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    organization_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     tamil_name: Mapped[str] = mapped_column(String(120), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)

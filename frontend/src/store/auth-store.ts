@@ -14,6 +14,16 @@ type AuthState = {
   clearSession: () => void;
 };
 
+export function userHasPermission(
+  user: { permissions?: string[] } | null | undefined,
+  code: string,
+): boolean {
+  const permissions = user?.permissions;
+  if (!permissions?.length) return false;
+  if (permissions.includes("*")) return true;
+  return permissions.includes(code);
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
