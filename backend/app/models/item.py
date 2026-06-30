@@ -35,8 +35,7 @@ class Item(Base, BaseModelMixin):
             name="ck_items_unit_pair",
         ),
         CheckConstraint(
-            "assumption_percent IS NULL OR "
-            "(assumption_percent > 0 AND assumption_percent <= 100)",
+            "assumption_percent IS NULL OR (assumption_percent > 0 AND assumption_percent <= 100)",
             name="ck_items_assumption_percent_range",
         ),
         Index("ix_items_sort_name", "sort_order", "name", "id"),

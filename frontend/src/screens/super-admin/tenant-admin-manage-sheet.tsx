@@ -22,7 +22,10 @@ type TenantAdminManageSheetProps = {
   roles: AdminRoleRead[];
   loadingRoles: boolean;
   onClose: () => void;
-  onToggleStatus: (admin: TenantAdminRead, nextActive: boolean) => Promise<void>;
+  onToggleStatus: (
+    admin: TenantAdminRead,
+    nextActive: boolean,
+  ) => Promise<void>;
   onResetPassword: (admin: TenantAdminRead, password: string) => Promise<void>;
   onUpdateRoles: (admin: TenantAdminRead, roleIds: string[]) => Promise<void>;
   onDelete: (admin: TenantAdminRead) => Promise<void>;
@@ -88,7 +91,8 @@ export function TenantAdminManageSheet({
         {
           text: "Disable",
           style: "destructive",
-          onPress: () => void runAction("status", () => onToggleStatus(admin, false)),
+          onPress: () =>
+            void runAction("status", () => onToggleStatus(admin, false)),
         },
       ],
     );
@@ -96,8 +100,8 @@ export function TenantAdminManageSheet({
 
   const confirmDelete = () => {
     Alert.alert(
-      "Delete tenant admin permanently?",
-      `This removes ${admin.username} and cannot be undone.`,
+      "Delete Admin",
+      `This will permanently delete the admin account. This action cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -115,30 +119,45 @@ export function TenantAdminManageSheet({
 
   const toggleRole = (roleId: string) => {
     setSelectedRoleIds((current) =>
-      current.includes(roleId) ? current.filter((id) => id !== roleId) : [...current, roleId],
+      current.includes(roleId)
+        ? current.filter((id) => id !== roleId)
+        : [...current, roleId],
     );
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         className="flex-1 justify-end bg-black/40"
       >
-        <Pressable accessibilityRole="button" className="flex-1" onPress={onClose} />
-        <View className="max-h-[88%] rounded-t-2xl bg-white px-4 pb-8 pt-4">
+        <Pressable
+          accessibilityRole="button"
+          className="flex-1"
+          onPress={onClose}
+        />
+        <View className="mx-auto max-h-[88%] w-full max-w-lg rounded-t-[24px] bg-card px-4 pb-8 pt-4 sm:mb-8 sm:max-h-[80%] sm:rounded-2xl">
           <View className="flex-row items-start justify-between gap-3">
             <View className="flex-1">
-              <Text className="text-xl font-semibold text-neutral-900">{admin.username}</Text>
-              <Text className="mt-1 text-sm text-neutral-600">{admin.organization_name}</Text>
-              <Text className="mt-1 text-xs text-neutral-500">
+              <Text className="text-xl font-semibold text-ink">
+                {admin.username}
+              </Text>
+              <Text className="mt-1 text-sm text-muted">
+                {admin.organization_name}
+              </Text>
+              <Text className="mt-1 text-xs text-muted">
                 {admin.is_active ? "Active" : "Disabled"}
               </Text>
             </View>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close manage tenant admin"
-              className="rounded-lg bg-neutral-100 p-2"
+              className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control bg-background p-2 active:opacity-80"
               onPress={onClose}
             >
               <MaterialCommunityIcons name="close" size={20} color="#171717" />
@@ -146,18 +165,20 @@ export function TenantAdminManageSheet({
           </View>
 
           <ScrollView className="mt-4" keyboardShouldPersistTaps="handled">
-            <Text className="text-sm font-medium text-neutral-700">Account details</Text>
-            <Text className="mt-1 text-xs text-neutral-500">
+            <Text className="text-sm font-medium text-ink">
+              Account details
+            </Text>
+            <Text className="mt-1 text-xs text-muted">
               Created {formatTimestamp(admin.created_at)}
             </Text>
-            <Text className="mt-1 text-xs text-neutral-500">
+            <Text className="mt-1 text-xs text-muted">
               Last login {formatTimestamp(admin.last_login_at)}
             </Text>
 
-            <Text className="mt-5 text-sm font-medium text-neutral-700">Status</Text>
+            <Text className="mt-5 text-sm font-medium text-ink">Status</Text>
             <Pressable
               accessibilityRole="button"
-              className="mt-2 items-center rounded-lg bg-neutral-900 px-4 py-2"
+              className={`mt-3 min-h-[44px] items-center justify-center rounded-control bg-accent px-4 py-2 shadow-sm ${busyAction != null ? "opacity-50" : "active:opacity-80"}`}
               disabled={busyAction != null}
               onPress={() =>
                 admin.is_active
@@ -174,22 +195,26 @@ export function TenantAdminManageSheet({
               )}
             </Pressable>
 
-            <Text className="mt-5 text-sm font-medium text-neutral-700">Reset password</Text>
+            <Text className="mt-5 text-sm font-medium text-ink">
+              Set New Password
+            </Text>
             <View className="mt-2 flex-row items-center gap-2">
               <TextInput
                 accessibilityLabel="New password"
                 autoCapitalize="none"
                 autoCorrect={false}
-                className="flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-2"
-                placeholder="New password (min 8 characters)"
+                className="min-h-[44px] flex-1 rounded-control border border-border bg-card px-4 py-2"
+                placeholder="New password (8+ characters)"
                 secureTextEntry={!passwordVisible}
                 value={password}
                 onChangeText={setPassword}
               />
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
-                className="rounded-lg bg-neutral-100 p-2"
+                accessibilityLabel={
+                  passwordVisible ? "Hide password" : "Show password"
+                }
+                className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control bg-background p-2"
                 onPress={() => setPasswordVisible((current) => !current)}
               >
                 <MaterialCommunityIcons
@@ -201,7 +226,7 @@ export function TenantAdminManageSheet({
             </View>
             <Pressable
               accessibilityRole="button"
-              className="mt-2 items-center rounded-lg border border-neutral-300 px-4 py-2"
+              className={`mt-3 min-h-[44px] items-center justify-center rounded-control border border-border bg-card px-4 py-2 shadow-sm ${busyAction != null || password.length < 8 ? "opacity-50" : "active:opacity-80"}`}
               disabled={busyAction != null || password.length < 8}
               onPress={() =>
                 void runAction("password", async () => {
@@ -213,11 +238,11 @@ export function TenantAdminManageSheet({
               {busyAction === "password" ? (
                 <ActivityIndicator />
               ) : (
-                <Text className="font-medium text-neutral-800">Update password</Text>
+                <Text className="font-medium text-ink">Set Password</Text>
               )}
             </Pressable>
 
-            <Text className="mt-5 text-sm font-medium text-neutral-700">Roles</Text>
+            <Text className="mt-5 text-sm font-medium text-ink">Roles</Text>
             {loadingRoles ? (
               <ActivityIndicator className="mt-2" />
             ) : (
@@ -229,10 +254,18 @@ export function TenantAdminManageSheet({
                       key={role.id}
                       accessibilityRole="button"
                       accessibilityState={{ selected }}
-                      className={`rounded-lg px-3 py-2 ${selected ? "bg-neutral-900" : "bg-neutral-100"}`}
+                      className={`min-h-[44px] items-center justify-center rounded-control border px-4 py-2 active:opacity-80 ${selected ? "border-transparent bg-accent" : "border-border bg-card"}`}
                       onPress={() => toggleRole(role.id)}
                     >
-                      <Text className={selected ? "text-white" : "text-neutral-700"}>{role.name}</Text>
+                      <Text
+                        className={
+                          selected
+                            ? "font-medium text-white"
+                            : "font-medium text-ink"
+                        }
+                      >
+                        {role.name}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -240,33 +273,37 @@ export function TenantAdminManageSheet({
             )}
             <Pressable
               accessibilityRole="button"
-              className="mt-2 items-center rounded-lg border border-neutral-300 px-4 py-2"
+              className={`mt-3 min-h-[44px] items-center justify-center rounded-control border border-border bg-card px-4 py-2 shadow-sm ${busyAction != null || selectedRoleIds.length === 0 ? "opacity-50" : "active:opacity-80"}`}
               disabled={busyAction != null || selectedRoleIds.length === 0}
               onPress={() =>
-                void runAction("roles", () => onUpdateRoles(admin, selectedRoleIds))
+                void runAction("roles", () =>
+                  onUpdateRoles(admin, selectedRoleIds),
+                )
               }
             >
               {busyAction === "roles" ? (
                 <ActivityIndicator />
               ) : (
-                <Text className="font-medium text-neutral-800">Save roles</Text>
+                <Text className="font-medium text-ink">Update Roles</Text>
               )}
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
-              className="mt-6 items-center rounded-lg bg-red-600 px-4 py-3"
+              className={`mt-8 min-h-[44px] items-center justify-center rounded-control bg-danger px-4 py-3 shadow-sm ${busyAction != null ? "opacity-50" : "active:opacity-80"}`}
               disabled={busyAction != null}
               onPress={confirmDelete}
             >
               {busyAction === "delete" ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text className="font-semibold text-white">Delete permanently</Text>
+                <Text className="font-semibold text-white">Delete Admin</Text>
               )}
             </Pressable>
 
-            {error ? <Text className="mt-3 text-sm text-red-600">{error}</Text> : null}
+            {error ? (
+              <Text className="mt-3 text-sm text-danger">{error}</Text>
+            ) : null}
           </ScrollView>
         </View>
       </KeyboardAvoidingView>

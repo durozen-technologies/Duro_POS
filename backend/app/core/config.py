@@ -56,8 +56,12 @@ class Settings(BaseSettings):
     rustfs_secret_access_key: str | None = None
     rustfs_region_name: str = "us-east-1"
     rustfs_bucket_name: str = "pos-mlb-items"
-    rustfs_server_domains_raw: str | None = Field(default=None, validation_alias="RUSTFS_SERVER_DOMAINS")
-    rustfs_s3_host_header: str | None = Field(default=None, validation_alias="RUSTFS_S3_HOST_HEADER")
+    rustfs_server_domains_raw: str | None = Field(
+        default=None, validation_alias="RUSTFS_SERVER_DOMAINS"
+    )
+    rustfs_s3_host_header: str | None = Field(
+        default=None, validation_alias="RUSTFS_S3_HOST_HEADER"
+    )
     rustfs_public_base_url: str | None = None
     rustfs_public_read_enabled: bool = False
     rustfs_connect_timeout_seconds: int = 5
@@ -117,7 +121,9 @@ class Settings(BaseSettings):
         if self.item_image_thumbnail_size < 1:
             raise ValueError("ITEM_IMAGE_THUMBNAIL_SIZE must be greater than 0")
         if self.item_image_full_max_size < self.item_image_thumbnail_size:
-            raise ValueError("ITEM_IMAGE_FULL_MAX_SIZE must be greater than or equal to thumbnail size")
+            raise ValueError(
+                "ITEM_IMAGE_FULL_MAX_SIZE must be greater than or equal to thumbnail size"
+            )
         if self.rustfs_connect_timeout_seconds < 1:
             raise ValueError("RUSTFS_CONNECT_TIMEOUT_SECONDS must be greater than 0")
         if self.rustfs_read_timeout_seconds < 1:
@@ -150,9 +156,7 @@ class Settings(BaseSettings):
                 "RustFS must be configured in production because item images are RustFS-only"
             )
         if self.shop_default_password == "ml123":
-            raise ValueError(
-                "SHOP_DEFAULT_PASSWORD must be changed from the default in production"
-            )
+            raise ValueError("SHOP_DEFAULT_PASSWORD must be changed from the default in production")
 
         return self
 

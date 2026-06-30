@@ -149,7 +149,9 @@ def _inventory_item_to_read_with_categories(
     item: InventoryItem,
     categories: list[InventoryCategory],
 ) -> InventoryItemRead:
-    sorted_categories = sorted(categories, key=lambda category: (category.name.lower(), str(category.id)))
+    sorted_categories = sorted(
+        categories, key=lambda category: (category.name.lower(), str(category.id))
+    )
     mapping_rows = item.__dict__.get("billing_mappings") or []
     item_mappings = _item_mapping_reads_from_links(mapping_rows)
     item_level_mapping = next(
@@ -310,7 +312,10 @@ def _billing_mapping_specs_from_payload(
         ]
 
     legacy_billing_item_ids = list(dict.fromkeys(payload.billing_item_ids))
-    if payload.billing_item_id is not None and payload.billing_item_id not in legacy_billing_item_ids:
+    if (
+        payload.billing_item_id is not None
+        and payload.billing_item_id not in legacy_billing_item_ids
+    ):
         legacy_billing_item_ids.insert(0, payload.billing_item_id)
     if not legacy_billing_item_ids:
         return []
@@ -342,7 +347,9 @@ async def _resolve_billing_mappings(
         mapping_specs = [
             InventoryBillingItemMappingWrite(
                 inventory_category_id=(
-                    only_category_id if mapping.inventory_category_id is None else mapping.inventory_category_id
+                    only_category_id
+                    if mapping.inventory_category_id is None
+                    else mapping.inventory_category_id
                 ),
                 billing_item_id=mapping.billing_item_id,
             )
@@ -372,7 +379,10 @@ async def _resolve_billing_mappings(
     seen_category_ids: set[UUID | None] = set()
     seen_billing_item_ids: set[UUID] = set()
     for mapping in mapping_specs:
-        if mapping.inventory_category_id not in category_ids and mapping.inventory_category_id is not None:
+        if (
+            mapping.inventory_category_id not in category_ids
+            and mapping.inventory_category_id is not None
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Mapped inventory category must be linked to this inventory item",
@@ -491,7 +501,7 @@ async def create_inventory_category(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Inventory category already exists",
-    )
+        )
     category = InventoryCategory(name=category_name, organization_id=org_id)
     db.add(category)
     try:
@@ -515,7 +525,9 @@ async def update_inventory_category(
         select(InventoryCategory).where(InventoryCategory.id == category_id).with_for_update()
     )
     if category is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory category not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory category not found"
+        )
     if category.name == category_name:
         return _category_to_read(category)
     existing = await db.scalar(
@@ -548,7 +560,9 @@ async def delete_inventory_category(db: AsyncSession, category_id: UUID) -> None
         select(InventoryCategory).where(InventoryCategory.id == category_id).with_for_update()
     )
     if category is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory category not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory category not found"
+        )
     has_item_links = await db.scalar(
         select(InventoryItemCategory.id)
         .where(InventoryItemCategory.category_id == category_id)
@@ -589,7 +603,9 @@ async def _resolve_inventory_categories(
         )
     ).all()
     categories_by_id = {category.id: category for category in categories}
-    missing_category_ids = [category_id for category_id in unique_category_ids if category_id not in categories_by_id]
+    missing_category_ids = [
+        category_id for category_id in unique_category_ids if category_id not in categories_by_id
+    ]
     if missing_category_ids:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -827,20 +843,24 @@ async def count_inventory_items(
 ) -> InventoryItemCounts:
     count_source = _inventory_items_row_query(q=q, active=active).subquery()
     row = (
-        await db.execute(
-            select(
-                func.count().label("all"),
-                func.coalesce(
-                    func.sum(case((count_source.c.is_active.is_(True), 1), else_=0)),
-                    0,
-                ).label("active"),
-                func.coalesce(
-                    func.sum(case((count_source.c.is_active.is_(False), 1), else_=0)),
-                    0,
-                ).label("paused"),
-            ).select_from(count_source)
+        (
+            await db.execute(
+                select(
+                    func.count().label("all"),
+                    func.coalesce(
+                        func.sum(case((count_source.c.is_active.is_(True), 1), else_=0)),
+                        0,
+                    ).label("active"),
+                    func.coalesce(
+                        func.sum(case((count_source.c.is_active.is_(False), 1), else_=0)),
+                        0,
+                    ).label("paused"),
+                ).select_from(count_source)
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     return InventoryItemCounts(
         all=int(row["all"] or 0),
         active=int(row["active"] or 0),
@@ -863,7 +883,9 @@ async def get_inventory_item(db: AsyncSession, item_id: UUID) -> InventoryItemRe
         )
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
     return _inventory_item_to_read(item)
 
 
@@ -877,7 +899,9 @@ async def create_inventory_item(
     item_name = _normalize_inventory_item_name(payload.name)
     tamil_name = _normalize_tamil_inventory_item_name(payload.tamil_name)
     await _ensure_unique_inventory_item_name(db, item_name, organization_id=org_id)
-    categories = await _resolve_inventory_categories(db, payload.category_ids, organization_id=org_id)
+    categories = await _resolve_inventory_categories(
+        db, payload.category_ids, organization_id=org_id
+    )
     billing_mappings = await _resolve_billing_mappings(
         db,
         payload,
@@ -936,7 +960,9 @@ async def update_inventory_item(
         .with_for_update()
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
     item_name = _normalize_inventory_item_name(payload.name)
     tamil_name = _normalize_tamil_inventory_item_name(payload.tamil_name)
     if item.name.lower() != item_name.lower():
@@ -955,7 +981,9 @@ async def update_inventory_item(
     )
     next_category_ids = {category.id for category in categories}
     removed_category_ids = {
-        link.category_id for link in item.category_links if link.category_id not in next_category_ids
+        link.category_id
+        for link in item.category_links
+        if link.category_id not in next_category_ids
     }
     if removed_category_ids:
         has_usage_history = await db.scalar(
@@ -977,8 +1005,10 @@ async def update_inventory_item(
     previous_thumbnail_object_key = item.image_thumbnail_object_key
     uploaded_image_object_key: str | None = None
     uploaded_thumbnail_object_key: str | None = None
-    should_remove_image = remove_image and image is None and bool(
-        item.image_object_key or item.image_thumbnail_object_key
+    should_remove_image = (
+        remove_image
+        and image is None
+        and bool(item.image_object_key or item.image_thumbnail_object_key)
     )
 
     try:
@@ -1052,7 +1082,9 @@ async def update_inventory_item_purchase_rate(
         select(InventoryItem).where(InventoryItem.id == item_id).with_for_update()
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
     item.purchase_rate = payload.purchase_rate
     await db.commit()
     return await get_inventory_item(db, item_id)
@@ -1065,8 +1097,9 @@ async def confirm_inventory_purchase_rates_today(db: AsyncSession) -> int:
     # Get active inventory items
     items = (
         await db.execute(
-            select(InventoryItem.id, InventoryItem.purchase_rate)
-            .where(InventoryItem.is_active.is_(True))
+            select(InventoryItem.id, InventoryItem.purchase_rate).where(
+                InventoryItem.is_active.is_(True)
+            )
         )
     ).all()
 
@@ -1085,31 +1118,33 @@ async def confirm_inventory_purchase_rates_today(db: AsyncSession) -> int:
         }
         for item in items
     ]
-    
+
     stmt = pg_insert(InventoryItemPurchaseRateHistory).values(values)
     stmt = stmt.on_conflict_do_update(
         index_elements=["inventory_item_id", "date"],
         set_={
             "purchase_rate": stmt.excluded.purchase_rate,
             "updated_at": stmt.excluded.updated_at,
-        }
+        },
     )
     await db.execute(stmt)
 
     result = await db.execute(
-        update(InventoryItem)
-        .where(InventoryItem.is_active.is_(True))
-        .values(updated_at=now)
+        update(InventoryItem).where(InventoryItem.is_active.is_(True)).values(updated_at=now)
     )
     await db.commit()
     return int(result.rowcount or 0)
 
 
-async def get_inventory_purchase_rates_history(db: AsyncSession, reference_date: date) -> dict[UUID, Decimal]:
+async def get_inventory_purchase_rates_history(
+    db: AsyncSession, reference_date: date
+) -> dict[UUID, Decimal]:
     rows = (
         await db.execute(
-            select(InventoryItemPurchaseRateHistory.inventory_item_id, InventoryItemPurchaseRateHistory.purchase_rate)
-            .where(InventoryItemPurchaseRateHistory.date == reference_date)
+            select(
+                InventoryItemPurchaseRateHistory.inventory_item_id,
+                InventoryItemPurchaseRateHistory.purchase_rate,
+            ).where(InventoryItemPurchaseRateHistory.date == reference_date)
         )
     ).all()
     return {row.inventory_item_id: row.purchase_rate for row in rows}
@@ -1120,9 +1155,13 @@ async def upload_inventory_item_image(
     item_id: UUID,
     image: UploadFile,
 ) -> InventoryItemImageRead:
-    item = await db.scalar(select(InventoryItem).where(InventoryItem.id == item_id).with_for_update())
+    item = await db.scalar(
+        select(InventoryItem).where(InventoryItem.id == item_id).with_for_update()
+    )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
     return await save_inventory_item_image_upload(db, item, image)
 
 
@@ -1138,7 +1177,9 @@ async def delete_inventory_item(db: AsyncSession, item_id: UUID) -> None:
         select(InventoryItem).where(InventoryItem.id == item_id).with_for_update()
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
     image_object_key = item.image_object_key
     thumbnail_object_key = item.image_thumbnail_object_key
     await db.execute(
@@ -1187,7 +1228,9 @@ async def _movement_totals(
     *,
     used_since: date | None = None,
     as_of: datetime | None = None,
-) -> tuple[dict[UUID, Decimal], dict[UUID, Decimal], dict[tuple[UUID, UUID], Decimal], dict[UUID, Decimal]]:
+) -> tuple[
+    dict[UUID, Decimal], dict[UUID, Decimal], dict[tuple[UUID, UUID], Decimal], dict[UUID, Decimal]
+]:
     """Return (added, used, category_used) totals for the given items.
 
     ``added`` is always the all-time total so that available stock is correct.
@@ -1217,9 +1260,7 @@ async def _movement_totals(
             .group_by(InventoryMovement.inventory_item_id)
         )
     ).all()
-    added: dict[UUID, Decimal] = {
-        row.inventory_item_id: row.quantity or ZERO for row in add_rows
-    }
+    added: dict[UUID, Decimal] = {row.inventory_item_id: row.quantity or ZERO for row in add_rows}
 
     # USE movements — optionally scoped to a start date
     use_filter = [
@@ -1244,9 +1285,7 @@ async def _movement_totals(
             .group_by(InventoryMovement.inventory_item_id)
         )
     ).all()
-    used: dict[UUID, Decimal] = {
-        row.inventory_item_id: row.quantity or ZERO for row in use_rows
-    }
+    used: dict[UUID, Decimal] = {row.inventory_item_id: row.quantity or ZERO for row in use_rows}
 
     category_rows = (
         await db.execute(
@@ -1283,9 +1322,7 @@ async def _movement_totals(
             .group_by(InventoryTransfer.inventory_item_id)
         )
     ).all()
-    transferred_out = {
-        row.inventory_item_id: row.quantity or ZERO for row in transfer_rows
-    }
+    transferred_out = {row.inventory_item_id: row.quantity or ZERO for row in transfer_rows}
 
     return added, used, category_used, transferred_out
 
@@ -1346,7 +1383,9 @@ async def get_inventory_summary(
         ShopInventoryAllocation.shop_id == shop.id
     )
     allocations = (await db.scalars(allocation_query)).all()
-    allocations_by_item_id = {allocation.inventory_item_id: allocation for allocation in allocations}
+    allocations_by_item_id = {
+        allocation.inventory_item_id: allocation for allocation in allocations
+    }
     scoped_item_ids = list(allocations_by_item_id)
 
     if active_allocations_only:
@@ -1375,7 +1414,9 @@ async def get_inventory_summary(
 
     items = (
         await db.scalars(
-            item_query.order_by(InventoryItem.sort_order, func.lower(InventoryItem.name), InventoryItem.id)
+            item_query.order_by(
+                InventoryItem.sort_order, func.lower(InventoryItem.name), InventoryItem.id
+            )
         )
     ).all()
     item_ids = [item.id for item in items]
@@ -1386,7 +1427,9 @@ async def get_inventory_summary(
             allocation=allocations_by_item_id.get(item.id),
             added_quantity=added.get(item.id, ZERO),
             used_quantity=used.get(item.id, ZERO),
-            available_quantity=added.get(item.id, ZERO) - used.get(item.id, ZERO) - transferred_out.get(item.id, ZERO),
+            available_quantity=added.get(item.id, ZERO)
+            - used.get(item.id, ZERO)
+            - transferred_out.get(item.id, ZERO),
             category_used=category_used,
         )
         for item in items
@@ -1515,7 +1558,9 @@ async def list_inventory_stock_rows(
             # Display: today's usage (resets daily)
             used_quantity=used_today.get(item.id, ZERO),
             # Availability: reduced by used_alltime stock
-            available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
+            available_quantity=added.get(item.id, ZERO)
+            - used_alltime.get(item.id, ZERO)
+            - transferred_alltime.get(item.id, ZERO),
             category_used=category_used_today,
         )
         for item, allocation in page_rows
@@ -1548,12 +1593,16 @@ async def allocate_shop_inventory_items(
     item_ids: list[UUID],
 ) -> ShopInventoryAllocationBulkRead:
     unique_item_ids = list(dict.fromkeys(item_ids))
-    items = (await db.scalars(select(InventoryItem).where(InventoryItem.id.in_(unique_item_ids)))).all()
+    items = (
+        await db.scalars(select(InventoryItem).where(InventoryItem.id.in_(unique_item_ids)))
+    ).all()
     items_by_id = {item.id: item for item in items}
     for item_id in unique_item_ids:
         item = items_by_id.get(item_id)
         if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+            )
         if not item.is_active:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1606,7 +1655,9 @@ async def update_shop_inventory_allocation(
         .with_for_update()
     )
     if allocation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory allocation not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory allocation not found"
+        )
     if is_active is not None:
         allocation.is_active = is_active
     if sort_order is not None:
@@ -1615,10 +1666,14 @@ async def update_shop_inventory_allocation(
     item = await db.scalar(
         select(InventoryItem)
         .where(InventoryItem.id == item_id)
-        .options(selectinload(InventoryItem.category_links).selectinload(InventoryItemCategory.category))
+        .options(
+            selectinload(InventoryItem.category_links).selectinload(InventoryItemCategory.category)
+        )
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
     stock_item = await _stock_item_for_shop_inventory_item(db, shop, item, allocation)
     await db.commit()
     return stock_item
@@ -1650,11 +1705,15 @@ async def _get_allocated_inventory_item_for_shop(
     item = await db.scalar(
         select(InventoryItem)
         .where(InventoryItem.id == item_id)
-        .options(selectinload(InventoryItem.category_links).selectinload(InventoryItemCategory.category))
+        .options(
+            selectinload(InventoryItem.category_links).selectinload(InventoryItemCategory.category)
+        )
         .with_for_update()
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
     if not item.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1692,7 +1751,9 @@ async def _stock_item_for_shop_inventory_item(
     movements on or after that date, while ``available_quantity`` is always
     computed from all-time totals to stay correct for capacity checks.
     """
-    added, used_alltime, category_used_alltime, transferred_alltime = await _movement_totals(db, shop.id, [item.id])
+    added, used_alltime, category_used_alltime, transferred_alltime = await _movement_totals(
+        db, shop.id, [item.id]
+    )
     if used_since is not None:
         _, used_display, category_used_display, _ = await _movement_totals(
             db, shop.id, [item.id], used_since=used_since
@@ -1705,7 +1766,9 @@ async def _stock_item_for_shop_inventory_item(
         allocation=allocation,
         added_quantity=added.get(item.id, ZERO),
         used_quantity=used_display.get(item.id, ZERO),
-        available_quantity=added.get(item.id, ZERO) - used_alltime.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO),
+        available_quantity=added.get(item.id, ZERO)
+        - used_alltime.get(item.id, ZERO)
+        - transferred_alltime.get(item.id, ZERO),
         category_used=category_used_display,
     )
 
@@ -1768,14 +1831,15 @@ async def list_inventory_movements(
             )
     elif reference_date is not None:
         query = query.where(
-            InventoryMovement.occurred_at
-            >= datetime.combine(reference_date, time.min, tzinfo=UTC),
+            InventoryMovement.occurred_at >= datetime.combine(reference_date, time.min, tzinfo=UTC),
             InventoryMovement.occurred_at
             < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
         )
     rows = (
         await db.scalars(
-            query.order_by(InventoryMovement.occurred_at.desc(), InventoryMovement.id.desc()).limit(limit + 1)
+            query.order_by(InventoryMovement.occurred_at.desc(), InventoryMovement.id.desc()).limit(
+                limit + 1
+            )
         )
     ).all()
     page_rows = rows[:limit]
@@ -1818,27 +1882,30 @@ async def list_inventory_transfers(
             )
     elif reference_date is not None:
         query = query.where(
-            InventoryTransfer.occurred_at
-            >= datetime.combine(reference_date, time.min, tzinfo=UTC),
+            InventoryTransfer.occurred_at >= datetime.combine(reference_date, time.min, tzinfo=UTC),
             InventoryTransfer.occurred_at
             < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
         )
     rows = (
         await db.scalars(
-            query.order_by(InventoryTransfer.occurred_at.desc(), InventoryTransfer.id.desc()).limit(limit + 1)
+            query.order_by(InventoryTransfer.occurred_at.desc(), InventoryTransfer.id.desc()).limit(
+                limit + 1
+            )
         )
     ).all()
     page_rows = rows[:limit]
-    
+
     items = []
     for transfer in page_rows:
         read = InventoryTransferRead.model_validate(transfer)
         read.source_shop_name = transfer.source_shop.name if transfer.source_shop else None
         read.transfer_shop_name = transfer.transfer_shop.name if transfer.transfer_shop else None
         read.inventory_item_name = transfer.inventory_item.name if transfer.inventory_item else None
-        read.inventory_item_tamil_name = transfer.inventory_item.tamil_name if transfer.inventory_item else None
+        read.inventory_item_tamil_name = (
+            transfer.inventory_item.tamil_name if transfer.inventory_item else None
+        )
         items.append(read)
-        
+
     return InventoryTransferPage(
         items=items,
         limit=limit,
@@ -1881,7 +1948,9 @@ async def add_shop_inventory_stock(
     )
     summary = None
     if include_summary:
-        summary = await get_inventory_summary(db, shop, include_unallocated=False, active_allocations_only=True)
+        summary = await get_inventory_summary(
+            db, shop, include_unallocated=False, active_allocations_only=True
+        )
         stock_item = next(item for item in summary.items if item.id == item_id)
     else:
         stock_item = await _stock_item_for_shop_inventory_item(
@@ -1945,7 +2014,9 @@ async def use_shop_inventory_stock(
     )
     summary = None
     if include_summary:
-        summary = await get_inventory_summary(db, shop, include_unallocated=False, active_allocations_only=True)
+        summary = await get_inventory_summary(
+            db, shop, include_unallocated=False, active_allocations_only=True
+        )
         stock_item = next(item for item in summary.items if item.id == item_id)
     else:
         stock_item = await _stock_item_for_shop_inventory_item(
@@ -1982,7 +2053,9 @@ async def use_shop_inventory_stock_split(
         split_quantities[line.category_id] = split_quantities.get(line.category_id, ZERO) + quantity
 
     split_quantities = {
-        category_id: quantity for category_id, quantity in split_quantities.items() if quantity > ZERO
+        category_id: quantity
+        for category_id, quantity in split_quantities.items()
+        if quantity > ZERO
     }
     split_total = sum(split_quantities.values(), ZERO).quantize(THREE_DECIMALS)
     if not split_quantities or split_total != total_quantity:
@@ -2028,7 +2101,9 @@ async def use_shop_inventory_stock_split(
     ).all()
     summary = None
     if include_summary:
-        summary = await get_inventory_summary(db, shop, include_unallocated=False, active_allocations_only=True)
+        summary = await get_inventory_summary(
+            db, shop, include_unallocated=False, active_allocations_only=True
+        )
         stock_item = next(item for item in summary.items if item.id == item_id)
     else:
         stock_item = await _stock_item_for_shop_inventory_item(
@@ -2064,21 +2139,31 @@ async def admin_set_shop_inventory_stock(
         .with_for_update()
     )
     if allocation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory allocation not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory allocation not found"
+        )
 
     item = await db.scalar(
         select(InventoryItem)
         .where(InventoryItem.id == item_id)
-        .options(selectinload(InventoryItem.category_links).selectinload(InventoryItemCategory.category))
+        .options(
+            selectinload(InventoryItem.category_links).selectinload(InventoryItemCategory.category)
+        )
         .with_for_update()
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
 
     added, used_alltime, _, transferred_alltime = await _movement_totals(db, shop.id, [item_id])
     _, used_today, _, _ = await _movement_totals(db, shop.id, [item_id], used_since=date.today())
 
-    current_available = added.get(item_id, ZERO) - used_alltime.get(item.id, ZERO) - transferred_alltime.get(item.id, ZERO)
+    current_available = (
+        added.get(item_id, ZERO)
+        - used_alltime.get(item.id, ZERO)
+        - transferred_alltime.get(item.id, ZERO)
+    )
     current_used_today = used_today.get(item_id, ZERO)
 
     movements_added: list[InventoryMovement] = []
@@ -2087,7 +2172,9 @@ async def admin_set_shop_inventory_stock(
     if payload.used_quantity is not None:
         target_used = _normalize_nonnegative_quantity(item.base_unit, payload.used_quantity)
         if payload.category_id:
-            _, _, category_used_today_all, _ = await _movement_totals(db, shop.id, [item_id], used_since=date.today())
+            _, _, category_used_today_all, _ = await _movement_totals(
+                db, shop.id, [item_id], used_since=date.today()
+            )
             current_used = category_used_today_all.get((item_id, payload.category_id), ZERO)
         else:
             current_used = current_used_today
@@ -2095,32 +2182,39 @@ async def admin_set_shop_inventory_stock(
         delta_used = target_used - current_used
         if delta_used != ZERO:
             # ponytail: adjust used via USE (positive or negative)
-            movements_added.append(InventoryMovement(
-                shop_id=shop.id,
-                inventory_item_id=item_id,
-                category_id=payload.category_id,
-                movement_type=InventoryMovementType.USE,
-                quantity=delta_used,
-                occurred_at=occurred_at,
-            ))
+            movements_added.append(
+                InventoryMovement(
+                    shop_id=shop.id,
+                    inventory_item_id=item_id,
+                    category_id=payload.category_id,
+                    movement_type=InventoryMovementType.USE,
+                    quantity=delta_used,
+                    occurred_at=occurred_at,
+                )
+            )
 
     if payload.available_quantity is not None:
-        target_available = _normalize_nonnegative_quantity(item.base_unit, payload.available_quantity)
+        target_available = _normalize_nonnegative_quantity(
+            item.base_unit, payload.available_quantity
+        )
         # ponytail: adjust available via ADD (positive or negative), counteracting any delta_used so target is hit exactly
         delta_available = (target_available - current_available) + delta_used
         if delta_available != ZERO:
-            movements_added.append(InventoryMovement(
-                shop_id=shop.id,
-                inventory_item_id=item_id,
-                movement_type=InventoryMovementType.ADD,
-                quantity=delta_available,
-                occurred_at=occurred_at,
-            ))
+            movements_added.append(
+                InventoryMovement(
+                    shop_id=shop.id,
+                    inventory_item_id=item_id,
+                    movement_type=InventoryMovementType.ADD,
+                    quantity=delta_available,
+                    occurred_at=occurred_at,
+                )
+            )
 
     for movement in movements_added:
         db.add(movement)
     if movements_added:
         await db.commit()
 
-    return await _stock_item_for_shop_inventory_item(db, shop, item, allocation, used_since=date.today())
-
+    return await _stock_item_for_shop_inventory_item(
+        db, shop, item, allocation, used_since=date.today()
+    )

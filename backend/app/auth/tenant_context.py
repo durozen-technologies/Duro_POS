@@ -14,6 +14,7 @@ from app.core.redis_cache import (
     permission_cache_key,
 )
 from app.db.database import get_db
+from app.db.tenant_schema import tenant_router
 from app.models import AdminRolePermission, AdminUserRole, Organization, User, UserRole
 from app.models.enums import is_super_admin, is_tenant_admin, normalize_user_role
 
@@ -24,6 +25,7 @@ class TenantContext:
     organization_id: UUID | None
     permissions: frozenset[str]
     is_super_admin: bool
+    schema_name: str | None = None
 
     def require_organization_id(self) -> UUID:
         if self.organization_id is None:
@@ -62,11 +64,15 @@ async def get_tenant_context(
 ) -> TenantContext:
     permissions = await load_user_permissions(db, current_user)
     org_id = current_user.organization_id
+    schema_name = None
+    if org_id is not None:
+        schema_name = await tenant_router.resolve_schema(db, org_id)
     return TenantContext(
         actor=current_user,
         organization_id=org_id,
         permissions=permissions,
         is_super_admin=is_super_admin(current_user.role),
+        schema_name=schema_name,
     )
 
 

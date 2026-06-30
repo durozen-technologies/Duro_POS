@@ -14,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import TenantContext, get_tenant_context
 from app.auth.dependencies import require_tenant_admin
 from app.db.database import get_db
+from app.db.session import get_platform_db, get_tenant_db
 from app.models import Shop, User
 from app.services.tenant_query import get_shop_for_tenant_or_404
-from app.models import Shop, User
 
 
 def get_current_admin(

@@ -10,7 +10,6 @@ from app.db.storage.paths import (
 )
 
 
-
 def _normalize_etag(etag: str | None, object_key: str) -> str:
     candidate = (etag or "").strip()
     if candidate.startswith('"') and candidate.endswith('"'):
@@ -26,7 +25,9 @@ def format_image_last_modified(last_modified: datetime | None) -> str | None:
     return format_datetime(last_modified.astimezone(UTC), usegmt=True)
 
 
-def image_response_headers(payload: StoredImagePayload | StoredImageStreamPayload) -> dict[str, str]:
+def image_response_headers(
+    payload: StoredImagePayload | StoredImageStreamPayload,
+) -> dict[str, str]:
     headers = {
         "Cache-Control": payload.cache_control,
         "ETag": payload.etag,
@@ -274,7 +275,9 @@ async def _get_or_create_thumbnail_payload(
             clear_thumbnail=True,
             request_id=request_id,
         )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        ) from exc
     thumbnail_content, thumbnail_content_type = _prepare_thumbnail(original.content)
     uploaded_thumbnail_object_key: str | None = None
 
@@ -348,7 +351,9 @@ async def get_item_image_response_payload(
             clear_thumbnail=True,
             request_id=request_id,
         )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        ) from exc
 
 
 def _log_missing_inventory_image_object(
@@ -446,7 +451,9 @@ async def _get_or_create_inventory_thumbnail_payload(
             clear_thumbnail=True,
             request_id=request_id,
         )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        ) from exc
     thumbnail_content, thumbnail_content_type = _prepare_thumbnail(original.content)
     uploaded_thumbnail_object_key: str | None = None
 
@@ -521,7 +528,9 @@ async def get_inventory_item_image_response_payload(
             clear_thumbnail=True,
             request_id=request_id,
         )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        ) from exc
 
 
 def _log_missing_expense_image_object(
@@ -619,7 +628,9 @@ async def _get_or_create_expense_thumbnail_payload(
             clear_thumbnail=True,
             request_id=request_id,
         )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        ) from exc
     thumbnail_content, thumbnail_content_type = _prepare_thumbnail(original.content)
     uploaded_thumbnail_object_key: str | None = None
 
@@ -694,7 +705,9 @@ async def get_expense_item_image_response_payload(
             clear_thumbnail=True,
             request_id=request_id,
         )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        ) from exc
 
 
 async def backfill_item_image_thumbnails(db: AsyncSession, *, limit: int = 50) -> int:

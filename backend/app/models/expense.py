@@ -34,8 +34,12 @@ class ExpenseItem(Base, BaseModelMixin):
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     tamil_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
     image_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image_content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     image_thumbnail_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -77,8 +81,12 @@ class ShopExpenseAllocation(Base, BaseModelMixin):
         index=True,
         nullable=False,
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -141,7 +149,9 @@ class ExpenseEntry(Base, BaseModelMixin):
 
     __table_args__ = (
         CheckConstraint("amount > 0", name="ck_expense_entries_amount_positive"),
-        CheckConstraint("length(trim(expense_name)) >= 2", name="ck_expense_entries_name_not_blank"),
+        CheckConstraint(
+            "length(trim(expense_name)) >= 2", name="ck_expense_entries_name_not_blank"
+        ),
         CheckConstraint(
             "length(trim(expense_tamil_name)) >= 1",
             name="ck_expense_entries_tamil_name_not_blank",

@@ -131,7 +131,23 @@ def _over_report_sheet_headers(*, use_tamil: bool) -> list[str]:
 
 OVER_REPORT_SHEET_HEADER_ALIGNMENTS = ("center",) * 17
 OVER_REPORT_SHEET_MIN_WIDTHS = (
-    46, 58, 50, 50, 50, 68, 56, 52, 48, 52, 58, 50, 48, 48, 58, 52, 58,
+    46,
+    58,
+    50,
+    50,
+    50,
+    68,
+    56,
+    52,
+    48,
+    52,
+    58,
+    50,
+    48,
+    48,
+    58,
+    52,
+    58,
 )
 OVER_REPORT_SHEET_HEADER_PADDING = 8
 OVER_REPORT_SHEET_DATA_PADDING = 6
@@ -200,7 +216,9 @@ def _over_report_sheet_widths(
         return widths
 
     scale = available_width / total
-    scaled = [max(int(width * scale), floor) for width, floor in zip(widths, min_widths, strict=True)]
+    scaled = [
+        max(int(width * scale), floor) for width, floor in zip(widths, min_widths, strict=True)
+    ]
     overflow = sum(scaled) - available_width
     if overflow > 0:
         for index in sorted(range(len(scaled)), key=scaled.__getitem__, reverse=True):
@@ -208,7 +226,7 @@ def _over_report_sheet_widths(
                 break
             reducible = scaled[index] - min_widths[index]
             cut = min(reducible, overflow)
-            scaled[index] -= cut # type: ignore
+            scaled[index] -= cut  # type: ignore
             overflow -= cut
     return scaled
 
@@ -466,11 +484,11 @@ class PdfReportWriter:
         self._current_table = None
         self._current_table_is_sheet = False
         self._page_has_content = True
-        
+
         block_height = len(metrics) * 16 + 10
         self._ensure_space(block_height, repeat_table_header=False)
         self._page_has_content = True
-        
+
         y = self._y - 16
         self._set_fill(self._text)
         for label, value in metrics:
@@ -478,7 +496,7 @@ class PdfReportWriter:
             self._canvas.drawString(self._width - 220, y, label)
             self._canvas.drawRightString(self._width - self._margin, y, value)
             y -= 16
-            
+
         self._y = y - 4
 
     def table(
@@ -557,7 +575,9 @@ class PdfReportWriter:
         widths: list[int],
         alignments: list[str] | None = None,
     ) -> None:
-        state = TableState(headers=headers, widths=widths, alignments=alignments or ["left"] * len(headers))
+        state = TableState(
+            headers=headers, widths=widths, alignments=alignments or ["left"] * len(headers)
+        )
         self._current_table = state
         self._current_table_is_sheet = False
         self._table_row_index = 0
@@ -619,11 +639,15 @@ class PdfReportWriter:
         header_y = self._y - header_height
         self._set_fill(self._primary)
         self._set_stroke(self._primary)
-        self._canvas.roundRect(self._margin, header_y, sum(state.widths), header_height, 5, stroke=1, fill=1)
+        self._canvas.roundRect(
+            self._margin, header_y, sum(state.widths), header_height, 5, stroke=1, fill=1
+        )
         self._set_fill((1, 1, 1))
         self._canvas.setFont(self._font_bold, 7)
         x = self._margin
-        for header, width, alignment in zip(state.headers, state.widths, state.alignments, strict=True):
+        for header, width, alignment in zip(
+            state.headers, state.widths, state.alignments, strict=True
+        ):
             self._draw_cell_text(
                 header,
                 x,
@@ -641,10 +665,7 @@ class PdfReportWriter:
         font_size = 5.4
         line_height = 6.2
         padding = 3
-        cell_lines = [
-            header.split("\n") if header else [""]
-            for header in state.headers
-        ]
+        cell_lines = [header.split("\n") if header else [""] for header in state.headers]
         max_lines = max((len(lines) for lines in cell_lines), default=1)
         header_height = max(26, padding * 2 + font_size + line_height * (max_lines - 1))
         self._ensure_space(int(header_height), repeat_table_header=False)
@@ -652,7 +673,9 @@ class PdfReportWriter:
         header_y = self._y - header_height
         self._set_fill((0.90, 0.90, 0.90))
         self._set_stroke((0.35, 0.35, 0.35))
-        self._canvas.rect(self._margin, header_y, sum(state.widths), header_height, stroke=1, fill=1)
+        self._canvas.rect(
+            self._margin, header_y, sum(state.widths), header_height, stroke=1, fill=1
+        )
         x = self._margin
         self._set_fill(self._text)
         for lines, width, alignment in zip(cell_lines, state.widths, state.alignments, strict=True):
@@ -661,7 +684,9 @@ class PdfReportWriter:
             block_height = font_size + line_height * max(0, len(lines) - 1)
             text_y = header_y + (header_height + block_height) / 2 - font_size
             for line in lines:
-                self._draw_cell_line(line, x, text_y, width, "center", font_size=font_size, bold=True)
+                self._draw_cell_line(
+                    line, x, text_y, width, "center", font_size=font_size, bold=True
+                )
                 text_y -= line_height
             x += width
         self._y -= header_height
@@ -769,7 +794,9 @@ class PdfReportWriter:
 
     def _set_text_font(self, text: str, font_size: int, *, bold: bool = False) -> None:
         if _has_tamil_text(text):
-            self._canvas.setFont(self._tamil_font_bold if bold else self._tamil_font_regular, font_size)
+            self._canvas.setFont(
+                self._tamil_font_bold if bold else self._tamil_font_regular, font_size
+            )
             return
         self._canvas.setFont(self._font_bold if bold else self._font_regular, font_size)
 
@@ -783,7 +810,6 @@ def iter_admin_report_file(report_file: BinaryIO, chunk_size: int = 64 * 1024) -
             yield chunk
     finally:
         report_file.close()
-
 
 
 def _report_filename(context: ReportContext) -> str:
@@ -805,7 +831,9 @@ def _resolve_font_file(*paths: Path) -> Path:
     for path in paths:
         if path.is_file():
             return path
-    raise FileNotFoundError(f"No report font file found in: {', '.join(str(path) for path in paths)}")
+    raise FileNotFoundError(
+        f"No report font file found in: {', '.join(str(path) for path in paths)}"
+    )
 
 
 def _resolve_tamil_fonts() -> tuple[str, str]:
@@ -944,11 +972,19 @@ def _inventory_totals_subquery(context: ReportContext, *, period_only: bool):
     if context.shop_ids:
         filters.append(InventoryMovement.shop_id.in_(context.shop_ids))
     if period_only:
-        filters.extend([InventoryMovement.occurred_at >= context.start, InventoryMovement.occurred_at < context.end])
+        filters.extend(
+            [
+                InventoryMovement.occurred_at >= context.start,
+                InventoryMovement.occurred_at < context.end,
+            ]
+        )
     added_quantity = func.coalesce(
         func.sum(
             case(
-                (InventoryMovement.movement_type == InventoryMovementType.ADD, InventoryMovement.quantity),
+                (
+                    InventoryMovement.movement_type == InventoryMovementType.ADD,
+                    InventoryMovement.quantity,
+                ),
                 else_=0,
             )
         ),
@@ -957,7 +993,10 @@ def _inventory_totals_subquery(context: ReportContext, *, period_only: bool):
     used_quantity = func.coalesce(
         func.sum(
             case(
-                (InventoryMovement.movement_type == InventoryMovementType.USE, InventoryMovement.quantity),
+                (
+                    InventoryMovement.movement_type == InventoryMovementType.USE,
+                    InventoryMovement.quantity,
+                ),
                 else_=0,
             )
         ),
@@ -1187,12 +1226,14 @@ async def _write_sales_section(
         ["left", "right", "right", "right", "right"],
     )
 
-    writer.financial_summary([
-        ("Total Bills", str(total_bills)),
-        ("Total Revenue", _money(total_revenue)),
-        ("Total Cash", _money(total_cash)),
-        ("Total UPI", _money(total_upi)),
-    ])
+    writer.financial_summary(
+        [
+            ("Total Bills", str(total_bills)),
+            ("Total Revenue", _money(total_revenue)),
+            ("Total Cash", _money(total_cash)),
+            ("Total UPI", _money(total_upi)),
+        ]
+    )
 
 
 async def _write_billing_section(
@@ -1247,7 +1288,9 @@ async def _write_billing_section(
     cursor_id: UUID | None = None
     remaining = max_rows
     while remaining is None or remaining > 0:
-        limit = FULL_QUERY_BATCH_SIZE if remaining is None else min(FULL_QUERY_BATCH_SIZE, remaining)
+        limit = (
+            FULL_QUERY_BATCH_SIZE if remaining is None else min(FULL_QUERY_BATCH_SIZE, remaining)
+        )
         page_filters = list(filters)
         if cursor_created_at is not None and cursor_id is not None:
             page_filters.append(
@@ -1298,12 +1341,14 @@ async def _write_billing_section(
         if len(page) < limit:
             break
 
-    writer.financial_summary([
-        ("Total Bills", str(int(stats.bill_count or 0))),
-        ("Total Amount", _money(stats.total_sales)),
-        ("Cash", _money(stats.cash_total)),
-        ("UPI", _money(stats.upi_total)),
-    ])
+    writer.financial_summary(
+        [
+            ("Total Bills", str(int(stats.bill_count or 0))),
+            ("Total Amount", _money(stats.total_sales)),
+            ("Cash", _money(stats.cash_total)),
+            ("UPI", _money(stats.upi_total)),
+        ]
+    )
 
 
 async def _write_items_section(
@@ -1456,7 +1501,12 @@ async def _write_inventory_section(
                 period_totals.c.inventory_item_id == InventoryItem.id,
             ),
         )
-        .order_by(Shop.name, ShopInventoryAllocation.sort_order, func.lower(InventoryItem.name), InventoryItem.id)
+        .order_by(
+            Shop.name,
+            ShopInventoryAllocation.sort_order,
+            func.lower(InventoryItem.name),
+            InventoryItem.id,
+        )
     )
     query = _apply_shop_scope(query, context)
     if max_rows is not None:
@@ -1477,7 +1527,9 @@ async def _write_inventory_section(
                 row.shop_name,
                 category_labels.get(row.item_id, "Uncategorized"),
                 row.item_name,
-                _quantity_with_unit(_decimal(row.added_quantity) - _decimal(row.used_quantity), row.unit),
+                _quantity_with_unit(
+                    _decimal(row.added_quantity) - _decimal(row.used_quantity), row.unit
+                ),
                 _quantity(row.period_added_quantity),
                 _quantity(row.period_used_quantity),
                 "Active" if row.is_active else "Paused",
@@ -1510,7 +1562,10 @@ async def _write_expenses_section(
         date_line,
     )
 
-    filters: list[object] = [ExpenseEntry.spent_at >= context.start, ExpenseEntry.spent_at < context.end]
+    filters: list[object] = [
+        ExpenseEntry.spent_at >= context.start,
+        ExpenseEntry.spent_at < context.end,
+    ]
     if context.shop_ids:
         filters.append(ExpenseEntry.shop_id.in_(context.shop_ids))
 
@@ -1559,10 +1614,12 @@ async def _write_expenses_section(
         )
 
     # Summary at the bottom
-    writer.financial_summary([
-        ("Total Expenses", str(int(stats.expense_count or 0))),
-        ("Total Amount", _money(stats.total_expenses)),
-    ])
+    writer.financial_summary(
+        [
+            ("Total Expenses", str(int(stats.expense_count or 0))),
+            ("Total Amount", _money(stats.total_expenses)),
+        ]
+    )
 
 
 async def _write_transfers_section(
@@ -1585,7 +1642,10 @@ async def _write_transfers_section(
         date_line,
     )
 
-    filters: list[object] = [InventoryTransfer.occurred_at >= context.start, InventoryTransfer.occurred_at < context.end]
+    filters: list[object] = [
+        InventoryTransfer.occurred_at >= context.start,
+        InventoryTransfer.occurred_at < context.end,
+    ]
     if context.shop_ids:
         filters.append(InventoryTransfer.source_shop_id.in_(context.shop_ids))
 
@@ -1637,10 +1697,11 @@ async def _write_transfers_section(
             alignments,
         )
 
-    writer.financial_summary([
-        ("Total Transfers", str(int(stats.transfer_count or 0))),
-    ])
-
+    writer.financial_summary(
+        [
+            ("Total Transfers", str(int(stats.transfer_count or 0))),
+        ]
+    )
 
 
 async def _write_over_report_section(

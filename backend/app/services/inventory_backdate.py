@@ -48,7 +48,9 @@ def assert_inventory_occurred_at_allowed(
     if not policy.allow_shop_backdated_inventory:
         raise _backdate_not_allowed("Backdated inventory entry is not permitted for your shop")
 
-    window_days = policy.shop_backdate_window_days if policy.shop_backdate_window_days is not None else 0
+    window_days = (
+        policy.shop_backdate_window_days if policy.shop_backdate_window_days is not None else 0
+    )
     earliest = today - timedelta(days=window_days)
     if occurred_date < earliest or occurred_date > today:
         raise _backdate_not_allowed(

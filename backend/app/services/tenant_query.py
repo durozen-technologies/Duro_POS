@@ -30,7 +30,9 @@ async def resolve_organization_id(
     )
     if default_org_id is not None:
         return default_org_id
-    first_org_id = await db.scalar(select(Organization.id).order_by(Organization.created_at).limit(1))
+    first_org_id = await db.scalar(
+        select(Organization.id).order_by(Organization.created_at).limit(1)
+    )
     if first_org_id is not None:
         return first_org_id
     raise HTTPException(

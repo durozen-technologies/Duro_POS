@@ -3,13 +3,13 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
 } from "react-native";
 
 import type { OrganizationRead, TenantAdminRead } from "@/api/super-admin";
-import type { UUID } from "@/types/api";
 
 import { TenantAdminManageSheet } from "./tenant-admin-manage-sheet";
 import {
@@ -22,7 +22,7 @@ type TenantAdminsTabProps = {
 };
 
 function formatLastLogin(value?: string | null) {
-  if (!value) return "No logins yet";
+  if (!value) return "Never logged in";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
@@ -37,7 +37,6 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
     creating,
     error,
     setError,
-    hasMore,
     organizationFilter,
     setOrganizationFilter,
     statusFilter,
@@ -57,8 +56,12 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
 
   const [newAdminUsername, setNewAdminUsername] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
-  const [managedAdmin, setManagedAdmin] = useState<TenantAdminRead | null>(null);
-  const [sheetRoles, setSheetRoles] = useState<Awaited<ReturnType<typeof loadOrgRoles>>>([]);
+  const [managedAdmin, setManagedAdmin] = useState<TenantAdminRead | null>(
+    null,
+  );
+  const [sheetRoles, setSheetRoles] = useState<
+    Awaited<ReturnType<typeof loadOrgRoles>>
+  >([]);
   const [loadingRoles, setLoadingRoles] = useState(false);
 
   const activeOrgs = orgs.filter((org) => org.is_active);
@@ -82,7 +85,7 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
   const handleCreate = async () => {
     const username = newAdminUsername.trim();
     if (!selectedOrgId) {
-      setError("Create or select an active organization first.");
+      setError("Please select an organization to add this admin.");
       return;
     }
     if (username.length < 3) {
@@ -102,15 +105,41 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
     }
   };
 
+  const renderAdminItem = useCallback(
+    ({ item }: { item: TenantAdminRead }) => (
+      <Pressable
+        accessibilityRole="button"
+        className="mt-3 rounded-card border border-border bg-card p-4 shadow-sm active:opacity-80"
+        onPress={() => void openManageSheet(item)}
+      >
+        <Text className="font-medium text-ink">{item.username}</Text>
+        <Text className="mt-1 text-sm text-muted">
+          {item.organization_name}
+        </Text>
+        <Text className="mt-1 text-xs text-muted">
+          {item.is_active ? "Active" : "Disabled"} ·{" "}
+          {formatLastLogin(item.last_login_at)}
+        </Text>
+      </Pressable>
+    ),
+    [openManageSheet],
+  );
+
   const renderStatusChip = (key: TenantAdminStatusFilter, label: string) => (
     <Pressable
       key={key}
       accessibilityRole="button"
       accessibilityState={{ selected: statusFilter === key }}
-      className={`rounded-lg px-3 py-2 ${statusFilter === key ? "bg-neutral-900" : "bg-white"}`}
+      className={`min-h-[44px] items-center justify-center rounded-control border px-4 py-2 active:opacity-80 ${statusFilter === key ? "border-transparent bg-accent" : "border-border bg-card"}`}
       onPress={() => setStatusFilter(key)}
     >
-      <Text className={statusFilter === key ? "font-medium text-white" : "text-neutral-700"}>
+      <Text
+        className={
+          statusFilter === key
+            ? "font-medium text-white"
+            : "font-medium text-ink"
+        }
+      >
         {label}
       </Text>
     </Pressable>
@@ -118,22 +147,31 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
 
   const listHeader = (
     <View>
-      <Text className="text-lg font-semibold text-neutral-900">Tenant admins</Text>
-      <Text className="mt-1 text-sm text-neutral-600">
+      <Text className="text-lg font-semibold text-ink">Tenant admins</Text>
+      <Text className="mt-1 text-sm text-muted">
         {counts ? `${counts.active}/${counts.all} active` : "Loading counts..."}
       </Text>
 
-      <Text className="mt-4 text-sm font-medium text-neutral-700">Filter by organization</Text>
-      <View className="mt-2 flex-row flex-wrap gap-2">
+      <Text className="mt-4 text-sm font-medium text-ink">
+        Filter by organization
+      </Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        className="mt-2"
+        contentContainerStyle={{ gap: 8, paddingRight: 16 }}
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ selected: organizationFilter === "all" }}
-          className={`rounded-lg px-3 py-2 ${organizationFilter === "all" ? "bg-neutral-900" : "bg-white"}`}
+          className={`min-h-[44px] items-center justify-center rounded-control border px-4 py-2 active:opacity-80 ${organizationFilter === "all" ? "border-transparent bg-accent" : "border-border bg-card"}`}
           onPress={() => setOrganizationFilter("all")}
         >
           <Text
             className={
-              organizationFilter === "all" ? "font-medium text-white" : "text-neutral-700"
+              organizationFilter === "all"
+                ? "font-medium text-white"
+                : "font-medium text-ink"
             }
           >
             All
@@ -144,27 +182,31 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
             key={org.id}
             accessibilityRole="button"
             accessibilityState={{ selected: organizationFilter === org.id }}
-            className={`rounded-lg px-3 py-2 ${
-              organizationFilter === org.id ? "bg-neutral-900" : "bg-white"
+            className={`min-h-[44px] items-center justify-center rounded-control border px-4 py-2 active:opacity-80 ${
+              organizationFilter === org.id
+                ? "border-transparent bg-accent"
+                : "border-border bg-card"
             }`}
             onPress={() => setOrganizationFilter(org.id)}
           >
             <Text
               className={
-                organizationFilter === org.id ? "font-medium text-white" : "text-neutral-700"
+                organizationFilter === org.id
+                  ? "font-medium text-white"
+                  : "font-medium text-ink"
               }
             >
               {org.name}
             </Text>
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
 
       <TextInput
         accessibilityLabel="Search tenant admins"
         autoCapitalize="none"
         autoCorrect={false}
-        className="mt-3 rounded-lg border border-neutral-300 bg-white px-3 py-2"
+        className="mt-3 min-h-[44px] rounded-control border border-border bg-card px-4 py-2"
         placeholder="Search by username"
         value={search}
         onChangeText={setSearch}
@@ -176,37 +218,48 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
         {renderStatusChip("disabled", "Disabled")}
       </View>
 
-      <Text className="mt-6 text-lg font-semibold text-neutral-900">Create tenant admin</Text>
+      <Text className="mt-8 text-lg font-semibold text-ink">
+        Add Tenant Admin
+      </Text>
       {activeOrgs.length === 0 ? (
-        <Text className="mt-2 text-sm text-amber-700">
+        <Text className="mt-2 text-sm text-warning">
           Create an active organization on the Organizations tab first.
         </Text>
       ) : (
         <>
-          <Text className="mt-2 text-sm font-medium text-neutral-700">Organization</Text>
-          <View className="mt-2 flex-row flex-wrap gap-2">
+          <Text className="mt-2 text-sm font-medium text-ink">
+            Organization
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="mt-2"
+            contentContainerStyle={{ gap: 8, paddingRight: 16 }}
+          >
             {activeOrgs.map((org) => (
               <Pressable
                 key={org.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected: selectedOrgId === org.id }}
-                className={`rounded-lg px-3 py-2 ${selectedOrgId === org.id ? "bg-neutral-900" : "bg-white"}`}
+                className={`min-h-[44px] items-center justify-center rounded-control border px-4 py-2 active:opacity-80 ${selectedOrgId === org.id ? "border-transparent bg-accent" : "border-border bg-card"}`}
                 onPress={() => setSelectedOrgId(org.id)}
               >
                 <Text
                   className={
-                    selectedOrgId === org.id ? "font-medium text-white" : "text-neutral-700"
+                    selectedOrgId === org.id
+                      ? "font-medium text-white"
+                      : "font-medium text-ink"
                   }
                 >
                   {org.name}
                 </Text>
               </Pressable>
             ))}
-          </View>
+          </ScrollView>
           <TextInput
             autoCapitalize="none"
             autoCorrect={false}
-            className="mt-3 rounded-lg border border-neutral-300 bg-white px-3 py-2"
+            className="mt-3 min-h-[44px] rounded-control border border-border bg-card px-4 py-2"
             placeholder="Username"
             value={newAdminUsername}
             onChangeText={setNewAdminUsername}
@@ -214,16 +267,16 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
           <TextInput
             autoCapitalize="none"
             autoCorrect={false}
-            className="mt-2 rounded-lg border border-neutral-300 bg-white px-3 py-2"
-            placeholder="Password (min 8 characters)"
+            className="mt-2 min-h-[44px] rounded-control border border-border bg-card px-4 py-2"
+            placeholder="Password (8+ characters)"
             secureTextEntry
             value={newAdminPassword}
             onChangeText={setNewAdminPassword}
           />
           <Pressable
             accessibilityRole="button"
-            className={`mt-2 items-center rounded-lg px-4 py-2 ${
-              creating ? "bg-neutral-500" : "bg-neutral-900"
+            className={`mt-3 min-h-[44px] items-center justify-center rounded-control px-4 py-2 shadow-sm ${
+              creating ? "bg-muted opacity-50" : "bg-accent active:opacity-80"
             }`}
             disabled={creating}
             onPress={() => void handleCreate()}
@@ -231,14 +284,16 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
             {creating ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text className="font-medium text-white">Create tenant admin</Text>
+              <Text className="font-medium text-white">Add Admin</Text>
             )}
           </Pressable>
         </>
       )}
 
-      {error ? <Text className="mt-3 text-sm text-red-600">{error}</Text> : null}
-      <Text className="mt-6 text-sm font-medium text-neutral-700">All tenant admins</Text>
+      {error ? <Text className="mt-3 text-sm text-danger">{error}</Text> : null}
+      <Text className="mt-6 text-sm font-medium text-ink">
+        All tenant admins
+      </Text>
     </View>
   );
 
@@ -256,7 +311,9 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
           contentContainerStyle={{ paddingBottom: 24 }}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
-            <Text className="mt-3 text-sm text-neutral-600">No tenant admins match these filters.</Text>
+            <Text className="mt-3 text-sm text-muted">
+              No tenant admins found matching your criteria.
+            </Text>
           }
           ListFooterComponent={
             loadingMore ? <ActivityIndicator className="mt-4" /> : null
@@ -264,19 +321,10 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
           ListHeaderComponent={listHeader}
           onEndReached={() => void loadMore()}
           onEndReachedThreshold={0.4}
-          renderItem={({ item }) => (
-            <Pressable
-              accessibilityRole="button"
-              className="mt-3 rounded-lg bg-white p-3"
-              onPress={() => void openManageSheet(item)}
-            >
-              <Text className="font-medium text-neutral-900">{item.username}</Text>
-              <Text className="text-sm text-neutral-600">{item.organization_name}</Text>
-              <Text className="text-xs text-neutral-500">
-                {item.is_active ? "Active" : "Disabled"} · {formatLastLogin(item.last_login_at)}
-              </Text>
-            </Pressable>
-          )}
+          initialNumToRender={20}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          renderItem={renderAdminItem}
         />
       )}
 
@@ -288,7 +336,9 @@ export function TenantAdminsTab({ orgs }: TenantAdminsTabProps) {
         onClose={() => setManagedAdmin(null)}
         onDelete={removeAdmin}
         onResetPassword={(admin, password) => resetPassword(admin.id, password)}
-        onToggleStatus={(admin, nextActive) => setAdminStatus(admin.id, nextActive)}
+        onToggleStatus={(admin, nextActive) =>
+          setAdminStatus(admin.id, nextActive)
+        }
         onUpdateRoles={(admin, roleIds) => setRoles(admin.id, roleIds)}
       />
     </View>

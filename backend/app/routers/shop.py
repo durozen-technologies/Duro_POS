@@ -289,7 +289,9 @@ async def shop_inventory_backdate_policy(
 async def add_inventory_stock(
     item_id: UUID,
     payload: InventoryAddRequest,
-    include_summary: bool = Query(False, description="Include the full inventory summary in the response."),
+    include_summary: bool = Query(
+        False, description="Include the full inventory summary in the response."
+    ),
     shop: Shop = Depends(get_current_shop),
     actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -310,7 +312,9 @@ async def add_inventory_stock(
 async def use_inventory_stock(
     item_id: UUID,
     payload: InventoryUseRequest,
-    include_summary: bool = Query(False, description="Include the full inventory summary in the response."),
+    include_summary: bool = Query(
+        False, description="Include the full inventory summary in the response."
+    ),
     shop: Shop = Depends(get_current_shop),
     actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -331,7 +335,9 @@ async def use_inventory_stock(
 async def use_inventory_stock_split(
     item_id: UUID,
     payload: InventoryUseSplitRequest,
-    include_summary: bool = Query(False, description="Include the full inventory summary in the response."),
+    include_summary: bool = Query(
+        False, description="Include the full inventory summary in the response."
+    ),
     shop: Shop = Depends(get_current_shop),
     actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

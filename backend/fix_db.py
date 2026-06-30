@@ -12,5 +12,6 @@ async def main():
         print("Updated alembic_version")
     await engine.dispose()
 
+
 if __name__ == "__main__":
     asyncio.run(main())

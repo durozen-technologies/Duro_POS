@@ -209,7 +209,9 @@ def _line_to_read(line: PreparedBillLine) -> BillLineRead:
     )
 
 
-def _inventory_movement_for_assumption(shop: Shop, line: PreparedBillLine) -> InventoryMovement | None:
+def _inventory_movement_for_assumption(
+    shop: Shop, line: PreparedBillLine
+) -> InventoryMovement | None:
     if (
         line.unit.value != "kg"
         or line.assumption_percent is None
@@ -218,9 +220,9 @@ def _inventory_movement_for_assumption(shop: Shop, line: PreparedBillLine) -> In
     ):
         return None
 
-    quantity = (
-        line.quantity * line.assumption_percent / Decimal("100")
-    ).quantize(THREEPLACES, rounding=ROUND_HALF_UP)
+    quantity = (line.quantity * line.assumption_percent / Decimal("100")).quantize(
+        THREEPLACES, rounding=ROUND_HALF_UP
+    )
     if quantity <= 0:
         return None
 

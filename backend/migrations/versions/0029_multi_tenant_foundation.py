@@ -39,7 +39,9 @@ PERMISSIONS = [
     ("transfers.manage", "Manage inventory transfers", "transfers"),
 ]
 
-TENANT_FULL_PERMISSIONS = [code for code, _, _ in PERMISSIONS if not code.startswith("organizations")]
+TENANT_FULL_PERMISSIONS = [
+    code for code, _, _ in PERMISSIONS if not code.startswith("organizations")
+]
 
 
 def _table_names(bind) -> set[str]:
@@ -78,7 +80,9 @@ def upgrade() -> None:
             sa.UniqueConstraint("slug", name=op.f("uq_organizations_slug")),
         )
         op.create_index(op.f("ix_organizations_id"), "organizations", ["id"], unique=False)
-        op.create_index(op.f("ix_organizations_created_at"), "organizations", ["created_at"], unique=False)
+        op.create_index(
+            op.f("ix_organizations_created_at"), "organizations", ["created_at"], unique=False
+        )
 
     if "permissions" not in _table_names(bind):
         op.create_table(
@@ -164,7 +168,9 @@ def upgrade() -> None:
             ["id"],
             ondelete="SET NULL",
         )
-        op.create_index(op.f("ix_users_organization_id"), "users", ["organization_id"], unique=False)
+        op.create_index(
+            op.f("ix_users_organization_id"), "users", ["organization_id"], unique=False
+        )
 
     if "permissions_version" not in _column_names(bind, "users"):
         op.add_column(
@@ -187,7 +193,9 @@ def upgrade() -> None:
             ["id"],
             ondelete="RESTRICT",
         )
-        op.create_index(op.f("ix_shops_organization_id"), "shops", ["organization_id"], unique=False)
+        op.create_index(
+            op.f("ix_shops_organization_id"), "shops", ["organization_id"], unique=False
+        )
 
     if "organization_id" not in _column_names(bind, "audit_logs"):
         op.add_column(
@@ -340,7 +348,9 @@ def downgrade() -> None:
         op.drop_column("users", "permissions_version")
 
     if "organization_id" in _column_names(bind, "users"):
-        op.drop_constraint(op.f("fk_users_organization_id_organizations"), "users", type_="foreignkey")
+        op.drop_constraint(
+            op.f("fk_users_organization_id_organizations"), "users", type_="foreignkey"
+        )
         op.drop_index(op.f("ix_users_organization_id"), table_name="users")
         op.drop_column("users", "organization_id")
 

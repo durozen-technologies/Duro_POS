@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — **tenancy section superseded by [ADR-003](ADR-003-schema-per-tenant.md)** (schema-per-tenant migration in progress). RBAC, JWT, RustFS, and bootstrap decisions below remain valid.
 
 ## Date
 
@@ -14,7 +14,7 @@ Duro POS operated as a single-organization deployment: one global `ADMIN` manage
 
 ## Decision
 
-1. **Tenancy:** Shared PostgreSQL schema with `organization_id` row-level isolation. Organization = tenant; Shop = branch/outlet.
+1. **Tenancy:** *(superseded by ADR-003)* Shared PostgreSQL schema with `organization_id` row-level isolation. Organization = tenant; Shop = branch/outlet. Migrating to schema-per-tenant per ADR-003.
 2. **Roles:** `SUPER_ADMIN` (platform, `organization_id = NULL`), `TENANT_ADMIN` (org-scoped; `ADMIN` is a deprecated alias), `SHOP_ACCOUNT` (unchanged).
 3. **RBAC:** Static permission catalog (~15 codes) via `admin_roles` / `admin_user_roles`. Super admin has implicit `*`.
 4. **Auth:** JWT carries `sub`, `role`, `org_id`, `perm_version`; permissions loaded server-side each request (Redis cache in Phase 3).

@@ -300,6 +300,8 @@ test/.pytest_cache/
 tmp/
 todo.txt
 diff.txt
+scratch.js
+scratch.*
 *.zip
 test_shop_endpoint.py
 /WhatsApp Image*

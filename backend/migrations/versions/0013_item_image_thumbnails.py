@@ -35,9 +35,13 @@ def upgrade() -> None:
 
     columns = _column_names(bind, "items")
     if "image_thumbnail_object_key" not in columns:
-        op.add_column("items", sa.Column("image_thumbnail_object_key", sa.String(255), nullable=True))
+        op.add_column(
+            "items", sa.Column("image_thumbnail_object_key", sa.String(255), nullable=True)
+        )
     if "image_thumbnail_content_type" not in columns:
-        op.add_column("items", sa.Column("image_thumbnail_content_type", sa.String(120), nullable=True))
+        op.add_column(
+            "items", sa.Column("image_thumbnail_content_type", sa.String(120), nullable=True)
+        )
 
 
 def downgrade() -> None:

@@ -121,8 +121,7 @@ def _insert_mapping_rows(rows: set[tuple[object, object, object]]) -> None:
     created_at = datetime.now(UTC)
     for inventory_item_id, inventory_category_id, billing_item_id in rows:
         row_key = tuple(
-            str(value)
-            for value in (inventory_item_id, inventory_category_id, billing_item_id)
+            str(value) for value in (inventory_item_id, inventory_category_id, billing_item_id)
         )
         if row_key in existing_keys:
             continue
@@ -177,17 +176,16 @@ def _backfill_from_single_column() -> None:
         )
     ).all()
     _insert_mapping_rows(
-        {
-            (row.inventory_item_id, row.inventory_category_id, row.billing_item_id)
-            for row in rows
-        }
+        {(row.inventory_item_id, row.inventory_category_id, row.billing_item_id) for row in rows}
     )
 
 
 def _backfill_from_assumptions() -> None:
     bind = op.get_bind()
     item_columns = _column_names(bind, "items")
-    if not {"assumption_inventory_item_id", "assumption_inventory_category_id"}.issubset(item_columns):
+    if not {"assumption_inventory_item_id", "assumption_inventory_category_id"}.issubset(
+        item_columns
+    ):
         return
     rows = bind.execute(
         sa.text(
@@ -210,10 +208,7 @@ def _backfill_from_assumptions() -> None:
         )
     ).all()
     _insert_mapping_rows(
-        {
-            (row.inventory_item_id, row.inventory_category_id, row.billing_item_id)
-            for row in rows
-        }
+        {(row.inventory_item_id, row.inventory_category_id, row.billing_item_id) for row in rows}
     )
 
 
@@ -235,9 +230,12 @@ def _drop_single_column_mapping() -> None:
 
 def upgrade() -> None:
     bind = op.get_bind()
-    if not {"inventory_items", "inventory_categories", "inventory_item_categories", "items"}.issubset(
-        _table_names(bind)
-    ):
+    if not {
+        "inventory_items",
+        "inventory_categories",
+        "inventory_item_categories",
+        "items",
+    }.issubset(_table_names(bind)):
         return
 
     _create_mapping_table_if_missing()

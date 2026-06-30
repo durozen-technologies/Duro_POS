@@ -100,6 +100,9 @@ class AsyncSessionAdapter:
     async def flush(self) -> None:
         self._session.flush()
 
+    def get_bind(self, *args: Any, **kwargs: Any) -> Any:
+        return self._session.get_bind(*args, **kwargs)
+
     async def close(self) -> None:
         self._session.close()
 

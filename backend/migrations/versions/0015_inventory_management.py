@@ -209,7 +209,9 @@ def upgrade() -> None:
                 server_default=timestamp_default,
                 nullable=False,
             ),
-            sa.ForeignKeyConstraint(["inventory_item_id"], ["inventory_items.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(
+                ["inventory_item_id"], ["inventory_items.id"], ondelete="CASCADE"
+            ),
             sa.ForeignKeyConstraint(["shop_id"], ["shops.id"], ondelete="CASCADE"),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint(
@@ -251,8 +253,12 @@ def upgrade() -> None:
                 "movement_type != 'USE' OR category_id IS NOT NULL",
                 name="ck_inventory_movements_use_category_required",
             ),
-            sa.ForeignKeyConstraint(["category_id"], ["inventory_categories.id"], ondelete="RESTRICT"),
-            sa.ForeignKeyConstraint(["inventory_item_id"], ["inventory_items.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(
+                ["category_id"], ["inventory_categories.id"], ondelete="RESTRICT"
+            ),
+            sa.ForeignKeyConstraint(
+                ["inventory_item_id"], ["inventory_items.id"], ondelete="CASCADE"
+            ),
             sa.ForeignKeyConstraint(["shop_id"], ["shops.id"], ondelete="CASCADE"),
             sa.PrimaryKeyConstraint("id"),
         )

@@ -70,9 +70,7 @@ def configure_logging(*, production: bool, level: int = logging.INFO) -> None:
     if production:
         handler.setFormatter(JsonLogFormatter())
     else:
-        handler.setFormatter(
-            logging.Formatter("%(levelname)s %(name)s %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
     root.addHandler(handler)
     root.setLevel(level)
 

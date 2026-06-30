@@ -6,6 +6,7 @@ from app.db.storage.paths import (
     _upload_bytes,
 )
 
+
 async def save_item_image_content(
     db: AsyncSession,
     item: Item,
@@ -339,9 +340,13 @@ async def delete_inventory_item_image(
     db: AsyncSession,
     item_id: UUID,
 ) -> InventoryItemImageRead:
-    item = await db.scalar(select(InventoryItem).where(InventoryItem.id == item_id).with_for_update())
+    item = await db.scalar(
+        select(InventoryItem).where(InventoryItem.id == item_id).with_for_update()
+    )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
 
     previous_object_key = item.image_object_key
     previous_thumbnail_object_key = item.image_thumbnail_object_key
@@ -480,7 +485,9 @@ async def save_expense_item_image_content(
         expense_item_id=item.id,
         expense_item_name=item.name,
         expense_item_tamil_name=item.tamil_name,
-        image_path=build_expense_item_image_path(item.id, item.image_object_key, item.image_content_type),
+        image_path=build_expense_item_image_path(
+            item.id, item.image_object_key, item.image_content_type
+        ),
         image_thumb_path=build_expense_item_image_thumb_path(
             item.id,
             item.image_thumbnail_object_key,

@@ -10,9 +10,7 @@ from .base import BaseModelMixin
 
 class Shop(Base, BaseModelMixin):
     __tablename__ = "shops"
-    __table_args__ = (
-        Index("ix_shops_org_active", "organization_id", "is_active"),
-    )
+    __table_args__ = (Index("ix_shops_org_active", "organization_id", "is_active"),)
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
     name: Mapped[str] = mapped_column(String(120), nullable=False)

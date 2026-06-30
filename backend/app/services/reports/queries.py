@@ -299,7 +299,9 @@ async def _overall_report_inventory_items(
                 func.coalesce(stock_totals.c.opening_used, 0).label("opening_used"),
                 func.coalesce(stock_totals.c.adding_stock, 0).label("adding_stock"),
                 func.coalesce(stock_totals.c.used_stock, 0).label("used_stock"),
-                func.coalesce(transfer_totals.c.opening_transferred, 0).label("opening_transferred"),
+                func.coalesce(transfer_totals.c.opening_transferred, 0).label(
+                    "opening_transferred"
+                ),
                 func.coalesce(transfer_totals.c.transfer_stock, 0).label("transfer_stock"),
             )
             .select_from(ShopInventoryAllocation)
@@ -326,13 +328,19 @@ async def _overall_report_inventory_items(
     )
     items: dict[UUID, OverallReportInventoryItem] = {}
     for row in rows:
-        old_stock = _decimal(row.opening_added) - _decimal(row.opening_used) - _decimal(row.opening_transferred)
+        old_stock = (
+            _decimal(row.opening_added)
+            - _decimal(row.opening_used)
+            - _decimal(row.opening_transferred)
+        )
         adding_stock = _decimal(row.adding_stock)
         total_available_stock = old_stock + adding_stock
         used_stock = _decimal(row.used_stock)
         transfer_stock = _decimal(row.transfer_stock)
         purchase_rate = _decimal(row.purchase_rate) if row.purchase_rate is not None else None
-        purchase_amount = (used_stock * purchase_rate) if purchase_rate is not None else Decimal("0")
+        purchase_amount = (
+            (used_stock * purchase_rate) if purchase_rate is not None else Decimal("0")
+        )
         items[row.inventory_item_id] = OverallReportInventoryItem(
             inventory_item_id=row.inventory_item_id,
             item_name=row.item_name,
@@ -491,8 +499,7 @@ async def _populate_overall_report_billing_items(
             .outerjoin(
                 latest_prices,
                 and_(
-                    latest_prices.c.billing_item_id
-                    == InventoryItemBillingMapping.billing_item_id,
+                    latest_prices.c.billing_item_id == InventoryItemBillingMapping.billing_item_id,
                     latest_prices.c.rn == 1,
                 ),
             )
@@ -613,7 +620,9 @@ async def _write_over_report_section(
     for statement in report.statements:
         if not is_first:
             writer._y -= 15
-        _write_over_report_statement(writer, statement, print_header=is_first, report_context=context, language=language)
+        _write_over_report_statement(
+            writer, statement, print_header=is_first, report_context=context, language=language
+        )
         is_first = False
 
 
@@ -632,7 +641,7 @@ def _write_over_report_statement(
         else:
             start_date = statement.start_date
             end_date = statement.end_date
-            
+
         if start_date == end_date:
             date_str = f"Date: {_date_text(start_date)}"
         else:
@@ -650,20 +659,20 @@ def _write_over_report_statement(
         return
 
     sheet_headers = _over_report_sheet_headers(use_tamil=use_tamil)
-    
+
     mapped_items = [i for i in statement.inventory_items if i.billing_items]
     unmapped_items = [i for i in statement.inventory_items if not i.billing_items]
-    
+
     all_rows = _over_report_sheet_rows(statement.inventory_items, statement, use_tamil=use_tamil)
     mapped_rows = _over_report_sheet_rows(mapped_items, statement, use_tamil=use_tamil)
     unmapped_rows = _over_report_sheet_rows(unmapped_items, statement, use_tamil=use_tamil)
-    
+
     sheet_widths = _reportlab_over_report_sheet_widths(
         sheet_headers,
         writer._available_width,
         all_rows,
     )
-    
+
     if mapped_rows:
         writer.sheet_table(
             sheet_headers,
@@ -671,17 +680,19 @@ def _write_over_report_statement(
             sheet_widths,
             OVER_REPORT_SHEET_ALIGNMENTS,
         )
-        
+
     if unmapped_rows:
         if mapped_rows:
             writer._y -= 12
-        
+
         writer._page_has_content = True
         writer._ensure_space(20, repeat_table_header=False)
         title = "No mapped billing Items"
         writer._set_text_font(title, 8, bold=True)
         writer._set_fill(writer._text)
-        writer._canvas.drawCentredString(writer._margin + sum(sheet_widths[:8])/2, writer._y - 12, title)
+        writer._canvas.drawCentredString(
+            writer._margin + sum(sheet_widths[:8]) / 2, writer._y - 12, title
+        )
         writer._y -= 20
 
         writer.sheet_table(
@@ -690,33 +701,38 @@ def _write_over_report_statement(
             sheet_widths[:8],
             OVER_REPORT_SHEET_ALIGNMENTS[:8],
         )
-    
+
     if statement.inventory_items:
-        writer.financial_summary([
-            ("Total Sales", _money(statement.sales_amount)),
-            ("Total Purchase", _money(statement.purchase_amount)),
-            ("Total Expense Amount", _money(statement.expense_amount)),
-            ("Balance Amount", _money(_over_report_balance_amount(
-                statement.sales_amount,
-                statement.purchase_amount,
-                statement.expense_amount,
-            ))),
-        ])
+        writer.financial_summary(
+            [
+                ("Total Sales", _money(statement.sales_amount)),
+                ("Total Purchase", _money(statement.purchase_amount)),
+                ("Total Expense Amount", _money(statement.expense_amount)),
+                (
+                    "Balance Amount",
+                    _money(
+                        _over_report_balance_amount(
+                            statement.sales_amount,
+                            statement.purchase_amount,
+                            statement.expense_amount,
+                        )
+                    ),
+                ),
+            ]
+        )
 
 
 def _over_report_sheet_rows(
     items: list[OverallReportInventoryItem],
-    statement: OverallReportStatement, 
-    use_tamil: bool = False
+    statement: OverallReportStatement,
+    use_tamil: bool = False,
 ) -> list[list[str]]:
     rows: list[list[str]] = []
     table_date = _statement_table_date(statement)
     is_single_date = statement.start_date == statement.end_date
     has_printed_date = False
     for item in items:
-        inv_display_name = (
-            (item.item_tamil_name or item.item_name) if use_tamil else item.item_name
-        )
+        inv_display_name = (item.item_tamil_name or item.item_name) if use_tamil else item.item_name
         used_rows = item.used_stock_breakdown or [
             OverallReportUsedStockBreakdown(
                 label="Used",
@@ -732,11 +748,13 @@ def _over_report_sheet_rows(
 
             if billing_row is not None:
                 billing_display_name = (
-                    (billing_row.item_tamil_name or billing_row.item_name) if use_tamil else billing_row.item_name
+                    (billing_row.item_tamil_name or billing_row.item_name)
+                    if use_tamil
+                    else billing_row.item_name
                 )
             else:
                 billing_display_name = None
-            
+
             printed_date = ""
             if is_first and not has_printed_date:
                 printed_date = table_date
@@ -752,11 +770,13 @@ def _over_report_sheet_rows(
                     _used_stock_breakdown_text(used_row, item.unit),
                     _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
                     _quantity_with_unit(item.remaining_stock, item.unit),
-                    _money(item.purchase_rate) if is_first and item.purchase_rate is not None else "",
+                    _money(item.purchase_rate)
+                    if is_first and item.purchase_rate is not None
+                    else "",
                     _money(item.purchase_amount) if is_first else "",
-                    billing_display_name if billing_row is not None else (
-                        "No mapped billing sales" if is_first and not billing_rows else ""
-                    ),
+                    billing_display_name
+                    if billing_row is not None
+                    else ("No mapped billing sales" if is_first and not billing_rows else ""),
                     _quantity_with_unit(billing_row.assumption_quantity, billing_row.unit)
                     if billing_row is not None
                     else "",
@@ -771,7 +791,7 @@ def _over_report_sheet_rows(
                     _money(billing_row.difference_amount) if billing_row is not None else "",
                 ]
             )
-            
+
         if is_single_date:
             rows.append(
                 [
@@ -867,6 +887,7 @@ async def _over_report_expense_amount(
 # FPDF2-based Overall Report PDF (Tamil-safe)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class OverallReportPDF(FPDF):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -885,7 +906,11 @@ class OverallReportPDF(FPDF):
 
 
 def _fpdf_set_cell_font(pdf: FPDF, text: str, *, is_header: bool) -> None:
-    font_size = OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF if is_header else OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF
+    font_size = (
+        OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF
+        if is_header
+        else OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF
+    )
     style = "B" if is_header else ""
     if _has_tamil_text(text):
         pdf.set_font("NotoSansTamil", style=style, size=font_size)
@@ -893,7 +918,9 @@ def _fpdf_set_cell_font(pdf: FPDF, text: str, *, is_header: bool) -> None:
         pdf.set_font("NotoSans", style=style, size=font_size)
 
 
-def _fpdf_wrap_cell_lines(pdf: FPDF, text: str, inner_width: float, *, is_header: bool) -> list[str]:
+def _fpdf_wrap_cell_lines(
+    pdf: FPDF, text: str, inner_width: float, *, is_header: bool
+) -> list[str]:
     if not text:
         return [""]
     _fpdf_set_cell_font(pdf, text, is_header=is_header)
@@ -956,19 +983,19 @@ def _fpdf_draw_row(
         _fpdf_cell_lines(pdf, val, w, padding, is_header=is_header)
         for val, w in zip(row_values, widths, strict=True)
     ]
-        
+
     max_lines = max((len(lines) for lines in cell_lines), default=1)
     row_height = max_lines * line_height + padding * 2
-    
+
     if not is_header and pdf.get_y() + row_height > pdf.page_break_trigger:
         pdf.add_page()
         if header_drawer:
             header_drawer()
-            
+
     x_start = (pdf.w - sum(widths)) / 2
     pdf.set_x(x_start)
     y_start = pdf.get_y()
-    
+
     current_x = x_start
     for lines, w, align in zip(cell_lines, widths, alignments, strict=True):
         if fill:
@@ -976,7 +1003,7 @@ def _fpdf_draw_row(
             pdf.rect(current_x, y_start, w, row_height, style="DF")
         else:
             pdf.rect(current_x, y_start, w, row_height, style="D")
-            
+
         align_code = "C" if is_header else (align[0].upper() if align else "L")
         block_height = line_height * len(lines)
         y_offset = padding + (row_height - padding * 2 - block_height) / 2
@@ -984,9 +1011,9 @@ def _fpdf_draw_row(
             _fpdf_set_cell_font(pdf, line, is_header=is_header)
             pdf.set_xy(current_x + padding, y_start + y_offset + idx * line_height)
             pdf.cell(w - padding * 2, line_height, text=line, align=align_code)
-            
+
         current_x += w
-        
+
     pdf.set_xy(x_start, y_start + row_height)
 
 
@@ -1002,42 +1029,42 @@ def _fpdf_draw_day_summary_card(
     card_height = 70
     x_start = (pdf.w - card_width) / 2
     y_start = pdf.get_y() + 5
-    
+
     if y_start + card_height > pdf.page_break_trigger:
         pdf.add_page()
         y_start = pdf.get_y() + 5
-        
+
     pdf.set_fill_color(244, 246, 248)
     pdf.set_draw_color(200, 205, 212)
     pdf.rect(x_start, y_start, card_width, card_height, style="DF")
-    
+
     pdf.set_xy(x_start + 10, y_start + 6)
     pdf.set_font("NotoSans", style="B", size=8)
     pdf.cell(card_width - 20, 10, text=f"Day Summary ({day_label})")
-    
+
     pdf.set_font("NotoSans", size=7.5)
-    
+
     pdf.set_xy(x_start + 10, y_start + 20)
     pdf.cell(150, 8, text="Total Sales")
     pdf.set_xy(x_start + card_width - 110, y_start + 20)
     pdf.cell(100, 8, text=_money(sales), align="R")
-    
+
     pdf.set_xy(x_start + 10, y_start + 30)
     pdf.cell(150, 8, text="Total Purchase")
     pdf.set_xy(x_start + card_width - 110, y_start + 30)
     pdf.cell(100, 8, text=_money(purchase), align="R")
-    
+
     pdf.set_xy(x_start + 10, y_start + 40)
     pdf.cell(150, 8, text="Total Expense Amount")
     pdf.set_xy(x_start + card_width - 110, y_start + 40)
     pdf.cell(100, 8, text=_money(expense), align="R")
-    
+
     pdf.set_xy(x_start + 10, y_start + 52)
     pdf.set_font("NotoSans", style="B", size=7.5)
     pdf.cell(150, 8, text="Balance Amount")
     pdf.set_xy(x_start + card_width - 110, y_start + 52)
     pdf.cell(100, 8, text=_money(balance), align="R")
-    
+
     pdf.set_draw_color(200, 205, 212)
     pdf.set_xy(x_start, y_start + card_height + 5)
 
@@ -1052,40 +1079,40 @@ def _fpdf_draw_grand_total_summary(
 ) -> None:
     fin_width = 250
     fin_height = 54
-    
+
     x_start = (pdf.w - table_width) / 2 + table_width - fin_width
     y_start = pdf.get_y() + 8
-    
+
     if y_start + fin_height > pdf.page_break_trigger:
         pdf.add_page()
         y_start = pdf.get_y() + 8
-        
+
     pdf.set_fill_color(255, 255, 255)
     pdf.set_draw_color(200, 205, 212)
     pdf.rect(x_start, y_start, fin_width, fin_height, style="DF")
-    
+
     pdf.set_xy(x_start + 10, y_start + 5)
     pdf.set_font("NotoSans", size=8)
     pdf.cell(120, 8, text="Total Sales")
     pdf.set_xy(x_start + fin_width - 110, y_start + 5)
     pdf.cell(100, 8, text=_money(total_sales), align="R")
-    
+
     pdf.set_xy(x_start + 10, y_start + 15)
     pdf.cell(120, 8, text="Total Purchase")
     pdf.set_xy(x_start + fin_width - 110, y_start + 15)
     pdf.cell(100, 8, text=_money(total_purchase), align="R")
-    
+
     pdf.set_xy(x_start + 10, y_start + 25)
     pdf.cell(120, 8, text="Total Expense Amount")
     pdf.set_xy(x_start + fin_width - 110, y_start + 25)
     pdf.cell(100, 8, text=_money(total_expense), align="R")
-    
+
     pdf.set_xy(x_start + 10, y_start + 39)
     pdf.set_font("NotoSans", style="B", size=8)
     pdf.cell(120, 8, text="Balance Amount")
     pdf.set_xy(x_start + fin_width - 110, y_start + 39)
     pdf.cell(100, 8, text=_money(total_balance), align="R")
-    
+
     pdf.set_xy(x_start, y_start + fin_height + 5)
 
 
@@ -1129,11 +1156,13 @@ async def _generate_over_report_fpdf_pdf(
 
     for shop_id, (shop_name, statements) in shops_seen.items():
         pdf.add_page()
-        
+
         pdf.set_font("NotoSans", style="B", size=14)
         pdf.cell(0, 18, text="SRI MAHALAKSHMI BROILERS", align="C", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("NotoSans", style="B", size=11)
-        pdf.cell(0, 15, text=f"{shop_name.upper()} - BRANCH", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(
+            0, 15, text=f"{shop_name.upper()} - BRANCH", align="C", new_x="LMARGIN", new_y="NEXT"
+        )
         pdf.set_font("NotoSans", style="B", size=9)
         pdf.cell(0, 13, text="Statement", align="C", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("NotoSans", size=8)
@@ -1146,7 +1175,12 @@ async def _generate_over_report_fpdf_pdf(
         if not has_any_items:
             pdf.set_font("NotoSansTamil", size=9)
             pdf.set_text_color(97, 110, 128)
-            pdf.cell(0, 20, text="No allocated inventory items found for this branch and period.", align="C")
+            pdf.cell(
+                0,
+                20,
+                text="No allocated inventory items found for this branch and period.",
+                align="C",
+            )
             continue
 
         headers = _over_report_sheet_headers(use_tamil=use_tamil)
@@ -1172,7 +1206,7 @@ async def _generate_over_report_fpdf_pdf(
                 padding=4,
                 fill=True,
                 fill_color=(46, 61, 82),
-                is_header=True
+                is_header=True,
             )
             pdf.set_text_color(31, 39, 51)
             pdf.set_draw_color(200, 205, 212)
@@ -1183,7 +1217,7 @@ async def _generate_over_report_fpdf_pdf(
         for stmt in statements:
             mapped_items = [i for i in stmt.inventory_items if i.billing_items]
             unmapped_items = [i for i in stmt.inventory_items if not i.billing_items]
-            
+
             mapped_rows = _over_report_sheet_rows(mapped_items, stmt, use_tamil=use_tamil)
             unmapped_rows = _over_report_sheet_rows(unmapped_items, stmt, use_tamil=use_tamil)
 
@@ -1199,17 +1233,24 @@ async def _generate_over_report_fpdf_pdf(
                     padding=3,
                     fill=fill,
                     fill_color=(244, 246, 248),
-                    header_drawer=draw_header_row
+                    header_drawer=draw_header_row,
                 )
                 row_index += 1
-                
+
             if unmapped_rows:
                 if mapped_rows or row_index > 0:
                     pdf.ln(8)
-                    
+
                 pdf.set_font("NotoSans", style="B", size=8)
                 pdf.set_text_color(31, 39, 51)
-                pdf.cell(sum(widths[:8]), 10, text="No mapped billing Items", align="C", new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(
+                    sum(widths[:8]),
+                    10,
+                    text="No mapped billing Items",
+                    align="C",
+                    new_x="LMARGIN",
+                    new_y="NEXT",
+                )
 
                 unmapped_widths = widths[:8]
                 unmapped_alignments = alignments[:8]
@@ -1229,7 +1270,7 @@ async def _generate_over_report_fpdf_pdf(
                         padding=4,
                         fill=True,
                         fill_color=(46, 61, 82),
-                        is_header=True
+                        is_header=True,
                     )
                     pdf.set_text_color(31, 39, 51)
                     pdf.set_draw_color(200, 205, 212)
@@ -1247,7 +1288,7 @@ async def _generate_over_report_fpdf_pdf(
                         padding=3,
                         fill=fill,
                         fill_color=(244, 246, 248),
-                        header_drawer=draw_unmapped_header_row
+                        header_drawer=draw_unmapped_header_row,
                     )
                     row_index += 1
 
@@ -1257,12 +1298,16 @@ async def _generate_over_report_fpdf_pdf(
                 day_purchase = _decimal(stmt.purchase_amount)
                 day_expense = _decimal(stmt.expense_amount)
                 day_balance = _over_report_balance_amount(day_sales, day_purchase, day_expense)
-                _fpdf_draw_day_summary_card(pdf, day_label, day_sales, day_purchase, day_expense, day_balance)
+                _fpdf_draw_day_summary_card(
+                    pdf, day_label, day_sales, day_purchase, day_expense, day_balance
+                )
 
         total_sales = sum((_decimal(s.sales_amount) for s in statements), Decimal("0"))
         total_purchase = sum((_decimal(s.purchase_amount) for s in statements), Decimal("0"))
         total_expense = sum((_decimal(s.expense_amount) for s in statements), Decimal("0"))
         total_balance = _over_report_balance_amount(total_sales, total_purchase, total_expense)
-        _fpdf_draw_grand_total_summary(pdf, total_sales, total_purchase, total_expense, total_balance, table_width=sum(widths))
+        _fpdf_draw_grand_total_summary(
+            pdf, total_sales, total_purchase, total_expense, total_balance, table_width=sum(widths)
+        )
 
     return bytes(pdf.output())

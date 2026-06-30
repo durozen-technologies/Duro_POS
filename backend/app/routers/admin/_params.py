@@ -1,4 +1,5 @@
 """Shared query params, dependencies, and multipart parsers for admin routes."""
+
 import json
 from datetime import date, datetime
 from typing import Annotated
@@ -226,7 +227,9 @@ def _parse_inventory_billing_item_ids(raw_value: str | None) -> list[UUID]:
         ) from exc
 
 
-def _parse_inventory_billing_mappings(raw_value: str | None) -> list[InventoryBillingItemMappingWrite]:
+def _parse_inventory_billing_mappings(
+    raw_value: str | None,
+) -> list[InventoryBillingItemMappingWrite]:
     if raw_value is None or not raw_value.strip():
         return []
     try:
@@ -303,4 +306,3 @@ __all__ = [
     "_parse_inventory_billing_mappings",
     "_parse_inventory_category_ids",
 ]
-

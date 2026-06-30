@@ -64,11 +64,7 @@ def upgrade() -> None:
 
     columns = _column_names(bind, MAPPING_TABLE)
     if CATEGORY_COLUMN in columns:
-        bind.execute(
-            sa.text(
-                f"DELETE FROM {MAPPING_TABLE} WHERE {CATEGORY_COLUMN} IS NOT NULL"
-            )
-        )
+        bind.execute(sa.text(f"DELETE FROM {MAPPING_TABLE} WHERE {CATEGORY_COLUMN} IS NOT NULL"))
 
     indexes = _index_names(bind, MAPPING_TABLE)
     if ITEM_LEVEL_INDEX in indexes:

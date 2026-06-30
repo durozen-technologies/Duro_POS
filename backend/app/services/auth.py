@@ -125,7 +125,9 @@ async def build_user_session(db: AsyncSession, user: User) -> UserSession:
     )
 
 
-async def _validate_login_eligibility(db: AsyncSession, user: User, normalized_username: str) -> None:
+async def _validate_login_eligibility(
+    db: AsyncSession, user: User, normalized_username: str
+) -> None:
     if not user.is_active:
         log_event(
             logger,
@@ -269,9 +271,7 @@ async def register_admin(db: AsyncSession, payload: RegisterRequest) -> LoginRes
             detail="Admin registration is already completed",
         )
 
-    default_org = await db.scalar(
-        select(Organization).where(Organization.slug == DEFAULT_ORG_SLUG)
-    )
+    default_org = await db.scalar(select(Organization).where(Organization.slug == DEFAULT_ORG_SLUG))
     if default_org is None:
         default_org = Organization(
             name="Duro POS Default",

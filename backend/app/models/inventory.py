@@ -52,9 +52,7 @@ class InventoryCategory(Base, BaseModelMixin):
     movements = relationship("InventoryMovement", back_populates="category")
 
     __table_args__ = (
-        CheckConstraint(
-            "length(trim(name)) >= 1", name="ck_inventory_categories_name_not_blank"
-        ),
+        CheckConstraint("length(trim(name)) >= 1", name="ck_inventory_categories_name_not_blank"),
         Index(
             "ix_inventory_categories_org_lower_name",
             "organization_id",
@@ -364,7 +362,9 @@ class InventoryMovement(Base, BaseModelMixin):
     shop = relationship("Shop", back_populates="inventory_movements")
     item = relationship("InventoryItem", back_populates="movements")
     category = relationship("InventoryCategory", back_populates="movements")
-    splits = relationship("InventoryMovementSplit", back_populates="movement", cascade="all, delete-orphan")
+    splits = relationship(
+        "InventoryMovementSplit", back_populates="movement", cascade="all, delete-orphan"
+    )
 
 
 class InventoryMovementSplit(Base, BaseModelMixin):

@@ -4,15 +4,14 @@ from app.routers.admin._params import *
 
 router = APIRouter()
 
+
 @router.get(
     "/item-categories",
     response_model=list[ItemCategoryRead],
     response_model_exclude_unset=True,
     summary="List Item Categories",
 )
-async def get_item_categories(
-    db: DBSession, current_user: AdminUserDep
-) -> list[ItemCategoryRead]:
+async def get_item_categories(db: DBSession, current_user: AdminUserDep) -> list[ItemCategoryRead]:
     """Return global item categories for catalogue item forms and filters."""
     return await list_item_categories(db, _require_org_id(current_user))
 
@@ -621,7 +620,9 @@ async def create_inventory_item(
         category=category,
         custom_attributes=_parse_custom_attributes(custom_attributes),
     )
-    return await create_item(db, payload, image=image, organization_id=_require_org_id(current_user))
+    return await create_item(
+        db, payload, image=image, organization_id=_require_org_id(current_user)
+    )
 
 
 @router.get(

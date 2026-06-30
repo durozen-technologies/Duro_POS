@@ -38,7 +38,9 @@ from app.services.storage import (
 def _normalize_expense_name(raw_name: str) -> str:
     name = raw_name.strip()
     if len(name) < 2:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Expense name is required")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Expense name is required"
+        )
     return name
 
 
@@ -75,7 +77,9 @@ async def _ensure_unique_expense_name(
         filters.append(ExpenseItem.id != exclude_item_id)
     existing_id = await db.scalar(select(ExpenseItem.id).where(*filters).limit(1))
     if existing_id is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Expense item name already exists")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Expense item name already exists"
+        )
 
 
 def _cursor_filter(sort_expr, name_expr, id_expr, cursor_sort_order, cursor_name, cursor_id):
@@ -106,7 +110,9 @@ def _expense_item_to_read(
         tamil_name=item.tamil_name,
         sort_order=item.sort_order,
         is_active=item.is_active,
-        image_path=build_expense_item_image_path(item.id, item.image_object_key, item.image_content_type),
+        image_path=build_expense_item_image_path(
+            item.id, item.image_object_key, item.image_content_type
+        ),
         image_thumb_path=build_expense_item_image_thumb_path(
             item.id,
             item.image_thumbnail_object_key,
@@ -131,7 +137,9 @@ def _shop_expense_item_from_row(row) -> ShopExpenseItemRead:
         tamil_name=row.tamil_name,
         sort_order=row.sort_order,
         is_active=row.is_active,
-        image_path=build_expense_item_image_path(row.id, row.image_object_key, row.image_content_type),
+        image_path=build_expense_item_image_path(
+            row.id, row.image_object_key, row.image_content_type
+        ),
         image_thumb_path=build_expense_item_image_thumb_path(
             row.id,
             row.image_thumbnail_object_key,
@@ -147,7 +155,9 @@ def _shop_expense_item_from_row(row) -> ShopExpenseItemRead:
         allocated=bool(row.allocation_id),
         allocation_id=row.allocation_id,
         allocation_is_active=bool(row.allocation_is_active),
-        allocation_sort_order=row.allocation_sort_order if row.allocation_sort_order is not None else row.sort_order,
+        allocation_sort_order=row.allocation_sort_order
+        if row.allocation_sort_order is not None
+        else row.sort_order,
     )
 
 
@@ -186,10 +196,22 @@ async def list_expense_item_rows(
     filters = []
     if q:
         like_search = f"%{q.strip().lower()}%"
-        filters.append(or_(sort_name_expr.like(like_search), func.lower(ExpenseItem.tamil_name).like(like_search)))
+        filters.append(
+            or_(
+                sort_name_expr.like(like_search),
+                func.lower(ExpenseItem.tamil_name).like(like_search),
+            )
+        )
     if active is not None:
         filters.append(ExpenseItem.is_active.is_(active))
-    cursor = _cursor_filter(ExpenseItem.sort_order, sort_name_expr, ExpenseItem.id, cursor_sort_order, cursor_name, cursor_id)
+    cursor = _cursor_filter(
+        ExpenseItem.sort_order,
+        sort_name_expr,
+        ExpenseItem.id,
+        cursor_sort_order,
+        cursor_name,
+        cursor_id,
+    )
     if cursor is not None:
         filters.append(cursor)
 
@@ -197,7 +219,9 @@ async def list_expense_item_rows(
         await db.execute(
             select(
                 ExpenseItem,
-                func.coalesce(allocation_counts.c.allocated_shop_count, 0).label("allocated_shop_count"),
+                func.coalesce(allocation_counts.c.allocated_shop_count, 0).label(
+                    "allocated_shop_count"
+                ),
                 func.coalesce(entry_counts.c.entry_count, 0).label("entry_count"),
             )
             .outerjoin(allocation_counts, allocation_counts.c.expense_item_id == ExpenseItem.id)
@@ -209,7 +233,11 @@ async def list_expense_item_rows(
     ).all()
     page_rows = rows[:limit]
     items = [
-        _expense_item_to_read(row.ExpenseItem, allocated_shop_count=row.allocated_shop_count, entry_count=row.entry_count)
+        _expense_item_to_read(
+            row.ExpenseItem,
+            allocated_shop_count=row.allocated_shop_count,
+            entry_count=row.entry_count,
+        )
         for row in page_rows
     ]
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
@@ -228,14 +256,24 @@ async def list_expense_item_rows(
     )
 
 
-async def count_expense_items(db: AsyncSession, *, shop_id: UUID | None = None, q: str | None = None) -> ExpenseItemCounts:
+async def count_expense_items(
+    db: AsyncSession, *, shop_id: UUID | None = None, q: str | None = None
+) -> ExpenseItemCounts:
     filters = []
     if q:
         like_search = f"%{q.strip().lower()}%"
-        filters.append(or_(func.lower(ExpenseItem.name).like(like_search), func.lower(ExpenseItem.tamil_name).like(like_search)))
+        filters.append(
+            or_(
+                func.lower(ExpenseItem.name).like(like_search),
+                func.lower(ExpenseItem.tamil_name).like(like_search),
+            )
+        )
     total = int(await db.scalar(select(func.count(ExpenseItem.id)).where(*filters)) or 0)
     active = int(
-        await db.scalar(select(func.count(ExpenseItem.id)).where(*filters, ExpenseItem.is_active.is_(True))) or 0
+        await db.scalar(
+            select(func.count(ExpenseItem.id)).where(*filters, ExpenseItem.is_active.is_(True))
+        )
+        or 0
     )
     paused = total - active
     allocated = available = 0
@@ -248,7 +286,9 @@ async def count_expense_items(db: AsyncSession, *, shop_id: UUID | None = None, 
             )
             or 0
         )
-        allocated_item_ids = select(ShopExpenseAllocation.expense_item_id).where(ShopExpenseAllocation.shop_id == shop_id)
+        allocated_item_ids = select(ShopExpenseAllocation.expense_item_id).where(
+            ShopExpenseAllocation.shop_id == shop_id
+        )
         available = int(
             await db.scalar(
                 select(func.count(ExpenseItem.id)).where(
@@ -259,7 +299,9 @@ async def count_expense_items(db: AsyncSession, *, shop_id: UUID | None = None, 
             )
             or 0
         )
-    return ExpenseItemCounts(all=total, active=active, paused=paused, allocated=allocated, available=available)
+    return ExpenseItemCounts(
+        all=total, active=active, paused=paused, allocated=allocated, available=available
+    )
 
 
 async def get_expense_item(db: AsyncSession, item_id: UUID) -> ExpenseItemRead:
@@ -267,10 +309,22 @@ async def get_expense_item(db: AsyncSession, item_id: UUID) -> ExpenseItemRead:
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
     allocated_shop_count = int(
-        await db.scalar(select(func.count(ShopExpenseAllocation.id)).where(ShopExpenseAllocation.expense_item_id == item_id)) or 0
+        await db.scalar(
+            select(func.count(ShopExpenseAllocation.id)).where(
+                ShopExpenseAllocation.expense_item_id == item_id
+            )
+        )
+        or 0
     )
-    entry_count = int(await db.scalar(select(func.count(ExpenseEntry.id)).where(ExpenseEntry.expense_item_id == item_id)) or 0)
-    return _expense_item_to_read(item, allocated_shop_count=allocated_shop_count, entry_count=entry_count)
+    entry_count = int(
+        await db.scalar(
+            select(func.count(ExpenseEntry.id)).where(ExpenseEntry.expense_item_id == item_id)
+        )
+        or 0
+    )
+    return _expense_item_to_read(
+        item, allocated_shop_count=allocated_shop_count, entry_count=entry_count
+    )
 
 
 async def create_expense_item(
@@ -292,7 +346,9 @@ async def create_expense_item(
     return _expense_item_to_read(item)
 
 
-async def update_expense_item(db: AsyncSession, item_id: UUID, payload: ExpenseItemUpdate) -> ExpenseItemRead:
+async def update_expense_item(
+    db: AsyncSession, item_id: UUID, payload: ExpenseItemUpdate
+) -> ExpenseItemRead:
     item = await db.get(ExpenseItem, item_id, with_for_update=True)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
@@ -313,13 +369,22 @@ async def delete_expense_item(db: AsyncSession, item_id: UUID) -> None:
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
     has_allocation = await db.scalar(
-        select(ShopExpenseAllocation.id).where(ShopExpenseAllocation.expense_item_id == item_id).limit(1)
+        select(ShopExpenseAllocation.id)
+        .where(ShopExpenseAllocation.expense_item_id == item_id)
+        .limit(1)
     )
     if has_allocation is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot delete an allocated expense item")
-    has_entry = await db.scalar(select(ExpenseEntry.id).where(ExpenseEntry.expense_item_id == item_id).limit(1))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Cannot delete an allocated expense item"
+        )
+    has_entry = await db.scalar(
+        select(ExpenseEntry.id).where(ExpenseEntry.expense_item_id == item_id).limit(1)
+    )
     if has_entry is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot delete an expense item with history")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete an expense item with history",
+        )
     image_object_key = item.image_object_key
     thumbnail_object_key = item.image_thumbnail_object_key
     await db.delete(item)
@@ -327,7 +392,9 @@ async def delete_expense_item(db: AsyncSession, item_id: UUID) -> None:
     await delete_item_image_storage(image_object_key, thumbnail_object_key)
 
 
-async def upload_expense_item_image(db: AsyncSession, item_id: UUID, image: UploadFile) -> ExpenseItemRead:
+async def upload_expense_item_image(
+    db: AsyncSession, item_id: UUID, image: UploadFile
+) -> ExpenseItemRead:
     item = await db.scalar(select(ExpenseItem).where(ExpenseItem.id == item_id).with_for_update())
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
@@ -353,7 +420,12 @@ def _shop_expense_rows_query(
     filters = []
     if q:
         like_search = f"%{q.strip().lower()}%"
-        filters.append(or_(sort_name_expr.like(like_search), func.lower(ExpenseItem.tamil_name).like(like_search)))
+        filters.append(
+            or_(
+                sort_name_expr.like(like_search),
+                func.lower(ExpenseItem.tamil_name).like(like_search),
+            )
+        )
     if active is not None:
         filters.append(ShopExpenseAllocation.is_active.is_(active))
     if item_active is not None:
@@ -376,7 +448,9 @@ def _shop_expense_rows_query(
             ShopExpenseAllocation.id.label("allocation_id"),
             ShopExpenseAllocation.is_active.label("allocation_is_active"),
             ShopExpenseAllocation.sort_order.label("allocation_sort_order"),
-            func.coalesce(allocation_counts.c.allocated_shop_count, 0).label("allocated_shop_count"),
+            func.coalesce(allocation_counts.c.allocated_shop_count, 0).label(
+                "allocated_shop_count"
+            ),
             func.coalesce(entry_counts.c.entry_count, 0).label("entry_count"),
         )
         .outerjoin(
@@ -413,7 +487,9 @@ async def list_shop_expense_item_rows(
         active=active,
         item_active=item_active,
     )
-    cursor = _cursor_filter(sort_order_expr, sort_name_expr, ExpenseItem.id, cursor_sort_order, cursor_name, cursor_id)
+    cursor = _cursor_filter(
+        sort_order_expr, sort_name_expr, ExpenseItem.id, cursor_sort_order, cursor_name, cursor_id
+    )
     if cursor is not None:
         query = query.where(cursor)
     rows = (
@@ -449,13 +525,27 @@ async def list_shop_expense_candidate_rows(
     cursor_name: str | None = None,
     cursor_id: UUID | None = None,
 ) -> ExpenseItemRowsPage:
-    allocated_item_ids = select(ShopExpenseAllocation.expense_item_id).where(ShopExpenseAllocation.shop_id == shop.id)
+    allocated_item_ids = select(ShopExpenseAllocation.expense_item_id).where(
+        ShopExpenseAllocation.shop_id == shop.id
+    )
     sort_name_expr = func.lower(ExpenseItem.name)
     filters = [ExpenseItem.is_active.is_(True), ExpenseItem.id.not_in(allocated_item_ids)]
     if q:
         like_search = f"%{q.strip().lower()}%"
-        filters.append(or_(sort_name_expr.like(like_search), func.lower(ExpenseItem.tamil_name).like(like_search)))
-    cursor = _cursor_filter(ExpenseItem.sort_order, sort_name_expr, ExpenseItem.id, cursor_sort_order, cursor_name, cursor_id)
+        filters.append(
+            or_(
+                sort_name_expr.like(like_search),
+                func.lower(ExpenseItem.tamil_name).like(like_search),
+            )
+        )
+    cursor = _cursor_filter(
+        ExpenseItem.sort_order,
+        sort_name_expr,
+        ExpenseItem.id,
+        cursor_sort_order,
+        cursor_name,
+        cursor_id,
+    )
     if cursor is not None:
         filters.append(cursor)
     rows = (
@@ -483,9 +573,15 @@ async def list_shop_expense_candidate_rows(
     )
 
 
-async def _get_shop_expense_item_read(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopExpenseItemRead:
+async def _get_shop_expense_item_read(
+    db: AsyncSession, shop: Shop, item_id: UUID
+) -> ShopExpenseItemRead:
     row = (
-        await db.execute(_shop_expense_rows_query(shop, allocated_only=False).where(ExpenseItem.id == item_id).limit(1))
+        await db.execute(
+            _shop_expense_rows_query(shop, allocated_only=False)
+            .where(ExpenseItem.id == item_id)
+            .limit(1)
+        )
     ).first()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
@@ -494,17 +590,24 @@ async def _get_shop_expense_item_read(db: AsyncSession, shop: Shop, item_id: UUI
 
 async def _next_allocation_sort_order(db: AsyncSession, shop: Shop) -> int:
     current_max = await db.scalar(
-        select(func.max(ShopExpenseAllocation.sort_order)).where(ShopExpenseAllocation.shop_id == shop.id)
+        select(func.max(ShopExpenseAllocation.sort_order)).where(
+            ShopExpenseAllocation.shop_id == shop.id
+        )
     )
     return int(current_max or 0) + 10
 
 
-async def allocate_shop_expense_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopExpenseItemRead:
+async def allocate_shop_expense_item(
+    db: AsyncSession, shop: Shop, item_id: UUID
+) -> ShopExpenseItemRead:
     item = await db.get(ExpenseItem, item_id)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
     if not item.is_active:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Inactive expense items cannot be allocated")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Inactive expense items cannot be allocated",
+        )
     existing = await db.scalar(
         select(ShopExpenseAllocation).where(
             ShopExpenseAllocation.shop_id == shop.id,
@@ -530,7 +633,9 @@ async def allocate_shop_expense_items(
 ) -> ShopExpenseAllocationBulkRead:
     requested_ids = list(dict.fromkeys(item_ids))
     if not requested_ids:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No expense items selected")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No expense items selected"
+        )
     active_ids = set(
         (
             await db.scalars(
@@ -543,7 +648,10 @@ async def allocate_shop_expense_items(
     )
     missing_ids = set(requested_ids) - active_ids
     if missing_ids:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Only active expense items can be allocated")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Only active expense items can be allocated",
+        )
     existing_ids = set(
         (
             await db.scalars(
@@ -587,7 +695,9 @@ async def update_shop_expense_allocation(
         .with_for_update()
     )
     if allocation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense allocation not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense allocation not found"
+        )
     if payload.is_active is not None:
         allocation.is_active = payload.is_active
     if payload.sort_order is not None:
@@ -596,7 +706,9 @@ async def update_shop_expense_allocation(
     return await _get_shop_expense_item_read(db, shop, item_id)
 
 
-async def deallocate_shop_expense_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopExpenseItemRead:
+async def deallocate_shop_expense_item(
+    db: AsyncSession, shop: Shop, item_id: UUID
+) -> ShopExpenseItemRead:
     allocation = await db.scalar(
         select(ShopExpenseAllocation).where(
             ShopExpenseAllocation.shop_id == shop.id,
@@ -604,7 +716,9 @@ async def deallocate_shop_expense_item(db: AsyncSession, shop: Shop, item_id: UU
         )
     )
     if allocation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense allocation not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense allocation not found"
+        )
     await db.delete(allocation)
     await db.commit()
     return await _get_shop_expense_item_read(db, shop, item_id)
@@ -618,7 +732,10 @@ async def update_shop_expense_items_order(
     ordered_ids = list(item_ids)
     unique_ids = set(ordered_ids)
     if len(unique_ids) != len(ordered_ids):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Order payload contains duplicate expense items")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Order payload contains duplicate expense items",
+        )
     allocations = (
         await db.scalars(
             select(ShopExpenseAllocation)
@@ -676,7 +793,9 @@ def _expense_entry_to_read(
         expense_item_id=entry.expense_item_id,
         expense_name=entry.expense_name,
         expense_tamil_name=entry.expense_tamil_name,
-        image_path=build_expense_item_image_path(item.id, item.image_object_key, item.image_content_type),
+        image_path=build_expense_item_image_path(
+            item.id, item.image_object_key, item.image_content_type
+        ),
         image_thumb_path=build_expense_item_image_thumb_path(
             item.id,
             item.image_thumbnail_object_key,
@@ -697,9 +816,14 @@ def _date_range_filters(
 ) -> list[object]:
     filters = []
     if range_start_date is not None:
-        filters.append(ExpenseEntry.spent_at >= datetime.combine(range_start_date, time.min, tzinfo=UTC))
+        filters.append(
+            ExpenseEntry.spent_at >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
+        )
     if range_end_date is not None:
-        filters.append(ExpenseEntry.spent_at < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC))
+        filters.append(
+            ExpenseEntry.spent_at
+            < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
+        )
     return filters
 
 
@@ -726,7 +850,10 @@ async def create_shop_expense_entry(
         )
     ).first()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Expense item is not active for this branch")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Expense item is not active for this branch",
+        )
     item = row.ExpenseItem
     spent_at = payload.spent_at or datetime.now(UTC)
     entry = ExpenseEntry(
@@ -785,7 +912,10 @@ async def list_expense_entries(
     cursor_filters = []
     if cursor_spent_at is not None:
         if cursor_id is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Expense history cursor is incomplete")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Expense history cursor is incomplete",
+            )
         cursor_filters.append(
             or_(
                 ExpenseEntry.spent_at < cursor_spent_at,

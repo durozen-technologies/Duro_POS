@@ -11,6 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.permission_codes import TENANT_FULL_ADMIN_PERMISSIONS
 from app.core.logging import log_event
 from app.core.redis_cache import cache_delete, super_org_counts_cache_key
+from app.db.database import get_session_local
+from app.db.tenant_schema import (
+    assert_safe_schema_name,
+    create_tenant_schema,
+    derive_schema_name,
+    is_postgres_session,
+    run_tenant_migrations_async,
+    set_search_path,
+    tenant_router,
+)
 from app.models import AdminRole, AdminRolePermission, Organization, User
 from app.schemas.super_admin.organizations import (
     AdminRoleRead,
@@ -26,6 +36,36 @@ from app.services.super_admin._audit import record_super_admin_audit
 logger = logging.getLogger(__name__)
 
 
+async def _create_tenant_full_admin_role(
+    db: AsyncSession,
+    organization_id: UUID,
+) -> None:
+    full_role = AdminRole(
+        organization_id=organization_id,
+        name="TenantFullAdmin",
+        is_system=True,
+    )
+    db.add(full_role)
+    await db.flush()
+    for code in TENANT_FULL_ADMIN_PERMISSIONS:
+        db.add(AdminRolePermission(role_id=full_role.id, permission_code=code))
+
+
+async def _provision_schema_for_org(db: AsyncSession, org: Organization, schema_name: str) -> None:
+    safe_schema = assert_safe_schema_name(schema_name)
+    await create_tenant_schema(db, safe_schema)
+    try:
+        await run_tenant_migrations_async(db, safe_schema)
+        await set_search_path(db, safe_schema)
+        await _create_tenant_full_admin_role(db, org.id)
+        await set_search_path(db, None)
+    except Exception:
+        from sqlalchemy import text
+
+        await db.execute(text(f'DROP SCHEMA IF EXISTS "{safe_schema}" CASCADE'))
+        raise
+
+
 async def _evict_org_counts_cache() -> None:
     await cache_delete(super_org_counts_cache_key())
 
@@ -34,9 +74,7 @@ def _org_to_read(org: Organization) -> OrganizationRead:
     return OrganizationRead.model_validate(org)
 
 
-def _require_full_cursor(
-  cursor_created_at: datetime | None, cursor_id: UUID | None
-) -> None:
+def _require_full_cursor(cursor_created_at: datetime | None, cursor_id: UUID | None) -> None:
     if (cursor_created_at is None) ^ (cursor_id is None):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -67,19 +105,21 @@ async def create_organization(
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists")
 
-    org = Organization(name=payload.name.strip(), slug=slug, is_active=True)
+    use_schema_tenant = await is_postgres_session(db)
+    org = Organization(
+        name=payload.name.strip(),
+        slug=slug,
+        schema_name=derive_schema_name(slug) if use_schema_tenant else None,
+        is_active=True,
+    )
     db.add(org)
     await db.flush()
 
-    full_role = AdminRole(
-        organization_id=org.id,
-        name="TenantFullAdmin",
-        is_system=True,
-    )
-    db.add(full_role)
-    await db.flush()
-    for code in TENANT_FULL_ADMIN_PERMISSIONS:
-        db.add(AdminRolePermission(role_id=full_role.id, permission_code=code))
+    if org.schema_name:
+        await _provision_schema_for_org(db, org, org.schema_name)
+        await tenant_router.evict_schema_cache(org.id)
+    else:
+        await _create_tenant_full_admin_role(db, org.id)
 
     await record_super_admin_audit(
         db,
@@ -93,7 +133,9 @@ async def create_organization(
     await db.commit()
     await _evict_org_counts_cache()
     await db.refresh(org)
-    log_event(logger, logging.INFO, "organization_created", "organization created", org_id=str(org.id))
+    log_event(
+        logger, logging.INFO, "organization_created", "organization created", org_id=str(org.id)
+    )
     return _org_to_read(org)
 
 
@@ -174,14 +216,23 @@ async def list_organization_admin_roles(
     db: AsyncSession,
     organization_id: UUID,
 ) -> list[AdminRoleRead]:
-    await get_organization_or_404(db, organization_id)
-    roles = (
-        await db.scalars(
-            select(AdminRole)
-            .where(AdminRole.organization_id == organization_id)
-            .order_by(AdminRole.name.asc())
+    org = await get_organization_or_404(db, organization_id)
+
+    async def _fetch_roles(session: AsyncSession) -> list[AdminRole]:
+        return list(
+            await session.scalars(
+                select(AdminRole)
+                .where(AdminRole.organization_id == organization_id)
+                .order_by(AdminRole.name.asc())
+            )
         )
-    ).all()
+
+    if org.schema_name:
+        async with get_session_local()() as tenant_db:
+            await set_search_path(tenant_db, org.schema_name)
+            roles = await _fetch_roles(tenant_db)
+    else:
+        roles = await _fetch_roles(db)
     return [AdminRoleRead.model_validate(role) for role in roles]
 
 

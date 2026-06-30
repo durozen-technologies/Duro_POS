@@ -39,10 +39,20 @@ def upgrade() -> None:
     bind = op.get_bind()
     if "expense_items" not in _table_names(bind):
         return
-    _add_column_if_missing("expense_items", sa.Column("image_object_key", sa.String(length=255), nullable=True))
-    _add_column_if_missing("expense_items", sa.Column("image_content_type", sa.String(length=120), nullable=True))
-    _add_column_if_missing("expense_items", sa.Column("image_thumbnail_object_key", sa.String(length=255), nullable=True))
-    _add_column_if_missing("expense_items", sa.Column("image_thumbnail_content_type", sa.String(length=120), nullable=True))
+    _add_column_if_missing(
+        "expense_items", sa.Column("image_object_key", sa.String(length=255), nullable=True)
+    )
+    _add_column_if_missing(
+        "expense_items", sa.Column("image_content_type", sa.String(length=120), nullable=True)
+    )
+    _add_column_if_missing(
+        "expense_items",
+        sa.Column("image_thumbnail_object_key", sa.String(length=255), nullable=True),
+    )
+    _add_column_if_missing(
+        "expense_items",
+        sa.Column("image_thumbnail_content_type", sa.String(length=120), nullable=True),
+    )
 
 
 def downgrade() -> None:

@@ -159,7 +159,9 @@ def build_expense_item_image_path(
         return public_url
 
     if variant == "thumb":
-        return f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image?variant=thumb"
+        return (
+            f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image?variant=thumb"
+        )
     return f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image"
 
 
@@ -178,7 +180,9 @@ def build_expense_item_image_thumb_path(
             variant="thumb",
         )
     if original_object_key:
-        return f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image?variant=thumb"
+        return (
+            f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image?variant=thumb"
+        )
     return None
 
 

@@ -1166,9 +1166,7 @@ async def list_shop_item_import_candidates(
     )
 
 
-def _catalogue_rows_query(
-    organization_id: UUID, q: str | None = None, active: bool | None = None
-):
+def _catalogue_rows_query(organization_id: UUID, q: str | None = None, active: bool | None = None):
     query = select(
         Item.id,
         Item.shop_id,
@@ -1537,7 +1535,9 @@ async def list_catalogue_items(
     )
 
 
-async def get_catalogue_item(db: AsyncSession, item_id: UUID, organization_id: UUID) -> ShopItemRead:
+async def get_catalogue_item(
+    db: AsyncSession, item_id: UUID, organization_id: UUID
+) -> ShopItemRead:
     bill_count_sq = (
         select(func.count(BillItem.id))
         .where(BillItem.item_id == Item.id)
@@ -1960,5 +1960,3 @@ def _get_period_bounds(
     start = now - timedelta(days=now.weekday())
     end = start + timedelta(days=7)
     return start, end
-
-

@@ -101,6 +101,11 @@ def super_org_counts_cache_key() -> str:
     return f"{prefix}:super:orgs:counts:v1"
 
 
+def org_schema_cache_key(organization_id: UUID) -> str:
+    prefix = get_redis_settings().key_prefix or "duropos"
+    return f"{prefix}:org:{organization_id}:schema"
+
+
 def login_rate_cache_key(client_ip: str, username: str) -> str:
     prefix = get_redis_settings().key_prefix or "duropos"
     return f"{prefix}:login:{client_ip}:{username.lower()}"

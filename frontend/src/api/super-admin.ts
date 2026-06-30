@@ -76,6 +76,22 @@ export interface AuditLogRowsPage {
   next_cursor_id?: UUID | null;
 }
 
+export type AuditLogRowsParams = {
+  limit?: number;
+  organization_id?: UUID | null;
+  cursor_created_at?: string | null;
+  cursor_id?: UUID | null;
+};
+
+function auditLogRowParams(params: AuditLogRowsParams = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.limit != null) query.limit = params.limit;
+  if (params.organization_id) query.organization_id = params.organization_id;
+  if (params.cursor_created_at) query.cursor_created_at = params.cursor_created_at;
+  if (params.cursor_id) query.cursor_id = params.cursor_id;
+  return query;
+}
+
 export type TenantAdminRowsParams = {
   limit?: number;
   organization_id?: UUID | null;
@@ -145,10 +161,10 @@ export async function fetchTenantAdmin(userId: UUID) {
   return data;
 }
 
-export async function fetchAuditLogRows(limit = 50) {
+export async function fetchAuditLogRows(params: AuditLogRowsParams = {}) {
   const { data } = await apiClient.get<AuditLogRowsPage>(
     `${SUPER_ADMIN_PREFIX}/audit-logs/rows`,
-    { params: { limit } },
+    { params: auditLogRowParams(params) },
   );
   return data;
 }

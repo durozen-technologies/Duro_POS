@@ -3,6 +3,7 @@ from app.routers.admin._params import *
 
 router = APIRouter()
 
+
 @router.get(
     "/expenses/items",
     response_model=ExpenseItemRowsPage,
@@ -293,4 +294,3 @@ async def get_expense_history(
         cursor_spent_at=cursor_spent_at,
         cursor_id=cursor_id,
     )
-

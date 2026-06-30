@@ -22,19 +22,22 @@ from ..schemas.transfer import (
     TransferShopRead,
     TransferShopUpdate,
 )
-from .inventory import _available_quantity_at, _get_allocated_inventory_item_for_shop, _resolve_inventory_actor
+from .inventory import (
+    _available_quantity_at,
+    _get_allocated_inventory_item_for_shop,
+    _resolve_inventory_actor,
+)
 from .inventory_backdate import prepare_inventory_occurred_at
 
 # =====================================================================
 # Transfer Shop CRUD
 # =====================================================================
 
+
 async def get_transfer_shop(db: AsyncSession, transfer_shop_id: UUID) -> TransferShopRead:
     shop = await db.scalar(select(TransferShop).where(TransferShop.id == transfer_shop_id))
     if shop is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Transfer shop not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer shop not found")
     return TransferShopRead.model_validate(shop)
 
 
@@ -97,9 +100,7 @@ async def update_transfer_shop(
         select(TransferShop).where(TransferShop.id == transfer_shop_id).with_for_update()
     )
     if shop is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Transfer shop not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer shop not found")
 
     changes = {}
     if payload.name is not None and payload.name != shop.name:
@@ -134,6 +135,7 @@ async def update_transfer_shop(
 # Inventory Transfers
 # =====================================================================
 
+
 async def create_inventory_transfer(
     db: AsyncSession,
     source_shop: Shop,
@@ -158,9 +160,7 @@ async def create_inventory_transfer(
 
     # 2. Validate inventory item
     item = await db.scalar(
-        select(InventoryItem)
-        .where(InventoryItem.id == inventory_item_id)
-        .with_for_update()
+        select(InventoryItem).where(InventoryItem.id == inventory_item_id).with_for_update()
     )
     if item is None:
         raise HTTPException(
@@ -177,18 +177,24 @@ async def create_inventory_transfer(
         actor=await _resolve_inventory_actor(db, source_shop, actor),
         raw=payload.occurred_at,
     )
-    item, allocation = await _get_allocated_inventory_item_for_shop(db, source_shop, inventory_item_id)
+    item, allocation = await _get_allocated_inventory_item_for_shop(
+        db, source_shop, inventory_item_id
+    )
     if not allocation.is_active:
-         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Item allocation is inactive for this shop"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Item allocation is inactive for this shop",
         )
 
     # 4. Check decimal validity
     from ..schemas.inventory import validate_inventory_quantity_for_unit
+
     validate_inventory_quantity_for_unit(item.base_unit, payload.quantity)
 
     # 5. Check available stock
-    available_quantity = await _available_quantity_at(db, source_shop.id, item.id, as_of=occurred_at)
+    available_quantity = await _available_quantity_at(
+        db, source_shop.id, item.id, as_of=occurred_at
+    )
     if payload.quantity > available_quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -222,7 +228,7 @@ async def create_inventory_transfer(
         },
     )
     db.add(audit_log)
-    
+
     await db.commit()
 
     return InventoryTransferRead(

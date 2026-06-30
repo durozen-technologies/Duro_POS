@@ -67,7 +67,9 @@ def upgrade() -> None:
     if "items" not in _table_names(bind):
         return
 
-    _add_column_if_missing("items", sa.Column("assumption_percent", sa.Numeric(5, 2), nullable=True))
+    _add_column_if_missing(
+        "items", sa.Column("assumption_percent", sa.Numeric(5, 2), nullable=True)
+    )
     _add_column_if_missing(
         "items",
         sa.Column("assumption_inventory_item_id", sa.Uuid(as_uuid=True), nullable=True),
@@ -96,7 +98,10 @@ def upgrade() -> None:
             ["id"],
             ondelete="SET NULL",
         )
-    if "inventory_categories" in tables and "fk_items_assumption_inventory_category" not in constraints:
+    if (
+        "inventory_categories" in tables
+        and "fk_items_assumption_inventory_category" not in constraints
+    ):
         op.create_foreign_key(
             "fk_items_assumption_inventory_category",
             "items",
@@ -138,7 +143,11 @@ def downgrade() -> None:
         "ck_items_assumption_percent_range",
     ):
         if constraint_name in constraints:
-            op.drop_constraint(constraint_name, "items", type_="foreignkey" if constraint_name.startswith("fk_") else "check")
+            op.drop_constraint(
+                constraint_name,
+                "items",
+                type_="foreignkey" if constraint_name.startswith("fk_") else "check",
+            )
 
     columns = _column_names(bind, "items")
     for column_name in (

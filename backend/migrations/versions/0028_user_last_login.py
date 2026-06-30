@@ -31,7 +31,9 @@ def upgrade() -> None:
 
     if bind.dialect.name == "sqlite":
         with op.batch_alter_table("users") as batch_op:
-            batch_op.add_column(sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True))
+            batch_op.add_column(
+                sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True)
+            )
         return
 
     op.add_column("users", sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True))

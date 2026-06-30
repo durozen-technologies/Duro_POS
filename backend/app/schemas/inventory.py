@@ -28,7 +28,6 @@ class InventoryItemPurchaseRateHistoryRead(BaseModel):
     purchase_rate: Decimal
 
 
-
 class InventoryBillingItemMappingRead(BaseModel):
     inventory_category_id: UUID | None = None
     inventory_category_name: str | None = None

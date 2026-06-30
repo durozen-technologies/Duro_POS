@@ -206,6 +206,16 @@ Schema migrations are Alembic-based. [`migrate.py`](migrate.py) first migrates a
 
 See the root [README.md — Database migrations](../README.md#database-migrations) for the full production flow.
 
+### Schema-per-tenant (ADR-003)
+
+PostgreSQL tenants get a dedicated schema (`tenant_<slug>`) stored on `organizations.schema_name`. Platform tables (`organizations`, `permissions`, `user_auth_index`, super-admin `users`) stay in `public`.
+
+- **Platform migrations:** `backend/migrations/` via `uv run python migrate.py`
+- **Tenant baseline:** `backend/migrations/tenant/` — applied when a super admin creates an organization (Postgres only)
+- **Legacy orgs:** `schema_name IS NULL` keeps row-level `organization_id` isolation until data migration (Phase 3)
+
+Postgres integration tests: `TEST_DATABASE_URL=postgresql+asyncpg://... uv run --with pytest pytest ../test/integration/test_schema_provisioning.py -q` (from `backend/`).
+
 ## Docker
 
 The active stack uses [`compose.yaml`](../compose.yaml), not Nginx.

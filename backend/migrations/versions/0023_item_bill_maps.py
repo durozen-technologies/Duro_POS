@@ -65,11 +65,7 @@ def downgrade() -> None:
         return
     if ITEM_LEVEL_INDEX in _index_names(bind, MAPPING_TABLE):
         op.drop_index(ITEM_LEVEL_INDEX, table_name=MAPPING_TABLE)
-    bind.execute(
-        sa.text(
-            f"DELETE FROM {MAPPING_TABLE} WHERE inventory_category_id IS NULL"
-        )
-    )
+    bind.execute(sa.text(f"DELETE FROM {MAPPING_TABLE} WHERE inventory_category_id IS NULL"))
     if "inventory_category_id" in _column_names(bind, MAPPING_TABLE):
         op.alter_column(
             MAPPING_TABLE,

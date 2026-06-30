@@ -53,7 +53,9 @@ def _constraint_names(bind, table_name: str) -> set[str]:
 def _backfill_categories(bind) -> None:
     if "items" not in _table_names(bind) or "item_categories" not in _table_names(bind):
         return
-    if "category" not in _column_names(bind, "items") or "category_id" not in _column_names(bind, "items"):
+    if "category" not in _column_names(bind, "items") or "category_id" not in _column_names(
+        bind, "items"
+    ):
         return
 
     item_categories = sa.table(
@@ -121,9 +123,7 @@ def upgrade() -> None:
                 server_default=timestamp_default,
                 nullable=False,
             ),
-            sa.CheckConstraint(
-                "length(trim(name)) >= 1", name="ck_item_categories_name_not_blank"
-            ),
+            sa.CheckConstraint("length(trim(name)) >= 1", name="ck_item_categories_name_not_blank"),
             sa.PrimaryKeyConstraint("id"),
         )
     if "ix_item_categories_id" not in _index_names(bind, "item_categories"):
@@ -139,8 +139,9 @@ def upgrade() -> None:
             op.add_column("items", sa.Column("category_id", sa.Uuid(as_uuid=True), nullable=True))
         if "ix_items_category_id" not in _index_names(bind, "items"):
             op.create_index("ix_items_category_id", "items", ["category_id"])
-        if bind.dialect.name != "sqlite" and "fk_items_category_id_item_categories" not in _constraint_names(
-            bind, "items"
+        if (
+            bind.dialect.name != "sqlite"
+            and "fk_items_category_id_item_categories" not in _constraint_names(bind, "items")
         ):
             op.create_foreign_key(
                 "fk_items_category_id_item_categories",
@@ -157,8 +158,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     if "items" in _table_names(bind):
-        if bind.dialect.name != "sqlite" and "fk_items_category_id_item_categories" in _constraint_names(
-            bind, "items"
+        if (
+            bind.dialect.name != "sqlite"
+            and "fk_items_category_id_item_categories" in _constraint_names(bind, "items")
         ):
             op.drop_constraint("fk_items_category_id_item_categories", "items", type_="foreignkey")
         if "ix_items_category_id" in _index_names(bind, "items"):

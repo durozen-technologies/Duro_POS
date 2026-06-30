@@ -94,7 +94,6 @@ __all__ = [
 ]
 
 
-
 def _shop_to_read(shop: Shop, last_active_at: datetime | None = None) -> ShopRead:
     return ShopRead(
         id=shop.id,
@@ -333,7 +332,9 @@ def _normalize_category_name(raw_name: str) -> str:
     return category_name
 
 
-async def list_item_categories(db: AsyncSession, organization_id: UUID | None = None) -> list[ItemCategoryRead]:
+async def list_item_categories(
+    db: AsyncSession, organization_id: UUID | None = None
+) -> list[ItemCategoryRead]:
     org_id = organization_id or await resolve_organization_id(db)
     rows = await db.scalars(
         select(ItemCategory)
@@ -472,6 +473,3 @@ async def _resolve_item_category(
     if normalized_name is None:
         return None
     return await _find_or_create_item_category(db, normalized_name, organization_id=org_id)
-
-
-

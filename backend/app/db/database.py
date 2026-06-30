@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, event, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -41,13 +41,32 @@ def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, str]]:
             sslmode = sslmode[0] if sslmode else ""
         if sslmode:
             connect_args["ssl"] = sslmode
-            url = url.set(query={key: value for key, value in url.query.items() if key != "sslmode"})
+            url = url.set(
+                query={key: value for key, value in url.query.items() if key != "sslmode"}
+            )
 
     return url, connect_args
 
 
 engine: AsyncEngine | None = None
 SessionLocal: async_sessionmaker[AsyncSession] | None = None
+_search_path_listener_registered = False
+
+
+def _register_search_path_reset_if_needed(engine_url: URL | str) -> None:
+    """Reset search_path at ORM transaction start — pooled PG connections retain session state."""
+    global _search_path_listener_registered
+    if _search_path_listener_registered or "postgresql" not in str(engine_url):
+        return
+
+    from sqlalchemy.orm import Session
+
+    @event.listens_for(Session, "after_begin")
+    def _reset_search_path(_session, _transaction, connection) -> None:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("RESET search_path"))
+
+    _search_path_listener_registered = True
 
 
 def get_engine() -> AsyncEngine:
@@ -64,6 +83,7 @@ def get_engine() -> AsyncEngine:
             pool_timeout=settings.db_pool_timeout,
             pool_recycle=settings.db_pool_recycle,
         )
+        _register_search_path_reset_if_needed(engine_url)
     return engine
 
 

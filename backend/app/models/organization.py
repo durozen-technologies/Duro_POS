@@ -16,6 +16,7 @@ class Organization(Base, BaseModelMixin):
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
+    schema_name: Mapped[str | None] = mapped_column(String(63), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     settings: Mapped[dict[str, object | None]] = mapped_column(
         MutableDict.as_mutable(JSON),

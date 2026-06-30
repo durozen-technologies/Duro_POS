@@ -33,7 +33,9 @@ def error_code_for_http_exception(exc: HTTPException) -> str:
         if isinstance(code, str) and code:
             return code
     if isinstance(exc.detail, str):
-        return _MESSAGE_CODES.get(exc.detail, _STATUS_DEFAULT_CODES.get(exc.status_code, "HTTP_ERROR"))
+        return _MESSAGE_CODES.get(
+            exc.detail, _STATUS_DEFAULT_CODES.get(exc.status_code, "HTTP_ERROR")
+        )
     return _STATUS_DEFAULT_CODES.get(exc.status_code, "HTTP_ERROR")
 
 
@@ -53,7 +55,9 @@ def error_details_for_http_exception(exc: HTTPException) -> dict | list | None:
         details = exc.detail.get("details")
         if details is not None:
             return details
-        filtered = {key: value for key, value in exc.detail.items() if key not in {"code", "message"}}
+        filtered = {
+            key: value for key, value in exc.detail.items() if key not in {"code", "message"}
+        }
         return filtered or None
     return None
 

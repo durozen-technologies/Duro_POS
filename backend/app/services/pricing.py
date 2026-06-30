@@ -194,26 +194,23 @@ async def _upsert_daily_price_entries(
         for entry in entries
     ]
     insert_stmt = insert_factory(DailyPrice).values(values)
-    upsert_stmt = (
-        insert_stmt.on_conflict_do_update(
-            index_elements=[
-                DailyPrice.shop_id,
-                DailyPrice.item_id,
-                DailyPrice.price_date,
-            ],
-            set_={
-                "price_per_unit": insert_stmt.excluded.price_per_unit,
-                "unit": insert_stmt.excluded.unit,
-            },
-        )
-        .returning(
-            DailyPrice.id,
+    upsert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=[
+            DailyPrice.shop_id,
             DailyPrice.item_id,
-            DailyPrice.price_per_unit,
-            DailyPrice.unit,
             DailyPrice.price_date,
-            DailyPrice.created_at,
-        )
+        ],
+        set_={
+            "price_per_unit": insert_stmt.excluded.price_per_unit,
+            "unit": insert_stmt.excluded.unit,
+        },
+    ).returning(
+        DailyPrice.id,
+        DailyPrice.item_id,
+        DailyPrice.price_per_unit,
+        DailyPrice.unit,
+        DailyPrice.price_date,
+        DailyPrice.created_at,
     )
     rows = (await db.execute(upsert_stmt)).mappings().all()
     await db.commit()

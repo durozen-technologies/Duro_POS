@@ -200,9 +200,7 @@ async def list_tenant_admin_rows(
     items: list[TenantAdminRead] = []
     for user in page_rows:
         org_name = user.organization.name if user.organization else ""
-        items.append(
-            _tenant_admin_to_read(user, org_name, role_ids_by_user.get(user.id, []))
-        )
+        items.append(_tenant_admin_to_read(user, org_name, role_ids_by_user.get(user.id, [])))
 
     next_created_at = next_id = None
     if len(rows) > limit and page_rows:
@@ -317,7 +315,9 @@ async def update_tenant_admin_roles(
 ) -> TenantAdminRead:
     user = await get_tenant_admin_or_404(db, user_id)
     if user.organization_id is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="User has no org")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="User has no org"
+        )
 
     for role_id in role_ids:
         found = await db.scalar(

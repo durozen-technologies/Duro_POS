@@ -1,4 +1,5 @@
 """Shared imports for admin route modules."""
+
 import json
 from datetime import date, datetime
 from typing import Annotated

@@ -166,12 +166,21 @@ class ItemAssumptionUpdate(BaseModel):
     @model_validator(mode="after")
     def validate_complete_or_clear(self) -> "ItemAssumptionUpdate":
         if self.assumption_percent is None:
-            if self.assumption_inventory_item_id is None and self.assumption_inventory_category_id is None:
+            if (
+                self.assumption_inventory_item_id is None
+                and self.assumption_inventory_category_id is None
+            ):
                 return self
             raise ValueError("Assumption inventory item and category require an assumption percent")
-        if self.assumption_inventory_item_id is None and self.assumption_inventory_category_id is None:
+        if (
+            self.assumption_inventory_item_id is None
+            and self.assumption_inventory_category_id is None
+        ):
             return self
-        if self.assumption_inventory_item_id is not None and self.assumption_inventory_category_id is not None:
+        if (
+            self.assumption_inventory_item_id is not None
+            and self.assumption_inventory_category_id is not None
+        ):
             return self
         raise ValueError("Assumption inventory item and category must be saved together")
 

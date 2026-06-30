@@ -753,5 +753,3 @@ async def set_shop_active_state(
     await db.flush()  # batch both UPDATEs before the commit
     await db.commit()
     return _shop_to_read(shop)
-
-

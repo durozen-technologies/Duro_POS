@@ -36,8 +36,11 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [organizationFilter, setOrganizationFilter] = useState<UUID | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<TenantAdminStatusFilter>("all");
+  const [organizationFilter, setOrganizationFilter] = useState<UUID | "all">(
+    "all",
+  );
+  const [statusFilter, setStatusFilter] =
+    useState<TenantAdminStatusFilter>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedOrgId, setSelectedOrgId] = useState<UUID | null>(null);
@@ -108,7 +111,9 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
           ? { created_at: rows.next_cursor_created_at, id: rows.next_cursor_id }
           : null;
     } catch (loadError) {
-      setError(toApiError(loadError).message || "Failed to load more tenant admins");
+      setError(
+        toApiError(loadError).message || "Failed to load more tenant admins",
+      );
     } finally {
       setLoadingMore(false);
     }
@@ -126,7 +131,8 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
         await createTenantAdmin({ username, password, organization_id });
         await loadFirstPage();
       } catch (createError) {
-        const message = toApiError(createError).message || "Failed to create tenant admin";
+        const message =
+          toApiError(createError).message || "Failed to create tenant admin";
         setError(message);
         throw new Error(message);
       } finally {
@@ -138,7 +144,9 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
 
   const refreshAdmin = useCallback(async (userId: UUID) => {
     const updated = await fetchTenantAdmin(userId);
-    setAdmins((current) => current.map((admin) => (admin.id === userId ? updated : admin)));
+    setAdmins((current) =>
+      current.map((admin) => (admin.id === userId ? updated : admin)),
+    );
     return updated;
   }, []);
 
@@ -176,9 +184,12 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
     [loadFirstPage],
   );
 
-  const loadOrgRoles = useCallback(async (organizationId: UUID): Promise<AdminRoleRead[]> => {
-    return fetchOrganizationAdminRoles(organizationId);
-  }, []);
+  const loadOrgRoles = useCallback(
+    async (organizationId: UUID): Promise<AdminRoleRead[]> => {
+      return fetchOrganizationAdminRoles(organizationId);
+    },
+    [],
+  );
 
   return {
     admins,

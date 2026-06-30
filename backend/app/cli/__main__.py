@@ -18,9 +18,7 @@ async def bootstrap_super_admin(username: str, password: str) -> None:
     normalized = normalize_username(username)
     session_factory = get_session_local()
     async with session_factory() as db:
-        existing = await db.scalar(
-            select(User.id).where(User.role == UserRole.SUPER_ADMIN)
-        )
+        existing = await db.scalar(select(User.id).where(User.role == UserRole.SUPER_ADMIN))
         if existing is not None:
             raise SystemExit("A super admin already exists")
 

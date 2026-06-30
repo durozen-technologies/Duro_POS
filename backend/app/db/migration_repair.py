@@ -63,10 +63,15 @@ def _pick_consolidated_revision(
 
 
 def _repair_on_connection(connection, script: ScriptDirectory, head: str | None) -> bool:
-    versions = [
-        row[0] for row in connection.execute(text("SELECT version_num FROM alembic_version")).fetchall()
-    ]
     inspector = inspect(connection)
+    if "alembic_version" not in inspector.get_table_names():
+        # Fresh database — Alembic creates this table on first upgrade.
+        return False
+
+    versions = [
+        row[0]
+        for row in connection.execute(text("SELECT version_num FROM alembic_version")).fetchall()
+    ]
     schema_target = _schema_revision(inspector)
 
     if len(versions) > 1:
@@ -94,7 +99,11 @@ def _repair_on_connection(connection, script: ScriptDirectory, head: str | None)
         return False
 
     recorded = versions[0]
-    if schema_target and recorded != schema_target and _is_ancestor(script, recorded, schema_target):
+    if (
+        schema_target
+        and recorded != schema_target
+        and _is_ancestor(script, recorded, schema_target)
+    ):
         connection.execute(
             text("UPDATE alembic_version SET version_num = :target WHERE version_num = :recorded"),
             {"target": schema_target, "recorded": recorded},

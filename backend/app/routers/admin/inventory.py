@@ -3,6 +3,7 @@ from app.routers.admin._params import *
 
 router = APIRouter()
 
+
 @router.get(
     "/inventory/categories",
     response_model=list[InventoryCategoryRead],
@@ -347,7 +348,9 @@ async def update_shop_inventory(
     payload: ShopInventoryAllocationUpdate,
     shop: ShopDep,
     db: DBSession,
-    include_summary: bool = Query(False, description="Include the full inventory summary in the response."),
+    include_summary: bool = Query(
+        False, description="Include the full inventory summary in the response."
+    ),
 ) -> InventoryItemStockRead | InventorySummaryRead:
     stock_item = await update_shop_inventory_allocation(
         db,
@@ -520,4 +523,3 @@ async def admin_transfer_inventory_stock(
         user_id=actor.id,
         actor=actor,
     )
-

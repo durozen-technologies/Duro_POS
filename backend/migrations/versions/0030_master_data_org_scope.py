@@ -41,7 +41,9 @@ def upgrade() -> None:
     for table_name in MASTER_TABLES:
         if "organization_id" in _column_names(bind, table_name):
             continue
-        op.add_column(table_name, sa.Column("organization_id", sa.Uuid(as_uuid=True), nullable=True))
+        op.add_column(
+            table_name, sa.Column("organization_id", sa.Uuid(as_uuid=True), nullable=True)
+        )
         op.create_foreign_key(
             f"fk_{table_name}_organization_id_organizations",
             table_name,
