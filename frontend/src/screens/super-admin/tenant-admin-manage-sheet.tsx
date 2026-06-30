@@ -32,15 +32,20 @@ type TenantAdminManageSheetProps = {
 };
 
 function formatTimestamp(value?: string | null) {
-  if (!value) return "Never";
+  if (!value) return "Never logged in";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
-// Token-aligned icon color — ink token value
 const INK = "#0A110D";
 const MUTED = "#4B6356";
+const ACCENT = "#0F7642";
 
 export function TenantAdminManageSheet({
   visible,
@@ -149,15 +154,15 @@ export function TenantAdminManageSheet({
           onPress={onClose}
         />
 
-        {/* Sheet — max-w-lg centers on tablet; rounded-t-2xl = 16px, within policy */}
-        <View className="mx-auto max-h-[88%] w-full max-w-lg rounded-t-2xl bg-card px-5 pb-10 pt-5">
+        {/* Sheet — max-w-lg centers on tablet */}
+        <View className="mx-auto max-h-[88%] w-full max-w-lg rounded-t-2xl bg-card px-5 pb-10 pt-4">
           {/* Drag handle */}
           <View className="mb-4 items-center">
             <View className="h-1 w-10 rounded-full bg-border" />
           </View>
 
           {/* Header */}
-          <View className="flex-row items-start justify-between gap-3">
+          <View className="flex-row items-start justify-between gap-3 pb-3">
             <View className="flex-1">
               <Text
                 className="text-xl font-semibold text-ink"
@@ -180,7 +185,7 @@ export function TenantAdminManageSheet({
           </View>
 
           <ScrollView
-            className="mt-5"
+            className="mt-2"
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
@@ -189,181 +194,191 @@ export function TenantAdminManageSheet({
               <View className="flex-row items-center justify-between">
                 <Text className="text-sm text-muted">Status</Text>
                 <View
-                  className={`rounded-full px-2 py-0.5 ${admin.is_active ? "bg-successSoft" : "bg-dangerSoft"}`}
+                  className={`rounded-full px-2.5 py-1 ${admin.is_active ? "bg-successSoft" : "bg-dangerSoft"}`}
                 >
                   <Text
-                    className={`text-xs font-medium ${admin.is_active ? "text-success" : "text-danger"}`}
+                    className={`text-xs font-semibold ${admin.is_active ? "text-success" : "text-danger"}`}
                   >
                     {admin.is_active ? "Active" : "Disabled"}
                   </Text>
                 </View>
               </View>
-              <View className="mt-2 flex-row items-center justify-between">
+              <View className="mt-3 flex-row items-center justify-between">
                 <Text className="text-sm text-muted">Created</Text>
-                <Text className="text-sm text-ink">
+                <Text className="text-sm font-medium text-ink">
                   {formatTimestamp(admin.created_at)}
                 </Text>
               </View>
-              <View className="mt-2 flex-row items-center justify-between">
+              <View className="mt-3 flex-row items-center justify-between">
                 <Text className="text-sm text-muted">Last login</Text>
-                <Text className="text-sm text-ink">
+                <Text className="text-sm font-medium text-ink">
                   {formatTimestamp(admin.last_login_at)}
                 </Text>
               </View>
             </View>
 
             {/* Status toggle */}
-            <Text className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">
-              Account Status
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              className={`mt-2 min-h-[44px] items-center justify-center rounded-control px-4 py-2 ${
-                busy ? "opacity-50" : "active:opacity-80"
-              } ${admin.is_active ? "border border-border bg-card" : "bg-accent"}`}
-              disabled={busy}
-              onPress={() =>
-                admin.is_active
-                  ? confirmDisable()
-                  : void runAction("status", () => onToggleStatus(admin, true))
-              }
-            >
-              {busyAction === "status" ? (
-                <ActivityIndicator color={admin.is_active ? INK : "#fff"} />
-              ) : (
-                <Text
-                  className={`text-sm font-semibold ${admin.is_active ? "text-ink" : "text-white"}`}
-                >
-                  {admin.is_active ? "Disable Account" : "Enable Account"}
-                </Text>
-              )}
-            </Pressable>
-
-            {/* Reset password */}
-            <Text className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">
-              Reset Password
-            </Text>
-            <View className="mt-2 flex-row items-center gap-2">
-              <TextInput
-                accessibilityLabel="New password"
-                autoCapitalize="none"
-                autoCorrect={false}
-                className="min-h-[44px] flex-1 rounded-control border border-border bg-card px-4 py-2 text-ink"
-                placeholder="New password (8+ characters)"
-                placeholderTextColor={MUTED}
-                returnKeyType="done"
-                secureTextEntry={!passwordVisible}
-                value={password}
-                onChangeText={setPassword}
-              />
+            <View className="mt-6">
+              <Text className="mb-2 text-sm font-semibold text-ink">
+                Account Access
+              </Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={
-                  passwordVisible ? "Hide password" : "Show password"
+                className={`min-h-[44px] items-center justify-center rounded-control px-4 py-2 ${
+                  busy ? "opacity-50" : "active:opacity-80"
+                } ${admin.is_active ? "border border-border bg-card" : "bg-accent"}`}
+                disabled={busy}
+                onPress={() =>
+                  admin.is_active
+                    ? confirmDisable()
+                    : void runAction("status", () =>
+                        onToggleStatus(admin, true),
+                      )
                 }
-                className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control bg-surface active:opacity-80"
-                onPress={() => setPasswordVisible((current) => !current)}
               >
-                <MaterialCommunityIcons
-                  name={passwordVisible ? "eye-off-outline" : "eye-outline"}
-                  size={20}
-                  color={MUTED}
-                />
+                {busyAction === "status" ? (
+                  <ActivityIndicator color={admin.is_active ? INK : "#fff"} />
+                ) : (
+                  <Text
+                    className={`text-sm font-semibold ${admin.is_active ? "text-ink" : "text-white"}`}
+                  >
+                    {admin.is_active ? "Disable Account" : "Enable Account"}
+                  </Text>
+                )}
               </Pressable>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              className={`mt-2 min-h-[44px] items-center justify-center rounded-control border border-border bg-card px-4 py-2 ${busy || password.length < 8 ? "opacity-50" : "active:opacity-80"}`}
-              disabled={busy || password.length < 8}
-              onPress={() =>
-                void runAction("password", async () => {
-                  await onResetPassword(admin, password);
-                  setPassword("");
-                })
-              }
-            >
-              {busyAction === "password" ? (
-                <ActivityIndicator color={INK} />
-              ) : (
-                <Text className="text-sm font-semibold text-ink">
-                  Set Password
-                </Text>
-              )}
-            </Pressable>
+
+            {/* Reset password */}
+            <View className="mt-6">
+              <Text className="mb-2 text-sm font-semibold text-ink">
+                Reset Password
+              </Text>
+              <View className="flex-row items-center gap-2">
+                <TextInput
+                  accessibilityLabel="New password"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  className="min-h-[44px] flex-1 rounded-control border border-border bg-background px-4 py-2 text-sm text-ink"
+                  placeholder="New password (8+ characters)"
+                  placeholderTextColor={MUTED}
+                  returnKeyType="done"
+                  secureTextEntry={!passwordVisible}
+                  value={password}
+                  onChangeText={setPassword}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    passwordVisible ? "Hide password" : "Show password"
+                  }
+                  className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-background active:bg-surface"
+                  onPress={() => setPasswordVisible((current) => !current)}
+                >
+                  <MaterialCommunityIcons
+                    name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+                    size={20}
+                    color={MUTED}
+                  />
+                </Pressable>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                className={`mt-2 min-h-[44px] items-center justify-center rounded-control border border-border bg-card px-4 py-2 ${busy || password.length < 8 ? "opacity-50" : "active:bg-surface"}`}
+                disabled={busy || password.length < 8}
+                onPress={() =>
+                  void runAction("password", async () => {
+                    await onResetPassword(admin, password);
+                    setPassword("");
+                  })
+                }
+              >
+                {busyAction === "password" ? (
+                  <ActivityIndicator color={INK} />
+                ) : (
+                  <Text className="text-sm font-semibold text-ink">
+                    Set New Password
+                  </Text>
+                )}
+              </Pressable>
+            </View>
 
             {/* Roles */}
-            <Text className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">
-              Roles
-            </Text>
-            {loadingRoles ? (
-              <ActivityIndicator className="mt-3" />
-            ) : roles.length === 0 ? (
-              <Text className="mt-2 text-sm text-muted">
-                No roles available for this organization.
+            <View className="mt-6">
+              <Text className="mb-2 text-sm font-semibold text-ink">
+                Permissions
               </Text>
-            ) : (
-              <View className="mt-2 flex-row flex-wrap gap-2">
-                {roles.map((role) => {
-                  const selected = selectedRoleIds.includes(role.id);
-                  return (
-                    <Pressable
-                      key={role.id}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      className={`min-h-[44px] items-center justify-center rounded-control border px-4 py-2 active:opacity-80 ${selected ? "border-transparent bg-accent" : "border-border bg-card"}`}
-                      onPress={() => toggleRole(role.id)}
-                    >
-                      <Text
-                        className={`text-sm font-medium ${selected ? "text-white" : "text-ink"}`}
-                      >
-                        {role.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-            <Pressable
-              accessibilityRole="button"
-              className={`mt-3 min-h-[44px] items-center justify-center rounded-control border border-border bg-card px-4 py-2 ${busy || selectedRoleIds.length === 0 ? "opacity-50" : "active:opacity-80"}`}
-              disabled={busy || selectedRoleIds.length === 0}
-              onPress={() =>
-                void runAction("roles", () =>
-                  onUpdateRoles(admin, selectedRoleIds),
-                )
-              }
-            >
-              {busyAction === "roles" ? (
-                <ActivityIndicator color={INK} />
-              ) : (
-                <Text className="text-sm font-semibold text-ink">
-                  Update Roles
+              {loadingRoles ? (
+                <ActivityIndicator className="mt-2" color={ACCENT} />
+              ) : roles.length === 0 ? (
+                <Text className="text-sm text-muted">
+                  No roles available for this organization.
                 </Text>
+              ) : (
+                <View className="flex-row flex-wrap gap-2">
+                  {roles.map((role) => {
+                    const selected = selectedRoleIds.includes(role.id);
+                    return (
+                      <Pressable
+                        key={role.id}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        className={`min-h-[44px] items-center justify-center rounded-control border px-4 py-2 active:opacity-80 ${selected ? "border-transparent bg-accent" : "border-border bg-card"}`}
+                        onPress={() => toggleRole(role.id)}
+                      >
+                        <Text
+                          className={`text-sm font-medium ${selected ? "text-white" : "text-ink"}`}
+                        >
+                          {role.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               )}
-            </Pressable>
+              {roles.length > 0 && (
+                <Pressable
+                  accessibilityRole="button"
+                  className={`mt-3 min-h-[44px] items-center justify-center rounded-control border border-border bg-card px-4 py-2 ${busy || selectedRoleIds.length === 0 ? "opacity-50" : "active:bg-surface"}`}
+                  disabled={busy || selectedRoleIds.length === 0}
+                  onPress={() =>
+                    void runAction("roles", () =>
+                      onUpdateRoles(admin, selectedRoleIds),
+                    )
+                  }
+                >
+                  {busyAction === "roles" ? (
+                    <ActivityIndicator color={INK} />
+                  ) : (
+                    <Text className="text-sm font-semibold text-ink">
+                      Update Roles
+                    </Text>
+                  )}
+                </Pressable>
+              )}
+            </View>
 
             {/* Error */}
             {error ? (
-              <View className="mt-3 rounded-control border border-dangerSoft bg-dangerSoft px-4 py-3">
+              <View className="mt-4 rounded-control border border-dangerSoft bg-dangerSoft px-4 py-3">
                 <Text className="text-sm text-danger">{error}</Text>
               </View>
             ) : null}
 
             {/* Danger zone */}
-            <View className="mt-8 border-t border-border pt-5">
-              <Text className="mb-3 text-xs font-medium uppercase tracking-wide text-danger">
+            <View className="mt-8 border-t border-border pt-6">
+              <Text className="mb-3 text-sm font-semibold text-danger">
                 Danger Zone
               </Text>
               <Pressable
                 accessibilityRole="button"
-                className={`min-h-[44px] items-center justify-center rounded-control bg-danger px-4 py-3 ${busy ? "opacity-50" : "active:opacity-80"}`}
+                className={`min-h-[44px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft px-4 py-3 ${busy ? "opacity-50" : "active:opacity-80"}`}
                 disabled={busy}
                 onPress={confirmDelete}
               >
                 {busyAction === "delete" ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color="#DC2626" />
                 ) : (
-                  <Text className="text-sm font-semibold text-white">
+                  <Text className="text-sm font-semibold text-danger">
                     Delete Admin
                   </Text>
                 )}

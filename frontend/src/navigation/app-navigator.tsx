@@ -67,7 +67,16 @@ const SHOP_STACK_SCREEN_OPTIONS = {
 // ── Lazy loaders (unchanged) ─────────────────────────────────────────
 const getLoginScreen = () => require("@/screens/auth/login-screen").LoginScreen;
 const getSuperAdminDashboardScreen = () =>
-  require("@/screens/super-admin/super-admin-dashboard-screen").SuperAdminDashboardScreen;
+  require("@/screens/super-admin/super-admin-dashboard-screen")
+    .SuperAdminDashboardScreen;
+const getSuperAdminOrgsScreen = () =>
+  require("@/screens/super-admin/super-admin-orgs-screen").SuperAdminOrgsScreen;
+const getSuperAdminAdminsScreen = () =>
+  require("@/screens/super-admin/super-admin-admins-screen")
+    .SuperAdminAdminsScreen;
+const getSuperAdminAuditScreen = () =>
+  require("@/screens/super-admin/super-admin-audit-screen")
+    .SuperAdminAuditScreen;
 const getAdminDashboardScreen = () =>
   require("@/screens/admin/admin-dashboard-screen").AdminDashboardScreen;
 const getAdminItemsCatalogueScreen = () =>
@@ -77,23 +86,28 @@ const getAdminItemAssumptionScreen = () =>
 const getAdminShopItemsScreen = () =>
   require("@/screens/admin/admin-items-route-screen").AdminShopItemsScreen;
 const getAdminShopItemsOrderScreen = () =>
-  require("@/screens/admin/admin-shop-items-order-screen").AdminShopItemsOrderScreen;
+  require("@/screens/admin/admin-shop-items-order-screen")
+    .AdminShopItemsOrderScreen;
 const getAdminItemPricesScreen = () =>
   require("@/screens/admin/admin-items-route-screen").AdminItemPricesScreen;
 const getAdminItemCategoriesScreen = () =>
-  require("@/screens/admin/admin-item-categories-screen").AdminItemCategoriesScreen;
+  require("@/screens/admin/admin-item-categories-screen")
+    .AdminItemCategoriesScreen;
 const getAdminInventoryScreen = () =>
   require("@/screens/admin/admin-inventory-screen").AdminInventoryScreen;
 const getAdminReportsScreen = () =>
   require("@/screens/admin/admin-reports-screen").AdminReportsScreen;
 const getAdminOverallReportPreviewScreen = () =>
-  require("@/screens/admin/admin-overall-report-preview-screen").AdminOverallReportPreviewScreen;
+  require("@/screens/admin/admin-overall-report-preview-screen")
+    .AdminOverallReportPreviewScreen;
 const getAdminExpensesScreen = () =>
   require("@/screens/admin/admin-expenses-screen").AdminExpensesScreen;
 const getAdminShopExpensesOrderScreen = () =>
-  require("@/screens/admin/admin-shop-expenses-order-screen").AdminShopExpensesOrderScreen;
+  require("@/screens/admin/admin-shop-expenses-order-screen")
+    .AdminShopExpensesOrderScreen;
 const getAdminInventoryItemEditorScreen = () =>
-  require("@/screens/admin/admin-inventory-item-editor-screen").AdminInventoryItemEditorScreen;
+  require("@/screens/admin/admin-inventory-item-editor-screen")
+    .AdminInventoryItemEditorScreen;
 const getAdminItemEditorScreen = () =>
   require("@/screens/admin/admin-item-editor-screen").AdminItemEditorScreen;
 const getBillingScreen = () =>
@@ -101,7 +115,8 @@ const getBillingScreen = () =>
 const getCheckoutScreen = () =>
   require("@/screens/shop/checkout-screen").CheckoutScreen;
 const getInventoryManagementScreen = () =>
-  require("@/screens/shop/inventory-management-screen").InventoryManagementScreen;
+  require("@/screens/shop/inventory-management-screen")
+    .InventoryManagementScreen;
 const getShopExpensesScreen = () =>
   require("@/screens/shop/expenses-screen").ShopExpensesScreen;
 const getPrinterSetupScreen = () =>
@@ -270,10 +285,7 @@ function HydrationScreen({
 
   return (
     <View style={styles.hydrationContainer}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor={COLORS.background}
-      />
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       <Animated.View
         style={[
           styles.loadingWrapper,
@@ -343,6 +355,21 @@ function SuperAdminStack() {
       <Stack.Screen
         name="SuperAdminDashboard"
         getComponent={getSuperAdminDashboardScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="SuperAdminOrgs"
+        getComponent={getSuperAdminOrgsScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="SuperAdminAdmins"
+        getComponent={getSuperAdminAdminsScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="SuperAdminAudit"
+        getComponent={getSuperAdminAuditScreen}
         options={HEADER_HIDDEN_OPTIONS}
       />
     </Stack.Navigator>
@@ -439,27 +466,35 @@ function ShopStack() {
   // Memoized renderers to prevent unnecessary re-renders
   const renderBillingHeaderTitle = useCallback(
     () => <AnimatedHeaderTitle titleKey="header.billing" shopName={shopName} />,
-    [shopName]
+    [shopName],
   );
   const renderCheckoutHeaderTitle = useCallback(
-    () => <AnimatedHeaderTitle titleKey="header.checkout" shopName={shopName} />,
-    [shopName]
+    () => (
+      <AnimatedHeaderTitle titleKey="header.checkout" shopName={shopName} />
+    ),
+    [shopName],
   );
   const renderPrinterHeaderTitle = useCallback(
-    () => <AnimatedHeaderTitle titleKey="header.printerSetup" shopName={shopName} />,
-    [shopName]
+    () => (
+      <AnimatedHeaderTitle titleKey="header.printerSetup" shopName={shopName} />
+    ),
+    [shopName],
   );
   const renderInventoryHeaderTitle = useCallback(
-    () => <AnimatedHeaderTitle titleKey="header.inventory" shopName={shopName} />,
-    [shopName]
+    () => (
+      <AnimatedHeaderTitle titleKey="header.inventory" shopName={shopName} />
+    ),
+    [shopName],
   );
   const renderExpensesHeaderTitle = useCallback(
-    () => <AnimatedHeaderTitle titleKey="header.expenses" shopName={shopName} />,
-    [shopName]
+    () => (
+      <AnimatedHeaderTitle titleKey="header.expenses" shopName={shopName} />
+    ),
+    [shopName],
   );
   const renderHeaderActions = useCallback(
     () => <AnimatedHeaderActions onLogout={logout} />,
-    [logout]
+    [logout],
   );
 
   return (
