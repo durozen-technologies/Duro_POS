@@ -1,4 +1,5 @@
 from app.routers.admin._common import *
+from app.routers.admin._common import _require_org_id
 from app.routers.admin._params import *
 
 router = APIRouter()
@@ -19,6 +20,7 @@ async def bills(
     cursor_created_at: CursorCreatedAtParam = None,
     cursor_id: CursorIdParam = None,
     db: DBSession = None,
+    current_user: AdminUserDep = None,
 ) -> AdminBillPage:
     """Cursor-paginated bill feed for the requested time window.
 
@@ -36,6 +38,7 @@ async def bills(
         cursor_id=cursor_id,
         range_start_date=range_start_date,
         range_end_date=range_end_date,
+        organization_id=_require_org_id(current_user),
     )
 
 
@@ -48,9 +51,10 @@ async def bills(
 async def bill_details(
     payload: BillDetailBatchRequest,
     db: DBSession,
+    current_user: AdminUserDep = None,
 ) -> list[BillRead]:
     """Full bill details for a print batch, returned in request order."""
-    return await get_bills_by_ids(db, payload.bill_ids)
+    return await get_bills_by_ids(db, payload.bill_ids, _require_org_id(current_user))
 
 
 @router.get(
@@ -62,6 +66,7 @@ async def bill_details(
 async def bill_detail(
     bill_id: UUID,
     db: DBSession,
+    current_user: AdminUserDep = None,
 ) -> BillRead:
     """Full bill detail including line items, payment breakdown, and receipt."""
-    return await get_bill_by_id(db, bill_id)
+    return await get_bill_by_id(db, bill_id, _require_org_id(current_user))

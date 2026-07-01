@@ -25,6 +25,7 @@ from app.models import (
     InventoryMovementType,
     Item,
     MonthlyBillSequence,
+    Organization,
     Payment,
     Receipt,
     Shop,
@@ -72,6 +73,11 @@ class PreparedCheckout:
 
 def _round_money(value: Decimal) -> Decimal:
     return value.quantize(TWOPLACES, rounding=ROUND_HALF_UP)
+
+
+async def _shop_organization_name(db: AsyncSession, shop: Shop) -> str:
+    org = await db.get(Organization, shop.organization_id)
+    return org.name if org is not None else ""
 
 
 def _decimal_token(value: Decimal) -> str:
@@ -390,6 +396,7 @@ async def preview_bill(
         )
 
     bill_no = _bill_no_from_sequence(now, sequence)
+    organization_name = await _shop_organization_name(db, shop)
     token_payload = {
         "bill_no": bill_no,
         "created_at": now.isoformat(),
@@ -405,6 +412,7 @@ async def preview_bill(
         bill_no=bill_no,
         shop_id=shop.id,
         shop_name=shop.name,
+        organization_name=organization_name,
         total_amount=prepared.total_amount,
         status=BillStatus.PAID.value,
         created_at=now,
@@ -433,6 +441,7 @@ async def create_bill(
 ) -> BillRead:
     """Persist a paid bill only after the receipt has been printed."""
     prepared = await _prepare_checkout(db, shop, payload)
+    organization_name = await _shop_organization_name(db, shop)
     token_payload = _decode_checkout_token(payload.checkout_token)
 
     if token_payload.get("shop_id") != str(shop.id) or token_payload.get(
@@ -528,6 +537,7 @@ async def create_bill(
         bill_no=bill.bill_no,
         shop_id=shop.id,
         shop_name=shop.name,
+        organization_name=organization_name,
         total_amount=bill.total_amount,
         status=bill.status.value,
         created_at=bill.created_at,

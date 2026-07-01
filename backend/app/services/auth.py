@@ -10,6 +10,10 @@ from sqlalchemy.orm import selectinload
 
 from app.auth.tenant_context import load_user_permissions, session_role_for_user
 from app.core.config import get_settings
+from app.core.errors import (
+    ACCOUNT_DISABLED_BY_SUPER_ADMIN,
+    ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
+)
 from app.core.logging import log_event
 from app.core.redis_cache import cache_get_json, cache_set_json, login_rate_cache_key
 from app.core.security import (
@@ -17,7 +21,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
-from app.models import DailyPrice, Item, Organization, ShopItemAllocation, User, UserRole
+from app.models import DailyPrice, Item, Organization, Shop, ShopItemAllocation, User, UserRole
 from app.models.enums import is_super_admin, is_tenant_admin
 from app.schemas.auth import (
     LoginResponse,
@@ -100,6 +104,21 @@ async def _resolve_next_screen(db: AsyncSession, user: User) -> str:
     return "admin_dashboard"
 
 
+async def _organization_name_for_user(db: AsyncSession, user: User) -> str | None:
+    org_id = user.organization_id
+    shop = user.shop
+    if org_id is None and shop is not None:
+        org_id = shop.organization_id
+    if org_id is None:
+        return None
+    org = user.organization
+    if org is None and shop is not None and shop.organization is not None:
+        org = shop.organization
+    if org is None:
+        org = await db.get(Organization, org_id)
+    return org.name if org is not None else None
+
+
 async def build_user_session(db: AsyncSession, user: User) -> UserSession:
     """Build the authenticated-session payload for login and ``/me``."""
     shop = user.shop
@@ -109,6 +128,7 @@ async def build_user_session(db: AsyncSession, user: User) -> UserSession:
 
     permissions = sorted(await load_user_permissions(db, user))
     next_screen = await _resolve_next_screen(db, user)
+    organization_name = await _organization_name_for_user(db, user)
 
     return UserSession(
         id=user.id,
@@ -116,7 +136,8 @@ async def build_user_session(db: AsyncSession, user: User) -> UserSession:
         role=session_role_for_user(user),
         is_active=user.is_active,
         created_at=user.created_at,
-        organization_id=user.organization_id,
+        organization_id=user.organization_id or (shop.organization_id if shop else None),
+        organization_name=organization_name,
         permissions=permissions,
         shop_id=shop.id if shop else None,
         shop_name=shop.name if shop else None,
@@ -131,15 +152,18 @@ async def _validate_login_eligibility(
     if not user.is_active:
         log_event(
             logger,
-            logging.WARNING,
-            "login_failed",
-            "login failed",
+            logging.INFO,
+            "login_denied",
+            "login denied",
             username=normalized_username,
             reason="inactive_user",
         )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
+        detail = (
+            ACCOUNT_DISABLED_BY_SUPER_ADMIN
+            if is_tenant_admin(user.role)
+            else "User account is inactive"
         )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
     if is_tenant_admin(user.role):
         if user.organization_id is None:
@@ -151,7 +175,7 @@ async def _validate_login_eligibility(
         if org is None or not org.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Organization is disabled",
+                detail=ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
             )
 
     if user.role == UserRole.SHOP_ACCOUNT:
@@ -172,7 +196,7 @@ async def _validate_login_eligibility(
         if org is None or not org.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Organization is disabled",
+                detail=ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
             )
 
 
@@ -187,7 +211,10 @@ async def login_user(
     await _check_login_rate_limit(client_ip, normalized_username)
     user = await db.scalar(
         select(User)
-        .options(selectinload(User.shop))
+        .options(
+            selectinload(User.shop).selectinload(Shop.organization),
+            selectinload(User.organization),
+        )
         .where(func.lower(User.username) == normalized_username)
     )
     if user is None or not verify_password(password, user.password_hash):

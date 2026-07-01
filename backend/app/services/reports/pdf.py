@@ -36,6 +36,7 @@ from app.models import (
     InventoryMovementType,
     InventoryTransfer,
     Item,
+    Organization,
     Payment,
     Shop,
     ShopInventoryAllocation,
@@ -53,6 +54,7 @@ from app.schemas.admin import (
     OverallReportUsedStockBreakdown,
 )
 from app.services.admin import _get_period_bounds
+from app.services.tenant_query import list_organization_shops
 
 SECTION_ORDER: tuple[AdminReportSection, ...] = (
     "sales",
@@ -334,6 +336,14 @@ class ReportContext:
     end: datetime
     shops: list[tuple[UUID, str]]
     shop_ids: tuple[UUID, ...]
+    organization_id: UUID
+    organization_name: str
+
+    @property
+    def scoped_shop_ids(self) -> tuple[UUID, ...]:
+        if self.shop_ids:
+            return self.shop_ids
+        return tuple(shop_id for shop_id, _ in self.shops)
 
     @property
     def branch_label(self) -> str:
@@ -351,6 +361,31 @@ class ReportContext:
         if self.start.date() == end_inclusive.date():
             return self.start.date().isoformat()
         return f"{self.start.date().isoformat()} to {end_inclusive.date().isoformat()}"
+
+
+def _report_org_header(context: ReportContext) -> str:
+    return context.organization_name.strip().upper() or "ORGANIZATION"
+
+
+def _report_branch_header(context: ReportContext, shop_name: str | None = None) -> str:
+    if shop_name and shop_name.strip():
+        return shop_name.strip().upper()
+    return context.branch_label.strip().upper()
+
+
+async def _resolve_report_organization_name(
+    db: AsyncSession,
+    *,
+    organization_id: UUID | None,
+    shops: list[tuple[UUID, str]],
+) -> str:
+    org_id = organization_id
+    if org_id is None and shops:
+        org_id = await db.scalar(select(Shop.organization_id).where(Shop.id == shops[0][0]))
+    if org_id is None:
+        return "Organization"
+    org = await db.get(Organization, org_id)
+    return org.name if org is not None else "Organization"
 
 
 @dataclass(frozen=True)
@@ -956,21 +991,28 @@ def _date_text(value: date) -> str:
 
 def _bill_filters(context: ReportContext) -> list[object]:
     filters: list[object] = [Bill.created_at >= context.start, Bill.created_at < context.end]
-    if context.shop_ids:
-        filters.append(Bill.shop_id.in_(context.shop_ids))
+    scoped_shop_ids = context.scoped_shop_ids
+    if scoped_shop_ids:
+        filters.append(Bill.shop_id.in_(scoped_shop_ids))
+    else:
+        filters.append(Bill.id.is_(None))
     return filters
 
 
 def _apply_shop_scope(query, context: ReportContext):
-    if not context.shop_ids:
-        return query
-    return query.where(Shop.id.in_(context.shop_ids))
+    scoped_shop_ids = context.scoped_shop_ids
+    if not scoped_shop_ids:
+        return query.where(Shop.id.is_(None))
+    return query.where(Shop.id.in_(scoped_shop_ids))
 
 
 def _inventory_totals_subquery(context: ReportContext, *, period_only: bool):
     filters = []
-    if context.shop_ids:
-        filters.append(InventoryMovement.shop_id.in_(context.shop_ids))
+    scoped_shop_ids = context.scoped_shop_ids
+    if scoped_shop_ids:
+        filters.append(InventoryMovement.shop_id.in_(scoped_shop_ids))
+    else:
+        filters.append(InventoryMovement.id.is_(None))
     if period_only:
         filters.extend(
             [
@@ -1053,6 +1095,7 @@ async def generate_admin_report_pdf(
     range_start_date: date | None = None,
     range_end_date: date | None = None,
     shop_ids: list[UUID] | None = None,
+    organization_id: UUID | None = None,
     language: str = "en",
 ) -> AdminReportFile:
     context = await _build_report_context(
@@ -1064,6 +1107,7 @@ async def generate_admin_report_pdf(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         shop_ids=shop_ids,
+        organization_id=organization_id,
     )
 
     non_over_sections = [s for s in context.sections if s != "over_report"]
@@ -1082,6 +1126,8 @@ async def generate_admin_report_pdf(
             end=context.end,
             shops=context.shops,
             shop_ids=context.shop_ids,
+            organization_id=context.organization_id,
+            organization_name=context.organization_name,
         )
         if non_over_sections:
             for section in non_over_sections:
@@ -1129,7 +1175,14 @@ async def _build_report_context(
     range_start_date: date | None,
     range_end_date: date | None,
     shop_ids: list[UUID] | None,
+    organization_id: UUID | None = None,
 ) -> ReportContext:
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context is required for reports",
+        )
+
     invalid_sections = [section for section in sections if section not in SECTION_LABELS]
     if not sections or invalid_sections:
         allowed = ", ".join(SECTION_ORDER)
@@ -1145,19 +1198,16 @@ async def _build_report_context(
 
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     unique_shop_ids = tuple(dict.fromkeys(shop_ids or []))
-    shops_query = select(Shop.id, Shop.name)
-    if unique_shop_ids:
-        shops_query = shops_query.where(Shop.id.in_(unique_shop_ids))
-    shops_query = shops_query.order_by(Shop.name, Shop.id)
-    shop_rows = (await db.execute(shops_query)).all()
-    shops = [(row.id, row.name) for row in shop_rows]
-
-    if unique_shop_ids:
-        found_shop_ids = {shop_id for shop_id, _shop_name in shops}
-        if set(unique_shop_ids) - found_shop_ids:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop not found")
+    shops = await list_organization_shops(
+        db,
+        organization_id,
+        shop_ids=list(unique_shop_ids) if unique_shop_ids else None,
+    )
 
     ordered_sections = [section for section in SECTION_ORDER if section in set(sections)]
+    organization_name = await _resolve_report_organization_name(
+        db, organization_id=organization_id, shops=shops
+    )
     return ReportContext(
         sections=ordered_sections,
         detail_level=detail_level,
@@ -1166,6 +1216,8 @@ async def _build_report_context(
         end=end,
         shops=shops,
         shop_ids=unique_shop_ids,
+        organization_id=organization_id,
+        organization_name=organization_name,
     )
 
 
@@ -1181,10 +1233,10 @@ async def _write_sales_section(
     else:
         date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
 
-    branch_label = context.branch_label.upper()
+    branch_label = _report_branch_header(context)
     writer.statement_header(
-        "SRI MAHALAKSHMI BROILERS",
-        f"{branch_label} - BRANCH" if context.shop_ids else branch_label,
+        _report_org_header(context),
+        branch_label,
         "Sales Report",
         date_line,
     )
@@ -1248,10 +1300,10 @@ async def _write_billing_section(
     else:
         date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
 
-    branch_label = context.branch_label.upper()
+    branch_label = _report_branch_header(context)
     writer.statement_header(
-        "SRI MAHALAKSHMI BROILERS",
-        f"{branch_label} - BRANCH" if context.shop_ids else branch_label,
+        _report_org_header(context),
+        branch_label,
         "Billing Report",
         date_line,
     )
@@ -1554,10 +1606,10 @@ async def _write_expenses_section(
     else:
         date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
 
-    branch_label = context.branch_label.upper()
+    branch_label = _report_branch_header(context)
     writer.statement_header(
-        "SRI MAHALAKSHMI BROILERS",
-        f"{branch_label} - BRANCH" if context.shop_ids else branch_label,
+        _report_org_header(context),
+        branch_label,
         "Expense Report",
         date_line,
     )
@@ -1566,8 +1618,11 @@ async def _write_expenses_section(
         ExpenseEntry.spent_at >= context.start,
         ExpenseEntry.spent_at < context.end,
     ]
-    if context.shop_ids:
-        filters.append(ExpenseEntry.shop_id.in_(context.shop_ids))
+    scoped_shop_ids = context.scoped_shop_ids
+    if scoped_shop_ids:
+        filters.append(ExpenseEntry.shop_id.in_(scoped_shop_ids))
+    else:
+        filters.append(ExpenseEntry.id.is_(None))
 
     stats = (
         await db.execute(
@@ -1634,10 +1689,10 @@ async def _write_transfers_section(
     else:
         date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
 
-    branch_label = context.branch_label.upper()
+    branch_label = _report_branch_header(context)
     writer.statement_header(
-        "SRI MAHALAKSHMI BROILERS",
-        f"{branch_label} - BRANCH" if context.shop_ids else branch_label,
+        _report_org_header(context),
+        branch_label,
         "Transfer Stock Report",
         date_line,
     )
@@ -1646,8 +1701,11 @@ async def _write_transfers_section(
         InventoryTransfer.occurred_at >= context.start,
         InventoryTransfer.occurred_at < context.end,
     ]
-    if context.shop_ids:
-        filters.append(InventoryTransfer.source_shop_id.in_(context.shop_ids))
+    scoped_shop_ids = context.scoped_shop_ids
+    if scoped_shop_ids:
+        filters.append(InventoryTransfer.source_shop_id.in_(scoped_shop_ids))
+    else:
+        filters.append(InventoryTransfer.id.is_(None))
 
     stats = (
         await db.execute(

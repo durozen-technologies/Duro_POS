@@ -6,6 +6,9 @@ export interface OrganizationRead {
   name: string;
   slug: string;
   is_active: boolean;
+  max_branches: number;
+  branch_count: number;
+  remaining_branches: number;
   settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -114,12 +117,58 @@ function tenantAdminRowParams(params: TenantAdminRowsParams = {}) {
   return query;
 }
 
-export async function fetchOrganizationRows(limit = 50) {
+export type OrganizationRowsParams = {
+  limit?: number;
+  q?: string;
+  active?: boolean | null;
+  cursor_created_at?: string | null;
+  cursor_id?: UUID | null;
+};
+
+function organizationRowParams(params: OrganizationRowsParams = {}) {
+  const query: Record<string, string | number | boolean> = {};
+  if (params.limit != null) query.limit = params.limit;
+  if (params.q?.trim()) query.q = params.q.trim();
+  if (params.active != null) query.active = params.active;
+  if (params.cursor_created_at) query.cursor_created_at = params.cursor_created_at;
+  if (params.cursor_id) query.cursor_id = params.cursor_id;
+  return query;
+}
+
+export async function fetchOrganizationRows(params: OrganizationRowsParams = {}) {
   const { data } = await apiClient.get<OrganizationRowsPage>(
     `${SUPER_ADMIN_PREFIX}/organizations/rows`,
-    { params: { limit } },
+    { params: organizationRowParams(params) },
   );
   return data;
+}
+
+export async function fetchAllOrganizationRows() {
+  const items: OrganizationRead[] = [];
+  let cursor: { created_at: string; id: UUID } | null = null;
+
+  for (;;) {
+    const page = await fetchOrganizationRows({
+      limit: 100,
+      ...(cursor
+        ? { cursor_created_at: cursor.created_at, cursor_id: cursor.id }
+        : {}),
+    });
+    items.push(...page.items);
+    if (
+      !page.has_more ||
+      !page.next_cursor_created_at ||
+      !page.next_cursor_id
+    ) {
+      break;
+    }
+    cursor = {
+      created_at: page.next_cursor_created_at,
+      id: page.next_cursor_id,
+    };
+  }
+
+  return items;
 }
 
 export async function fetchOrganizationCounts() {
@@ -169,9 +218,24 @@ export async function fetchAuditLogRows(params: AuditLogRowsParams = {}) {
   return data;
 }
 
-export async function createOrganization(payload: { name: string; slug?: string }) {
+export async function createOrganization(payload: {
+  name: string;
+  slug?: string;
+  max_branches?: number;
+}) {
   const { data } = await apiClient.post<OrganizationRead>(
     `${SUPER_ADMIN_PREFIX}/organizations`,
+    payload,
+  );
+  return data;
+}
+
+export async function patchOrganization(
+  organizationId: UUID,
+  payload: { name?: string; max_branches?: number },
+) {
+  const { data } = await apiClient.patch<OrganizationRead>(
+    `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}`,
     payload,
   );
   return data;

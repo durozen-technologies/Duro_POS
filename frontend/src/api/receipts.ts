@@ -9,7 +9,6 @@ function formatReceiptCurrency(value?: string | number | null) {
 
 const RECEIPT_COPY = {
   en: {
-    companyName: "SRI MAHALAKSHMI BROILERS",
     receipt: "Receipt",
     bill: "Bill No",
     date: "Date",
@@ -25,7 +24,6 @@ const RECEIPT_COPY = {
     provider: "Durozen Technologies pvt. Ltd.",
   },
   ta: {
-    companyName: "ஸ்ரீ மகாலட்சுமி பிராய்லர்ஸ்",
     receipt: "ரசீது",
     bill: "பில் எண்",
     date: "தேதி",
@@ -55,6 +53,10 @@ function getReceiptCopy(language?: ShopLanguage) {
 
 function formatReceiptShopName(shopName: string, language?: ShopLanguage) {
   return getReceiptLanguage(language) === "ta" ? shopName : shopName.toUpperCase();
+}
+
+function formatReceiptOrganizationName(organizationName: string, language?: ShopLanguage) {
+  return getReceiptLanguage(language) === "ta" ? organizationName : organizationName.toUpperCase();
 }
 
 export const RECEIPT_EXPORT_WEBVIEW_SCRIPT =
@@ -814,7 +816,7 @@ function buildReceiptHtmlMarkup(
 export function buildReceiptText(bill: BillRead, language?: ShopLanguage) {
   const copy = getReceiptCopy("en");
   const lines = [
-    copy.companyName,
+    formatReceiptOrganizationName(bill.organization_name, "en"),
     formatReceiptShopName(bill.shop_name, "en"),
     `${copy.receipt}: ${bill.receipt.receipt_number}`,
     `${copy.bill}: ${bill.bill_no}`,
@@ -861,6 +863,10 @@ function escapeHtml(value: string) {
 function buildReceiptHtmlBody(bill: BillRead, language?: ShopLanguage) {
   const resolvedLanguage = "en";
   const copy = getReceiptCopy(resolvedLanguage);
+  const organizationName = formatReceiptOrganizationName(
+    bill.organization_name,
+    resolvedLanguage,
+  );
   const itemRows = bill.items
     .map(
       (item) => `
@@ -876,7 +882,7 @@ function buildReceiptHtmlBody(bill: BillRead, language?: ShopLanguage) {
   return `
     <div class="receipt-container">
       <div class="center">
-        <div class="strong header-main">${copy.companyName}</div>
+        <div class="strong header-main">${escapeHtml(organizationName)}</div>
         <div class="strong header-sub">${escapeHtml(formatReceiptShopName(bill.shop_name, resolvedLanguage))}</div>
       </div>
 
@@ -935,7 +941,7 @@ function buildReceiptExportPayload(bill: BillRead, language?: ShopLanguage): Rec
   const copy = getReceiptCopy(resolvedLanguage);
 
   return {
-    companyName: copy.companyName,
+    companyName: formatReceiptOrganizationName(bill.organization_name, resolvedLanguage),
     shopName: formatReceiptShopName(bill.shop_name, resolvedLanguage),
     billText: `${copy.bill}: ${bill.bill_no}`,
     dateText: `${copy.date}: ${formatDateTime(bill.created_at)}`,

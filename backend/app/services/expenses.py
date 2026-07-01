@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ExpenseEntry, ExpenseItem, Shop, ShopExpenseAllocation
@@ -588,6 +589,23 @@ async def _get_shop_expense_item_read(
     return _shop_expense_item_from_row(row)
 
 
+async def _existing_shop_expense_allocation_item_ids(
+    db: AsyncSession, shop_id: UUID, item_ids: list[UUID]
+) -> set[UUID]:
+    if not item_ids:
+        return set()
+    return set(
+        (
+            await db.scalars(
+                select(ShopExpenseAllocation.expense_item_id).where(
+                    ShopExpenseAllocation.shop_id == shop_id,
+                    ShopExpenseAllocation.expense_item_id.in_(item_ids),
+                )
+            )
+        ).all()
+    )
+
+
 async def _next_allocation_sort_order(db: AsyncSession, shop: Shop) -> int:
     current_max = await db.scalar(
         select(func.max(ShopExpenseAllocation.sort_order)).where(
@@ -622,7 +640,10 @@ async def allocate_shop_expense_item(
                 sort_order=await _next_allocation_sort_order(db, shop),
             )
         )
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
     return await _get_shop_expense_item_read(db, shop, item_id)
 
 
@@ -652,18 +673,12 @@ async def allocate_shop_expense_items(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only active expense items can be allocated",
         )
-    existing_ids = set(
-        (
-            await db.scalars(
-                select(ShopExpenseAllocation.expense_item_id).where(
-                    ShopExpenseAllocation.shop_id == shop.id,
-                    ShopExpenseAllocation.expense_item_id.in_(requested_ids),
-                )
-            )
-        ).all()
+    existing_ids = await _existing_shop_expense_allocation_item_ids(
+        db, shop.id, requested_ids
     )
     next_sort_order = await _next_allocation_sort_order(db, shop)
     new_ids = [item_id for item_id in requested_ids if item_id not in existing_ids]
+    allocated_count = len(new_ids)
     for index, item_id in enumerate(new_ids):
         db.add(
             ShopExpenseAllocation(
@@ -672,11 +687,45 @@ async def allocate_shop_expense_items(
                 sort_order=next_sort_order + index * 10,
             )
         )
-    await db.commit()
+    if new_ids:
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing_after_conflict = await _existing_shop_expense_allocation_item_ids(
+                db, shop.id, requested_ids
+            )
+            retry_ids = [
+                item_id for item_id in requested_ids if item_id not in existing_after_conflict
+            ]
+            allocated_count = len(retry_ids)
+            if retry_ids:
+                retry_sort_order = await _next_allocation_sort_order(db, shop)
+                for index, item_id in enumerate(retry_ids):
+                    db.add(
+                        ShopExpenseAllocation(
+                            shop_id=shop.id,
+                            expense_item_id=item_id,
+                            sort_order=retry_sort_order + index * 10,
+                        )
+                    )
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+                    final_existing_ids = await _existing_shop_expense_allocation_item_ids(
+                        db, shop.id, requested_ids
+                    )
+                    if not set(requested_ids).issubset(final_existing_ids):
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail="Expense allocation already exists",
+                        ) from None
+                    allocated_count = 0
     return ShopExpenseAllocationBulkRead(
         expense_item_ids=requested_ids,
-        allocated_count=len(new_ids),
-        already_allocated_count=len(existing_ids),
+        allocated_count=allocated_count,
+        already_allocated_count=len(requested_ids) - allocated_count,
     )
 
 

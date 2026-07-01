@@ -225,7 +225,7 @@ export function TenantAdminManageSheet({
               <Pressable
                 accessibilityRole="button"
                 className={`min-h-[44px] items-center justify-center rounded-control px-4 py-2 ${
-                  busy ? "opacity-50" : "active:opacity-80"
+                  busy ? "opacity-50" : admin.is_active ? "active:bg-dangerSoft active:border-dangerSoft" : "active:opacity-80"
                 } ${admin.is_active ? "border border-border bg-card" : "bg-accent"}`}
                 disabled={busy}
                 onPress={() =>

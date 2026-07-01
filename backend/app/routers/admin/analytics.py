@@ -1,4 +1,5 @@
 from app.routers.admin._common import *
+from app.routers.admin._common import _require_org_id
 from app.routers.admin._params import *
 
 router = APIRouter()
@@ -19,6 +20,7 @@ async def sales_summary(
     range_end_date: RangeEndDateParam = None,
     shop_id: ShopIdParam = None,
     db: DBSession = None,
+    current_user: AdminUserDep = None,
 ) -> list[ShopSalesSummary]:
     """Total revenue grouped by shop for the requested time window.
 
@@ -26,7 +28,13 @@ async def sales_summary(
     bootstrap already includes this data via ``GET /dashboard/bootstrap``.
     """
     return await get_shop_sales_summary(
-        db, period, reference_date, shop_id, range_start_date, range_end_date
+        db,
+        period,
+        reference_date,
+        shop_id,
+        range_start_date,
+        range_end_date,
+        organization_id=_require_org_id(current_user),
     )
 
 
@@ -43,6 +51,7 @@ async def payment_summary(
     range_end_date: RangeEndDateParam = None,
     shop_id: ShopIdParam = None,
     db: DBSession = None,
+    current_user: AdminUserDep = None,
 ) -> list[PaymentSplitSummary]:
     """Cash/UPI payment split grouped by shop for the requested time window.
 
@@ -50,7 +59,13 @@ async def payment_summary(
     bootstrap already includes this data via ``GET /dashboard/bootstrap``.
     """
     return await get_payment_split_summary(
-        db, period, reference_date, shop_id, range_start_date, range_end_date
+        db,
+        period,
+        reference_date,
+        shop_id,
+        range_start_date,
+        range_end_date,
+        organization_id=_require_org_id(current_user),
     )
 
 
@@ -68,6 +83,7 @@ async def item_sales(
     shop_id: ShopIdParam = None,
     limit: ItemsLimitParam = 100,
     db: DBSession = None,
+    current_user: AdminUserDep = None,
 ) -> list[ItemSalesSummary]:
     """Quantity sold and revenue grouped by item for the requested time window.
 
@@ -76,7 +92,14 @@ async def item_sales(
     bootstrap already includes this data via ``GET /dashboard/bootstrap``.
     """
     return await get_item_sales_summary(
-        db, period, reference_date, shop_id, limit, range_start_date, range_end_date
+        db,
+        period,
+        reference_date,
+        shop_id,
+        limit,
+        range_start_date,
+        range_end_date,
+        organization_id=_require_org_id(current_user),
     )
 
 
@@ -91,6 +114,7 @@ async def admin_report_pdf(
     shop_ids: ShopIdsParam = None,
     language: ReportLanguageParam = "en",
     db: DBSession = None,
+    current_user: AdminUserDep = None,
 ) -> StreamingResponse:
     """Generate a merged PDF report server-side for the selected admin sections."""
     report = await generate_admin_report_pdf(
@@ -102,6 +126,7 @@ async def admin_report_pdf(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         shop_ids=shop_ids,
+        organization_id=_require_org_id(current_user),
         language=language,
     )
     return StreamingResponse(
@@ -120,6 +145,7 @@ async def admin_overall_report(
     range_end_date: RangeEndDateParam = None,
     shop_ids: ShopIdsParam = None,
     db: DBSession = None,
+    current_user: AdminUserDep = None,
 ) -> OverallReportRead:
     """Return the calculated Overall Report statement data for app preview."""
     return await build_overall_report(
@@ -130,4 +156,5 @@ async def admin_overall_report(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         shop_ids=shop_ids,
+        organization_id=_require_org_id(current_user),
     )

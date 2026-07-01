@@ -23,6 +23,7 @@ def slugify_name(value: str) -> str:
 class OrganizationCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     slug: str | None = Field(default=None, min_length=2, max_length=80)
+    max_branches: int = Field(default=5, ge=1, le=500)
 
     @field_validator("slug", mode="before")
     @classmethod
@@ -34,6 +35,7 @@ class OrganizationCreate(BaseModel):
 
 class OrganizationUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
+    max_branches: int | None = Field(default=None, ge=1, le=500)
     settings: dict[str, object] | None = None
 
 
@@ -46,6 +48,9 @@ class OrganizationRead(ORMModel):
     name: str
     slug: str
     is_active: bool
+    max_branches: int
+    branch_count: int = 0
+    remaining_branches: int = 0
     settings: dict[str, object]
     created_at: datetime
     updated_at: datetime

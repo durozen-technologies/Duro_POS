@@ -281,7 +281,7 @@ export function LoginScreen() {
                             flexShrink: 1,
                           }}
                         >
-                          SRI MAHALAKSHMI BROILERS
+                          Duro POS
                         </Text>
                         <Text
                           numberOfLines={1}
@@ -293,7 +293,7 @@ export function LoginScreen() {
                             marginTop: 3,
                           }}
                         >
-                          SMB WORKSPACE
+                          Point of Sale
                         </Text>
                       </YStack>
                     </XStack>

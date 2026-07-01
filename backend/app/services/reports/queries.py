@@ -57,6 +57,8 @@ from app.services.reports.pdf import (
     _fpdf_sheet_data_line_width,
     _inventory_category_labels_by_item_id,
     _over_report_sheet_headers,
+    _report_branch_header,
+    _report_org_header,
     _reportlab_over_report_sheet_widths,
     _reportlab_sheet_data_line_width,
 )
@@ -99,6 +101,7 @@ async def build_overall_report(
     range_start_date: date | None = None,
     range_end_date: date | None = None,
     shop_ids: list[UUID] | None = None,
+    organization_id: UUID | None = None,
 ) -> OverallReportRead:
     context = await _build_report_context(
         db,
@@ -109,6 +112,7 @@ async def build_overall_report(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         shop_ids=shop_ids,
+        organization_id=organization_id,
     )
     return await _build_overall_report_for_context(db, context)
 
@@ -127,6 +131,7 @@ async def _build_overall_report_for_context(
         period=context.period,
         detail_level=context.detail_level,
         period_label=context.period_label,
+        organization_name=context.organization_name,
         statements=statements,
     )
 
@@ -648,8 +653,10 @@ def _write_over_report_statement(
             date_str = f"Date: {_date_text(start_date)} To {_date_text(end_date)}"
 
         writer.statement_header(
-            "SRI MAHALAKSHMI BROILERS",
-            f"{statement.shop_name.upper()} - BRANCH",
+            _report_org_header(report_context) if report_context else "ORGANIZATION",
+            _report_branch_header(report_context, statement.shop_name)
+            if report_context
+            else statement.shop_name.upper(),
             "Statement",
             date_str,
         )
@@ -866,6 +873,8 @@ def _context_for_day(context: ReportContext, day: date) -> ReportContext:
         end=end,
         shops=context.shops,
         shop_ids=context.shop_ids,
+        organization_id=context.organization_id,
+        organization_name=context.organization_name,
     )
 
 
@@ -1141,7 +1150,7 @@ async def _generate_over_report_fpdf_pdf(
     if not report.statements:
         pdf.add_page()
         pdf.set_font("NotoSans", style="B", size=14)
-        pdf.cell(0, 20, text="SRI MAHALAKSHMI BROILERS", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 20, text=_report_org_header(context), align="C", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("NotoSans", size=9)
         pdf.set_text_color(97, 110, 128)
         pdf.cell(0, 40, text="No branch data available for the selected report scope.", align="C")
@@ -1158,10 +1167,10 @@ async def _generate_over_report_fpdf_pdf(
         pdf.add_page()
 
         pdf.set_font("NotoSans", style="B", size=14)
-        pdf.cell(0, 18, text="SRI MAHALAKSHMI BROILERS", align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 18, text=_report_org_header(context), align="C", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("NotoSans", style="B", size=11)
         pdf.cell(
-            0, 15, text=f"{shop_name.upper()} - BRANCH", align="C", new_x="LMARGIN", new_y="NEXT"
+            0, 15, text=_report_branch_header(context, shop_name), align="C", new_x="LMARGIN", new_y="NEXT"
         )
         pdf.set_font("NotoSans", style="B", size=9)
         pdf.cell(0, 13, text="Statement", align="C", new_x="LMARGIN", new_y="NEXT")

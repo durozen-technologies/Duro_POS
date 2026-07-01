@@ -64,6 +64,7 @@ from app.schemas.admin import (
     ShopUpdate,
 )
 from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
+from app.services.super_admin.organizations import assert_organization_can_add_branch
 from app.services.tenant_query import resolve_organization_id
 
 from app.services.admin._shared import (
@@ -96,6 +97,8 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant admin is not linked to an organization",
         )
+
+    await assert_organization_can_add_branch(db, actor.organization_id)
 
     existing_user = await db.scalar(
         select(User.id).where(

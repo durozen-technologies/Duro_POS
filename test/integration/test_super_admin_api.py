@@ -81,6 +81,50 @@ class SuperAdminApiTests(BackendTestCase):
                 with self.assertRaises(HTTPException) as ctx:
                     await login_user(adapter, "disabled.admin", "password123")
                 self.assertEqual(ctx.exception.status_code, 403)
+                self.assertEqual(
+                    ctx.exception.detail,
+                    "Your account has been disabled by the super admin. "
+                    "Please contact Durozen Technologies.",
+                )
+
+        self.run_async(scenario())
+
+    def test_disabled_organization_blocks_tenant_admin_login(self) -> None:
+        async def scenario() -> None:
+            super_admin = await self.harness.create_super_admin_user()
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                org = await org_service.create_organization(
+                    adapter,
+                    OrganizationCreate(name="Disabled Org", slug="disabled-org"),
+                    super_admin,
+                )
+                await tenant_admin_service.create_tenant_admin(
+                    adapter,
+                    TenantAdminCreate(
+                        organization_id=org.id,
+                        username="blocked.admin",
+                        password="password123",
+                    ),
+                    super_admin,
+                )
+                await org_service.set_organization_status(
+                    adapter,
+                    org.id,
+                    is_active=False,
+                    actor=super_admin,
+                )
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                with self.assertRaises(HTTPException) as ctx:
+                    await login_user(adapter, "blocked.admin", "password123")
+                self.assertEqual(ctx.exception.status_code, 403)
+                self.assertEqual(
+                    ctx.exception.detail,
+                    "Your organization has been disabled by the super admin. "
+                    "Please contact Durozen Technologies.",
+                )
 
         self.run_async(scenario())
 

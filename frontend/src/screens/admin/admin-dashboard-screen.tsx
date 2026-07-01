@@ -261,6 +261,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     refreshing,
     selectedShopName,
     shops,
+    branchQuota,
     deleteBranch,
     toggleBranchStatus,
     updateBranch,
@@ -488,9 +489,16 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   }, [showToast]);
 
   const openCreateShopSheet = useCallback(() => {
+    if (!branchQuota.can_create_branch) {
+      showToast(
+        "error",
+        "Branch limit reached. Contact Durozen Technologies to request additional capacity.",
+      );
+      return;
+    }
     createForm.reset({ name: "", username: "", password: "" });
     setCreateShopOpen(true);
-  }, [createForm]);
+  }, [branchQuota.can_create_branch, createForm, showToast]);
 
   const openReportsScreen = useCallback(() => {
     navigation.navigate("AdminReports");
@@ -1121,6 +1129,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
             palette={palette}
             visibleShopRows={visibleShopRows}
             branchRanking={branchRanking}
+            branchQuota={branchQuota}
             statusUpdatingShopId={statusUpdatingShopId}
             refreshing={refreshing}
             bottomPadding={inventoryContentPadding}

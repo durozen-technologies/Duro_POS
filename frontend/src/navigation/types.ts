@@ -22,6 +22,7 @@ export type AppStackParamList = {
   Login: undefined;
   SuperAdminDashboard: undefined;
   SuperAdminOrgs: undefined;
+  SuperAdminOrgEdit: { org: import("@/api/super-admin").OrganizationRead };
   SuperAdminAdmins: undefined;
   SuperAdminAudit: undefined;
   AdminDashboard: undefined;
@@ -81,6 +82,10 @@ export type SuperAdminDashboardScreenProps = NativeStackScreenProps<
 export type SuperAdminOrgsScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "SuperAdminOrgs"
+>;
+export type SuperAdminOrgEditScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "SuperAdminOrgEdit"
 >;
 export type SuperAdminAdminsScreenProps = NativeStackScreenProps<
   AppStackParamList,

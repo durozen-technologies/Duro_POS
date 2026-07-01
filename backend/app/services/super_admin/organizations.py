@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.permission_codes import TENANT_FULL_ADMIN_PERMISSIONS
+from app.core.errors import BRANCH_LIMIT_REACHED_DETAIL
 from app.core.logging import log_event
 from app.core.redis_cache import cache_delete, super_org_counts_cache_key
 from app.db.database import get_session_local
@@ -21,7 +22,7 @@ from app.db.tenant_schema import (
     set_search_path,
     tenant_router,
 )
-from app.models import AdminRole, AdminRolePermission, Organization, User
+from app.models import AdminRole, AdminRolePermission, Organization, Shop, User
 from app.schemas.super_admin.organizations import (
     AdminRoleRead,
     OrganizationCounts,
@@ -70,8 +71,69 @@ async def _evict_org_counts_cache() -> None:
     await cache_delete(super_org_counts_cache_key())
 
 
-def _org_to_read(org: Organization) -> OrganizationRead:
-    return OrganizationRead.model_validate(org)
+def _org_to_read(org: Organization, *, branch_count: int = 0) -> OrganizationRead:
+    remaining = max(0, org.max_branches - branch_count)
+    return OrganizationRead(
+        id=org.id,
+        name=org.name,
+        slug=org.slug,
+        is_active=org.is_active,
+        max_branches=org.max_branches,
+        branch_count=branch_count,
+        remaining_branches=remaining,
+        settings=dict(org.settings or {}),
+        created_at=org.created_at,
+        updated_at=org.updated_at,
+    )
+
+
+async def count_organization_branches(db: AsyncSession, organization_id: UUID) -> int:
+    return int(
+        await db.scalar(
+            select(func.count(Shop.id)).where(Shop.organization_id == organization_id)
+        )
+        or 0
+    )
+
+
+async def assert_organization_can_add_branch(db: AsyncSession, organization_id: UUID) -> None:
+    org = await get_organization_or_404(db, organization_id)
+    branch_count = await count_organization_branches(db, organization_id)
+    if branch_count >= org.max_branches:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BRANCH_LIMIT_REACHED_DETAIL,
+        )
+
+
+async def _branch_counts_for_orgs(
+    db: AsyncSession, organization_ids: list[UUID]
+) -> dict[UUID, int]:
+    if not organization_ids:
+        return {}
+    rows = await db.execute(
+        select(Shop.organization_id, func.count(Shop.id))
+        .where(Shop.organization_id.in_(organization_ids))
+        .group_by(Shop.organization_id)
+    )
+    return {row[0]: int(row[1]) for row in rows.all()}
+
+
+async def _ensure_unique_organization_name(
+    db: AsyncSession,
+    name: str,
+    *,
+    exclude_organization_id: UUID | None = None,
+) -> None:
+    filters = [func.lower(Organization.name) == name.strip().lower()]
+    if exclude_organization_id is not None:
+        filters.append(Organization.id != exclude_organization_id)
+    existing = await db.scalar(select(Organization.id).where(*filters))
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Organization name already exists",
+        )
 
 
 def _require_full_cursor(cursor_created_at: datetime | None, cursor_id: UUID | None) -> None:
@@ -105,12 +167,16 @@ async def create_organization(
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists")
 
+    org_name = payload.name.strip()
+    await _ensure_unique_organization_name(db, org_name)
+
     use_schema_tenant = await is_postgres_session(db)
     org = Organization(
-        name=payload.name.strip(),
+        name=org_name,
         slug=slug,
         schema_name=derive_schema_name(slug) if use_schema_tenant else None,
         is_active=True,
+        max_branches=payload.max_branches,
     )
     db.add(org)
     await db.flush()
@@ -128,7 +194,7 @@ async def create_organization(
         entity_type="organization",
         entity_id=org.id,
         organization_id=org.id,
-        details={"name": org.name, "slug": org.slug},
+        details={"name": org.name, "slug": org.slug, "max_branches": org.max_branches},
     )
     await db.commit()
     await _evict_org_counts_cache()
@@ -136,7 +202,7 @@ async def create_organization(
     log_event(
         logger, logging.INFO, "organization_created", "organization created", org_id=str(org.id)
     )
-    return _org_to_read(org)
+    return _org_to_read(org, branch_count=0)
 
 
 async def list_organization_rows(
@@ -170,13 +236,16 @@ async def list_organization_rows(
         )
     ).all()
     page_rows = rows[:limit]
+    branch_counts = await _branch_counts_for_orgs(db, [row.id for row in page_rows])
     next_created_at = next_id = None
     if len(rows) > limit and page_rows:
         last = page_rows[-1]
         next_created_at = last.created_at
         next_id = last.id
     return OrganizationRowsPage(
-        items=[_org_to_read(row) for row in page_rows],
+        items=[
+            _org_to_read(row, branch_count=branch_counts.get(row.id, 0)) for row in page_rows
+        ],
         limit=limit,
         has_more=len(rows) > limit,
         next_cursor_created_at=next_created_at,
@@ -242,24 +311,79 @@ async def update_organization(
     payload: OrganizationUpdate,
     actor: User,
 ) -> OrganizationRead:
+    from app.core.redis_cache import cache_delete, dashboard_cache_key
+
     org = await get_organization_or_404(db, organization_id)
+    modified_at = datetime.now(UTC).isoformat()
+
     if payload.name is not None:
-        org.name = payload.name.strip()
+        new_name = payload.name.strip()
+        if new_name != org.name:
+            await _ensure_unique_organization_name(
+                db, new_name, exclude_organization_id=organization_id
+            )
+            previous_name = org.name
+            org.name = new_name
+            await record_super_admin_audit(
+                db,
+                actor=actor,
+                action="organization.renamed",
+                entity_type="organization",
+                entity_id=org.id,
+                organization_id=org.id,
+                details={
+                    "previous_name": previous_name,
+                    "updated_name": new_name,
+                    "modified_by": actor.username,
+                    "modified_at": modified_at,
+                },
+            )
+
+    if payload.max_branches is not None and payload.max_branches != org.max_branches:
+        branch_count = await count_organization_branches(db, organization_id)
+        if payload.max_branches < branch_count:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"Branch limit cannot be lower than the current branch count ({branch_count})"
+                ),
+            )
+        previous_limit = org.max_branches
+        org.max_branches = payload.max_branches
+        await record_super_admin_audit(
+            db,
+            actor=actor,
+            action="organization.branch_limit_updated",
+            entity_type="organization",
+            entity_id=org.id,
+            organization_id=org.id,
+            details={
+                "previous_max_branches": previous_limit,
+                "updated_max_branches": payload.max_branches,
+                "branch_count": branch_count,
+                "modified_by": actor.username,
+                "modified_at": modified_at,
+            },
+        )
+        await cache_delete(dashboard_cache_key(organization_id))
+
     if payload.settings is not None:
         org.settings = payload.settings
-    await record_super_admin_audit(
-        db,
-        actor=actor,
-        action="organization.updated",
-        entity_type="organization",
-        entity_id=org.id,
-        organization_id=org.id,
-        details={"name": org.name},
-    )
+        await record_super_admin_audit(
+            db,
+            actor=actor,
+            action="organization.updated",
+            entity_type="organization",
+            entity_id=org.id,
+            organization_id=org.id,
+            details={"settings": payload.settings},
+        )
+
     await db.commit()
     await _evict_org_counts_cache()
     await db.refresh(org)
-    return _org_to_read(org)
+    branch_count = await count_organization_branches(db, organization_id)
+    return _org_to_read(org, branch_count=branch_count)
 
 
 async def set_organization_status(
@@ -283,4 +407,5 @@ async def set_organization_status(
     await db.commit()
     await _evict_org_counts_cache()
     await db.refresh(org)
-    return _org_to_read(org)
+    branch_count = await count_organization_branches(db, organization_id)
+    return _org_to_read(org, branch_count=branch_count)

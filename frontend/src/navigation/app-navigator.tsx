@@ -71,6 +71,8 @@ const getSuperAdminDashboardScreen = () =>
     .SuperAdminDashboardScreen;
 const getSuperAdminOrgsScreen = () =>
   require("@/screens/super-admin/super-admin-orgs-screen").SuperAdminOrgsScreen;
+const getSuperAdminOrgEditScreen = () =>
+  require("@/screens/super-admin/super-admin-org-edit-screen").SuperAdminOrgEditScreen;
 const getSuperAdminAdminsScreen = () =>
   require("@/screens/super-admin/super-admin-admins-screen")
     .SuperAdminAdminsScreen;
@@ -360,6 +362,11 @@ function SuperAdminStack() {
       <Stack.Screen
         name="SuperAdminOrgs"
         getComponent={getSuperAdminOrgsScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="SuperAdminOrgEdit"
+        getComponent={getSuperAdminOrgEditScreen}
         options={HEADER_HIDDEN_OPTIONS}
       />
       <Stack.Screen

@@ -303,6 +303,8 @@ todo.txt
 diff.txt
 scratch.js
 scratch.*
+fix_db.py
+backend/fix_db.py
 *.zip
 test_shop_endpoint.py
 /WhatsApp Image*

@@ -104,6 +104,7 @@ class UserSession(ORMModel):
     is_active: bool
     created_at: datetime
     organization_id: UUID | None = None
+    organization_name: str | None = None
     permissions: list[str] = Field(default_factory=list)
     shop_id: UUID | None = None
     shop_name: str | None = None

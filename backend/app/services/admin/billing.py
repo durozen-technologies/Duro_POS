@@ -26,6 +26,7 @@ from app.models import (
     ItemAssumptionStatus,
     ItemCategory,
     ItemChangeEvent,
+    Organization,
     Payment,
     Shop,
     ShopItemAllocation,
@@ -50,6 +51,7 @@ from app.schemas.admin import (
     ItemSalesSummary,
     ItemScope,
     ItemUpdate,
+    OrganizationBranchQuota,
     PaymentSplitSummary,
     PriceStatus,
     ShopCreate,
@@ -69,9 +71,26 @@ import asyncio
 
 from app.services.admin.catalogue import _bill_to_read, _get_period_bounds
 from app.services.admin.shops import list_shops
+from app.services.tenant_query import get_shop_for_tenant_or_404
 
 
-async def get_bill_by_id(db: AsyncSession, bill_id: UUID) -> BillRead:
+async def _branch_quota_for_organization(
+    db: AsyncSession, organization_id: UUID, branch_count: int
+) -> OrganizationBranchQuota:
+    org = await db.get(Organization, organization_id)
+    max_branches = org.max_branches if org is not None else 5
+    remaining = max(0, max_branches - branch_count)
+    return OrganizationBranchQuota(
+        max_branches=max_branches,
+        branch_count=branch_count,
+        remaining_branches=remaining,
+        can_create_branch=branch_count < max_branches,
+    )
+
+
+async def get_bill_by_id(
+    db: AsyncSession, bill_id: UUID, organization_id: UUID
+) -> BillRead:
     """Fetch a single bill with all related data in one SQL statement.
 
     Uses explicit JOINs with ``contains_eager`` for the to-one relationships
@@ -82,15 +101,16 @@ async def get_bill_by_id(db: AsyncSession, bill_id: UUID) -> BillRead:
     result = await db.execute(
         select(Bill)
         .join(Bill.shop)
+        .join(Shop.organization)
         .outerjoin(Bill.payment)
         .outerjoin(Bill.receipt)
         .options(
-            contains_eager(Bill.shop),
+            contains_eager(Bill.shop).contains_eager(Shop.organization),
             contains_eager(Bill.payment),
             contains_eager(Bill.receipt),
             selectinload(Bill.items).joinedload(BillItem.item),
         )
-        .where(Bill.id == bill_id)
+        .where(Bill.id == bill_id, Shop.organization_id == organization_id)
     )
     bill = result.scalar_one_or_none()
     if bill is None:
@@ -98,20 +118,23 @@ async def get_bill_by_id(db: AsyncSession, bill_id: UUID) -> BillRead:
     return _bill_to_read(bill)
 
 
-async def get_bills_by_ids(db: AsyncSession, bill_ids: list[UUID]) -> list[BillRead]:
+async def get_bills_by_ids(
+    db: AsyncSession, bill_ids: list[UUID], organization_id: UUID
+) -> list[BillRead]:
     unique_bill_ids = list(dict.fromkeys(bill_ids))
     result = await db.execute(
         select(Bill)
         .join(Bill.shop)
+        .join(Shop.organization)
         .outerjoin(Bill.payment)
         .outerjoin(Bill.receipt)
         .options(
-            contains_eager(Bill.shop),
+            contains_eager(Bill.shop).contains_eager(Shop.organization),
             contains_eager(Bill.payment),
             contains_eager(Bill.receipt),
             selectinload(Bill.items).joinedload(BillItem.item),
         )
-        .where(Bill.id.in_(unique_bill_ids))
+        .where(Bill.id.in_(unique_bill_ids), Shop.organization_id == organization_id)
     )
     bills = result.unique().scalars().all()
     bills_by_id = {bill.id: bill for bill in bills}
@@ -128,6 +151,7 @@ async def get_shop_sales_summary(
     shop_id: UUID | None = None,
     range_start_date: date | None = None,
     range_end_date: date | None = None,
+    organization_id: UUID | None = None,
 ) -> list[ShopSalesSummary]:
     """Return total sales grouped by shop for the given time period.
 
@@ -139,7 +163,16 @@ async def get_shop_sales_summary(
         period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, ``"year"``, or ``"range"``.
         reference_date: Anchor date for the period window (defaults to today).
         shop_id: When provided, restricts results to a single shop.
+        organization_id: Tenant organization; only branches from this org are included.
     """
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context is required",
+        )
+    if shop_id is not None:
+        await get_shop_for_tenant_or_404(db, shop_id, organization_id)
+
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     filters = [Bill.created_at >= start, Bill.created_at < end]
     if shop_id is not None:
@@ -155,6 +188,7 @@ async def get_shop_sales_summary(
             Bill,
             and_(Bill.shop_id == Shop.id, *filters),
         )
+        .where(Shop.organization_id == organization_id)
         .where(Shop.id == shop_id if shop_id is not None else True)
         .group_by(Shop.id)
         .order_by(Shop.name)
@@ -176,6 +210,7 @@ async def get_payment_split_summary(
     shop_id: UUID | None = None,
     range_start_date: date | None = None,
     range_end_date: date | None = None,
+    organization_id: UUID | None = None,
 ) -> list[PaymentSplitSummary]:
     """Return cash/UPI payment totals grouped by shop for the given time period.
 
@@ -188,7 +223,16 @@ async def get_payment_split_summary(
         period: Granularity bucket — ``"date"``, ``"month"``, ``"week"``, ``"year"``, or ``"range"``.
         reference_date: Anchor date for the period window (defaults to today).
         shop_id: When provided, restricts results to a single shop.
+        organization_id: Tenant organization; only branches from this org are included.
     """
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context is required",
+        )
+    if shop_id is not None:
+        await get_shop_for_tenant_or_404(db, shop_id, organization_id)
+
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     filters = [Bill.created_at >= start, Bill.created_at < end]
     if shop_id is not None:
@@ -206,6 +250,7 @@ async def get_payment_split_summary(
             and_(Bill.shop_id == Shop.id, *filters),
         )
         .outerjoin(Payment, Payment.bill_id == Bill.id)
+        .where(Shop.organization_id == organization_id)
         .where(Shop.id == shop_id if shop_id is not None else True)
         .group_by(Shop.id)
         .order_by(Shop.name)
@@ -231,6 +276,7 @@ async def get_daily_bills(
     cursor_id: UUID | None = None,
     range_start_date: date | None = None,
     range_end_date: date | None = None,
+    organization_id: UUID | None = None,
     # Inject stats if precalculated to avoid redundant queries
     precalculated_stats: list[AdminBillShopStat] | None = None,
     precalculated_largest_bill: AdminBillSummary | None = None,
@@ -257,7 +303,16 @@ async def get_daily_bills(
         cursor_id: Pagination cursor bill ID (both cursor fields required together).
         precalculated_stats: Pre-fetched shop stats; skips the stats query when provided.
         precalculated_largest_bill: Pre-fetched largest bill; skips that query when provided.
+        organization_id: Tenant organization; only branches from this org are included.
     """
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context is required",
+        )
+    if shop_id is not None:
+        await get_shop_for_tenant_or_404(db, shop_id, organization_id)
+
     # Validate cursor — both fields must be supplied or both omitted.
     if (cursor_created_at is None) != (cursor_id is None):
         raise HTTPException(
@@ -283,7 +338,7 @@ async def get_daily_bills(
     bills_query = (
         select(Bill, Shop.name)
         .join(Shop, Shop.id == Bill.shop_id)
-        .where(*page_filters)
+        .where(*page_filters, Shop.organization_id == organization_id)
         .order_by(Bill.created_at.desc(), Bill.id.desc())
         .limit(limit + 1)
     )
@@ -295,14 +350,15 @@ async def get_daily_bills(
                 func.count(Bill.id).label("bill_count"),
                 func.max(Bill.created_at).label("last_bill_at"),
             )
-            .where(*base_filters)
+            .join(Shop, Shop.id == Bill.shop_id)
+            .where(*base_filters, Shop.organization_id == organization_id)
             .group_by(Bill.shop_id)
         )
         bills_result = await db.execute(bills_query)
         largest_result = await db.execute(
             select(Bill, Shop.name)
             .join(Shop, Shop.id == Bill.shop_id)
-            .where(*base_filters)
+            .where(*base_filters, Shop.organization_id == organization_id)
             .order_by(Bill.total_amount.desc(), Bill.created_at.desc(), Bill.id.desc())
             .limit(1)
         )
@@ -380,6 +436,7 @@ async def get_item_sales_summary(
     limit: int = 100,
     range_start_date: date | None = None,
     range_end_date: date | None = None,
+    organization_id: UUID | None = None,
 ) -> list[ItemSalesSummary]:
     """Return quantity sold and revenue grouped by item for the given time period.
 
@@ -397,7 +454,16 @@ async def get_item_sales_summary(
         reference_date: Anchor date for the period window (defaults to today).
         shop_id: When provided, restricts results to bills from a single shop.
         limit: Maximum number of items to return (default 100, max 500).
+        organization_id: Tenant organization; only sales from this org's branches are included.
     """
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context is required",
+        )
+    if shop_id is not None:
+        await get_shop_for_tenant_or_404(db, shop_id, organization_id)
+
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
 
     # Build all filters upfront so the query is constructed in one pass.
@@ -421,7 +487,8 @@ async def get_item_sales_summary(
         )
         .join(BillItem, BillItem.item_id == Item.id)
         .join(Bill, Bill.id == BillItem.bill_id)
-        .where(*filters)
+        .join(Shop, Shop.id == Bill.shop_id)
+        .where(*filters, Shop.organization_id == organization_id)
         # Item.id is the PK — name and base_unit are functionally dependent,
         # so GROUP BY the key alone is sufficient (PostgreSQL allows this).
         .group_by(Item.id)
@@ -472,6 +539,7 @@ async def get_dashboard_bootstrap(
 
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     shops = await list_shops(db, organization_id)
+    branch_quota = await _branch_quota_for_organization(db, organization_id, len(shops))
     base_filters = [
         Bill.created_at >= start,
         Bill.created_at < end,
@@ -543,6 +611,7 @@ async def get_dashboard_bootstrap(
             payment_summary=payment_summary,
             bills=bills_page,
             item_sales=[],
+            branch_quota=branch_quota,
         )
         await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=45)
         return result
@@ -551,7 +620,7 @@ async def get_dashboard_bootstrap(
         db.execute(
             select(Bill, Shop.name)
             .join(Shop, Shop.id == Bill.shop_id)
-            .where(*base_filters)
+            .where(*base_filters, Shop.organization_id == organization_id)
             .order_by(Bill.total_amount.desc())
             .limit(1)
         ),
@@ -562,6 +631,7 @@ async def get_dashboard_bootstrap(
             shop_id,
             range_start_date=range_start_date,
             range_end_date=range_end_date,
+            organization_id=organization_id,
         ),
     )
     largest_row = largest_result.first()
@@ -586,6 +656,7 @@ async def get_dashboard_bootstrap(
         bills_limit,
         range_start_date=range_start_date,
         range_end_date=range_end_date,
+        organization_id=organization_id,
         precalculated_stats=shop_stats,
         precalculated_largest_bill=largest_bill,
     )
@@ -596,6 +667,7 @@ async def get_dashboard_bootstrap(
         payment_summary=payment_summary,
         bills=bills_page,
         item_sales=item_sales,
+        branch_quota=branch_quota,
     )
     await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=45)
     return result

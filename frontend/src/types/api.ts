@@ -59,6 +59,7 @@ export interface UserSession {
   is_active: boolean;
   created_at: string;
   organization_id?: UUID | null;
+  organization_name?: string | null;
   permissions?: string[];
   shop_id?: UUID | null;
   shop_name?: string | null;
@@ -655,6 +656,7 @@ export interface BillRead {
   bill_no: string;
   shop_id: UUID;
   shop_name: string;
+  organization_name: string;
   total_amount: string;
   status: BillStatus;
   created_at: string;
@@ -796,6 +798,7 @@ export interface OverallReportRead {
   period: AnalyticsPeriod;
   detail_level: "summary" | "full";
   period_label: string;
+  organization_name: string;
   statements: OverallReportStatement[];
 }
 
@@ -837,12 +840,20 @@ export interface DashboardShopSummary {
   last_bill_at: string | null;
 }
 
+export interface OrganizationBranchQuota {
+  max_branches: number;
+  branch_count: number;
+  remaining_branches: number;
+  can_create_branch: boolean;
+}
+
 export interface AdminDashboardBootstrap {
   shops: ShopRead[];
   sales_summary: ShopSalesSummary[];
   payment_summary: PaymentSplitSummary[];
   bills: AdminBillPage;
   item_sales: ItemSalesSummary[];
+  branch_quota: OrganizationBranchQuota;
 }
 
 export interface TransferShopCreate {

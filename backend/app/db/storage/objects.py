@@ -4,17 +4,11 @@ from app.db.storage.paths import (
     _get_storage_client,
     _is_missing_object_error,
     _items_table_has_legacy_image_data,
+    _normalize_etag,
     _prepare_thumbnail,
     _upload_bytes,
     legacy_object_key,
 )
-
-
-def _normalize_etag(etag: str | None, object_key: str) -> str:
-    candidate = (etag or "").strip()
-    if candidate.startswith('"') and candidate.endswith('"'):
-        return candidate
-    return f'"{candidate or object_key}"'
 
 
 def format_image_last_modified(last_modified: datetime | None) -> str | None:

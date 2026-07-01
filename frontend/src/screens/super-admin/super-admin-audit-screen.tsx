@@ -12,7 +12,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { toApiError } from "@/api/client";
-import { fetchAuditLogRows, type AuditLogRead } from "@/api/super-admin";
+import { fetchAllOrganizationRows, fetchAuditLogRows, type AuditLogRead } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
 import type { UUID } from "@/types/api";
 
@@ -51,15 +51,25 @@ export function SuperAdminAuditScreen() {
   const [items, setItems] = useState<AuditLogRead[]>([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [orgMap, setOrgMap] = useState<Record<string, string>>({});
   const cursorRef = useRef<{ created_at: string; id: UUID } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const page = await fetchAuditLogRows({ limit: PAGE_SIZE });
+      const [page, orgs] = await Promise.all([
+        fetchAuditLogRows({ limit: PAGE_SIZE }),
+        fetchAllOrganizationRows(),
+      ]);
       setItems(page.items);
       setHasMore(page.has_more);
+      
+      const map: Record<string, string> = {};
+      for (const org of orgs) {
+        map[org.id] = org.name;
+      }
+      setOrgMap(map);
       cursorRef.current =
         page.has_more && page.next_cursor_created_at && page.next_cursor_id
           ? {
@@ -130,17 +140,30 @@ export function SuperAdminAuditScreen() {
               {formatTimestamp(item.created_at)}
             </Text>
           </View>
-          <View className="mt-2 flex-row items-center">
+          <View className="mt-2 flex-row items-center gap-2">
             <View className="rounded bg-surface px-2 py-0.5 border border-border">
               <Text className="text-[10px] font-semibold text-muted">
                 {formatEntityType(item.entity_type)}
               </Text>
             </View>
+            {item.organization_id ? (
+              <View className="rounded bg-accentSoft px-2 py-0.5 border border-transparent">
+                <Text className="text-[10px] font-semibold text-accent">
+                  Org: {orgMap[item.organization_id] || item.organization_id.slice(0, 8)}
+                </Text>
+              </View>
+            ) : (
+              <View className="rounded bg-surface px-2 py-0.5 border border-border">
+                <Text className="text-[10px] font-semibold text-muted">
+                  System
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       </View>
     ),
-    [],
+    [orgMap],
   );
 
   const listHeader = (

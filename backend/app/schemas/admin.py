@@ -401,6 +401,7 @@ class OverallReportRead(BaseModel):
     period: AnalyticsPeriod
     detail_level: AdminReportDetailLevel
     period_label: str
+    organization_name: str = ""
     statements: list[OverallReportStatement] = Field(default_factory=list)
 
 
@@ -431,9 +432,17 @@ class AdminBillPage(BaseModel):
     next_cursor_id: UUID | None = None
 
 
+class OrganizationBranchQuota(BaseModel):
+    max_branches: int
+    branch_count: int
+    remaining_branches: int
+    can_create_branch: bool
+
+
 class AdminDashboardBootstrap(BaseModel):
     shops: list[ShopRead]
     sales_summary: list[ShopSalesSummary]
     payment_summary: list[PaymentSplitSummary]
     bills: AdminBillPage
     item_sales: list[ItemSalesSummary]
+    branch_quota: OrganizationBranchQuota

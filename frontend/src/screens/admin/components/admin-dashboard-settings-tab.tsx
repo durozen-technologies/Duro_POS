@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo } from "react";
 import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
-import type { ShopRead, UUID } from "@/types/api";
+import type { OrganizationBranchQuota, ShopRead, UUID } from "@/types/api";
 
 import { type ThemePalette } from "../admin-dashboard-theme";
 import type { ShopDashboardRow } from "../hooks/use-admin-dashboard-data";
@@ -21,6 +21,7 @@ type AdminSettingsTabProps = {
   palette: ThemePalette;
   visibleShopRows: ShopDashboardRow[];
   branchRanking: Map<UUID, number>;
+  branchQuota: OrganizationBranchQuota;
   statusUpdatingShopId: UUID | null;
   refreshing: boolean;
   bottomPadding: number;
@@ -38,6 +39,7 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
   palette,
   visibleShopRows,
   branchRanking,
+  branchQuota,
   statusUpdatingShopId,
   refreshing,
   bottomPadding,
@@ -57,11 +59,31 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         palette={palette}
       />
       <ShopBackdatingPolicySection palette={palette} />
+      <Text style={[styles.quotaText, { color: palette.textMuted }]}>
+        Branch quota: {branchQuota.branch_count}/{branchQuota.max_branches} used ·{" "}
+        {branchQuota.remaining_branches} remaining
+      </Text>
+      {!branchQuota.can_create_branch ? (
+        <View
+          style={[
+            styles.quotaBanner,
+            { backgroundColor: palette.warningSoft, borderColor: palette.warning },
+          ]}
+        >
+          <Text style={[styles.quotaBannerText, { color: palette.warning }]}>
+            Branch limit reached. Contact Durozen Technologies to request additional capacity.
+          </Text>
+        </View>
+      ) : null}
       <Pressable
         onPress={onCreateBranch}
+        disabled={!branchQuota.can_create_branch}
         style={[
           styles.createShopBtn,
-          { backgroundColor: palette.primary },
+          {
+            backgroundColor: palette.primary,
+            opacity: branchQuota.can_create_branch ? 1 : 0.45,
+          },
         ]}
       >
         <MaterialCommunityIcons name="store-plus-outline" size={20} color={palette.background} />
@@ -143,6 +165,22 @@ const styles = StyleSheet.create({
   createShopBtnText: {
     fontSize: 15,
     fontWeight: "700",
+  },
+  quotaText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  quotaBanner: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  quotaBannerText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
   },
   reportBtn: {
     minHeight: 52,

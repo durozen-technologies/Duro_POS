@@ -467,10 +467,10 @@ export function AdminOverallReportPreviewScreen({
       >
         <View style={styles.statementHeader}>
           <Text style={[styles.companyTitle, { color: palette.textPrimary }]}>
-            SRI MAHALAKSHMI BROILERS
+            {report?.organization_name.toUpperCase() ?? ""}
           </Text>
           <Text style={[styles.branchTitle, { color: palette.textPrimary }]}>
-            {statement.shop_name.toUpperCase()} - BRANCH
+            {statement.shop_name.toUpperCase()}
           </Text>
           <Text style={[styles.statementTitle, { color: palette.textSecondary }]}>Statement</Text>
           <Text style={[styles.statementDate, { color: palette.textMuted }]}>

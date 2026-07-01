@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_active_user
+from app.core.errors import ORGANIZATION_DISABLED_BY_SUPER_ADMIN
 from app.core.redis_cache import (
     cache_get_json,
     cache_set_json,
@@ -121,7 +122,7 @@ async def ensure_organization_active(
     if org is None or not org.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization is disabled",
+            detail=ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
         )
 
 

@@ -57,5 +57,36 @@ async def get_shop_for_tenant_or_404(
     return shop
 
 
+async def list_organization_shops(
+    db: AsyncSession,
+    organization_id: UUID,
+    *,
+    shop_ids: list[UUID] | None = None,
+) -> list[tuple[UUID, str]]:
+    unique_shop_ids = list(dict.fromkeys(shop_ids or []))
+    query = (
+        select(Shop.id, Shop.name)
+        .where(Shop.organization_id == organization_id)
+        .order_by(Shop.name, Shop.id)
+    )
+    if unique_shop_ids:
+        query = query.where(Shop.id.in_(unique_shop_ids))
+    rows = (await db.execute(query)).all()
+    if unique_shop_ids:
+        found_shop_ids = {row.id for row in rows}
+        if set(unique_shop_ids) - found_shop_ids:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop not found")
+    return [(row.id, row.name) for row in rows]
+
+
+async def list_organization_shop_ids(
+    db: AsyncSession,
+    organization_id: UUID,
+) -> list[UUID]:
+    return list(
+        await db.scalars(select(Shop.id).where(Shop.organization_id == organization_id))
+    )
+
+
 def org_filter_for_shop(organization_id: UUID):
     return Shop.organization_id == organization_id

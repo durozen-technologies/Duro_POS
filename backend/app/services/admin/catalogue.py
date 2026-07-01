@@ -1873,6 +1873,11 @@ def _bill_to_read(bill: Bill) -> BillRead:
         bill_no=bill.bill_no,
         shop_id=bill.shop_id,
         shop_name=bill.shop.name,
+        organization_name=(
+            bill.shop.organization.name
+            if bill.shop.organization is not None
+            else ""
+        ),
         total_amount=bill.total_amount,
         status=bill.status.value,
         created_at=bill.created_at,

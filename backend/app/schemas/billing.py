@@ -69,6 +69,7 @@ class BillRead(ORMModel):
     bill_no: str
     shop_id: UUID
     shop_name: str
+    organization_name: str
     total_amount: Decimal
     status: BillStatus
     created_at: datetime

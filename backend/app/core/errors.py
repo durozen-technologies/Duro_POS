@@ -26,6 +26,29 @@ _MESSAGE_CODES: dict[str, str] = {
     "Checkout token expired. Please print the receipt again.": "CHECKOUT_TOKEN_EXPIRED",
 }
 
+ACCOUNT_DISABLED_BY_SUPER_ADMIN = (
+    "Your account has been disabled by the super admin. "
+    "Please contact Durozen Technologies."
+)
+ORGANIZATION_DISABLED_BY_SUPER_ADMIN = (
+    "Your organization has been disabled by the super admin. "
+    "Please contact Durozen Technologies."
+)
+
+BRANCH_LIMIT_REACHED_DETAIL = (
+    "Branch limit reached. Please contact Durozen Technologies "
+    "to request additional branch capacity."
+)
+
+_MESSAGE_CODES.update(
+    {
+        ACCOUNT_DISABLED_BY_SUPER_ADMIN: "ACCOUNT_DISABLED_BY_SUPER_ADMIN",
+        ORGANIZATION_DISABLED_BY_SUPER_ADMIN: "ORGANIZATION_DISABLED_BY_SUPER_ADMIN",
+        BRANCH_LIMIT_REACHED_DETAIL: "BRANCH_LIMIT_REACHED",
+        "Organization name already exists": "ORGANIZATION_NAME_EXISTS",
+    }
+)
+
 
 def error_code_for_http_exception(exc: HTTPException) -> str:
     if isinstance(exc.detail, dict):

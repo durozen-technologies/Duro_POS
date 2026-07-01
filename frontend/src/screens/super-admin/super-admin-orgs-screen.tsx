@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { toApiError } from "@/api/client";
@@ -36,6 +36,7 @@ export function SuperAdminOrgsScreen() {
   const [loading, setLoading] = useState(true);
   const [orgs, setOrgs] = useState<OrganizationRead[]>([]);
   const [newOrgName, setNewOrgName] = useState("");
+  const [newOrgMaxBranches, setNewOrgMaxBranches] = useState("5");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // ponytail: track which org is toggling so its button shows a spinner
@@ -54,9 +55,11 @@ export function SuperAdminOrgsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
 
   const handleCreate = async () => {
     const name = newOrgName.trim();
@@ -64,8 +67,13 @@ export function SuperAdminOrgsScreen() {
     setCreating(true);
     setError(null);
     try {
-      await createOrganization({ name });
+      const limit = Number.parseInt(newOrgMaxBranches, 10);
+      await createOrganization({
+        name,
+        max_branches: Number.isFinite(limit) && limit >= 1 ? limit : 5,
+      });
       setNewOrgName("");
+      setNewOrgMaxBranches("5");
       await load();
     } catch (err) {
       setError(toApiError(err).message || "Failed to create organization");
@@ -126,14 +134,30 @@ export function SuperAdminOrgsScreen() {
         />
 
         {/* Info */}
-        <View className="flex-1 pr-3">
-          <Text className="font-semibold text-ink" numberOfLines={1}>
+        <View className="flex-1 pr-3 justify-center">
+          <Text className="text-sm font-semibold text-ink leading-tight" numberOfLines={1}>
             {org.name}
           </Text>
-          <Text className="mt-0.5 text-xs text-muted">
-            {formatSlug(org.slug)}
-          </Text>
+          <View className="mt-1 flex-row items-center gap-2">
+            <Text className="text-xs text-muted">
+              {formatSlug(org.slug)}
+            </Text>
+            <View className="h-1 w-1 rounded-full bg-border" />
+            <Text className="text-xs text-muted">
+              {org.branch_count} / {org.max_branches} branches
+            </Text>
+          </View>
         </View>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Edit ${org.name}`}
+          className="mr-2 min-h-[36px] min-w-[36px] items-center justify-center rounded-control border border-border bg-card active:opacity-80"
+          disabled={togglingId != null}
+          onPress={() => navigation.navigate("SuperAdminOrgEdit", { org })}
+        >
+          <MaterialCommunityIcons name="pencil-outline" size={18} color={INK} />
+        </Pressable>
 
         {/* Toggle button — spinner while toggling */}
         <Pressable
@@ -143,18 +167,18 @@ export function SuperAdminOrgsScreen() {
           }
           className={`min-h-[36px] min-w-[76px] items-center justify-center rounded-control border px-3 ${
             toggling ? "opacity-50" : "active:opacity-80"
-          } ${org.is_active ? "border-border bg-card" : "border-transparent bg-accent"}`}
+          } ${org.is_active ? "border-transparent bg-dangerSoft" : "border-transparent bg-accent"}`}
           disabled={toggling || togglingId != null}
           onPress={() => confirmToggle(org)}
         >
           {toggling ? (
             <ActivityIndicator
               size="small"
-              color={org.is_active ? INK : "#fff"}
+              color={org.is_active ? "#DC2626" : "#fff"}
             />
           ) : (
             <Text
-              className={`text-sm font-medium ${org.is_active ? "text-ink" : "text-white"}`}
+              className={`text-sm font-medium ${org.is_active ? "text-danger" : "text-white"}`}
             >
               {org.is_active ? "Disable" : "Enable"}
             </Text>
@@ -167,11 +191,11 @@ export function SuperAdminOrgsScreen() {
   const listHeader = (
     <View>
       {/* Create form */}
-      <View className="px-4 pb-2 pt-4">
-        <Text className="mb-2 text-base font-semibold text-ink">
+      <View className="px-4 pb-6 pt-2">
+        <Text className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">
           New Organization
         </Text>
-        <View className="flex-row gap-2">
+        <View className="flex-row gap-3">
           <TextInput
             accessibilityLabel="Organization name"
             autoCapitalize="words"
@@ -184,9 +208,18 @@ export function SuperAdminOrgsScreen() {
             onChangeText={setNewOrgName}
             onSubmitEditing={() => void handleCreate()}
           />
+          <TextInput
+            accessibilityLabel="Maximum branches"
+            keyboardType="number-pad"
+            className="min-h-[44px] w-[72px] rounded-control border border-border bg-card px-3 py-2 text-center text-sm text-ink"
+            placeholder="5"
+            placeholderTextColor={MUTED}
+            value={newOrgMaxBranches}
+            onChangeText={setNewOrgMaxBranches}
+          />
           <Pressable
             accessibilityRole="button"
-            className={`min-h-[44px] items-center justify-center rounded-control bg-accent px-5 ${creating || !newOrgName.trim() ? "opacity-50" : "active:opacity-80"}`}
+            className={`min-h-[44px] min-w-[76px] items-center justify-center rounded-control bg-accent px-4 ${creating || !newOrgName.trim() ? "opacity-50" : "active:opacity-80"}`}
             disabled={creating || !newOrgName.trim()}
             onPress={() => void handleCreate()}
           >
@@ -206,11 +239,12 @@ export function SuperAdminOrgsScreen() {
       </View>
 
       {/* Column header */}
-      <View className="flex-row items-center border-y border-border bg-surface px-4 py-2 mt-4">
+      <View className="flex-row items-center border-y border-border bg-surface px-4 py-2.5">
         <View className="mr-3 w-2.5" />
-        <Text className="flex-1 pl-3 text-xs font-semibold text-muted">
+        <Text className="flex-1 pr-3 text-xs font-semibold uppercase tracking-wider text-muted">
           Organization
         </Text>
+        <View className="mr-2 w-[36px]" />
         <View className="w-[76px]" />
       </View>
     </View>
@@ -220,7 +254,7 @@ export function SuperAdminOrgsScreen() {
     <View className="flex-1 bg-background">
       <View className="mx-auto w-full max-w-5xl flex-1">
         {/* Screen header */}
-        <View className="flex-row items-center gap-3 px-4 pb-2 pt-10">
+        <View className="flex-row items-center gap-4 px-4 pb-6 pt-10">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -229,10 +263,10 @@ export function SuperAdminOrgsScreen() {
           >
             <MaterialCommunityIcons name="arrow-left" size={20} color={INK} />
           </Pressable>
-          <View className="flex-1">
-            <Text className="text-2xl font-bold text-ink">Organizations</Text>
+          <View className="flex-1 justify-center">
+            <Text className="text-3xl font-bold tracking-tight text-ink">Organizations</Text>
             {!loading && orgs.length > 0 ? (
-              <Text className="mt-0.5 text-xs text-muted">
+              <Text className="mt-1 text-sm font-medium text-muted">
                 {activeCount} active · {orgs.length - activeCount} inactive
               </Text>
             ) : null}

@@ -17,6 +17,7 @@ import type {
   AnalyticsPeriod,
   BillRead,
   ItemSalesSummary,
+  OrganizationBranchQuota,
   PaymentSplitSummary,
   ShopRead,
   ShopSalesSummary,
@@ -70,6 +71,7 @@ export function useAdminDashboardData({
     dailyBillStats: { shopId: UUID; billCount: number; lastBillAt: string | null }[];
     largestBill: AdminBillSummary | null;
     itemSales: ItemSalesSummary[];
+    branchQuota: OrganizationBranchQuota;
   }>({
     shops: [],
     salesSummary: [],
@@ -77,6 +79,12 @@ export function useAdminDashboardData({
     dailyBillStats: [],
     largestBill: null,
     itemSales: [],
+    branchQuota: {
+      max_branches: 0,
+      branch_count: 0,
+      remaining_branches: 0,
+      can_create_branch: true,
+    },
   });
 
   const [dailyBills, setDailyBills] = useState<AdminBillSummary[]>([]);
@@ -136,6 +144,7 @@ export function useAdminDashboardData({
         })),
         largestBill: data.bills.largest_bill ?? null,
         itemSales: data.item_sales,
+        branchQuota: data.branch_quota,
       });
 
       setDailyBills(data.bills.items);
@@ -419,6 +428,7 @@ export function useAdminDashboardData({
     selectedShopName,
     shopRows,
     shops: dashboardData.shops,
+    branchQuota: dashboardData.branchQuota,
     updateBranch,
     deleteBranch,
     toggleBranchStatus,

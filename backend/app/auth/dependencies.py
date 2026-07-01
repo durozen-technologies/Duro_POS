@@ -7,6 +7,10 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import (
+    ACCOUNT_DISABLED_BY_SUPER_ADMIN,
+    ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
+)
 from app.core.security import decode_access_token
 from app.db.database import get_db
 from app.models import Organization, Shop, User, UserRole
@@ -76,7 +80,7 @@ async def _ensure_org_active_for_user(db: AsyncSession, user: User) -> None:
     if org is None or not org.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization is disabled",
+            detail=ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
         )
 
 
@@ -85,9 +89,12 @@ async def get_current_active_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     if not current_user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
+        detail = (
+            ACCOUNT_DISABLED_BY_SUPER_ADMIN
+            if is_tenant_admin(current_user.role)
+            else "User account is inactive"
         )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
     if (
         current_user.role == UserRole.SHOP_ACCOUNT
         and current_user.shop

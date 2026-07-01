@@ -79,7 +79,10 @@ class RequestTimingMiddleware:
         finally:
             elapsed_ms = (perf_counter() - started_at) * 1000
             status = status_code if status_code is not None else 0
-            if status >= 500:
+            # ponytail: expected login denials are user-facing, not operator warnings
+            if path == "/api/v1/auth/login" and status in (401, 403):
+                level = logging.INFO
+            elif status >= 500:
                 level = logging.ERROR
             elif status >= 400 or elapsed_ms >= self.threshold_seconds * 1000:
                 level = logging.WARNING

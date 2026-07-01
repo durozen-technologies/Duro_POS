@@ -473,6 +473,13 @@ async def _items_table_has_legacy_image_data(db: AsyncSession) -> bool:
     return await db.run_sync(has_column)
 
 
+def _normalize_etag(etag: str | None, object_key: str) -> str:
+    candidate = (etag or "").strip()
+    if candidate.startswith('"') and candidate.endswith('"'):
+        return candidate
+    return f'"{candidate or object_key}"'
+
+
 async def _upload_bytes(
     *,
     item_id: UUID,

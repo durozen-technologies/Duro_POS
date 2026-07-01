@@ -285,6 +285,7 @@ class ServiceUnitTests(BackendTestCase):
                     period="date",
                     reference_date=report_date,
                     shop_ids=[current_shop.id],
+                    organization_id=current_shop.organization_id,
                 )
 
                 statement = overall.statements[0]
@@ -684,6 +685,7 @@ class ServiceUnitTests(BackendTestCase):
                     detail_level="summary",
                     period="date",
                     shop_ids=[current_shop.id],
+                    organization_id=current_shop.organization_id,
                 )
                 self.assertEqual(len(overall.statements), 1)
                 statement = overall.statements[0]
@@ -735,13 +737,14 @@ class ServiceUnitTests(BackendTestCase):
                     db,
                     sections=["over_report"],
                     period="date",
+                    organization_id=current_shop.organization_id,
                 )
                 try:
                     data = report.file.read()
                     self.assertGreater(len(data), 0)
                     text_content = get_pdf_text(data)
-                    self.assertIn("SRI MAHALAKSHMI BROILERS", text_content)
-                    self.assertIn("SK NAGAR - BRANCH", text_content)
+                    self.assertIn("DURO POS DEFAULT", text_content)
+                    self.assertIn("SK NAGAR", text_content)
                     self.assertIn("Inventory Item", text_content)
                     self.assertIn("Used Stock", text_content)
                     self.assertIn("Kg/Unit", text_content)
@@ -773,6 +776,7 @@ class ServiceUnitTests(BackendTestCase):
                     period="range",
                     range_start_date=today,
                     range_end_date=tomorrow,
+                    organization_id=current_shop.organization_id,
                 )
                 try:
                     data = full_range_report.file.read()

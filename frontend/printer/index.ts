@@ -52,7 +52,6 @@ const RECEIPT_IMAGE_WIDTH = 380;
 
 const RECEIPT_COPY = {
   en: {
-    companyName: "SRI MAHALAKSHMI BROILERS",
     receipt: "Receipt",
     bill: "Bill",
     date: "Date",
@@ -63,7 +62,6 @@ const RECEIPT_COPY = {
     poweredBy: "Powered by Durozen",
   },
   ta: {
-    companyName: "ஸ்ரீ மகாலட்சுமி பிராய்லர்ஸ்",
     receipt: "ரசீது",
     bill: "பில்",
     date: "தேதி",
@@ -85,6 +83,10 @@ function getReceiptCopy(language: ShopLanguage) {
 
 function formatReceiptShopName(shopName: string, language: ShopLanguage) {
   return language === "ta" ? shopName : shopName.toUpperCase();
+}
+
+function formatReceiptOrganizationName(organizationName: string, language: ShopLanguage) {
+  return language === "ta" ? organizationName : organizationName.toUpperCase();
 }
 
 function getThermalPrinterModule() {
@@ -259,7 +261,7 @@ function buildPrintableReceiptLines(bill: BillRead): PrintableReceiptLine[] {
 
   return [
     {
-      text: copy.companyName,
+      text: formatReceiptOrganizationName(bill.organization_name, language),
       align: "center",
       bold: true,
       doubleSize: true,

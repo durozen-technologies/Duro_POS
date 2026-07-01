@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Boolean, DateTime, String, func, text
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, func, text
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,7 @@ class Organization(Base, BaseModelMixin):
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
     schema_name: Mapped[str | None] = mapped_column(String(63), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    max_branches: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     settings: Mapped[dict[str, object | None]] = mapped_column(
         MutableDict.as_mutable(JSON),
         default=dict,

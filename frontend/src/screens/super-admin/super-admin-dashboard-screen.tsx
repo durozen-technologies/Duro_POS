@@ -6,35 +6,14 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { toApiError } from "@/api/client";
 import {
-  fetchAuditLogRows,
   fetchOrganizationCounts,
   fetchOrganizationRows,
-  type AuditLogRead,
   type OrganizationRead,
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/auth-store";
 
 type Nav = NativeStackNavigationProp<AppStackParamList, "SuperAdminDashboard">;
-
-function formatTimestampShort(value?: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatEntityType(raw: string): string {
-  return raw
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
 
 const ACCENT = "#0F7642";
 const MUTED = "#4B6356";
@@ -78,20 +57,18 @@ export function SuperAdminDashboardScreen() {
     null,
   );
   const [recentOrgs, setRecentOrgs] = useState<OrganizationRead[]>([]);
-  const [recentAudit, setRecentAudit] = useState<AuditLogRead[]>([]);
+
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [orgCounts, orgRows, auditRows] = await Promise.all([
+      const [orgCounts, orgRows] = await Promise.all([
         fetchOrganizationCounts(),
         fetchOrganizationRows(),
-        fetchAuditLogRows({ limit: 5 }),
       ]);
       setCounts(orgCounts);
       setRecentOrgs(orgRows.items.slice(0, 5));
-      setRecentAudit(auditRows.items);
     } catch (err) {
       setError(toApiError(err).message || "Failed to load dashboard");
     } finally {
@@ -128,7 +105,7 @@ export function SuperAdminDashboardScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Sign out"
-              className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:bg-surface"
+              className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:bg-dangerSoft active:border-dangerSoft"
               onPress={() => clearSession()}
             >
               <MaterialCommunityIcons name="logout" size={20} color={MUTED} />
@@ -156,15 +133,15 @@ export function SuperAdminDashboardScreen() {
                   </Text>
                   <Text className="text-xs text-muted">orgs</Text>
                 </View>
-                {/* Active — accent highlight */}
-                <View className="flex-1 rounded-card border border-accent bg-accentSoft px-4 pb-3 pt-3">
-                  <Text className="text-xs font-medium text-accent">
+                {/* Active — success highlight */}
+                <View className="flex-1 rounded-card border border-success bg-successSoft px-4 pb-3 pt-3">
+                  <Text className="text-xs font-medium text-success">
                     Active
                   </Text>
-                  <Text className="mt-1 text-2xl font-bold text-accent">
+                  <Text className="mt-1 text-2xl font-bold text-success">
                     {counts.active}
                   </Text>
-                  <Text className="text-xs text-accent">orgs</Text>
+                  <Text className="text-xs text-success">orgs</Text>
                 </View>
                 {/* Inactive */}
                 <View className="flex-1 rounded-card border border-border bg-card px-4 pb-3 pt-3">
@@ -284,55 +261,7 @@ export function SuperAdminDashboardScreen() {
             </View>
           ) : null}
 
-          {/* Recent Audit Logs */}
-          {!loading && recentAudit.length > 0 ? (
-            <View className="mt-6 px-4">
-              <View className="mb-3 flex-row items-center justify-between">
-                <Text className="text-xs font-semibold uppercase tracking-wider text-muted">
-                  Recent Activity
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  className="active:opacity-80"
-                  onPress={() => navigation.navigate("SuperAdminAudit")}
-                >
-                  <Text className="text-xs font-semibold text-accent">
-                    View log
-                  </Text>
-                </Pressable>
-              </View>
-              <View className="rounded-card border border-border bg-card">
-                {recentAudit.map((item, index) => (
-                  <View
-                    key={item.id}
-                    className={`flex-row items-start justify-between gap-3 px-4 py-3 ${index < recentAudit.length - 1 ? "border-b border-border" : ""}`}
-                  >
-                    <View className="flex-1">
-                      <Text
-                        className="text-sm font-medium text-ink"
-                        numberOfLines={2}
-                      >
-                        {item.action}
-                      </Text>
-                      <View className="mt-1 flex-row items-center gap-1.5">
-                        <MaterialCommunityIcons
-                          name="tag-outline"
-                          size={11}
-                          color={MUTED}
-                        />
-                        <Text className="text-xs text-muted">
-                          {formatEntityType(item.entity_type)}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text className="text-xs text-muted">
-                      {formatTimestampShort(item.created_at)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
+
         </ScrollView>
       </View>
     </View>
