@@ -29,11 +29,11 @@ const androidIconBackground = "./assets/images/android-icon-background.png";
 const androidIconMonochrome = "./assets/images/android-icon-monochrome.png";
 
 const config = {
-  name: "Meat Billing POS",
-  slug: "meat-billing-pos",
+  name: "Brolier 360",
+  slug: "brolier-360",
   version: "1.0.0",
   orientation: "portrait",
-  scheme: "meatbillingpos",
+  scheme: "brolier360",
   userInterfaceStyle: "light",
   icon: logoPath,
   splash: {
@@ -43,7 +43,7 @@ const config = {
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.anonymous.meatbillingpos",
+    bundleIdentifier: "com.anonymous.brolier360",
   },
   android: {
     adaptiveIcon: {
@@ -67,7 +67,7 @@ const config = {
       "android.permission.ACCESS_FINE_LOCATION",
       "android.permission.READ_MEDIA_IMAGES",
     ],
-    package: "com.anonymous.meatbillingpos",
+    package: "com.anonymous.brolier360",
   },
   web: {},
   plugins: [
@@ -84,7 +84,7 @@ const config = {
     [
       "expo-image-picker",
       {
-        photosPermission: "Allow Meat Billing POS to choose item images for catalogue and shop items.",
+        photosPermission: "Allow Brolier 360 to choose item images for catalogue and shop items.",
       },
     ],
   ],

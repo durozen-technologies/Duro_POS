@@ -714,6 +714,7 @@ export function BillingScreen({
     return (
       <LoadingState
         fullscreen
+        layout="grid"
         label={t("billing.loadingPrices")}
       />
     );

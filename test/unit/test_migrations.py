@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
@@ -27,6 +28,16 @@ class MigrationTests(unittest.TestCase):
                 MIGRATION_VERSION_LIMIT,
                 f"{path.name} revision id is too long for alembic_version.version_num",
             )
+
+    def test_tenant_table_names_exclude_platform_tables(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
+        from app.db.tenant_metadata import PLATFORM_TABLES, tenant_table_names
+
+        names = set(tenant_table_names())
+        self.assertTrue(names)
+        self.assertFalse(names & PLATFORM_TABLES)
+        self.assertIn("shops", names)
+        self.assertIn("users", names)
 
 
 if __name__ == "__main__":

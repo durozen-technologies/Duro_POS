@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user, require_roles
 from app.core.deps import get_current_admin, get_tenant_shop_or_404
-from app.db.database import get_db
 from app.db.storage import upload_item_image
 from app.models import BaseUnit, Shop, UnitType, User, UserRole
 from app.schemas.admin import (

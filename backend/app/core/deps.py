@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import TenantContext, get_tenant_context
 from app.auth.dependencies import require_tenant_admin
-from app.db.database import get_db
-from app.db.session import get_platform_db, get_tenant_db
+from app.db.session import get_platform_db
+from app.db.tenant_session import get_tenant_db
 from app.models import Shop, User
 from app.services.tenant_query import get_shop_for_tenant_or_404
 
@@ -36,7 +36,7 @@ def get_current_admin(
 
 async def get_shop_or_404(
     shop_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> Shop:
     """
     Loads a Shop by primary key, raising 404 if it does not exist.
@@ -59,7 +59,13 @@ async def get_shop_or_404(
 async def get_tenant_shop_or_404(
     shop_id: UUID,
     ctx: TenantContext = Depends(get_tenant_context),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> Shop:
-    org_id = ctx.require_organization_id()
-    return await get_shop_for_tenant_or_404(db, shop_id, org_id)
+    ctx.require_organization_id()
+    shop = await db.get(Shop, shop_id)
+    if shop is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shop not found",
+        )
+    return shop

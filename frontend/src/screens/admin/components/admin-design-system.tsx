@@ -14,6 +14,8 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { SkeletonList, SkeletonLoadingCaption } from "@/components/ui/skeleton";
+
 import {
   adminElevation,
   adminPressOpacity,
@@ -350,10 +352,16 @@ export const AdminEmptyState = memo(function AdminEmptyState({
 });
 
 export function AdminLoadingState({ label, palette }: { label: string; palette: ThemePalette }) {
+  const tone = {
+    base: palette.card,
+    highlight: palette.surfaceMuted,
+    border: palette.border,
+  };
+
   return (
     <View style={styles.loading}>
-      <ActivityIndicator color={palette.primary} />
-      <Text style={[styles.loadingText, { color: palette.textMuted }]}>{label}</Text>
+      <SkeletonList rows={4} tone={tone} label={label} />
+      <SkeletonLoadingCaption label={label} />
     </View>
   );
 }

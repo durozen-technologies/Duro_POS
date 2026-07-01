@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from app.config import Settings
-from app.db import SessionLocal
+from app.db import SessionLocal, shop_scoped_session
 from app.schemas import (
     BotStage,
     BranchRead,
@@ -358,7 +358,7 @@ class BotOrchestrator:
             return
 
         today = datetime.now(ZoneInfo(self.settings.app_timezone)).date()
-        async with self.session_factory() as session:
+        async with shop_scoped_session(state.branch_id) as session:
             summary = await get_sales_summary(
                 session=session,
                 shop_id=state.branch_id,
@@ -386,7 +386,7 @@ class BotOrchestrator:
             return
 
         from_date, to_date = parsed_range
-        async with self.session_factory() as session:
+        async with shop_scoped_session(state.branch_id) as session:
             summary = await get_sales_summary(
                 session=session,
                 shop_id=state.branch_id,
@@ -414,7 +414,7 @@ class BotOrchestrator:
             return
 
         from_date, to_date = parsed_range
-        async with self.session_factory() as session:
+        async with shop_scoped_session(state.branch_id) as session:
             summary = await get_sales_summary(
                 session=session,
                 shop_id=state.branch_id,

@@ -1,7 +1,7 @@
 """Schema-per-tenant provisioning and search_path routing."""
 
-from __future__ import annotations
-
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 import logging
 import os
 import re
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.redis_cache import cache_get_json, cache_set_json, org_schema_cache_key
-from app.models import Organization
+from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 ORG_SCHEMA_CACHE_TTL_SECONDS = 300
-TENANT_MIGRATION_HEAD = "0001_tenant_baseline"
+TENANT_MIGRATION_HEAD = "0002_drop_tenant_organization_id"
 
 
 async def is_postgres_session(session: AsyncSession) -> bool:
@@ -36,6 +36,13 @@ async def is_postgres_session(session: AsyncSession) -> bool:
 def is_postgres_database() -> bool:
     url = str(get_settings().database_url).lower()
     return "postgresql" in url or "+asyncpg" in url
+
+
+def sync_postgres_database_url(url: str) -> str:
+    """Sync SQLAlchemy URL for psycopg3 (migrate CLI, tenant listing)."""
+    if "postgresql+asyncpg:" in url:
+        return url.replace("postgresql+asyncpg:", "postgresql+psycopg:", 1)
+    return url
 
 
 def derive_schema_name(slug: str) -> str:
@@ -61,6 +68,27 @@ async def set_search_path(session: AsyncSession, schema_name: str | None) -> Non
         await session.execute(text(f'SET search_path TO "{safe}", public'))
     else:
         await session.execute(text("SET search_path TO public"))
+
+
+@asynccontextmanager
+async def tenant_schema_scope(
+    session: AsyncSession,
+    schema_name: str,
+) -> AsyncGenerator[None, None]:
+    token = set_active_tenant_schema(schema_name)
+    try:
+        await set_search_path(session, schema_name)
+        yield
+    finally:
+        reset_active_tenant_schema(token)
+        await set_search_path(session, None)
+
+
+async def resolve_org_schema(session: AsyncSession, organization_id: UUID) -> str:
+    schema_name = await tenant_router.resolve_schema(session, organization_id)
+    if not schema_name:
+        raise ValueError(f"No tenant schema for organization {organization_id}")
+    return schema_name
 
 
 async def create_tenant_schema(session: AsyncSession, schema_name: str) -> None:
@@ -102,10 +130,51 @@ async def run_tenant_migrations_async(session: AsyncSession, schema_name: str) -
 
     def _upgrade(sync_session) -> None:
         connection = sync_session.connection()
-        create_tenant_tables(connection)
+        create_tenant_tables(connection, safe)
         _stamp_tenant_alembic_version(connection, safe)
 
     await session.run_sync(_upgrade)
+
+
+def repair_tenant_schema_ddl(schema_name: str) -> None:
+    """Idempotently create missing tenant tables and stamp alembic_version."""
+    if not is_postgres_database():
+        return
+
+    from sqlalchemy import create_engine
+
+    from app.db.tenant_metadata import create_tenant_tables, verify_tenant_schema_ddl
+
+    safe = assert_safe_schema_name(schema_name)
+    url = sync_postgres_database_url(str(get_settings().database_url))
+    engine = create_engine(url, future=True)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{safe}"'))
+            create_tenant_tables(conn, safe)
+            verify_tenant_schema_ddl(conn, safe)
+            _stamp_tenant_alembic_version(conn, safe)
+        logger.info("Repaired tenant DDL for schema %s", safe)
+    finally:
+        engine.dispose()
+
+
+def run_all_tenant_ddl_repairs(schema_filter: str | None = None) -> None:
+    if not is_postgres_database():
+        logger.info("Skipping tenant DDL repair (not PostgreSQL)")
+        return
+
+    schemas = list_tenant_schema_names_from_db(schema_filter)
+    if schema_filter and not schemas:
+        raise SystemExit(f"Invalid tenant schema name: {schema_filter!r}")
+
+    if not schemas:
+        logger.info("No tenant schemas found to repair")
+        return
+
+    for schema_name in schemas:
+        repair_tenant_schema_ddl(schema_name)
+    logger.info("Tenant DDL repair completed for %s schema(s)", len(schemas))
 
 
 def run_tenant_migrations(schema_name: str) -> None:
@@ -121,8 +190,103 @@ def run_tenant_migrations(schema_name: str) -> None:
     command.upgrade(alembic_config, TENANT_MIGRATION_HEAD)
 
 
+def _public_table_exists(connection, table_name: str) -> bool:
+    from sqlalchemy import inspect
+
+    return inspect(connection).has_table(table_name, schema="public")
+
+
+def list_tenant_schema_names_from_db(schema_filter: str | None = None) -> list[str]:
+    """List tenant schemas for migrate/repair CLI.
+
+    Sources (unioned when unfiltered):
+    - organizations.schema_name (when public.organizations exists)
+    - derive_schema_name(slug) for legacy orgs with schema_name IS NULL
+    - existing information_schema schemata named tenant_*
+    Explicit --schema is honored without an organizations row.
+    """
+    if not is_postgres_database():
+        return []
+
+    from sqlalchemy import create_engine, text
+
+    if schema_filter:
+        return [assert_safe_schema_name(schema_filter)]
+
+    url = str(get_settings().database_url)
+    if "+asyncpg" in url:
+        url = sync_postgres_database_url(url)
+
+    engine = create_engine(url, future=True)
+    try:
+        with engine.connect() as conn:
+            names: set[str] = set()
+            if _public_table_exists(conn, "organizations"):
+                names.update(
+                    conn.execute(
+                        text(
+                            "SELECT schema_name FROM organizations "
+                            "WHERE schema_name IS NOT NULL"
+                        )
+                    ).scalars()
+                )
+                legacy_slugs = conn.execute(
+                    text("SELECT slug FROM organizations WHERE schema_name IS NULL")
+                ).scalars()
+                for slug in legacy_slugs:
+                    names.add(derive_schema_name(slug))
+            names.update(
+                conn.execute(
+                    text(
+                        "SELECT schema_name FROM information_schema.schemata "
+                        "WHERE schema_name LIKE 'tenant_%'"
+                    )
+                ).scalars()
+            )
+            return sorted(names)
+    finally:
+        engine.dispose()
+
+
+def platform_schema_ready() -> bool:
+    """True when public platform tables (organizations) exist."""
+    if not is_postgres_database():
+        return True
+
+    from sqlalchemy import create_engine
+
+    url = sync_postgres_database_url(str(get_settings().database_url))
+    engine = create_engine(url, future=True)
+    try:
+        with engine.connect() as conn:
+            return _public_table_exists(conn, "organizations")
+    finally:
+        engine.dispose()
+
+
+def run_all_tenant_migrations(schema_filter: str | None = None) -> None:
+    if not is_postgres_database():
+        logger.info("Skipping tenant migrations (not PostgreSQL)")
+        return
+
+    schemas = list_tenant_schema_names_from_db(schema_filter)
+    if schema_filter and not schemas:
+        raise SystemExit(f"Invalid tenant schema name: {schema_filter!r}")
+
+    if not schemas:
+        logger.info("No tenant schemas found to repair")
+        return
+
+    for schema_name in schemas:
+        run_tenant_migrations(schema_name)
+        repair_tenant_schema_ddl(schema_name)
+    logger.info("Tenant migrations completed for %s schema(s)", len(schemas))
+
+
 class TenantSchemaRouter:
     async def resolve_schema(self, db: AsyncSession, organization_id: UUID) -> str | None:
+        from app.models import Organization
+
         cache_key = org_schema_cache_key(organization_id)
         cached = await cache_get_json(cache_key)
         if isinstance(cached, str) and cached:

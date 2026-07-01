@@ -129,7 +129,7 @@ class DatabaseHarness:
         for table in Base.metadata.sorted_tables:
             table.create(self.engine, checkfirst=True)
         with self.session_factory() as session:
-            session.add(Organization(name="Duro POS Default", slug="default", is_active=True))
+            session.add(Organization(name="Brolier 360 Default", slug="default", is_active=True))
             session.commit()
 
     def start(self) -> None:
@@ -232,7 +232,7 @@ class DatabaseHarness:
 
     async def create_default_organization(
         self,
-        name: str = "Duro POS Default",
+        name: str = "Brolier 360 Default",
         slug: str = "default",
     ) -> Organization:
         with self.session_factory() as session:

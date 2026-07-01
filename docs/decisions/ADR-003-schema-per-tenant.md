@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — supersedes the **tenancy** section of [ADR-002](ADR-002-multi-tenant-tenancy-and-rbac.md). ADR-002 RBAC, JWT fields, RustFS prefixes, and bootstrap flows remain in force.
+Implemented (2026-07-01) — supersedes the **tenancy** section of [ADR-002](ADR-002-multi-tenant-tenancy-and-rbac.md). ADR-002 RBAC, JWT fields, RustFS prefixes, and bootstrap flows remain in force.
 
 ## Date
 
@@ -10,7 +10,7 @@ Accepted — supersedes the **tenancy** section of [ADR-002](ADR-002-multi-tenan
 
 ## Context
 
-DuroPOS uses shared-schema row isolation (`organization_id` on tenant tables) per ADR-002. As tenant count and data volume grow, every hot query pays an `organization_id` filter and shares bloated composite indexes. PostgreSQL schema-per-tenant gives physical isolation without separate databases, while keeping a small **platform** schema for cross-tenant control-plane data.
+Brolier 360 uses shared-schema row isolation (`organization_id` on tenant tables) per ADR-002. As tenant count and data volume grow, every hot query pays an `organization_id` filter and shares bloated composite indexes. PostgreSQL schema-per-tenant gives physical isolation without separate databases, while keeping a small **platform** schema for cross-tenant control-plane data.
 
 Constraints:
 
@@ -106,8 +106,8 @@ Resolve shop → org (public) → schema → tenant session before DB access.
 | 2 | Full Alembic CLI split (`migrate-tenants`, `--schema`) |
 | 3 | Data migration CLI with dry-run |
 | 4 | App layer: `get_tenant_db`, login/auth-index, remove legacy fallbacks |
-| 5 | Drop redundant `organization_id` in tenant schemas; index tuning |
-| 6 | Extended isolation tests, docs |
+| 5 | Tenant Alembic `0002` chain; redundant `organization_id` filters removed in hot paths |
+| 6 | Extended isolation tests, docs, CI baseline check |
 
 ## Rollback
 

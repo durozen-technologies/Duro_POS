@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SkeletonList } from "@/components/ui/skeleton";
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  RefreshControl,
   Text,
   TextInput,
   View,
@@ -15,6 +17,8 @@ import { toApiError } from "@/api/client";
 import { fetchAllOrganizationRows, fetchAuditLogRows, type AuditLogRead } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
 import type { UUID } from "@/types/api";
+
+import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
 type Nav = NativeStackNavigationProp<AppStackParamList, "SuperAdminAudit">;
 
@@ -46,6 +50,7 @@ function formatEntityType(raw: string): string {
 export function SuperAdminAuditScreen() {
   const navigation = useNavigation<Nav>();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [items, setItems] = useState<AuditLogRead[]>([]);
@@ -54,8 +59,12 @@ export function SuperAdminAuditScreen() {
   const [orgMap, setOrgMap] = useState<Record<string, string>>({});
   const cursorRef = useRef<{ created_at: string; id: UUID } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [page, orgs] = await Promise.all([
@@ -64,7 +73,7 @@ export function SuperAdminAuditScreen() {
       ]);
       setItems(page.items);
       setHasMore(page.has_more);
-      
+
       const map: Record<string, string> = {};
       for (const org of orgs) {
         map[org.id] = org.name;
@@ -81,8 +90,13 @@ export function SuperAdminAuditScreen() {
       setError(toApiError(err).message || "Failed to load audit log");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    void load(true);
+  }, [load]);
 
   const loadMore = useCallback(async () => {
     const cursor = cursorRef.current;
@@ -229,12 +243,17 @@ export function SuperAdminAuditScreen() {
               </Text>
             ) : null}
           </View>
+          <SuperAdminRefreshButton
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+            disabled={loadingMore}
+          />
         </View>
 
         {loading && items.length === 0 ? (
           <View>
             {listHeader}
-            <ActivityIndicator className="mt-6" color={ACCENT} />
+            <SkeletonList rows={6} label="Loading audit log" />
           </View>
         ) : (
           <FlatList
@@ -243,6 +262,14 @@ export function SuperAdminAuditScreen() {
             style={{ flex: 1 }}
             contentContainerStyle={{ paddingBottom: 32 }}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={SUPER_ADMIN_REFRESH_TINT}
+                colors={[SUPER_ADMIN_REFRESH_TINT]}
+              />
+            }
             ListHeaderComponent={listHeader}
             ListEmptyComponent={
               <View className="mt-10 items-center px-8">

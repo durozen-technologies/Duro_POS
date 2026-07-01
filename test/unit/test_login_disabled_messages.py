@@ -35,7 +35,7 @@ class LoginDisabledMessageTests(BackendTestCase):
                 )
                 session.commit()
                 with self.assertRaises(HTTPException) as ctx:
-                    await _validate_login_eligibility(adapter, user, "inactive.admin")
+                    await _validate_login_eligibility(adapter, adapter, user, "inactive.admin")
             self.assertEqual(ctx.exception.status_code, 403)
             self.assertEqual(ctx.exception.detail, ACCOUNT_DISABLED_BY_SUPER_ADMIN)
 
@@ -63,7 +63,7 @@ class LoginDisabledMessageTests(BackendTestCase):
                 )
                 session.commit()
                 with self.assertRaises(HTTPException) as ctx:
-                    await _validate_login_eligibility(adapter, user, "blocked.admin")
+                    await _validate_login_eligibility(adapter, adapter, user, "blocked.admin")
             self.assertEqual(ctx.exception.status_code, 403)
             self.assertEqual(ctx.exception.detail, ORGANIZATION_DISABLED_BY_SUPER_ADMIN)
 

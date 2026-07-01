@@ -1,8 +1,9 @@
-# Meat Billing System Backend
+# Brolier 360 API
 
-FastAPI backend for the Billing System. It handles:
+FastAPI backend for Brolier 360. It handles:
 
-- JWT login for admins and shop accounts
+- JWT login for super admins, tenant admins, and shop accounts
+- multi-tenant PostgreSQL schema isolation (ADR-003)
 - one-time first admin registration
 - shop CRUD and shop enable/disable controls
 - active item CRUD with optional RustFS-backed item images
@@ -70,7 +71,7 @@ cp .env.example .env
 Core settings used by the current backend:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/duro_pos
+DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/brolier_360
 SECRET_KEY=replace-this-in-production
 ACCESS_TOKEN_EXPIRE_MINUTES=720
 PRODUCTION=False
@@ -81,7 +82,7 @@ RUSTFS_ENDPOINT_URL=
 RUSTFS_ACCESS_KEY_ID=
 RUSTFS_SECRET_ACCESS_KEY=
 RUSTFS_REGION_NAME=us-east-1
-RUSTFS_BUCKET_NAME=duro-pos
+RUSTFS_BUCKET_NAME=brolier-360
 RUSTFS_PUBLIC_BASE_URL=
 RUSTFS_PUBLIC_READ_ENABLED=False
 RUSTFS_CONNECT_TIMEOUT_SECONDS=5
@@ -90,19 +91,19 @@ ITEM_IMAGE_MAX_BYTES=5242880
 ITEM_IMAGE_THUMBNAIL_SIZE=192
 ITEM_IMAGE_FULL_MAX_SIZE=1024
 REDIS_URL=
-REDIS_KEY_PREFIX=duropos
+REDIS_KEY_PREFIX=brolier360
 REDIS_DEFAULT_TTL=60
 ```
 
 Optional Redis (cache only; app degrades when unset):
 
 - `REDIS_URL` — e.g. `redis://redis:6379/0` in production compose
-- `REDIS_KEY_PREFIX` — key namespace (default `duropos`)
+- `REDIS_KEY_PREFIX` — key namespace (default `brolier360`)
 - Permission, dashboard bootstrap, super-admin org counts, and login rate-limit keys use this prefix
 
 Important backend defaults from [`app/core/config.py`](app/core/config.py):
 
-- `APP_NAME=Duro POS API`
+- `APP_NAME=Brolier 360 API`
 - `API_V1_PREFIX=/api/v1`
 - `SHOP_DEFAULT_PASSWORD=ml123`
 - `DB_POOL_SIZE=5`
@@ -134,19 +135,15 @@ uv sync --group dev
 Start the API:
 
 ```bash
-# from repo root
-make backend-dev
-
-# or from backend/
+uv sync
+uv run python migrate.py
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 One-off migration:
 
 ```bash
-cd backend
 uv run python migrate.py
-# or from repo root: make backend-migrate
 ```
 
 Bootstrap first super admin (production; run once after migrations):
@@ -199,8 +196,8 @@ Schema migrations are Alembic-based. [`migrate.py`](migrate.py) first migrates a
 
 | Environment | Command / trigger |
 |-------------|-------------------|
-| Local one-off | `make backend-migrate` or `uv run python migrate.py` |
-| Local dev server | run `make backend-migrate`, then `make backend-dev` |
+| Local one-off | `uv run python migrate.py` |
+| Local dev server | migrate, then `uv run uvicorn main:app --reload` |
 | Docker / production image | [`docker-entrypoint.sh`](docker-entrypoint.sh) runs `migrate.py` before Gunicorn |
 | Production CI/CD | Root [`scripts/deploy-prod.sh`](../scripts/deploy-prod.sh) runs `migrate.py` on the pulled image **before** recreating the backend (triggered by pushes to `backend/**` on `main`) |
 
@@ -210,11 +207,29 @@ See the root [README.md — Database migrations](../README.md#database-migration
 
 PostgreSQL tenants get a dedicated schema (`tenant_<slug>`) stored on `organizations.schema_name`. Platform tables (`organizations`, `permissions`, `user_auth_index`, super-admin `users`) stay in `public`.
 
-- **Platform migrations:** `backend/migrations/` via `uv run python migrate.py`
-- **Tenant baseline:** `backend/migrations/tenant/` — applied when a super admin creates an organization (Postgres only)
-- **Legacy orgs:** `schema_name IS NULL` keeps row-level `organization_id` isolation until data migration (Phase 3)
+- **Platform + tenant migrations:** `uv run python migrate.py` (Postgres also upgrades all registered tenant schemas and repairs missing tenant DDL)
+- **Tenant schemas only:** `uv run python migrate.py --tenants-only`
+- **Single tenant:** `uv run python migrate.py --tenants-only --schema tenant_default`
+- **Repair broken tenant DDL** (schema has only `alembic_version`): `uv run python migrate.py --repair-tenant-ddl` discovers `tenant_<slug>` for legacy orgs even when `organizations.schema_name` is null; `--repair-tenant-ddl --schema tenant_default` targets one schema directly
+- **Baseline check:** `uv run python scripts/check_tenant_baseline.py`
+- **Data migration (legacy orgs):** `pg_dump` first, then `uv run python -m app.cli migrate-tenant-data --all-legacy --dry-run` then `--execute` (optional `--cleanup-public-backups`)
+- **Tenant baseline:** applied on org create and via `migrate.py`
 
-Postgres integration tests: `TEST_DATABASE_URL=postgresql+asyncpg://... uv run --with pytest pytest ../test/integration/test_schema_provisioning.py -q` (from `backend/`).
+**Broken tenant schema recovery** (legacy DB where `public` still has operational tables):
+
+```bash
+pg_dump ...
+uv run python migrate.py --repair-tenant-ddl
+uv run python -m app.cli migrate-tenant-data --slug default --dry-run
+uv run python -m app.cli migrate-tenant-data --slug default --execute
+```
+
+Postgres integration tests (from repo root; uses `DATABASE_URL_TEST` or `TEST_DATABASE_URL` from `backend/.env` when unset):
+
+```bash
+PYTHONPATH=backend:. uv run --directory backend \
+  python -m unittest test.integration.test_schema_provisioning -v
+```
 
 ## Docker
 
@@ -230,13 +245,9 @@ Production images use [`Dockerfile`](Dockerfile) with [`docker-entrypoint.sh`](d
 Useful commands from the repo root:
 
 ```bash
-make docker-build
-make docker-config
-make docker-up
-make docker-rebuild
-make docker-down
-make docker-logs
-make docker-ps
+docker compose -f compose.yaml up -d --build
+docker compose -f compose.yaml logs -f
+docker compose -f compose.yaml down
 ```
 
 The active proxy is Caddy and terminates HTTPS for `CADDY_PUBLIC_HOST`.
@@ -250,7 +261,7 @@ Backend connectivity reference:
 Current Compose defaults point the backend to host services:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/duro_pos
+DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/brolier_360
 RUSTFS_ENDPOINT_URL=http://host.docker.internal:9000
 ```
 
@@ -281,22 +292,17 @@ Docs behavior:
 
 ## Authentication And Roles
 
-- `POST /api/v1/auth/register` creates the first admin only
-- `POST /api/v1/auth/login` authenticates admins and shop accounts
-- `GET /api/v1/auth/me` returns the current session payload
+- `POST /api/v1/auth/login` — super admin, tenant admin, or shop account (`organization_slug` optional when usernames collide)
+- `POST /api/v1/auth/register` — first tenant admin only (disabled when `PRODUCTION=true`)
+- `GET /api/v1/auth/me` — current session
 
-Role behavior:
+Roles:
 
-- `admin` users manage shops, items, prices, analytics, and bills
-- `shop_account` users manage their daily prices and checkout bills
-- disabled users cannot log in
-- disabled shops block their linked shop account
+- **super_admin** — platform control plane (`public` schema)
+- **tenant_admin** — organization management within tenant schema
+- **shop_account** — counter billing for one shop
 
-Shop login behavior:
-
-- shop usernames are generated as `ml1`, `ml2`, `ml3`, and so on
-- default password comes from `SHOP_DEFAULT_PASSWORD`
-- shop sessions include `requires_price_setup` and `next_screen`
+Login routing uses `user_auth_index` on PostgreSQL. Disabled users and inactive organizations are rejected at login.
 
 ## Core Business Rules
 
@@ -371,39 +377,30 @@ Through Caddy:
 
 ## Testing
 
-Run all backend tests:
+Unit tests (SQLite):
 
 ```bash
-cd backend
-uv run --with pytest pytest ../test/ -q
+cd .. && PYTHONPATH=backend:. uv run --directory backend \
+  python -m unittest discover -s test/unit -p "test_*.py" -v
 ```
 
-Verbose:
+Integration tests (set `TEST_DATABASE_URL`):
 
 ```bash
-cd backend
-uv run --with pytest pytest ../test/ -v
+cd .. && PYTHONPATH=backend:. uv run --directory backend \
+  python -m unittest test.integration.test_schema_provisioning -v
 ```
 
-Run unit tests:
+Pytest (optional):
 
 ```bash
-cd backend
-uv run --with pytest pytest ../test/unit/ -v
+uv run pytest ../test/ -q
 ```
 
-Run integration tests:
+Tenant baseline check (CI):
 
 ```bash
-cd backend
-uv run --with pytest pytest ../test/integration/ -v
-```
-
-Run coverage:
-
-```bash
-cd backend
-uv run --with pytest --with pytest-cov pytest ../test/ --cov=app --cov-report=html
+uv run python scripts/check_tenant_baseline.py
 ```
 
 ## Linting And Formatting

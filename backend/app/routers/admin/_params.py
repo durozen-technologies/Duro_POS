@@ -9,7 +9,7 @@ from fastapi import Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_admin, get_tenant_shop_or_404
-from app.db.database import get_db
+from app.db.tenant_session import get_tenant_db
 from app.models import Shop, User
 from app.schemas.admin import (
     AdminReportDetailLevel,
@@ -138,7 +138,7 @@ DashboardBillsLimitParam = Annotated[
         description="Maximum number of recent bills embedded in the bootstrap response.",
     ),
 ]
-DBSession = Annotated[AsyncSession, Depends(get_db)]
+DBSession = Annotated[AsyncSession, Depends(get_tenant_db)]
 AdminUserDep = Annotated[User, Depends(get_current_admin)]
 ShopDep = Annotated[Shop, Depends(get_tenant_shop_or_404)]
 ItemImageUploadOptional = Annotated[

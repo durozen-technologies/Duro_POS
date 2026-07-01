@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -13,8 +14,14 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { toApiError } from "@/api/client";
-import { patchOrganization, type OrganizationRead } from "@/api/super-admin";
+import {
+  fetchOrganizationRows,
+  patchOrganization,
+  type OrganizationRead,
+} from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
+
+import { SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
 type RouteProps = NativeStackScreenProps<AppStackParamList, "SuperAdminOrgEdit">["route"];
 type NavProps = NativeStackNavigationProp<AppStackParamList, "SuperAdminOrgEdit">;
@@ -25,12 +32,32 @@ const INK = "#0A110D";
 export function SuperAdminOrgEditScreen() {
   const route = useRoute<RouteProps>();
   const navigation = useNavigation<NavProps>();
-  const { org } = route.params;
+  const { org: initialOrg } = route.params;
 
-  const [name, setName] = useState(org.name);
-  const [maxBranches, setMaxBranches] = useState(String(org.max_branches));
+  const [org, setOrg] = useState<OrganizationRead>(initialOrg);
+  const [name, setName] = useState(initialOrg.name);
+  const [maxBranches, setMaxBranches] = useState(String(initialOrg.max_branches));
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const reloadOrg = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const { items } = await fetchOrganizationRows();
+      const latest = items.find((item) => item.id === org.id);
+      if (latest) {
+        setOrg(latest);
+        setName(latest.name);
+        setMaxBranches(String(latest.max_branches));
+      }
+    } catch (reloadError) {
+      setError(toApiError(reloadError).message || "Failed to refresh organization");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [org.id]);
 
   const handleSave = async () => {
     const trimmedName = name.trim();
@@ -86,8 +113,18 @@ export function SuperAdminOrgEditScreen() {
               <Text className="text-3xl font-bold tracking-tight text-ink">Edit Organization</Text>
               <Text className="mt-1 text-sm font-medium text-muted">{org.slug}</Text>
             </View>
+            <SuperAdminRefreshButton
+              onRefresh={reloadOrg}
+              refreshing={refreshing}
+              disabled={saving}
+            />
           </View>
 
+          <ScrollView
+            className="flex-1"
+            contentContainerStyle={{ paddingBottom: 32 }}
+            keyboardShouldPersistTaps="handled"
+          >
           {/* Form */}
           <View className="mt-2 gap-6 rounded-3xl bg-card p-6 border border-border shadow-sm">
             <View className="gap-2">
@@ -152,6 +189,7 @@ export function SuperAdminOrgEditScreen() {
               </Pressable>
             </View>
           </View>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </View>

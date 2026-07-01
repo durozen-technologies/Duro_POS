@@ -19,7 +19,7 @@ services:
     networks:
       - pos
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-duro_pos}
+      POSTGRES_DB: ${POSTGRES_DB:-brolier_360}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
@@ -108,9 +108,9 @@ services:
       redis:
         condition: service_healthy
     environment:
-      APP_NAME: ${BACKEND_APP_NAME:-Duro POS API}
+      APP_NAME: ${BACKEND_APP_NAME:-Brolier 360 API}
       SECRET_KEY: ${BACKEND_SECRET_KEY:?Set BACKEND_SECRET_KEY}
-      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-duro_pos}}
+      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-brolier_360}}
       PRODUCTION: ${BACKEND_PRODUCTION:-True}
       ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:?Set BACKEND_ALLOWED_HOSTS}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["*"]}
@@ -127,7 +127,7 @@ services:
       TRUST_X_FORWARDED_PROTO: ${BACKEND_TRUST_X_FORWARDED_PROTO:-True}
       WEB_CONCURRENCY: ${BACKEND_WEB_CONCURRENCY:-1}
       REDIS_URL: ${BACKEND_REDIS_URL:-redis://redis:6379/0}
-      REDIS_KEY_PREFIX: ${BACKEND_REDIS_KEY_PREFIX:-duropos}
+      REDIS_KEY_PREFIX: ${BACKEND_REDIS_KEY_PREFIX:-brolier360}
     expose:
       - "8000"
     healthcheck:

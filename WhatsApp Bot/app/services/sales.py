@@ -5,15 +5,13 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Bill, BillItem, Item, Shop
-from app.schemas import BranchRead, SalesSummaryItem, SalesSummaryResponse
+from app.db import SessionLocal, shop_scoped_session
+from app.tenant_db import list_shops_across_tenants
 
 
 async def list_active_branches(session: AsyncSession) -> list[BranchRead]:
-    result = await session.execute(
-        select(Shop).where(Shop.is_active.is_(True)).order_by(Shop.name.asc())
-    )
-    return [BranchRead.model_validate(shop) for shop in result.scalars().all()]
+    shops = await list_shops_across_tenants(session)
+    return [BranchRead.model_validate(shop) for shop in shops]
 
 
 def build_datetime_window(

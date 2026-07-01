@@ -97,6 +97,10 @@ wheels/
 *.sqlite3
 *.db
 *.db-journal
+*.dump
+*.sql.gz
+db-backup/
+db-backups/
 
 # Backend
 backend/.env
@@ -295,6 +299,8 @@ rustfs/data/*
 test/__pycache__/
 test/**/__pycache__/
 test/.pytest_cache/
+test/.env
+test/.env.*
 
 # Additional local files and IDEs
 .marscode/

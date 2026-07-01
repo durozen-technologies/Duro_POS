@@ -221,7 +221,7 @@ def upgrade() -> None:
                 "INSERT INTO organizations (id, name, slug, is_active, settings, created_at, updated_at) "
                 "VALUES (:id, :name, :slug, true, '{}', NOW(), NOW())"
             ),
-            {"id": DEFAULT_ORG_ID, "name": "Duro POS Default", "slug": "default"},
+            {"id": DEFAULT_ORG_ID, "name": "Brolier 360 Default", "slug": "default"},
         )
 
     bind.execute(

@@ -21,6 +21,7 @@ from app.db.tenant_schema import (
     run_tenant_migrations_async,
     set_search_path,
     tenant_router,
+    tenant_schema_scope,
 )
 from app.models import AdminRole, AdminRolePermission, Organization, Shop, User
 from app.schemas.super_admin.organizations import (
@@ -46,23 +47,23 @@ async def _create_tenant_full_admin_role(
         name="TenantFullAdmin",
         is_system=True,
     )
+    for code in TENANT_FULL_ADMIN_PERMISSIONS:
+        full_role.permissions.append(AdminRolePermission(permission_code=code))
     db.add(full_role)
     await db.flush()
-    for code in TENANT_FULL_ADMIN_PERMISSIONS:
-        db.add(AdminRolePermission(role_id=full_role.id, permission_code=code))
 
 
 async def _provision_schema_for_org(db: AsyncSession, org: Organization, schema_name: str) -> None:
     safe_schema = assert_safe_schema_name(schema_name)
     await create_tenant_schema(db, safe_schema)
     try:
-        await run_tenant_migrations_async(db, safe_schema)
-        await set_search_path(db, safe_schema)
-        await _create_tenant_full_admin_role(db, org.id)
-        await set_search_path(db, None)
+        async with tenant_schema_scope(db, safe_schema):
+            await run_tenant_migrations_async(db, safe_schema)
+            await _create_tenant_full_admin_role(db, org.id)
     except Exception:
         from sqlalchemy import text
 
+        await set_search_path(db, None)
         await db.execute(text(f'DROP SCHEMA IF EXISTS "{safe_schema}" CASCADE'))
         raise
 
@@ -88,6 +89,17 @@ def _org_to_read(org: Organization, *, branch_count: int = 0) -> OrganizationRea
 
 
 async def count_organization_branches(db: AsyncSession, organization_id: UUID) -> int:
+    org = await db.get(Organization, organization_id)
+    if org is None:
+        return 0
+    if org.schema_name:
+        async with tenant_schema_scope(db, org.schema_name):
+            return int(
+                await db.scalar(
+                    select(func.count(Shop.id)).where(Shop.organization_id == organization_id)
+                )
+                or 0
+            )
     return int(
         await db.scalar(
             select(func.count(Shop.id)).where(Shop.organization_id == organization_id)
@@ -111,12 +123,13 @@ async def _branch_counts_for_orgs(
 ) -> dict[UUID, int]:
     if not organization_ids:
         return {}
-    rows = await db.execute(
-        select(Shop.organization_id, func.count(Shop.id))
-        .where(Shop.organization_id.in_(organization_ids))
-        .group_by(Shop.organization_id)
+    counts: dict[UUID, int] = {}
+    orgs = list(
+        await db.scalars(select(Organization).where(Organization.id.in_(organization_ids)))
     )
-    return {row[0]: int(row[1]) for row in rows.all()}
+    for org in orgs:
+        counts[org.id] = await count_organization_branches(db, org.id)
+    return counts
 
 
 async def _ensure_unique_organization_name(

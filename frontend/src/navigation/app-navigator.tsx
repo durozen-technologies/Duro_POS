@@ -1,16 +1,12 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import {
-  View,
   Animated,
-  StyleSheet,
-  StatusBar,
   Platform,
   Easing,
-  Image,
-  Text,
 } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
+import { SessionHydrationScreen } from "@/components/ui/loading-state";
 import { ShopHeaderActions, ShopHeaderTitle } from "@/components/shop-header";
 import { appTheme } from "@/constants/theme";
 import { useAuthHydration } from "@/hooks/use-auth-hydration";
@@ -23,7 +19,6 @@ import { usePriceStore } from "@/store/price-store";
 import { UserRole } from "@/types/api";
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
-const LOGO_IMAGE = require("../../assets/Logo.png");
 
 // ── Design Tokens (extracted from your existing #F7F1E8) ─────────────
 const COLORS = {
@@ -201,135 +196,6 @@ const AnimatedHeaderActions = React.memo(function AnimatedHeaderActions({
     </Animated.View>
   );
 });
-
-// ── App startup loading state ────────────────────────────────────────
-function HydrationScreen({
-  label = "Restoring secure session...",
-}: {
-  label?: string;
-}) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(14)).current;
-  const logoScale = useRef(new Animated.Value(0.94)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
-  const rotate = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 420,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.cubic),
-      }),
-      Animated.spring(translateY, {
-        toValue: 0,
-        damping: 16,
-        stiffness: 90,
-        mass: 0.8,
-        useNativeDriver: true,
-      }),
-      Animated.spring(logoScale, {
-        toValue: 1,
-        damping: 14,
-        stiffness: 80,
-        mass: 0.8,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 1200,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.cubic),
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 1200,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.cubic),
-        }),
-      ]),
-    );
-    const rotateLoop = Animated.loop(
-      Animated.timing(rotate, {
-        toValue: 1,
-        duration: 1600,
-        useNativeDriver: true,
-        easing: Easing.linear,
-      }),
-    );
-
-    pulseLoop.start();
-    rotateLoop.start();
-
-    return () => {
-      pulseLoop.stop();
-      rotateLoop.stop();
-    };
-  }, [fadeAnim, logoScale, pulse, rotate, translateY]);
-
-  const ringRotation = rotate.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
-  const pulseScale = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.96, 1.08],
-  });
-  const pulseOpacity = pulse.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.32, 0.55, 0.32],
-  });
-
-  return (
-    <View style={styles.hydrationContainer}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-      <Animated.View
-        style={[
-          styles.loadingWrapper,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY }, { scale: logoScale }],
-          },
-        ]}
-      >
-        <View style={styles.logoStage}>
-          <Animated.View
-            style={[
-              styles.logoPulseRing,
-              {
-                opacity: pulseOpacity,
-                transform: [{ scale: pulseScale }],
-              },
-            ]}
-          />
-          <Animated.View
-            style={[
-              styles.logoRing,
-              {
-                transform: [{ rotate: ringRotation }],
-              },
-            ]}
-          />
-          <View style={styles.logoTile}>
-            <Image
-              source={LOGO_IMAGE}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </View>
-        </View>
-
-        <Text style={styles.loadingTitle}>SMB Billing</Text>
-        <Text style={styles.loadingLabel}>{label}</Text>
-      </Animated.View>
-    </View>
-  );
-}
 
 // ── Auth Stack (login only) ──────────────────────────────────────────
 function AuthStack() {
@@ -574,7 +440,7 @@ export function AppNavigator() {
 
   // Early return: auth loading
   if (!hydrated) {
-    return <HydrationScreen />;
+    return <SessionHydrationScreen />;
   }
 
   // Early return: not authenticated
@@ -596,74 +462,3 @@ export function AppNavigator() {
   return <ShopStack />;
 }
 
-// ── Styles ───────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  hydrationContainer: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 28,
-  },
-  loadingWrapper: {
-    width: "100%",
-    maxWidth: 340,
-    alignItems: "center",
-  },
-  logoStage: {
-    width: 206,
-    height: 206,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoPulseRing: {
-    position: "absolute",
-    width: 188,
-    height: 188,
-    borderRadius: 94,
-    borderWidth: 1,
-    borderColor: "rgba(255, 48, 48, 0.32)",
-  },
-  logoRing: {
-    position: "absolute",
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    borderWidth: 2,
-    borderColor: "rgba(36, 71, 52, 0.12)",
-    borderTopColor: "#FF3030",
-    borderRightColor: "#FF3030",
-  },
-  logoTile: {
-    width: 154,
-    height: 154,
-    borderRadius: 8,
-    backgroundColor: COLORS.white,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    shadowColor: COLORS.accent,
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.16,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  logoImage: {
-    width: 218,
-    height: 218,
-  },
-  loadingTitle: {
-    marginTop: 18,
-    color: COLORS.textPrimary,
-    fontSize: 22,
-    fontWeight: "800",
-    letterSpacing: 0,
-  },
-  loadingLabel: {
-    marginTop: 8,
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: 0,
-  },
-});

@@ -20,6 +20,7 @@ import {
   User2,
 } from "lucide-react-native";
 
+import { branding } from "@/constants/branding";
 import { Image } from "expo-image";
 import {
   Button as TButton,
@@ -281,7 +282,7 @@ export function LoginScreen() {
                             flexShrink: 1,
                           }}
                         >
-                          Duro POS
+                          {branding.appName}
                         </Text>
                         <Text
                           numberOfLines={1}

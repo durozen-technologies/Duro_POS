@@ -13,9 +13,8 @@ class UserAuthIndex(Base):
     __tablename__ = "user_auth_index"
     __table_args__ = (
         Index(
-            "uq_user_auth_index_username_org",
+            "uq_user_auth_index_username_lower",
             "username_lower",
-            "organization_id",
             unique=True,
         ),
     )

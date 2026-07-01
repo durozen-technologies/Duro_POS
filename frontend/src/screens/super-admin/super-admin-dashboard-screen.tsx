@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
+import { branding } from "@/constants/branding";
 import { toApiError } from "@/api/client";
 import {
   fetchOrganizationCounts,
@@ -12,6 +13,8 @@ import {
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
 import { useAuthStore } from "@/store/auth-store";
+
+import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
 type Nav = NativeStackNavigationProp<AppStackParamList, "SuperAdminDashboard">;
 
@@ -52,6 +55,7 @@ export function SuperAdminDashboardScreen() {
   const user = useAuthStore((state) => state.user);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [counts, setCounts] = useState<{ active: number; all: number } | null>(
     null,
@@ -59,8 +63,12 @@ export function SuperAdminDashboardScreen() {
   const [recentOrgs, setRecentOrgs] = useState<OrganizationRead[]>([]);
 
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [orgCounts, orgRows] = await Promise.all([
@@ -73,8 +81,13 @@ export function SuperAdminDashboardScreen() {
       setError(toApiError(err).message || "Failed to load dashboard");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    void load(true);
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -87,12 +100,20 @@ export function SuperAdminDashboardScreen() {
           className="flex-1"
           contentContainerStyle={{ paddingBottom: 32 }}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={SUPER_ADMIN_REFRESH_TINT}
+              colors={[SUPER_ADMIN_REFRESH_TINT]}
+            />
+          }
         >
           {/* Header */}
           <View className="flex-row items-start justify-between px-4 pb-6 pt-10">
             <View>
               <Text className="text-xs font-semibold text-muted">
-                DuroPOS Control Panel
+                {branding.appName} Control Panel
               </Text>
               <Text className="mt-1 text-2xl font-bold text-ink">
                 Super Admin
@@ -102,7 +123,12 @@ export function SuperAdminDashboardScreen() {
                 <Text className="font-semibold text-ink">{user?.username}</Text>
               </Text>
             </View>
-            <Pressable
+            <View className="flex-row items-center gap-2">
+              <SuperAdminRefreshButton
+                onRefresh={handleRefresh}
+                refreshing={refreshing}
+              />
+              <Pressable
               accessibilityRole="button"
               accessibilityLabel="Sign out"
               className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:bg-dangerSoft active:border-dangerSoft"
@@ -110,6 +136,7 @@ export function SuperAdminDashboardScreen() {
             >
               <MaterialCommunityIcons name="logout" size={20} color={MUTED} />
             </Pressable>
+            </View>
           </View>
 
           {/* Stats strip */}

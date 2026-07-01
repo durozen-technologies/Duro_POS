@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from ..core.config import get_settings
+from .tenant_context_var import get_active_tenant_schema
 
 settings = get_settings()
 
@@ -65,6 +66,14 @@ def _register_search_path_reset_if_needed(engine_url: URL | str) -> None:
     def _reset_search_path(_session, _transaction, connection) -> None:
         if connection.dialect.name == "postgresql":
             connection.execute(text("RESET search_path"))
+            schema_name = get_active_tenant_schema()
+            if schema_name:
+                from .tenant_schema import assert_safe_schema_name
+
+                safe = assert_safe_schema_name(schema_name)
+                connection.execute(text(f'SET search_path TO "{safe}", public'))
+            else:
+                connection.execute(text("SET search_path TO public"))
 
     _search_path_listener_registered = True
 

@@ -52,7 +52,7 @@ async def get_shop_for_tenant_or_404(
     organization_id: UUID,
 ) -> Shop:
     shop = await db.get(Shop, shop_id)
-    if shop is None or shop.organization_id != organization_id:
+    if shop is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop not found")
     return shop
 

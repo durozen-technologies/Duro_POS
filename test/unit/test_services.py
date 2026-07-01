@@ -743,7 +743,7 @@ class ServiceUnitTests(BackendTestCase):
                     data = report.file.read()
                     self.assertGreater(len(data), 0)
                     text_content = get_pdf_text(data)
-                    self.assertIn("DURO POS DEFAULT", text_content)
+                    self.assertIn("BROLIER 360 DEFAULT", text_content)
                     self.assertIn("SK NAGAR", text_content)
                     self.assertIn("Inventory Item", text_content)
                     self.assertIn("Used Stock", text_content)

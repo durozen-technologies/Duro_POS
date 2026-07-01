@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db
+from app.db.tenant_session import get_tenant_db
 from app.db.storage import (
     StoredImagePayload,
     close_stored_image_stream,
@@ -31,7 +31,7 @@ async def get_item_image(
     item_id: UUID,
     request: Request,
     variant: Literal["original", "thumb"] = Query(default="original"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> Response:
     item = await db.get(Item, item_id)
     if item is None:
@@ -75,7 +75,7 @@ async def get_inventory_item_image(
     item_id: UUID,
     request: Request,
     variant: Literal["original", "thumb"] = Query(default="original"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> Response:
     item = await db.get(InventoryItem, item_id)
     if item is None:
@@ -119,7 +119,7 @@ async def get_expense_item_image(
     item_id: UUID,
     request: Request,
     variant: Literal["original", "thumb"] = Query(default="original"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> Response:
     item = await db.get(ExpenseItem, item_id)
     if item is None:

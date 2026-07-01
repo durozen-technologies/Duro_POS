@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_shop, get_current_user, require_roles
-from app.db.database import get_db
+from app.db.tenant_session import get_tenant_db
 from app.models import Shop, User, UserRole
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
@@ -68,7 +68,7 @@ router = APIRouter(tags=["Shop"], dependencies=[Depends(require_roles(UserRole.S
 )
 async def bootstrap(
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> ShopBootstrapResponse:
     """Return the pricing bootstrap payload for the signed-in shop."""
     return await get_shop_bootstrap(db, shop)
@@ -82,7 +82,7 @@ async def bootstrap(
 )
 async def today_prices(
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> list[DailyPriceRead]:
     """Return today's saved price rows for the signed-in shop."""
     return await get_today_prices(db, shop)
@@ -97,7 +97,7 @@ async def today_prices(
 )
 async def save_daily_prices(
     payload: DailyPriceCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
 ) -> list[DailyPriceRead]:
     """Create or update today's price book for the signed-in shop."""
@@ -112,7 +112,7 @@ async def save_daily_prices(
 )
 async def shop_inventory(
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventorySummaryRead:
     """Return allocated inventory items and stock totals for the signed-in shop."""
     return await get_inventory_summary(db, shop, active_allocations_only=True)
@@ -131,7 +131,7 @@ async def shop_inventory_rows(
     cursor_name: str | None = Query(None, max_length=120),
     cursor_id: UUID | None = Query(None),
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventoryStockRowsPage:
     """Return a paged stock row set for the signed-in shop."""
     return await list_inventory_stock_rows(
@@ -158,7 +158,7 @@ async def shop_inventory_movements(
     range_end_date: date | None = Query(None),
     limit: int = Query(30, ge=1, le=100),
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventoryMovementPage:
     """Return inventory movements for the signed-in shop."""
     return await list_inventory_movements(
@@ -183,7 +183,7 @@ async def shop_inventory_transfers(
     range_end_date: date | None = Query(None),
     limit: int = Query(30, ge=1, le=100),
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventoryTransferPage:
     """Return inventory transfers out from the signed-in shop."""
     return await list_inventory_transfers(
@@ -209,7 +209,7 @@ async def shop_expense_items(
     cursor_name: str | None = Query(None, max_length=120),
     cursor_id: UUID | None = Query(None),
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> ShopExpenseItemRowsPage:
     """Return active expense items allocated to the signed-in shop."""
     return await list_current_shop_expense_items(
@@ -233,7 +233,7 @@ async def shop_expense_items(
 async def record_shop_expense(
     payload: ExpenseEntryCreate,
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> ExpenseEntryRead:
     """Record a rupee expense against an admin-allocated expense item."""
     return await create_shop_expense_entry(db, shop, payload)
@@ -252,7 +252,7 @@ async def shop_expense_history(
     cursor_spent_at: datetime | None = Query(None),
     cursor_id: UUID | None = Query(None),
     shop: Shop = Depends(get_current_shop),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> ExpenseEntryPage:
     """Return paginated expense entries created by the signed-in shop."""
     return await list_expense_entries(
@@ -272,7 +272,7 @@ async def shop_expense_history(
     summary="Get Inventory Backdate Policy",
 )
 async def shop_inventory_backdate_policy(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     _shop: Shop = Depends(get_current_shop),
 ) -> InventoryBackdatePolicyRead:
     """Return shop backdating rules for inventory transaction UI."""
@@ -294,7 +294,7 @@ async def add_inventory_stock(
     ),
     shop: Shop = Depends(get_current_shop),
     actor: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventoryMovementCreateResult:
     """Add kg/unit stock to an allocated inventory item."""
     return await add_shop_inventory_stock(
@@ -317,7 +317,7 @@ async def use_inventory_stock(
     ),
     shop: Shop = Depends(get_current_shop),
     actor: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventoryMovementCreateResult:
     """Use kg/unit stock from an allocated inventory item by category."""
     return await use_shop_inventory_stock(
@@ -340,7 +340,7 @@ async def use_inventory_stock_split(
     ),
     shop: Shop = Depends(get_current_shop),
     actor: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventoryMovementSplitCreateResult:
     """Use kg/unit stock from an allocated inventory item split across categories."""
     return await use_shop_inventory_stock_split(
@@ -364,7 +364,7 @@ async def transfer_inventory_stock(
     payload: InventoryTransferCreate,
     shop: Shop = Depends(get_current_shop),
     actor: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> InventoryTransferRead:
     """Transfer kg/unit stock to a transfer shop destination."""
     return await create_inventory_transfer(
@@ -383,7 +383,7 @@ async def transfer_inventory_stock(
     summary="Get Active Transfer Shops",
 )
 async def list_active_transfer_shops(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     _shop: Shop = Depends(get_current_shop),
 ) -> Sequence[TransferShopRead]:
     """Get active transfer shops for inventory transfers."""
@@ -399,7 +399,7 @@ async def list_active_transfer_shops(
 )
 async def preview_checkout(
     payload: BillCheckoutRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
 ) -> BillCheckoutPreviewRead:
     """Validate and build a printable bill without saving billing data."""
@@ -415,7 +415,7 @@ async def preview_checkout(
 )
 async def checkout(
     payload: BillCheckoutCommitRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
 ) -> BillRead:
     """Save a paid bill after the signed-in shop has printed its receipt."""

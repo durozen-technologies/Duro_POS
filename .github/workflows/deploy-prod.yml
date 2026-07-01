@@ -242,7 +242,7 @@ jobs:
               "SYNC_COMPOSE": os.environ.get("SYNC_COMPOSE", "false"),
               "POSTGRES_DATA_DIR": "/home/ubuntu/pos-postgress/data",
               "RUSTFS_DATA_DIR": "/home/ubuntu/rustfs/data",
-              "POSTGRES_DB": non_empty("POSTGRES_DB", "duro_pos"),
+              "POSTGRES_DB": non_empty("POSTGRES_DB", "brolier_360"),
               "POSTGRES_USER": non_empty("POSTGRES_USER", "postgres"),
               "POSTGRES_PASSWORD": os.environ["POSTGRES_PASSWORD"],
               "RUSTFS_ACCESS_KEY": os.environ["RUSTFS_ACCESS_KEY"],

@@ -27,7 +27,7 @@ postgres:
 Important environment:
 
 ```env
-POSTGRES_DB=duro_pos
+POSTGRES_DB=brolier_360
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=...
 POSTGRES_DATA_DIR=/home/ubuntu/pos-postgress/data
@@ -36,7 +36,7 @@ POSTGRES_DATA_DIR=/home/ubuntu/pos-postgress/data
 The backend connects with:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:<password>@postgres:5432/duro_pos
+DATABASE_URL=postgresql+asyncpg://postgres:<password>@postgres:5432/brolier_360
 ```
 
 ## Persistence
@@ -66,13 +66,13 @@ pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
 If Postgres runs on the host, backend default local connection often looks like:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/duro_pos
+DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/brolier_360
 ```
 
 If backend runs inside Docker while Postgres runs on the host:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/duro_pos
+DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/brolier_360
 ```
 
 ## Operational Notes
@@ -82,4 +82,39 @@ DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/duro_p
 - Back up data before risky migrations or major deploys.
 - If the production Postgres container is unhealthy, `scripts/deploy-prod.sh` refuses to restart it automatically.
 - Recovery helpers live in `scripts/postgres-recover.sh`.
+
+## Schema-per-tenant (ADR-003)
+
+PostgreSQL production uses **platform `public`** plus one schema per organization (`tenant_<slug>` on `organizations.schema_name`). Super-admin accounts and `user_auth_index` live in `public`; operational data lives in tenant schemas.
+
+### One-shot cutover (existing shared-schema data)
+
+1. `pg_dump` the database.
+2. From `backend/`: `uv run python migrate.py` — platform head + all tenant Alembic chains.
+3. Preview: `uv run python -m app.cli migrate-tenant-data --all-legacy --dry-run`
+4. Apply: `uv run python -m app.cli migrate-tenant-data --all-legacy --execute`
+5. Optional cleanup: add `--cleanup-public-backups` to drop `public._migrated_*` tables.
+6. Deploy application build with tenant session routing enabled.
+
+### Day-to-day
+
+| Task | Command |
+|------|---------|
+| Platform + tenants migrate | `uv run python migrate.py` |
+| Tenants only | `uv run python migrate.py --tenants-only` |
+| Single tenant schema | `uv run python migrate.py --tenants-only --schema tenant_foo` |
+| Baseline table check | `uv run python scripts/check_tenant_baseline.py` |
+
+### Pool safety
+
+Tenant requests set `search_path` via `ContextVar` + `after_begin` on each transaction. Do not assume pooled connections retain `search_path` between requests.
+
+### Integration tests
+
+```bash
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/brolier_360_test \
+  uv run --directory backend python -m unittest test.integration.test_schema_provisioning -v
+```
+
+(Run from repo root with `PYTHONPATH=backend:`.)
 

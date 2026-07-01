@@ -10,7 +10,7 @@ Accepted — **tenancy section superseded by [ADR-003](ADR-003-schema-per-tenant
 
 ## Context
 
-Duro POS operated as a single-organization deployment: one global `ADMIN` managed all shop branches. The product must support multiple independent businesses (organizations), each with tenant admins and shop accounts, under a platform Super Admin control plane.
+Brolier 360 operated as a single-organization deployment: one global `ADMIN` managed all shop branches. The product must support multiple independent businesses (organizations), each with tenant admins and shop accounts, under a platform Super Admin control plane.
 
 ## Decision
 
@@ -20,7 +20,7 @@ Duro POS operated as a single-organization deployment: one global `ADMIN` manage
 4. **Auth:** JWT carries `sub`, `role`, `org_id`, `perm_version`; permissions loaded server-side each request (Redis cache in Phase 3).
 5. **RustFS:** Object keys prefixed `orgs/{organization_id}/...`.
 6. **Bootstrap:** Super admin created via `uv run python -m app.cli bootstrap-super-admin`; public `POST /register` disabled in production.
-7. **Database default name:** `duro_pos` for new installs; existing deployments may keep `meat_billing` until ops migrates.
+7. **Database default name:** `brolier_360` for new installs; existing deployments may keep `meat_billing` until ops migrates.
 
 ## Consequences
 

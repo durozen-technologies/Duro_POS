@@ -14,8 +14,9 @@ from app.core.redis_cache import (
     cache_set_json,
     permission_cache_key,
 )
-from app.db.database import get_db
-from app.db.tenant_schema import tenant_router
+from app.db.session import get_platform_db
+from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
+from app.db.tenant_schema import set_search_path, tenant_router
 from app.models import AdminRolePermission, AdminUserRole, Organization, User, UserRole
 from app.models.enums import is_super_admin, is_tenant_admin, normalize_user_role
 
@@ -61,13 +62,23 @@ async def load_user_permissions(db: AsyncSession, user: User) -> frozenset[str]:
 
 async def get_tenant_context(
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
+    platform_db: AsyncSession = Depends(get_platform_db),
 ) -> TenantContext:
-    permissions = await load_user_permissions(db, current_user)
     org_id = current_user.organization_id
     schema_name = None
     if org_id is not None:
-        schema_name = await tenant_router.resolve_schema(db, org_id)
+        schema_name = await tenant_router.resolve_schema(platform_db, org_id)
+
+    if schema_name:
+        token = set_active_tenant_schema(schema_name)
+        try:
+            await set_search_path(platform_db, schema_name)
+            permissions = await load_user_permissions(platform_db, current_user)
+        finally:
+            reset_active_tenant_schema(token)
+    else:
+        permissions = await load_user_permissions(platform_db, current_user)
+
     return TenantContext(
         actor=current_user,
         organization_id=org_id,
@@ -79,7 +90,6 @@ async def get_tenant_context(
 
 async def get_super_admin_context(
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
 ) -> TenantContext:
     if not is_super_admin(current_user.role):
         raise HTTPException(

@@ -66,6 +66,8 @@ from app.schemas.admin import (
 from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
 from app.services.super_admin.organizations import assert_organization_can_add_branch
 from app.services.tenant_query import resolve_organization_id
+from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
+from app.db.tenant_schema import tenant_router
 
 from app.services.admin._shared import (
     _ensure_unique_item_name,
@@ -100,13 +102,7 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
 
     await assert_organization_can_add_branch(db, actor.organization_id)
 
-    existing_user = await db.scalar(
-        select(User.id).where(
-            func.lower(User.username) == username,
-            User.organization_id == actor.organization_id,
-        )
-    )
-    if existing_user is not None:
+    if await username_is_globally_taken(db, username):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
 
     user = User(
@@ -124,6 +120,9 @@ async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User
     )
     db.add_all([user, shop])
     await db.flush()
+    schema_name = await tenant_router.resolve_schema(db, actor.organization_id)
+    if schema_name:
+        await upsert_auth_index(db, user=user, schema_name=schema_name)
     await db.commit()
     return _shop_to_read(shop)
 
@@ -157,22 +156,20 @@ async def update_shop_account(
     new_password = payload.password
 
     has_changes = False
+    username_changed = False
 
     if shop.name != shop_name:
         shop.name = shop_name
         has_changes = True
 
     if shop.owner.username != username:
-        # Uniqueness check is only needed when the username actually changes.
-        existing = await db.scalar(
-            select(User.id).where(func.lower(User.username) == username, User.id != shop.owner.id)
-        )
-        if existing is not None:
+        if await username_is_globally_taken(db, username, exclude_user_id=shop.owner.id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Username already exists"
             )
         shop.owner.username = username
         has_changes = True
+        username_changed = True
 
     if new_password is not None:
         shop.owner.password_hash = get_password_hash(new_password)
@@ -182,6 +179,10 @@ async def update_shop_account(
         return _shop_to_read(shop)
 
     await db.flush()  # batch both UPDATEs before the commit
+    if username_changed and shop.owner.organization_id is not None:
+        schema_name = await tenant_router.resolve_schema(db, shop.owner.organization_id)
+        if schema_name:
+            await upsert_auth_index(db, user=shop.owner, schema_name=schema_name)
     await db.commit()
     return _shop_to_read(shop)
 

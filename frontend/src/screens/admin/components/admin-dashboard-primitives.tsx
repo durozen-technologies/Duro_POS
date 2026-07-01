@@ -16,6 +16,7 @@ import {
   ViewStyle,
 } from "react-native";
 
+import { SkeletonDashboard } from "@/components/ui/skeleton";
 import {
   adminElevation,
   adminPressOpacity,
@@ -602,73 +603,17 @@ export function ToastBanner({ toast, palette, animatedValue }: ToastBannerProps)
   );
 }
 
-function ShimmerBlock({
-  height,
-  borderRadius,
-  palette,
-}: {
-  height: number;
-  borderRadius: number;
-  palette: ThemePalette;
-}) {
-  const shimmer = useRef(new Animated.Value(-1)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.timing(shimmer, {
-        toValue: 1,
-        duration: 1200,
-        useNativeDriver: true,
-      }),
-    );
-
-    animation.start();
-    return () => animation.stop();
-  }, [shimmer]);
-
-  const translateX = shimmer.interpolate({
-    inputRange: [-1, 1],
-    outputRange: [-220, 220],
-  });
-
-  return (
-    <View
-      style={[
-        styles.skeletonBlock,
-        {
-          height,
-          borderRadius,
-          borderColor: palette.border,
-          backgroundColor: palette.card,
-        },
-      ]}
-    >
-      <Animated.View
-        style={[
-          styles.skeletonShimmer,
-          {
-            backgroundColor: palette.glass,
-            transform: [{ translateX }],
-          },
-        ]}
-      />
-    </View>
-  );
-}
-
 export function DashboardSkeleton({ palette }: { palette: ThemePalette }) {
   return (
     <View style={{ flex: 1, backgroundColor: palette.background }}>
-      <View style={styles.skeletonWrap}>
-        <ShimmerBlock height={210} borderRadius={adminRadii.card} palette={palette} />
-        <View style={styles.skeletonMetricGrid}>
-          {Array.from({ length: 4 }).map((_, index) => (
-            <ShimmerBlock key={index} height={88} borderRadius={adminRadii.card} palette={palette} />
-          ))}
-        </View>
-        <ShimmerBlock height={160} borderRadius={adminRadii.card} palette={palette} />
-        <ShimmerBlock height={160} borderRadius={adminRadii.card} palette={palette} />
-      </View>
+      <SkeletonDashboard
+        tone={{
+          base: palette.card,
+          highlight: palette.glass,
+          border: palette.border,
+        }}
+        label="Loading dashboard"
+      />
     </View>
   );
 }
@@ -1142,27 +1087,6 @@ const styles = StyleSheet.create({
   toastText: {
     flex: 1,
     ...adminTypography.bodyStrong,
-  },
-  skeletonWrap: {
-    paddingHorizontal: adminSpacing.md,
-    paddingTop: adminSpacing.md,
-    gap: adminSpacing.sm,
-  },
-  skeletonMetricGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: adminSpacing.sm,
-  },
-  skeletonBlock: {
-    overflow: "hidden",
-    borderWidth: 1,
-  },
-  skeletonShimmer: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 120,
-    opacity: 0.7,
   },
   bottomNavWrap: {
     position: "absolute",

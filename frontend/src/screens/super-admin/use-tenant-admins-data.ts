@@ -32,6 +32,7 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
   const [admins, setAdmins] = useState<TenantAdminRead[]>([]);
   const [counts, setCounts] = useState<TenantAdminCounts | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,8 +74,12 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
     [organizationFilter, debouncedSearch, statusFilter],
   );
 
-  const loadFirstPage = useCallback(async () => {
-    setLoading(true);
+  const loadFirstPage = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const orgId = organizationFilter === "all" ? null : organizationFilter;
@@ -93,8 +98,11 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
       setError(toApiError(loadError).message || "Failed to load tenant admins");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [listParams, organizationFilter]);
+
+  const refresh = useCallback(() => loadFirstPage(true), [loadFirstPage]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore || loading || !cursorRef.current) {
@@ -195,6 +203,7 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
     admins,
     counts,
     loading,
+    refreshing,
     loadingMore,
     creating,
     error,
@@ -209,6 +218,7 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
     selectedOrgId,
     setSelectedOrgId,
     loadFirstPage,
+    refresh,
     loadMore,
     createAdmin,
     setAdminStatus,

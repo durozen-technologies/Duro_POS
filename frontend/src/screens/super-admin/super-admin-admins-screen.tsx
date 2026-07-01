@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo, useCallback, useEffect, useState } from "react";
+import { SkeletonList } from "@/components/ui/skeleton";
 import {
   ActivityIndicator,
   FlatList,
@@ -7,6 +8,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   Text,
   TextInput,
   View,
@@ -22,6 +24,7 @@ import {
 import type { AppStackParamList } from "@/navigation/types";
 
 import { TenantAdminManageSheet } from "./tenant-admin-manage-sheet";
+import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 import {
   useTenantAdminsData,
   type TenantAdminStatusFilter,
@@ -214,16 +217,22 @@ export function SuperAdminAdminsScreen() {
   const navigation = useNavigation<Nav>();
 
   const [orgs, setOrgs] = useState<OrganizationRead[]>([]);
-  useEffect(() => {
-    fetchOrganizationRows()
-      .then((r) => setOrgs(r.items))
-      .catch(() => {});
+  const [orgsRefreshing, setOrgsRefreshing] = useState(false);
+
+  const loadOrgs = useCallback(async () => {
+    const { items } = await fetchOrganizationRows();
+    setOrgs(items);
   }, []);
+
+  useEffect(() => {
+    void loadOrgs().catch(() => {});
+  }, [loadOrgs]);
 
   const {
     admins,
     counts,
     loading,
+    refreshing,
     loadingMore,
     creating,
     error,
@@ -236,6 +245,7 @@ export function SuperAdminAdminsScreen() {
     setSearch,
     selectedOrgId,
     setSelectedOrgId,
+    refresh,
     loadMore,
     createAdmin,
     setAdminStatus,
@@ -244,6 +254,17 @@ export function SuperAdminAdminsScreen() {
     removeAdmin,
     loadOrgRoles,
   } = useTenantAdminsData(orgs);
+
+  const handleRefresh = useCallback(async () => {
+    setOrgsRefreshing(true);
+    try {
+      await Promise.all([loadOrgs(), refresh()]);
+    } finally {
+      setOrgsRefreshing(false);
+    }
+  }, [loadOrgs, refresh]);
+
+  const listRefreshing = refreshing || orgsRefreshing;
 
   const [newAdminUsername, setNewAdminUsername] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
@@ -570,12 +591,17 @@ export function SuperAdminAdminsScreen() {
               </Text>
             ) : null}
           </View>
+          <SuperAdminRefreshButton
+            onRefresh={handleRefresh}
+            refreshing={listRefreshing}
+            disabled={creating || loadingMore}
+          />
         </View>
 
         {loading && admins.length === 0 ? (
           <View className="flex-1">
             {listHeader}
-            <ActivityIndicator className="mt-6" color={ACCENT} />
+            <SkeletonList rows={5} label="Loading tenant admins" />
           </View>
         ) : (
           <FlatList
@@ -583,6 +609,14 @@ export function SuperAdminAdminsScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={{ paddingBottom: 32 }}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={listRefreshing}
+                onRefresh={() => void handleRefresh()}
+                tintColor={SUPER_ADMIN_REFRESH_TINT}
+                colors={[SUPER_ADMIN_REFRESH_TINT]}
+              />
+            }
             ListEmptyComponent={
               <View className="mt-10 items-center px-8">
                 <MaterialCommunityIcons

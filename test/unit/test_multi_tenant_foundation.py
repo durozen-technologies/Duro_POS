@@ -64,7 +64,7 @@ class MultiTenantFoundationTests(BackendTestCase):
             with self.harness.session_factory() as session:
                 org = session.scalar(select(Organization).where(Organization.slug == "default"))
                 self.assertIsNotNone(org)
-                self.assertEqual(org.name, "Duro POS Default")
+                self.assertEqual(org.name, "Brolier 360 Default")
 
         self.run_async(scenario())
 

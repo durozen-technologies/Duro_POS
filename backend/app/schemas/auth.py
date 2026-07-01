@@ -30,6 +30,7 @@ def require_non_blank_password(value: str) -> str:
 class LoginRequest(BaseModel):
     username: str
     password: str
+    organization_slug: str | None = None
 
     @field_validator("username", mode="before")
     @classmethod

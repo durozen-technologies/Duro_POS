@@ -1,105 +1,127 @@
-# Billing System
+# Brolier 360
 
-Mobile-first meat billing system with:
+Mobile-first meat billing and POS platform with multi-tenant PostgreSQL isolation, Android receipt printing, and optional WhatsApp sales reporting.
 
-- a FastAPI backend for auth, shops, pricing, billing, receipts, audit logs, and item images
-- an Expo React Native frontend for admin and shop operators
-- a FastAPI-based WhatsApp sales bot that reuses backend database models and schemas
-- Android Bluetooth and USB ESC/POS receipt printing
-- a Caddy reverse proxy with automatic HTTPS
+## What’s in the repo
 
-## Apps
+| Path | Role |
+|------|------|
+| [`backend/`](backend/) | FastAPI API — auth, shops, catalog, billing, inventory, reports, super-admin |
+| [`frontend/`](frontend/) | Expo React Native app — tenant admin, shop counter, super-admin |
+| [`WhatsApp Bot/`](WhatsApp%20Bot/) | FastAPI WhatsApp bot — branch sales summaries (shared `backend.app` models) |
+| [`caddy/`](caddy/) | Reverse proxy, TLS, rate limiting |
+| [`rustfs/`](rustfs/) | Optional S3-compatible object storage helpers |
+| [`test/`](test/) | Backend unit and integration tests |
+| [`docs/`](docs/) | Ops notes, ADRs, Postgres runbook |
 
-- `backend/` - FastAPI API, database access, RustFS integration
-- `frontend/` - Expo React Native app
-- `WhatsApp Bot/` - FastAPI WhatsApp bot, using shared `backend.app` models and schemas
-- `caddy/` - reverse proxy, rate limiting, automatic TLS
-- `rustfs/` - optional object storage container helpers
+## Product flow
 
-## Product Flow
+1. Super admin provisions organizations (each gets a dedicated Postgres schema on PostgreSQL).
+2. Tenant admin signs in, creates shops and catalog items.
+3. Shop staff set daily prices, build carts, and checkout with exact payment matching.
+4. Receipts print on Android via Bluetooth/USB ESC/POS; web/iOS use fallback printing.
+5. Bills, inventory movements, and audit data are stored in the tenant schema.
+6. Optional WhatsApp bot reports sales by branch and date range.
 
-1. Admin signs in.
-2. Admin creates shop users.
-3. Each shop sets daily prices.
-4. Counter staff add items and checkout.
-5. Backend accepts a sale only when payment totals match the bill.
-6. Receipt printing runs through saved Bluetooth or USB printers on Android, with fallback printing on web and iOS.
-7. Receipt data and audit logs are stored immediately.
+## Tech stack
 
-## Tech Stack
+- **Backend:** FastAPI, SQLAlchemy async, PostgreSQL, JWT, Alembic, `uv`
+- **Frontend:** Expo 54, React Native, TypeScript, Zustand, React Navigation, NativeWind
+- **Proxy:** Caddy 2 with `caddy-ratelimit`
+- **Images:** RustFS / S3-compatible storage (not Postgres blobs)
+- **Cache:** Redis (optional; app degrades gracefully without it)
 
-- Backend: FastAPI, SQLAlchemy async, PostgreSQL, JWT auth, `uv`
-- Frontend: Expo 54, React Native, TypeScript, Zustand, React Navigation, NativeWind
-- Proxy: Caddy 2 with `caddy-ratelimit`
-- Storage: RustFS / S3-compatible object storage
+## Architecture
 
-## Repository Layout
+```mermaid
+flowchart TB
+  subgraph clients [Clients]
+    Mobile[Expo app]
+    WA[WhatsApp]
+  end
 
-```text
-.
-├── backend/
-├── frontend/
-├── WhatsApp Bot/
-├── caddy/
-├── rustfs/
-├── compose.yaml
-├── docker-compose.prod.yml
-├── Makefile
-├── scripts/deploy-prod.sh
-└── README.md
+  subgraph edge [Edge]
+    Caddy[Caddy TLS + rate limit]
+  end
+
+  subgraph api [API layer]
+    BE[Backend FastAPI]
+    Bot[WhatsApp Bot]
+  end
+
+  subgraph data [Data]
+    PG[(PostgreSQL)]
+    RF[RustFS]
+    RD[(Redis optional)]
+  end
+
+  Mobile --> Caddy --> BE
+  WA --> Bot
+  Bot --> PG
+  BE --> PG
+  BE --> RF
+  BE --> RD
 ```
 
-## Shared Backend Domain Package
+### Schema-per-tenant (PostgreSQL)
 
-The backend package is also the shared source of truth for the WhatsApp bot's domain layer.
+Production uses **one database, many schemas** ([ADR-003](docs/decisions/ADR-003-schema-per-tenant.md)):
 
-- SQLAlchemy models live in [`backend/app/models/`](backend/app/models/)
-- Pydantic schemas live in [`backend/app/schemas/`](backend/app/schemas/)
-- WhatsApp-specific shared types live in [`backend/app/models/whatsapp.py`](backend/app/models/whatsapp.py) and [`backend/app/schemas/whatsapp.py`](backend/app/schemas/whatsapp.py)
-- [`WhatsApp Bot/app/models.py`](WhatsApp%20Bot/app/models.py) and [`WhatsApp Bot/app/schemas.py`](WhatsApp%20Bot/app/schemas.py) are compatibility shims that re-export from `backend.app`
+| Schema | Contents |
+|--------|----------|
+| `public` | `organizations`, `permissions`, `user_auth_index`, super-admin `users`, platform audit |
+| `tenant_<slug>` | Shops, tenant users, items, bills, inventory, expenses, WhatsApp tables, etc. |
 
-When adding or changing data structures used by both services, update `backend.app` first and let the bot import from there instead of creating duplicate local definitions.
+- New orgs get `organizations.schema_name` and a provisioned tenant schema automatically.
+- Tenant API requests set `search_path` via session deps + a `ContextVar` (pool-safe across commits).
+- Login resolves tenant users through `user_auth_index` (optional `organization_slug` when usernames collide).
+- SQLite is used only for local unit tests; schema-per-tenant features require PostgreSQL.
+
+Details and cutover steps: [`docs/postgres.md`](docs/postgres.md).
+
+### Shared domain package
+
+SQLAlchemy models and Pydantic schemas live in `backend/app/`. The WhatsApp bot imports them via thin shims in `WhatsApp Bot/app/models.py` and `schemas.py`. **Change shared types in `backend.app` first** — do not duplicate models in the bot.
 
 ## Prerequisites
 
-- Python `3.11+`
-- `uv`
-- Node.js `18+`
-- `nub`
-- Docker and Docker Compose
-- PostgreSQL if running backend outside Docker
-- Android emulator, device, iOS simulator, or browser for the frontend
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/)
+- Node.js 18+ and [nub](https://www.npmjs.com/package/nub) (frontend)
+- Docker and Docker Compose (production / optional local stack)
+- PostgreSQL (local dev or `host.docker.internal` from containers)
+- Android device/emulator, iOS simulator, or browser for the frontend
 
-## Local Backend
+## Local development
+
+### Backend
 
 ```bash
 cd backend
 cp .env.example .env
 uv sync
+uv run python migrate.py          # platform + tenant schemas on Postgres
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Useful backend commands:
+Bootstrap the first **super admin** (once per environment):
 
 ```bash
 cd backend
-
-# Migrations (Alembic + idempotent startup tasks)
-uv run python migrate.py
-
-# Bootstrap first super admin (production; idempotent — fails if one already exists)
 uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
-
-# Tests
-uv run --with pytest pytest ../test/ -q
-
-# Lint
-uv sync --group dev
-uv run ruff check .
-uv run ruff format .
 ```
 
-## Local Frontend
+In production (`PRODUCTION=true`), public `POST /register` is disabled; use the CLI or super-admin APIs.
+
+Default local database:
+
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/brolier_360
+```
+
+More backend detail: [`backend/README.md`](backend/README.md).
+
+### Frontend
 
 ```bash
 cd frontend
@@ -107,7 +129,7 @@ nub install
 nub run start
 ```
 
-For the Android dev client and printer workflow:
+Android dev client / printer testing:
 
 ```bash
 cd frontend
@@ -115,13 +137,21 @@ nub exec expo run:android
 nub run start:dev
 ```
 
-If the backend runs on the same machine and the frontend is on a physical Android phone:
+Physical Android device with backend on the same machine:
 
 ```bash
 adb reverse tcp:8000 tcp:8000
 ```
 
-## Local WhatsApp Bot
+Set the API URL in `frontend/.env`:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+More frontend detail: [`frontend/README.md`](frontend/README.md).
+
+### WhatsApp Bot
 
 ```bash
 cd "WhatsApp Bot"
@@ -129,564 +159,276 @@ uv sync
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8001
 ```
 
-The bot keeps its routers and services in `WhatsApp Bot/app/`, but shared database models and reusable schemas come from `backend.app`.
+Uses the same `DATABASE_URL` as the backend. Resolves tenant `search_path` per shop before operational queries.
 
-## Docker Stack
+## Docker (local)
 
-The active Docker stack is [`compose.yaml`](compose.yaml).
-
-Services:
-
-- `backend`
-- `caddy`
-
-The current Caddy stack publishes:
-
-- `80:80`
-- `443:443`
-- `443:443/udp`
-
-Start it with:
+Active compose file: [`compose.yaml`](compose.yaml) — `backend` + `caddy`.
 
 ```bash
 docker compose -f compose.yaml up -d --build --remove-orphans
+docker compose -f compose.yaml logs -f
+docker compose -f compose.yaml down
 ```
 
-Or use the Makefile:
+Compose defaults point the backend at host Postgres and RustFS:
 
-```bash
-make docker-up
-make docker-logs
-make docker-down
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/brolier_360
+RUSTFS_ENDPOINT_URL=http://host.docker.internal:9000
 ```
 
-The Makefile also supports selecting a different compose file:
+Inside a container, use `host.docker.internal` for host services — not `localhost`.
 
-```bash
-make docker-up COMPOSE_FILE=docker-compose.prod.yml
-```
+## Production deployment
 
-## Production deployment guide
+Production runs on an **Ubuntu EC2 VM** via [`docker-compose.prod.yml`](docker-compose.prod.yml). Images are **built in GitHub Actions**, pushed to **Docker Hub**, and the VM **pulls pre-built images** (no app source on the server).
 
-Production runs on an **Ubuntu EC2 VM** using [`docker-compose.prod.yml`](docker-compose.prod.yml). Images are **built in GitHub Actions**, pushed to **Docker Hub**, and the VM **pulls pre-built images** (no app source code on the server).
+**Deploy branch:** `prod` (not `main`). Pushes under `backend/**`, `caddy/**`, compose, or `scripts/**` trigger [`.github/workflows/deploy-prod.yml`](.github/workflows/deploy-prod.yml).
 
-### Architecture
+### Runtime layout
 
 ```mermaid
 flowchart TB
   subgraph internet [Internet]
-    Mobile[Expo mobile app]
-    Admin[Browser / API clients]
-    DBA[DB client e.g. pgAdmin]
+    Mobile[Expo app]
+    Clients[API clients]
   end
 
-  subgraph ec2 [EC2 VM — ubuntu]
-    subgraph network [Docker network: mlb-pos-network]
-      Caddy[Caddy :443 / :80\nTLS + rate limit]
-      Backend[Backend :8000\nFastAPI + migrate.py]
-      Postgres[(Postgres :5432)]
-      RustFS[RustFS :9000 / :9001]
-    end
-
-    subgraph host_mounts [Bind mounts — persistent]
-      PGData["/home/ubuntu/pos-postgress/data"]
-      RFData["/home/ubuntu/rustfs/data"]
-    end
-
-    EnvFile[".env\n(written by CI from GitHub Secrets)"]
-    DeployScript["scripts/deploy-prod.sh"]
+  subgraph ec2 [EC2 VM]
+    Caddy[Caddy :443 / :80]
+    Backend[Backend :8000]
+    Postgres[(Postgres :5432)]
+    RustFS[RustFS :9000 / :9001]
+    PGData["/home/ubuntu/pos-postgress/data"]
+    RFData["/home/ubuntu/rustfs/data"]
   end
 
-  subgraph cicd [GitHub Actions]
-    BuildBE[Build backend image]
-    BuildCaddy[Build caddy image]
-    Push[Push to Docker Hub :latest]
-    SSHDeploy[SSH + SCP to VM]
-    Migrate[migrate.py on new image]
-  end
-
-  Mobile -->|HTTPS API| Caddy
-  Admin -->|HTTPS API| Caddy
-  Caddy -->|reverse proxy| Backend
-  Backend -->|DATABASE_URL postgres:5432| Postgres
-  Backend -->|RustFS S3 API| RustFS
-  DBA -->|TCP 5432 public| Postgres
-
+  Mobile -->|HTTPS| Caddy
+  Clients -->|HTTPS| Caddy
+  Caddy --> Backend
+  Backend --> Postgres
+  Backend --> RustFS
   Postgres --- PGData
   RustFS --- RFData
-
-  BuildBE --> Push
-  BuildCaddy --> Push
-  Push --> SSHDeploy
-  SSHDeploy --> EnvFile
-  SSHDeploy --> DeployScript
-  DeployScript --> Migrate
-  Migrate --> Backend
-  DeployScript --> Caddy
 ```
-
-**Traffic flow**
-
-1. Clients hit `https://<CADDY_PUBLIC_HOST>/api/v1/...`
-2. **Caddy** terminates TLS and proxies to `backend:8000` on the internal network
-3. **Backend** connects to **Postgres** at `postgres:5432` (Docker DNS name, not `localhost`)
-4. **RustFS** runs for object storage; item image bytes are stored in RustFS and referenced from Postgres metadata
-
-**What lives where**
 
 | Location | Contents |
 |----------|----------|
-| GitHub Secrets | Passwords, API keys, hostnames, SSH key |
-| VM `/home/ubuntu/mlb-pos/.env` | Generated each deploy from secrets (never commit) |
-| VM `/home/ubuntu/pos-postgress/data` | Postgres data (survives container restarts) |
-| VM `/home/ubuntu/rustfs/data` | RustFS data |
-| VM `/home/ubuntu/mlb-pos/.deploy/state` | Last deployed backend/caddy image tags (rollback) |
-| Docker Hub | `durozen/mlb-pos-backend:latest`, `durozen/mlb-pos-caddy:latest` |
+| GitHub Secrets | Passwords, keys, hostnames, SSH key |
+| VM `DEPLOY_PATH/.env` | Generated each deploy (never commit) |
+| `/home/ubuntu/pos-postgress/data` | Postgres data |
+| `/home/ubuntu/rustfs/data` | Object storage data |
+| Docker Hub | `<user>/mlb-pos-backend:latest`, `<user>/mlb-pos-caddy:latest` |
 
-All four services attach to **`mlb-pos-network`** (explicit bridge network in compose).
+All services attach to **`mlb-pos-network`**.
 
----
+### Deploy flow
 
-### How it is implemented
+1. CI builds and pushes images when `backend/**` or `caddy/**` changes on `prod`.
+2. CI SCPs compose, scripts, and a generated `.env` to the VM.
+3. [`scripts/deploy-prod.sh`](scripts/deploy-prod.sh) on the VM:
+   - Ensures infra (Postgres, RustFS) is healthy
+   - Pulls new image tags
+   - Runs **`migrate.py`** on the new backend image **before** recreating the API container
+   - Recreates backend and/or Caddy; rolls back on health-check failure
 
-#### 1. CI/CD ([`.github/workflows/deploy-prod.yml`](.github/workflows/deploy-prod.yml))
-
-| Push changes | Builds | Deploys |
-|--------------|--------|---------|
-| `backend/**` | Backend image → Docker Hub | Pull image → **run DB migrations** → recreate backend |
-| `caddy/**` | Caddy image → Docker Hub | Caddy container |
-| `docker-compose.prod.yml`, `scripts/**`, workflow | Nothing | Sync compose + `.env` only |
-
-**Backend push flow**
-
-1. `paths-filter` detects changes under `backend/**`
-2. `build-backend` builds and pushes `mlb-pos-backend:latest` (and `:sha`)
-3. `deploy` writes `.env`, SCPs compose + scripts to the VM, SSH runs `deploy-prod.sh`
-4. On the VM (when `DEPLOY_BACKEND=true`): pull `:latest` → `migrate.py` on that image → recreate backend → health check (rollback on failure)
-
-Frontend-only or caddy-only pushes do **not** run database migrations.
-
-**Deploy job steps**
-
-1. Build `.env.deploy` from GitHub Secrets (hostname, DB password, keys, etc.)
-2. SCP to VM: compose files, `.env`, `scripts/deploy-prod.sh`, log scripts
-3. SSH: `bash scripts/deploy-prod.sh`
-
-**Important:** list env vars like `BACKEND_ALLOWED_HOSTS` are written as **single-quoted JSON** in `.env` because Docker Compose strips unquoted double quotes.
-
-#### 2. Deploy script ([`scripts/deploy-prod.sh`](scripts/deploy-prod.sh))
-
-```
-bootstrap infra (postgres + rustfs)
-  → skip if already healthy (no restart, no pull)
-sync compose project (network/volumes)
-  → if DEPLOY_BACKEND:
-      pull :latest
-      run_migrations (one-off container, same image tag)
-      recreate backend
-  → if DEPLOY_CADDY: pull :latest → recreate caddy
-  → if ALLOWED_HOSTS in .env ≠ running container: recreate backend
-  → health checks; rollback to previous tag on failure
-```
-
-Migrations run **before** the backend API container is recreated. The deploy script uses the image tag that was just pulled:
-
-```bash
-BACKEND_IMAGE_TAG="${tag}" compose run --rm --no-deps backend python migrate.py
-```
-
-`--no-deps` avoids starting the long-running backend service; Postgres must already be healthy from `bootstrap_infra`. If migration fails, the script rolls back the backend image and exits without deploying the new container.
-
-#### 3. Caddy hostname config
-
-At container start, [`caddy/docker-entrypoint.sh`](caddy/docker-entrypoint.sh) renders [`caddy/Caddyfile.template`](caddy/Caddyfile.template) using `CADDY_PUBLIC_HOST` from `.env`.
-
-#### 4. Backend config and container entrypoint
-
-[`backend/app/core/config.py`](backend/app/core/config.py) reads `ALLOWED_HOSTS`, `CORS_ORIGINS`, etc. from the container environment. CI auto-builds allowed hosts from `CADDY_PUBLIC_HOST`.
-
-[`backend/docker-entrypoint.sh`](backend/docker-entrypoint.sh) runs `migrate.py` before Gunicorn on every container start (safety net if the deploy script was skipped or the container restarts without a full deploy).
-
----
+Migrations also run on container start via [`backend/docker-entrypoint.sh`](backend/docker-entrypoint.sh) as a safety net.
 
 ### Services and ports
 
-| Service | Image | Host ports | Internal | Restarts on deploy |
-|---------|-------|------------|----------|-------------------|
-| `postgres` | `postgres:17-alpine` | `5432` (public) | `postgres:5432` | No |
-| `rustfs` | `rustfs/rustfs:latest` | `9000`, `9001` | `rustfs:9000` | No |
-| `backend` | `DOCKERHUB_USERNAME/mlb-pos-backend:latest` | — | `backend:8000` | Yes |
-| `caddy` | `DOCKERHUB_USERNAME/mlb-pos-caddy:latest` | `80`, `443` | — | Yes |
+| Service | Image | Host ports | Internal |
+|---------|-------|------------|----------|
+| `postgres` | `postgres:17-alpine` | `5432` | `postgres:5432` |
+| `rustfs` | `rustfs/rustfs:latest` | `9000`, `9001` | `rustfs:9000` |
+| `backend` | `mlb-pos-backend:latest` | — | `backend:8000` |
+| `caddy` | `mlb-pos-caddy:latest` | `80`, `443` | — |
 
-Postgres is published on `0.0.0.0:5432`. You must also allow **TCP 5432** in the **EC2 security group** for external DB clients.
-
-**External Postgres connection**
+External Postgres (restrict **5432** in the EC2 security group):
 
 ```text
 Host:     <CADDY_PUBLIC_HOST or EC2 public IP>
 Port:     5432
-Database: druo_pos
+Database: brolier_360
 User:     postgres
-Password: <POSTGRES_PASSWORD secret>
+Password: <POSTGRES_PASSWORD>
 ```
-
----
 
 ### One-time VM setup
 
-1. Stop old standalone containers if any:
-
-   ```bash
-   docker stop rustfs_container postgres_pos 2>/dev/null || true
-   ```
-
-2. Create deploy directory: `/home/ubuntu/mlb-pos`
-
-3. Configure **GitHub Secrets** (see table below) — CI writes `.env` on each deploy
-
-4. Push to `main` or run the workflow manually — first deploy bootstraps infra
-
-5. After the first successful deploy, create the platform super admin (once per environment):
+1. Create deploy directory (e.g. `/home/ubuntu/mlb-pos`).
+2. Configure [GitHub Secrets](#github-secrets) — CI writes `.env` on each deploy.
+3. Push to `prod` or run **Deploy Production** manually.
+4. Bootstrap super admin (once):
 
    ```bash
    cd backend && uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
    ```
 
-   On the VM, run this inside the backend container or with the same `DATABASE_URL` as production. Public `POST /register` is disabled when `PRODUCTION=true`.
+   On the VM, run inside the backend container or with production `DATABASE_URL`.
 
-6. Open EC2 security group: **80, 443** (API), **5432** (Postgres, optional/restrict by IP)
-
----
+5. Open security group: **80**, **443**; **5432** only if needed (prefer IP allowlist).
 
 ### GitHub Secrets
 
-| Secret | Used for |
-|--------|----------|
-| `DOCKERHUB_USERNAME` | Image namespace |
-| `DOCKERHUB_TOKEN` | Docker Hub login (build + VM pull) |
-| `DEPLOY_HOST` | VM IP or hostname |
-| `DEPLOY_USER` | SSH user (e.g. `ubuntu`) |
-| `DEPLOY_SSH_KEY` | SSH private key (PEM) |
-| `DEPLOY_PATH` | Deploy dir (e.g. `/home/ubuntu/mlb-pos`) |
-| `CADDY_PUBLIC_HOST` | Primary API hostname — TLS + backend allowed hosts |
-| `CADDY_ACME_EMAIL` | Let's Encrypt contact email |
-| `POSTGRES_PASSWORD` | Database password (must match existing data dir) |
-| `POSTGRES_DB`, `POSTGRES_USER` | Optional overrides (default `duro_pos` / `postgres`) |
-| `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | Object storage |
-| `RUSTFS_SERVER_DOMAINS` | RustFS virtual-host domains, comma-separated (e.g. `16.112.68.20:9000,16.112.68.20:9001`). Console-only `:9001` values are expanded to `:9000` on deploy. Backend sends the `:9000` Host header while connecting to `rustfs:9000` internally. |
-| `BACKEND_SECRET_KEY` | 32+ char JWT secret |
-| `BACKEND_RUSTFS_BUCKET_NAME` | Optional |
+| Secret | Purpose |
+|--------|---------|
+| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | Image push and VM pull |
+| `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH` | SSH deploy target |
+| `CADDY_PUBLIC_HOST` | API hostname — TLS + `ALLOWED_HOSTS` |
+| `CADDY_ACME_EMAIL` | Let's Encrypt contact |
+| `POSTGRES_PASSWORD` | DB password (must match existing data dir) |
+| `POSTGRES_DB`, `POSTGRES_USER` | Optional (`brolier_360` / `postgres`) |
+| `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`, `RUSTFS_SERVER_DOMAINS` | Object storage |
+| `BACKEND_SECRET_KEY` | JWT secret (32+ chars) |
+| `BACKEND_RUSTFS_BUCKET_NAME` | Optional bucket override |
 
-There is **no** `BACKEND_ALLOWED_HOSTS` secret — CI generates it from `CADDY_PUBLIC_HOST`.
+CI generates `BACKEND_ALLOWED_HOSTS` from `CADDY_PUBLIC_HOST`. List env vars in `.env` use **single-quoted JSON** so Docker Compose does not strip quotes.
 
-Example hostname secret:
+### Updating production
 
-```env
-CADDY_PUBLIC_HOST=ec2-16-112-68-20.ap-south-2.compute.amazonaws.com
-```
+| Change | Action |
+|--------|--------|
+| Backend code / migrations | Push to `prod` with `backend/**` changes → CI migrates + redeploys |
+| Caddy / TLS / hostname | Push `caddy/**` or update `CADDY_PUBLIC_HOST` secret |
+| Compose / scripts / secrets only | Push deploy-path files — sync without rebuild |
+| Mobile API URL | Set `EXPO_PUBLIC_API_BASE_URL=https://<CADDY_PUBLIC_HOST>` in `frontend/.env` (local build) |
 
----
-
-### How to update
-
-#### Update backend code (includes DB schema)
-
-1. Change files under `backend/` (models, `app/db/database.py`, API code, etc.)
-2. Commit and push to `main`
-3. GitHub Actions: build image → push `:latest` → SSH deploy → **`migrate.py` on new image** → recreate backend
-
-Or manually: **Actions → Deploy Production → Run workflow** with `build_backend: true`.
-
-Check deploy logs on the VM: `~/pos-logs deploy` should show `Running backend database migrations (image tag=latest)`.
-
-#### Update Caddy / TLS / hostname
-
-1. Change files under `caddy/` and/or update `CADDY_PUBLIC_HOST` secret
-2. Push to `main` (or run workflow with `build_caddy: true`)
-
-#### Update compose, deploy script, or secrets only
-
-1. Change `docker-compose.prod.yml`, `scripts/**`, or GitHub Secrets
-2. Push — deploy runs **without** rebuilding images (sync + env refresh)
-
-#### Update secrets (password, hostname, etc.)
-
-1. Change the secret in **GitHub → Settings → Secrets**
-2. Re-run **Deploy Production** workflow (or push any deploy-path change)
-
-The deploy script recreates the backend if `ALLOWED_HOSTS` in `.env` differs from the running container.
-
-#### Update on the VM directly (emergency)
+Emergency on VM:
 
 ```bash
 cd /home/ubuntu/mlb-pos
-# edit .env if needed (use single-quoted JSON for list vars)
 COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml \
   -f docker-compose.prod.override.yml --env-file .env up -d --no-deps backend
 ```
 
-Prefer GitHub Secrets + CI so changes are reproducible.
-
-#### Update mobile app API URL
-
-In `frontend/.env` (local, not deployed by CI):
-
-```env
-EXPO_PUBLIC_API_BASE_URL=https://<CADDY_PUBLIC_HOST>
-```
-
----
-
-### Database migrations
-
-Schema updates are Alembic-based. [`backend/migrate.py`](backend/migrate.py) runs `alembic upgrade head`, then calls idempotent data/startup tasks in [`backend/app/db/startup.py`](backend/app/db/startup.py), which:
-
-- leaves item catalog creation to admin users
-- migrates legacy `items.image_data` bytes to RustFS and drops the old DB byte column
-
-When you change models or migration logic, commit under `backend/` and push to `main` — CI/CD applies migrations on the production VM automatically.
-
-#### When migrations run
-
-| When | How |
-|------|-----|
-| **CI/CD** (push `backend/**` to `main`) | `deploy-prod.sh` → `run_migrations` with the pulled `:latest` image, then recreate backend |
-| **Production container start** | [`backend/docker-entrypoint.sh`](backend/docker-entrypoint.sh) → `migrate.py` → Gunicorn |
-| **FastAPI lifespan** | data/startup tasks only; schema changes must already be migrated |
-| **Local dev** | run `make backend-migrate`, then `make backend-dev` |
-
-#### Changing the schema (developer workflow)
-
-1. Update models in `backend/app/models/`.
-2. Create an Alembic revision from `backend/`: `uv run alembic revision -m "describe change"`.
-3. Edit the revision in `backend/migrations/versions/`.
-4. Test locally: `make backend-migrate`, then run tests.
-5. Push to `main` with changes under `backend/**`.
-6. Confirm the **Deploy Production** workflow succeeded and health shows `database: connected`.
-
-#### Local commands
-
-```bash
-cd backend && uv run python migrate.py   # one-off migration
-make backend-migrate                     # same, from repo root
-make backend-dev                         # dev server after migrations
-```
-
-#### Manual migration on the VM
-
-```bash
-cd /home/ubuntu/mlb-pos
-COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml \
-  -f docker-compose.prod.override.yml --env-file .env \
-  run --rm --no-deps backend python migrate.py
-```
-
-To use a specific image tag (same as deploy):
-
-```bash
-BACKEND_IMAGE_TAG=latest docker compose -f docker-compose.prod.yml \
-  -f docker-compose.prod.override.yml --env-file .env \
-  run --rm --no-deps backend python migrate.py
-```
-
-#### Verify DB connection
-
-```bash
-curl -sS https://<CADDY_PUBLIC_HOST>/api/v1/health
-# expect: {"status":"ok","database":"connected","error":null}
-```
-
----
-
-### Migrating to a new VM
-
-#### A. Move the whole stack (keep data)
-
-1. **On old VM** — stop app containers (leave data dirs):
-
-   ```bash
-   cd /home/ubuntu/mlb-pos
-   COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env stop backend caddy
-   ```
-
-2. **Copy data** to new VM:
-
-   ```bash
-   rsync -avz /home/ubuntu/pos-postgress/data/  NEW_VM:/home/ubuntu/pos-postgress/data/
-   rsync -avz /home/ubuntu/rustfs/data/          NEW_VM:/home/ubuntu/rustfs/data/
-   ```
-
-3. **On new VM** — install Docker, create `/home/ubuntu/mlb-pos`, update GitHub Secrets:
-   - `DEPLOY_HOST` → new VM IP/hostname
-   - `CADDY_PUBLIC_HOST` → new public DNS name
-   - `POSTGRES_PASSWORD` → **same password** as old DB (data dir expects it)
-   - `RUSTFS_SERVER_DOMAINS` → new IP:9000 and IP:9001 (S3 API and console ports)
-
-4. Run **Deploy Production** workflow — infra starts, backend migrates, caddy gets TLS for new hostname
-
-5. Update EC2 security group on new instance (80, 443, 5432 if needed)
-
-#### B. Fresh database on same VM
-
-```bash
-cd /home/ubuntu/mlb-pos
-COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env stop postgres backend
-mv /home/ubuntu/pos-postgress/data /home/ubuntu/pos-postgress/data.bak.$(date +%s)
-mkdir -p /home/ubuntu/pos-postgress/data
-COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml --env-file .env up -d postgres
-bash scripts/deploy-prod.sh   # runs migrate.py + starts backend
-```
-
-#### C. Postgres WAL corruption
-
-If Postgres logs show `invalid checkpoint record`:
-
-1. `docker compose ... stop postgres`
-2. `bash scripts/postgres-recover.sh` (runs `pg_resetwal` after confirmation)
-3. `COMPOSE_PROFILES=infra docker compose ... up -d postgres`
-4. `~/pos-logs postgres`
-
----
-
-### Logs and operations
-
-After deploy, symlinks exist in the ubuntu home directory:
+### Logs
 
 | Command | Action |
 |---------|--------|
 | `~/pos-logs` | Follow all container logs |
-| `~/pos-logs backend` | Follow one service |
-| `~/pos-logs export` | Write logs to `~/mlb-pos/logs/*.log` |
-| `~/pos-logs tail backend` | `tail -f` exported log file |
-| `~/pos-logs deploy` | Tail `logs/deploy.log` |
+| `~/pos-logs backend` | One service |
+| `~/pos-logs deploy` | Deploy log tail |
 
-On the VM:
-
-```bash
-cd /home/ubuntu/mlb-pos
-make docker-prod-deploy    # or: bash scripts/deploy-prod.sh
-make docker-prod-logs
-make docker-prod-ps
-```
-
-Check all containers share the network:
-
-```bash
-docker network inspect mlb-pos-network --format '{{range .Containers}}{{.Name}} {{end}}'
-```
-
----
-
-### HTTPS
-
-Caddy config is generated at container start from [`caddy/Caddyfile.template`](caddy/Caddyfile.template) using `CADDY_PUBLIC_HOST`.
-
-- Primary host: automatic TLS via Let's Encrypt (HTTP-01)
-
-Required secrets:
-
-```env
-CADDY_PUBLIC_HOST=ec2-xx-xx-xx-xx.region.compute.amazonaws.com
-CADDY_ACME_EMAIL=your-email@example.com
-```
-
----
+On VM: `bash scripts/deploy-prod.sh`, `bash scripts/pos-logs.sh`.
 
 ### API URLs
 
-Production (through Caddy):
+| Context | Health | Docs |
+|---------|--------|------|
+| Production (HTTPS) | `https://<CADDY_PUBLIC_HOST>/api/v1/health` | `https://<CADDY_PUBLIC_HOST>/docs` |
+| Local dev | `http://127.0.0.1:8000/api/v1/health` | `http://127.0.0.1:8000/docs` |
+| Docker internal | `http://backend:8000/api/v1/health` | — |
 
-- `https://<CADDY_PUBLIC_HOST>/api/v1/health`
-- `https://<CADDY_PUBLIC_HOST>/docs`
+## Database migrations
 
-Example:
+[`backend/migrate.py`](backend/migrate.py) runs, in order:
 
-- `https://ec2-16-112-68-20.ap-south-2.compute.amazonaws.com/api/v1/health`
+1. Legacy item image byte migration to RustFS (if needed)
+2. Platform Alembic `upgrade head`
+3. Idempotent startup tasks ([`app/db/startup.py`](backend/app/db/startup.py))
+4. **All registered tenant schemas** (PostgreSQL only)
 
-Internal (on VM / within Docker network):
+| When | How |
+|------|-----|
+| Production deploy | `deploy-prod.sh` → `migrate.py` on new image, then recreate backend |
+| Container start | `docker-entrypoint.sh` → `migrate.py` → Gunicorn |
+| Local dev | `cd backend && uv run python migrate.py` |
 
-- `http://backend:8000/api/v1/health`
-- `postgres:5432` (database)
+### Developer workflow (schema change)
 
-Local dev:
+1. Edit models in `backend/app/models/`.
+2. `cd backend && uv run alembic revision -m "describe change"`.
+3. Edit revision under `backend/migrations/versions/` (platform) or `backend/migrations/tenant/` (tenant DDL).
+4. `uv run python migrate.py` locally; run tests.
+5. Push to `prod` with `backend/**` changes; confirm deploy health shows `"database":"connected"`.
 
-- `http://127.0.0.1:8000/api/v1/health`
+### Legacy shared-schema → tenant cutover
 
----
+**Back up first** (`pg_dump`). Then from `backend/`:
 
-### Production troubleshooting
+```bash
+uv run python migrate.py
+uv run python -m app.cli migrate-tenant-data --all-legacy --dry-run
+uv run python -m app.cli migrate-tenant-data --all-legacy --execute
+# optional: --cleanup-public-backups
+```
 
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| `Invalid host header` | EC2 hostname not in `ALLOWED_HOSTS` | Set `CADDY_PUBLIC_HOST` secret; redeploy |
-| `error parsing ... allowed_hosts / cors_origins` | Docker Compose stripped JSON quotes in `.env` | Use single-quoted JSON: `'["host"]'` — CI does this automatically after latest workflow |
-| Backend crash loop after deploy | Old Docker Hub image + bad env format | Fix `.env` quoting; run workflow with `build_backend: true` |
-| `database: disconnected` in health | Postgres down or wrong password | Check `~/pos-logs postgres`; verify `POSTGRES_PASSWORD` matches data dir |
-| Cannot connect to Postgres from PC | Security group blocks 5432 | Add inbound rule for your IP on port 5432 |
-| Caddy unhealthy / TLS error | Bad Caddyfile or missing `CADDY_PUBLIC_HOST` | Check `~/pos-logs caddy`; verify secrets |
+Per-org: `--slug default` or `--org-id <uuid>`. Full runbook: [`docs/postgres.md`](docs/postgres.md).
 
-Reference env template: [`.env.prod.example`](.env.prod.example)
+### Tenant tooling
 
-
-## API URLs
-
-Direct backend (local dev):
-
-- `http://127.0.0.1:8000`
-- `http://127.0.0.1:8000/api/v1/health`
-- `http://127.0.0.1:8000/docs`
-
-Through Caddy (when `CADDY_PUBLIC_HOST` is set):
-
-- `https://<CADDY_PUBLIC_HOST>/api/v1/health`
-- `https://<CADDY_PUBLIC_HOST>/docs`
-
-Internal Docker upstream:
-
-- `http://backend:8000`
-
-## Direct POS Printing
-
-- Bluetooth and USB ESC/POS printing use `@haroldtran/react-native-thermal-printer`
-- Expo Go cannot load the printer module
-- use an Android dev build or release build for live printer testing
-- web and iOS use print fallback behavior
+```bash
+cd backend
+uv run python migrate.py --tenants-only              # tenants only
+uv run python migrate.py --tenants-only --schema tenant_default
+uv run python scripts/check_tenant_baseline.py     # CI table-name check
+```
 
 ## Testing
 
-Backend tests:
+**CI:** [`.github/workflows/backend-tests.yml`](.github/workflows/backend-tests.yml) — tenant baseline check + unit tests on PR/push to `main`/`prod`.
+
+**Unit tests** (SQLite; no Postgres required):
 
 ```bash
 cd backend
-uv run --with pytest pytest ../test/ -q
+uv sync
+cd .. && PYTHONPATH=backend:. uv run --directory backend \
+  python -m unittest discover -s test/unit -p "test_*.py" -v
 ```
 
-Verbose output:
+**Integration tests** (Postgres required):
+
+```bash
+export TEST_DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/brolier_360_test
+cd .. && PYTHONPATH=backend:. uv run --directory backend \
+  python -m unittest test.integration.test_schema_provisioning -v
+```
+
+**Pytest** (also configured in `pyproject.toml`):
 
 ```bash
 cd backend
-uv run --with pytest pytest ../test/ -v
+uv run pytest ../test/ -q
 ```
 
-Coverage:
+**Frontend typecheck:**
 
 ```bash
-cd backend
-uv run --with pytest --with pytest-cov pytest ../test/ --cov=app --cov-report=html
+cd frontend && npx tsc --noEmit
 ```
 
-## Helpful Commands
+## Direct POS printing
 
-```bash
-make docker-config
-make docker-up
-make docker-logs
-make docker-down
-make frontend-typecheck
-make backend-test
-```
+- Android Bluetooth/USB: `@haroldtran/react-native-thermal-printer`
+- Expo Go cannot load the native printer module — use a dev or release build
+- Web and iOS use print fallback behavior
 
-## App Documentation
+## Documentation
 
-- Backend notes: [backend/README.md](backend/README.md)
-- Frontend notes: [frontend/README.md](frontend/README.md)
+| Doc | Topic |
+|-----|-------|
+| [backend/README.md](backend/README.md) | API, env, routes, migrations |
+| [frontend/README.md](frontend/README.md) | Expo app, builds, printer setup |
+| [docs/postgres.md](docs/postgres.md) | Postgres ops and tenant cutover |
+| [docs/decisions/ADR-003-schema-per-tenant.md](docs/decisions/ADR-003-schema-per-tenant.md) | Tenancy architecture |
+| [docs/decisions/ADR-002-multi-tenant-tenancy-and-rbac.md](docs/decisions/ADR-002-multi-tenant-tenancy-and-rbac.md) | RBAC and JWT |
+| [.env.prod.example](.env.prod.example) | Production env template |
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `Invalid host header` | Host not in `ALLOWED_HOSTS` | Set `CADDY_PUBLIC_HOST` secret; redeploy |
+| JSON parse error for `allowed_hosts` | Docker stripped quotes in `.env` | Use single-quoted JSON in `.env` (CI does this) |
+| `database: disconnected` | Postgres down or wrong password | `~/pos-logs postgres`; verify `POSTGRES_PASSWORD` |
+| Login 409 “Organization required” | Username exists in multiple orgs | Pass `organization_slug` on login |
+| Tenant 500 “schema not configured” | Org missing `schema_name` | Run data migration or create org via super-admin |
+| Cannot reach Postgres from PC | Security group | Allow TCP 5432 for your IP only |
+| Caddy / TLS errors | Bad hostname or ACME | `~/pos-logs caddy`; check `CADDY_PUBLIC_HOST` and `CADDY_ACME_EMAIL` |
+| Postgres WAL corruption | Unclean shutdown | `scripts/postgres-recover.sh` after stopping postgres |
+
+---
+
+Built by [Durozen Technologies](https://durozen.com).

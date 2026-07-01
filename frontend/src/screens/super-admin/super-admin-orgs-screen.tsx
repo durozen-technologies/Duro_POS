@@ -5,12 +5,15 @@ import {
   Alert,
   FlatList,
   Pressable,
+  RefreshControl,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+
+import { SkeletonList } from "@/components/ui/skeleton";
 
 import { toApiError } from "@/api/client";
 import {
@@ -20,6 +23,8 @@ import {
   type OrganizationRead,
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
+
+import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
 type Nav = NativeStackNavigationProp<AppStackParamList, "SuperAdminOrgs">;
 
@@ -34,6 +39,7 @@ function formatSlug(slug: string) {
 export function SuperAdminOrgsScreen() {
   const navigation = useNavigation<Nav>();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [orgs, setOrgs] = useState<OrganizationRead[]>([]);
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgMaxBranches, setNewOrgMaxBranches] = useState("5");
@@ -42,8 +48,12 @@ export function SuperAdminOrgsScreen() {
   // ponytail: track which org is toggling so its button shows a spinner
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const { items } = await fetchOrganizationRows();
@@ -52,8 +62,13 @@ export function SuperAdminOrgsScreen() {
       setError(toApiError(err).message || "Failed to load organizations");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    void load(true);
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
@@ -271,13 +286,18 @@ export function SuperAdminOrgsScreen() {
               </Text>
             ) : null}
           </View>
+          <SuperAdminRefreshButton
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+            disabled={creating || togglingId != null}
+          />
         </View>
 
         {/* List */}
         {loading && orgs.length === 0 ? (
           <View>
             {listHeader}
-            <ActivityIndicator className="mt-6" color={ACCENT} />
+            <SkeletonList rows={5} label="Loading organizations" />
           </View>
         ) : (
           <FlatList
@@ -285,6 +305,14 @@ export function SuperAdminOrgsScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={{ paddingBottom: 32 }}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={SUPER_ADMIN_REFRESH_TINT}
+                colors={[SUPER_ADMIN_REFRESH_TINT]}
+              />
+            }
             ListHeaderComponent={listHeader}
             ListEmptyComponent={
               <View className="mt-10 items-center px-8">

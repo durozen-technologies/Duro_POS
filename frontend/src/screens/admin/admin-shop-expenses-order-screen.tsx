@@ -2,6 +2,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+
+import { SkeletonList, SkeletonLoadingCaption } from "@/components/ui/skeleton";
 import DraggableFlatList, { type RenderItemParams } from "react-native-draggable-flatlist";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -86,12 +88,16 @@ function OrderRow({
 }
 
 function OrderLoadingState({ palette }: { palette: ThemePalette }) {
+  const tone = {
+    base: palette.card,
+    highlight: palette.surfaceMuted,
+    border: palette.border,
+  };
+
   return (
     <View style={[styles.loadingState, { backgroundColor: palette.background }]}>
-      <View style={[styles.loadingIcon, { backgroundColor: palette.card, borderColor: palette.border }]}>
-        <ActivityIndicator size="large" color={palette.primary} />
-      </View>
-      <Text style={[styles.loadingText, { color: palette.textMuted }]}>Loading branch expenses...</Text>
+      <SkeletonList rows={4} tone={tone} label="Loading branch expenses" />
+      <SkeletonLoadingCaption label="Loading branch expenses..." />
     </View>
   );
 }

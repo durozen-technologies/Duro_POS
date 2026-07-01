@@ -24,7 +24,7 @@ except ImportError:  # ponytail: tests/dev without redis sdk still run
     def get_redis_settings():  # type: ignore[misc]
         class _Disabled:
             url = ""
-            key_prefix = "duropos"
+            key_prefix = "brolier360"
 
         return _Disabled()
 
@@ -85,29 +85,33 @@ async def redis_health_status() -> str:
     return "connected"
 
 
+def _redis_key_prefix() -> str:
+    return getattr(get_redis_settings(), "key_prefix", None) or "brolier360"
+
+
 def permission_cache_key(user_id: str, perm_version: int) -> str:
-    prefix = get_redis_settings().key_prefix or "duropos"
+    prefix = _redis_key_prefix()
     return f"{prefix}:perm:{user_id}:{perm_version}"
 
 
 def dashboard_cache_key(organization_id: UUID, *, shop_id: UUID | None = None) -> str:
-    prefix = get_redis_settings().key_prefix or "duropos"
+    prefix = _redis_key_prefix()
     shop_part = str(shop_id) if shop_id else "all"
     return f"{prefix}:org:{organization_id}:dashboard:bootstrap:v1:{shop_part}"
 
 
 def super_org_counts_cache_key() -> str:
-    prefix = get_redis_settings().key_prefix or "duropos"
+    prefix = _redis_key_prefix()
     return f"{prefix}:super:orgs:counts:v1"
 
 
 def org_schema_cache_key(organization_id: UUID) -> str:
-    prefix = get_redis_settings().key_prefix or "duropos"
+    prefix = _redis_key_prefix()
     return f"{prefix}:org:{organization_id}:schema"
 
 
 def login_rate_cache_key(client_ip: str, username: str) -> str:
-    prefix = get_redis_settings().key_prefix or "duropos"
+    prefix = _redis_key_prefix()
     return f"{prefix}:login:{client_ip}:{username.lower()}"
 
 
