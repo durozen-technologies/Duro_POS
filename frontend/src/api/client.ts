@@ -20,6 +20,15 @@ export type ApiError = {
   baseUrl?: string;
 };
 
+const HTTP_ERROR_MAP: Partial<Record<number, string>> = {
+  401: "Invalid username or password. Please try again.",
+  403: "Access denied. Please contact your administrator.",
+  429: "Too many requests. Please wait a moment before retrying.",
+  500: "A server error occurred. Please try again later.",
+  502: "Service temporarily unavailable. Please try again shortly.",
+  503: "Service temporarily unavailable. Please try again shortly.",
+};
+
 type RetryableAxiosConfig = InternalAxiosRequestConfig & {
   _baseUrlCandidates?: string[];
   _remainingBaseUrlFallbacks?: string[];
@@ -534,6 +543,11 @@ function getErrorMessage(error: unknown) {
     });
   }
 
+  const status = error.response.status;
+  if (status && HTTP_ERROR_MAP[status]) {
+    return HTTP_ERROR_MAP[status]!;
+  }
+
   const responseMessage = getResponseMessage(error.response.data);
   if (responseMessage) {
     return responseMessage;
@@ -541,8 +555,19 @@ function getErrorMessage(error: unknown) {
   return error.message || "Request failed";
 }
 
+function getErrorStatus(error: unknown): number | undefined {
+  if (isAxiosError(error)) {
+    return error.response?.status;
+  }
+  if (typeof error === "object" && error !== null && "status" in error) {
+    const status = (error as { status: unknown }).status;
+    return typeof status === "number" ? status : undefined;
+  }
+  return undefined;
+}
+
 export function toApiError(error: unknown): ApiError {
-  const status = isAxiosError(error) ? error.response?.status : undefined;
+  const status = getErrorStatus(error);
   const responseHeaders = isAxiosError(error) ? error.response?.headers : undefined;
   const requestId =
     responseHeaders && typeof responseHeaders === "object"

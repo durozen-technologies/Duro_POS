@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -11,10 +13,12 @@ from test.support import AsyncSessionAdapter, BackendTestCase
 
 from app.auth.tenant_context import user_has_permission
 from app.auth.permission_codes import SHOPS_READ
-from app.models import AdminRole, Organization, Shop, User, UserRole
+from app.models import AdminRole, Bill, BillStatus, Organization, Shop, User, UserRole
+from app.schemas.super_admin.hard_delete import HardDeleteRequest
 from app.schemas.super_admin.organizations import OrganizationCreate
 from app.schemas.super_admin.tenant_admins import TenantAdminCreate
 from app.services.auth import login_user
+from app.services.super_admin import analytics as analytics_service
 from app.services.super_admin import organizations as org_service
 from app.services.super_admin import tenant_admins as tenant_admin_service
 
@@ -203,9 +207,10 @@ class SuperAdminApiTests(BackendTestCase):
                 )
                 self.assertEqual(updated_roles.role_ids, [roles[0].id])
 
-                await tenant_admin_service.delete_tenant_admin(
+                await tenant_admin_service.hard_delete_tenant_admin(
                     adapter,
                     created.id,
+                    HardDeleteRequest(username=super_admin.username, password="password123"),
                     super_admin,
                 )
                 with self.assertRaises(HTTPException) as ctx:
@@ -244,12 +249,163 @@ class SuperAdminApiTests(BackendTestCase):
             with self.harness.session_factory() as session:
                 adapter = AsyncSessionAdapter(session)
                 with self.assertRaises(HTTPException) as ctx:
-                    await tenant_admin_service.delete_tenant_admin(
+                    await tenant_admin_service.hard_delete_tenant_admin(
                         adapter,
                         tenant_admin.id,
+                        HardDeleteRequest(username=super_admin.username, password="password123"),
                         super_admin,
                     )
                 self.assertEqual(ctx.exception.status_code, 409)
+
+        self.run_async(scenario())
+
+    def test_hard_delete_tenant_admin_requires_valid_credentials(self) -> None:
+        async def scenario() -> None:
+            super_admin = await self.harness.create_super_admin_user()
+            org = await self.harness.create_default_organization()
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                tenant_admin = await tenant_admin_service.create_tenant_admin(
+                    adapter,
+                    TenantAdminCreate(
+                        organization_id=org.id,
+                        username="cred.admin",
+                        password="password123",
+                    ),
+                    super_admin,
+                )
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                with self.assertRaises(HTTPException) as ctx:
+                    await tenant_admin_service.hard_delete_tenant_admin(
+                        adapter,
+                        tenant_admin.id,
+                        HardDeleteRequest(username=super_admin.username, password="wrong-password"),
+                        super_admin,
+                    )
+                self.assertEqual(ctx.exception.status_code, 401)
+
+        self.run_async(scenario())
+
+    def test_hard_delete_organization(self) -> None:
+        async def scenario() -> None:
+            super_admin = await self.harness.create_super_admin_user()
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                org = await org_service.create_organization(
+                    adapter,
+                    OrganizationCreate(name="Delete Me Org", slug="delete-me-org"),
+                    super_admin,
+                )
+                await org_service.hard_delete_organization(
+                    adapter,
+                    org.id,
+                    HardDeleteRequest(username=super_admin.username, password="password123"),
+                    super_admin,
+                )
+                with self.assertRaises(HTTPException) as ctx:
+                    await org_service.get_organization_or_404(adapter, org.id)
+                self.assertEqual(ctx.exception.status_code, 404)
+
+        self.run_async(scenario())
+
+    def test_super_admin_billing_overview_is_aggregated_by_org_and_branch(self) -> None:
+        async def scenario() -> None:
+            org = await self.harness.create_default_organization(name="Alpha Org", slug="alpha-org")
+            with self.harness.session_factory() as session:
+                owner_one = User(
+                    username="alpha.shop.one",
+                    password_hash="x",
+                    role=UserRole.SHOP_ACCOUNT,
+                    organization_id=org.id,
+                    is_active=True,
+                )
+                owner_two = User(
+                    username="alpha.shop.two",
+                    password_hash="x",
+                    role=UserRole.SHOP_ACCOUNT,
+                    organization_id=org.id,
+                    is_active=True,
+                )
+                shop_one = Shop(
+                    name="Alpha Branch One",
+                    owner=owner_one,
+                    organization_id=org.id,
+                    is_active=True,
+                )
+                shop_two = Shop(
+                    name="Alpha Branch Two",
+                    owner=owner_two,
+                    organization_id=org.id,
+                    is_active=False,
+                )
+                session.add_all([owner_one, owner_two, shop_one, shop_two])
+                session.commit()
+                session.refresh(shop_one)
+                session.refresh(shop_two)
+
+                now = datetime.now(UTC)
+                session.add_all(
+                    [
+                        Bill(
+                            bill_no="A-001",
+                            shop_id=shop_one.id,
+                            total_amount=Decimal("120.00"),
+                            status=BillStatus.PAID,
+                            created_at=now,
+                        ),
+                        Bill(
+                            bill_no="A-002",
+                            shop_id=shop_one.id,
+                            total_amount=Decimal("90.00"),
+                            status=BillStatus.PAID,
+                            created_at=now - timedelta(days=1),
+                        ),
+                        Bill(
+                            bill_no="A-003",
+                            shop_id=shop_two.id,
+                            total_amount=Decimal("75.00"),
+                            status=BillStatus.PAID,
+                            created_at=now,
+                        ),
+                    ]
+                )
+                session.commit()
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                overview = await analytics_service.get_billing_overview(adapter, period="week")
+
+            self.assertEqual(overview.summary.total_organizations, 1)
+            self.assertEqual(overview.summary.total_branches, 2)
+            self.assertEqual(overview.summary.total_bills_generated, 3)
+            self.assertEqual(overview.summary.bills_generated_today, 2)
+            self.assertEqual(len(overview.organizations), 1)
+            self.assertEqual(overview.organizations[0].organization_name, "Alpha Org")
+            self.assertEqual(overview.organizations[0].branch_count, 2)
+            self.assertEqual(overview.organizations[0].total_bills_generated, 3)
+            self.assertEqual(
+                [(branch.shop_name, branch.bill_count) for branch in overview.organizations[0].branches],
+                [("Alpha Branch One", 2), ("Alpha Branch Two", 1)],
+            )
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                branch_overview = await analytics_service.get_billing_overview(
+                    adapter,
+                    period="week",
+                    organization_id=org.id,
+                    shop_id=shop_one.id,
+                )
+
+            self.assertEqual(branch_overview.summary.total_organizations, 1)
+            self.assertEqual(branch_overview.summary.total_branches, 1)
+            self.assertEqual(branch_overview.summary.total_bills_generated, 2)
+            self.assertEqual(branch_overview.summary.bills_generated_today, 1)
+            self.assertEqual(len(branch_overview.organizations), 1)
+            self.assertEqual(len(branch_overview.organizations[0].branches), 1)
+            self.assertEqual(branch_overview.organizations[0].branches[0].shop_name, "Alpha Branch One")
 
         self.run_async(scenario())
 

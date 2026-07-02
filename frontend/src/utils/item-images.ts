@@ -1,11 +1,27 @@
-import { Image } from "expo-image";
+import { Image, type ImageSource } from "expo-image";
 
-import { resolveApiUrl } from "@/api/client";
+import { getApiAuthHeaders, resolveApiUrl } from "@/api/client";
 
 type ItemImageFields = {
   image_path?: string | null;
   image_thumb_path?: string | null;
 };
+
+const PROTECTED_CATALOG_IMAGE_URI = /\/catalog\/(?:items|inventory-items|expense-items)\/[^/]+\/image(?:\?|$)/;
+
+export function isProtectedCatalogImageUri(uri: string) {
+  return PROTECTED_CATALOG_IMAGE_URI.test(uri);
+}
+
+export function authenticatedImageSource(uri: string): ImageSource {
+  if (!uri) {
+    return { uri: "" };
+  }
+  if (isProtectedCatalogImageUri(uri)) {
+    return { uri, headers: getApiAuthHeaders() };
+  }
+  return { uri };
+}
 
 export function getItemThumbnailUri(item: ItemImageFields) {
   const imagePath = item.image_thumb_path || item.image_path || "";
@@ -24,5 +40,8 @@ export function prefetchItemThumbnails(items: ItemImageFields[], limit = 12) {
   if (urls.length === 0) {
     return;
   }
-  void Image.prefetch(urls, "memory-disk").catch(() => undefined);
+  void Image.prefetch(urls, {
+    cachePolicy: "memory-disk",
+    headers: getApiAuthHeaders(),
+  }).catch(() => undefined);
 }

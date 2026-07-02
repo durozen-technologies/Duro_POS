@@ -156,6 +156,10 @@ def _ensure_item_category_schema(sync_conn: Connection) -> None:
     table_names = set(inspector.get_table_names())
     dialect = sync_conn.dialect.name
 
+    # ponytail: after public cutover, tenant DDL lives in tenant schemas only
+    if dialect == "postgresql" and "items" not in table_names:
+        return
+
     if "item_categories" not in table_names:
         if dialect == "postgresql":
             sync_conn.execute(

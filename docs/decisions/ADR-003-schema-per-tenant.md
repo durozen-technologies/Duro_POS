@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented (2026-07-01) — supersedes the **tenancy** section of [ADR-002](ADR-002-multi-tenant-tenancy-and-rbac.md). ADR-002 RBAC, JWT fields, RustFS prefixes, and bootstrap flows remain in force.
+Implemented (2026-07-01) — **public schema cutover complete** (migration `0034_public_schema_cutover`). Supersedes the **tenancy** section of [ADR-002](ADR-002-multi-tenant-tenancy-and-rbac.md). ADR-002 RBAC, JWT fields, RustFS prefixes, and bootstrap flows remain in force.
 
 ## Date
 
@@ -42,17 +42,19 @@ Cross-schema FKs (e.g. `users.organization_id → public.organizations`, `admin_
 ### Schema naming
 
 - Deterministic: `tenant_` + slug with non-alphanumeric characters replaced by `_`, truncated to 63 characters (PostgreSQL identifier limit).
-- Canonical value stored on `organizations.schema_name`; never derive at runtime without DB confirmation.
+- Canonical value stored on `organizations.schema_name` (**NOT NULL** after cutover); never derive at runtime without DB confirmation.
 - Unique index on `schema_name`.
 
-### Strangler dual-mode (incremental rollout)
+### Public schema cutover (complete)
 
-| `organizations.schema_name` | Mode |
-|----------------------------|------|
-| `NULL` | **Legacy** — `search_path = public`, existing `organization_id` filters |
-| non-`NULL` | **Schema** — `SET search_path TO <schema>, public`; tenant data in tenant schema only |
+`public` is the **super-admin control plane only**. Migration `0034_public_schema_cutover`:
 
-New orgs provisioned after Phase 1 use schema mode. Existing orgs (including `default`) stay legacy until Phase 3 data migration.
+1. Backfills `organizations.schema_name` where missing
+2. Purges tenant rows from `public.users` / `public.audit_logs`
+3. Drops tenant operational table shells from `public`
+4. Sets `organizations.schema_name NOT NULL`
+
+Legacy orgs are migrated with `migrate-tenant-data` before deploying `0034`. Verify with `uv run python scripts/check_public_schema.py`.
 
 ### Session / `search_path`
 
@@ -105,9 +107,9 @@ Resolve shop → org (public) → schema → tenant session before DB access.
 | 1 | Platform migration, `TenantSchemaRouter`, org provisioning for new orgs |
 | 2 | Full Alembic CLI split (`migrate-tenants`, `--schema`) |
 | 3 | Data migration CLI with dry-run |
-| 4 | App layer: `get_tenant_db`, login/auth-index, remove legacy fallbacks |
+| 4 | App layer: `get_tenant_db`, login/auth-index, remove legacy fallbacks — **complete** |
 | 5 | Tenant Alembic `0002` chain; redundant `organization_id` filters removed in hot paths |
-| 6 | Extended isolation tests, docs, CI baseline check |
+| 6 | Extended isolation tests, docs, CI baseline check — **public cutover + `check_public_schema.py`** |
 
 ## Rollback
 

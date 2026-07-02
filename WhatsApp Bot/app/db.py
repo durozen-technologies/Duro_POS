@@ -34,8 +34,7 @@ async def whatsapp_user_scoped_session(phone_number: str):
 
         schema_name = await resolve_schema_for_whatsapp_phone(session, phone_number)
         if schema_name is None:
-            yield session
-            return
+            raise LookupError(f"No tenant schema for WhatsApp user {phone_number}")
         await set_search_path(session, schema_name)
         try:
             yield session

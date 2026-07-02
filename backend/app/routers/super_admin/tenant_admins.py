@@ -1,11 +1,12 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_super_admin_context
 from app.db.session import get_platform_db
+from app.schemas.super_admin.hard_delete import HardDeleteRequest
 from app.schemas.super_admin.tenant_admins import (
     TenantAdminCounts,
     TenantAdminCreate,
@@ -67,6 +68,25 @@ async def get_tenant_admin(
     ctx=Depends(get_super_admin_context),
 ) -> TenantAdminRead:
     return await tenant_admin_service.get_tenant_admin(db, user_id)
+
+
+@router.post("/tenant-admins/{user_id}/hard-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def hard_delete_tenant_admin(
+    user_id: UUID,
+    payload: HardDeleteRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_platform_db),
+    ctx=Depends(get_super_admin_context),
+) -> Response:
+    client_ip = request.client.host if request.client else None
+    await tenant_admin_service.hard_delete_tenant_admin(
+        db,
+        user_id,
+        payload,
+        ctx.actor,
+        client_ip=client_ip,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/tenant-admins/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

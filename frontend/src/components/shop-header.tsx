@@ -79,7 +79,7 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
         <TouchableWithoutFeedback onPress={closeMenu}>
           <View className="flex-1 bg-black/20">
             <TouchableWithoutFeedback>
-              <View className="absolute right-5 top-16 w-[280px] overflow-hidden rounded-card border border-border bg-card shadow-float">
+              <View className="absolute right-5 top-16 w-[320px] overflow-hidden rounded-card border border-border bg-card shadow-float">
                 <MenuItem
                   icon="warehouse"
                   label={t("inventory.title")}
@@ -95,7 +95,7 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
                   label={t("header.printerSetup")}
                   onPress={() => handleMenuAction(onPrinter)}
                 />
-                <View className="border-t border-border p-3">
+                <View className="border-t border-border p-4">
                   <Button label={t("action.logout")} onPress={() => handleMenuAction(onLogout)} variant="danger" />
                 </View>
               </View>
@@ -121,11 +121,11 @@ function MenuItem({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      className="min-h-12 flex-row items-center gap-4 border-b border-border/70 px-4"
+      className="min-h-16 flex-row items-center gap-4 border-b border-border/70 px-5"
     >
-      <MaterialCommunityIcons name={icon} size={22} color="#0F7642" />
-      <Text className="flex-1 text-base font-semibold text-ink">{label}</Text>
-      <MaterialCommunityIcons name="chevron-right" size={22} color="#4B6356" />
+      <MaterialCommunityIcons name={icon} size={26} color="#0F7642" />
+      <Text className="flex-1 text-lg font-bold text-ink">{label}</Text>
+      <MaterialCommunityIcons name="chevron-right" size={26} color="#4B6356" />
     </Pressable>
   );
 }

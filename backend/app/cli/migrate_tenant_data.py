@@ -60,11 +60,15 @@ async def _load_orgs(
         await async_engine.dispose()
 
 
-def migrate_tenant_data_main(argv: list[str] | None = None) -> None:
+async def run_migrate_tenant_data(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="app.cli migrate-tenant-data")
     parser.add_argument("--org-id", type=UUID, default=None)
     parser.add_argument("--slug", default=None)
-    parser.add_argument("--all-legacy", action="store_true")
+    parser.add_argument(
+        "--all-legacy",
+        action="store_true",
+        help="Migrate all organizations with schema_name IS NULL",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument(
@@ -77,31 +81,32 @@ def migrate_tenant_data_main(argv: list[str] | None = None) -> None:
     if not args.dry_run and not args.execute:
         parser.error("Pass --dry-run and/or --execute")
 
-    async def run() -> None:
-        orgs = await _load_orgs(
-            org_id=args.org_id,
-            slug=args.slug,
-            all_legacy=args.all_legacy,
-        )
-        engine = create_engine(_sync_database_url(), future=True)
-        try:
-            for org in orgs:
-                report = migrate_organization_data(
-                    engine,
-                    org,
-                    dry_run=args.dry_run and not args.execute,
-                    execute=args.execute,
-                )
-                print(format_report(report))
-                if args.execute and not report.ok:
-                    raise SystemExit(1)
-            if args.cleanup_public_backups and args.execute:
-                dropped = cleanup_public_migrated_backups(engine)
-                print(f"cleanup_public_backups: dropped {dropped} table(s)")
-        finally:
-            engine.dispose()
+    orgs = await _load_orgs(
+        org_id=args.org_id,
+        slug=args.slug,
+        all_legacy=args.all_legacy,
+    )
+    engine = create_engine(_sync_database_url(), future=True)
+    try:
+        for org in orgs:
+            report = migrate_organization_data(
+                engine,
+                org,
+                dry_run=args.dry_run and not args.execute,
+                execute=args.execute,
+            )
+            print(format_report(report))
+            if args.execute and not report.ok:
+                raise SystemExit(1)
+        if args.cleanup_public_backups and args.execute:
+            dropped = cleanup_public_migrated_backups(engine)
+            print(f"cleanup_public_backups: dropped {dropped} table(s)")
+    finally:
+        engine.dispose()
 
-    asyncio.run(run())
+
+def migrate_tenant_data_main(argv: list[str] | None = None) -> None:
+    asyncio.run(run_migrate_tenant_data(argv))
     asyncio.run(close_database_connections())
 
 

@@ -29,14 +29,14 @@ import { toApiError } from "@/api/client";
 import {
   BaseUnit,
   UnitType,
+  type InventoryBillingItemMappingRead,
   type InventoryBillingItemMappingWrite,
   type InventoryCategoryRead,
   type InventoryItemRead,
-  type InventoryBillingItemMappingRead,
   type ShopItemRead,
   type UUID,
 } from "@/types/api";
-import { getItemThumbnailUri } from "@/utils/item-images";
+import { authenticatedImageSource, getItemThumbnailUri } from "@/utils/item-images";
 
 import type { AdminInventoryItemEditorScreenProps } from "@/navigation/types";
 import type { ThemePalette } from "./admin-dashboard-theme";
@@ -400,7 +400,7 @@ export function AdminInventoryItemEditorScreen({
           <>
             <View style={[styles.imagePanel, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
               {currentImageUri ? (
-                <Image source={{ uri: currentImageUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                <Image source={authenticatedImageSource(currentImageUri)} style={StyleSheet.absoluteFill} contentFit="cover" />
               ) : (
                 <MaterialCommunityIcons name="image-plus" size={30} color={palette.textMuted} />
               )}

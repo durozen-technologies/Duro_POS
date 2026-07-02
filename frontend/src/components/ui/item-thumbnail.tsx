@@ -3,6 +3,8 @@ import { Image } from "expo-image";
 import type { ComponentProps } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 
+import { authenticatedImageSource } from "@/utils/item-images";
+
 type IconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
 
 export function ItemThumbnail({
@@ -45,7 +47,7 @@ export function ItemThumbnail({
     >
       {uri ? (
         <Image
-          source={{ uri }}
+          source={authenticatedImageSource(uri)}
           contentFit="cover"
           cachePolicy="memory-disk"
           recyclingKey={`${recyclingKey}:${uri}`}

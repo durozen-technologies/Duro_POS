@@ -64,6 +64,9 @@ const getLoginScreen = () => require("@/screens/auth/login-screen").LoginScreen;
 const getSuperAdminDashboardScreen = () =>
   require("@/screens/super-admin/super-admin-dashboard-screen")
     .SuperAdminDashboardScreen;
+const getSuperAdminBillingOverviewScreen = () =>
+  require("@/screens/super-admin/super-admin-billing-overview-screen")
+    .SuperAdminBillingOverviewScreen;
 const getSuperAdminOrgsScreen = () =>
   require("@/screens/super-admin/super-admin-orgs-screen").SuperAdminOrgsScreen;
 const getSuperAdminOrgEditScreen = () =>
@@ -74,6 +77,9 @@ const getSuperAdminAdminsScreen = () =>
 const getSuperAdminAuditScreen = () =>
   require("@/screens/super-admin/super-admin-audit-screen")
     .SuperAdminAuditScreen;
+const getSuperAdminHardDeleteScreen = () =>
+  require("@/screens/super-admin/super-admin-hard-delete-screen")
+    .SuperAdminHardDeleteScreen;
 const getAdminDashboardScreen = () =>
   require("@/screens/admin/admin-dashboard-screen").AdminDashboardScreen;
 const getAdminItemsCatalogueScreen = () =>
@@ -102,6 +108,9 @@ const getAdminExpensesScreen = () =>
 const getAdminShopExpensesOrderScreen = () =>
   require("@/screens/admin/admin-shop-expenses-order-screen")
     .AdminShopExpensesOrderScreen;
+const getAdminExpenseItemEditorScreen = () =>
+  require("@/screens/admin/admin-expense-item-editor-screen")
+    .AdminExpenseItemEditorScreen;
 const getAdminInventoryItemEditorScreen = () =>
   require("@/screens/admin/admin-inventory-item-editor-screen")
     .AdminInventoryItemEditorScreen;
@@ -226,6 +235,11 @@ function SuperAdminStack() {
         options={HEADER_HIDDEN_OPTIONS}
       />
       <Stack.Screen
+        name="SuperAdminBillingOverview"
+        getComponent={getSuperAdminBillingOverviewScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
         name="SuperAdminOrgs"
         getComponent={getSuperAdminOrgsScreen}
         options={HEADER_HIDDEN_OPTIONS}
@@ -243,6 +257,11 @@ function SuperAdminStack() {
       <Stack.Screen
         name="SuperAdminAudit"
         getComponent={getSuperAdminAuditScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="SuperAdminHardDelete"
+        getComponent={getSuperAdminHardDeleteScreen}
         options={HEADER_HIDDEN_OPTIONS}
       />
     </Stack.Navigator>
@@ -314,6 +333,11 @@ function AdminStack() {
       <Stack.Screen
         name="AdminShopExpensesOrder"
         getComponent={getAdminShopExpensesOrderScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="AdminExpenseItemEditor"
+        getComponent={getAdminExpenseItemEditorScreen}
         options={HEADER_HIDDEN_OPTIONS}
       />
       <Stack.Screen

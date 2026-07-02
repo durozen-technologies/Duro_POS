@@ -97,8 +97,11 @@ class AsyncSessionAdapter:
     async def refresh(self, instance: Any) -> None:
         self._session.refresh(instance)
 
-    async def flush(self) -> None:
-        self._session.flush()
+    async def flush(self, objects: list[Any] | None = None) -> None:
+        if objects is None:
+            self._session.flush()
+        else:
+            self._session.flush(objects)
 
     def get_bind(self, *args: Any, **kwargs: Any) -> Any:
         return self._session.get_bind(*args, **kwargs)

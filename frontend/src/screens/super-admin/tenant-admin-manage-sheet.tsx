@@ -28,7 +28,7 @@ type TenantAdminManageSheetProps = {
   ) => Promise<void>;
   onResetPassword: (admin: TenantAdminRead, password: string) => Promise<void>;
   onUpdateRoles: (admin: TenantAdminRead, roleIds: string[]) => Promise<void>;
-  onDelete: (admin: TenantAdminRead) => Promise<void>;
+  onDelete: (admin: TenantAdminRead) => void;
 };
 
 function formatTimestamp(value?: string | null) {
@@ -110,22 +110,8 @@ export function TenantAdminManageSheet({
   };
 
   const confirmDelete = () => {
-    Alert.alert(
-      "Delete Admin",
-      `Permanently delete ${admin.username}? This cannot be undone.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () =>
-            void runAction("delete", async () => {
-              await onDelete(admin);
-              onClose();
-            }),
-        },
-      ],
-    );
+    onClose();
+    onDelete(admin);
   };
 
   const toggleRole = (roleId: string) => {
@@ -379,7 +365,7 @@ export function TenantAdminManageSheet({
                   <ActivityIndicator color="#DC2626" />
                 ) : (
                   <Text className="text-sm font-semibold text-danger">
-                    Delete Admin
+                    Hard Delete Admin
                   </Text>
                 )}
               </Pressable>

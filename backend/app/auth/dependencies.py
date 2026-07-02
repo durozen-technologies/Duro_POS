@@ -16,9 +16,10 @@ from app.core.errors import (
 from app.core.security import decode_access_token
 from app.db.session import get_platform_db
 from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
-from app.db.tenant_schema import set_search_path, tenant_router
+from app.db.tenant_schema import set_search_path, tenant_router, tenant_schema_scope
 from app.models import Organization, Shop, User, UserRole
 from app.models.enums import is_super_admin, is_tenant_admin, parse_user_role
+from app.auth.tenant_shop import shop_for_user as _shop_for_user
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -30,15 +31,16 @@ def _role_allowed(current_role: UserRole, allowed: tuple[UserRole, ...]) -> bool
     return normalized in allowed
 
 
-async def _load_user_with_relations(db: AsyncSession, user_id: UUID) -> User | None:
+async def _load_platform_user(db: AsyncSession, user_id: UUID) -> User | None:
     return await db.scalar(
         select(User)
-        .options(
-            selectinload(User.shop).selectinload(Shop.organization),
-            selectinload(User.organization),
-        )
+        .options(selectinload(User.organization))
         .where(User.id == user_id)
     )
+
+
+async def _load_tenant_user_with_relations(db: AsyncSession, user_id: UUID) -> User | None:
+    return await db.scalar(select(User).options(selectinload(User.organization)).where(User.id == user_id))
 
 
 async def get_current_user(
@@ -66,7 +68,7 @@ async def get_current_user(
         raise credentials_exception from exc
 
     if org_id is None:
-        user = await _load_user_with_relations(platform_db, user_id)
+        user = await _load_platform_user(platform_db, user_id)
         if user is None or user.organization_id is not None:
             raise credentials_exception
         return user
@@ -78,21 +80,17 @@ async def get_current_user(
     token = set_active_tenant_schema(schema_name)
     try:
         await set_search_path(platform_db, schema_name)
-        user = await _load_user_with_relations(platform_db, user_id)
+        user = await _load_tenant_user_with_relations(platform_db, user_id)
         if user is None:
             raise credentials_exception
         return user
     finally:
         reset_active_tenant_schema(token)
+        await set_search_path(platform_db, None)
 
 
 async def _ensure_org_active_for_user(db: AsyncSession, user: User) -> None:
-    org_id: UUID | None = None
-    if is_tenant_admin(user.role):
-        org_id = user.organization_id
-    elif user.role == UserRole.SHOP_ACCOUNT and user.shop is not None:
-        org_id = user.shop.organization_id
-
+    org_id = user.organization_id
     if org_id is None:
         return
 
@@ -115,14 +113,23 @@ async def get_current_active_user(
             else "User account is inactive"
         )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
-    if (
-        current_user.role == UserRole.SHOP_ACCOUNT
-        and current_user.shop
-        and not current_user.shop.is_active
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
-        )
+    if current_user.role == UserRole.SHOP_ACCOUNT:
+        org_id = current_user.organization_id
+        if org_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
+            )
+        schema_name = await tenant_router.resolve_schema(platform_db, org_id)
+        if schema_name is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
+            )
+        async with tenant_schema_scope(platform_db, schema_name):
+            shop = await _shop_for_user(platform_db, current_user)
+            if shop is None or not shop.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Shop account is disabled"
+                )
     await _ensure_org_active_for_user(platform_db, current_user)
     return current_user
 
@@ -144,8 +151,16 @@ def require_tenant_admin() -> Callable[[User], User]:
 
 async def get_current_shop(
     current_user: User = Depends(require_roles(UserRole.SHOP_ACCOUNT)),
+    platform_db: AsyncSession = Depends(get_platform_db),
 ) -> Shop:
-    shop = current_user.shop
+    org_id = current_user.organization_id
+    if org_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop account not linked")
+    schema_name = await tenant_router.resolve_schema(platform_db, org_id)
+    if schema_name is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop account not linked")
+    async with tenant_schema_scope(platform_db, schema_name):
+        shop = await _shop_for_user(platform_db, current_user)
     if shop is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shop account not linked")
     if not shop.is_active:

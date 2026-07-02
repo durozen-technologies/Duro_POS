@@ -293,7 +293,7 @@ resolve_image_tags() {
 run_migrations() {
   local image_tag="${1:-${BACKEND_IMAGE_TAG:-latest}}"
   log "Running backend database migrations (image tag=${image_tag})"
-  BACKEND_IMAGE_TAG="${image_tag}" run_compose run --rm --no-deps backend python migrate.py
+  BACKEND_IMAGE_TAG="${image_tag}" run_compose run --rm --no-deps backend python migrate.py --tenants
 }
 
 backend_health_http_probe() {

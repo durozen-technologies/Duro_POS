@@ -30,6 +30,7 @@ import {
   updateShopItemMetadata,
 } from "@/api/admin";
 import { isApiRequestCanceled, resolveApiUrl, toApiError } from "@/api/client";
+import { authenticatedImageSource } from "@/utils/item-images";
 import {
   BaseUnit,
   UnitType,
@@ -900,7 +901,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
               <View style={[styles.imagePreview, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
                 {currentImageUri ? (
                   <Image
-                    source={{ uri: currentImageUri }}
+                    source={authenticatedImageSource(currentImageUri)}
                     contentFit="cover"
                     recyclingKey={currentImageUri}
                     style={StyleSheet.absoluteFill}

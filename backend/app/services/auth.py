@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.tenant_context import load_user_permissions, session_role_for_user
+from app.auth.tenant_shop import shop_for_user as _shop_for_user
 from app.core.config import get_settings
 from app.core.errors import (
     ACCOUNT_DISABLED_BY_SUPER_ADMIN,
@@ -22,10 +23,14 @@ from app.core.security import (
     verify_password,
 )
 from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
-from app.db.tenant_schema import derive_schema_name, set_search_path, tenant_router
+from app.db.tenant_schema import (
+    is_postgres_session,
+    set_search_path,
+    tenant_router,
+    tenant_schema_scope,
+)
 from app.models import DailyPrice, Item, Organization, Shop, ShopItemAllocation, User, UserAuthIndex, UserRole
 from app.models.enums import is_super_admin, is_tenant_admin
-from app.services.super_admin.organizations import _provision_schema_for_org
 from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 from app.schemas.auth import (
     LoginResponse,
@@ -37,7 +42,6 @@ from app.schemas.auth import (
 )
 
 logger = logging.getLogger(__name__)
-DEFAULT_ORG_SLUG = "default"
 LOGIN_RATE_LIMIT = 10
 LOGIN_RATE_TTL_SECONDS = 15 * 60
 
@@ -95,12 +99,11 @@ async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
     return bool(has_missing_today_price)
 
 
-async def _resolve_next_screen(db: AsyncSession, user: User) -> str:
+async def _resolve_next_screen(db: AsyncSession, user: User, shop: Shop | None) -> str:
     if is_super_admin(user.role):
         return "super_admin_dashboard"
     if is_tenant_admin(user.role):
         return "admin_dashboard"
-    shop = user.shop
     if user.role == UserRole.SHOP_ACCOUNT and shop is not None:
         if await _requires_price_setup(db, shop.id):
             return "daily_price_setup"
@@ -108,9 +111,10 @@ async def _resolve_next_screen(db: AsyncSession, user: User) -> str:
     return "admin_dashboard"
 
 
-async def _organization_name_for_user(platform_db: AsyncSession, user: User) -> str | None:
+async def _organization_name_for_user(
+    platform_db: AsyncSession, user: User, shop: Shop | None
+) -> str | None:
     org_id = user.organization_id
-    shop = user.shop
     if org_id is None and shop is not None:
         org_id = shop.organization_id
     if org_id is None:
@@ -123,14 +127,14 @@ async def build_user_session(
     tenant_db: AsyncSession, platform_db: AsyncSession, user: User
 ) -> UserSession:
     """Build the authenticated-session payload for login and ``/me``."""
-    shop = user.shop
+    shop = await _shop_for_user(tenant_db, user)
     requires_price_setup = False
-    if user.role == UserRole.SHOP_ACCOUNT and shop is not None:
+    if shop is not None:
         requires_price_setup = await _requires_price_setup(tenant_db, shop.id)
 
     permissions = sorted(await load_user_permissions(tenant_db, user))
-    next_screen = await _resolve_next_screen(tenant_db, user)
-    organization_name = await _organization_name_for_user(platform_db, user)
+    next_screen = await _resolve_next_screen(tenant_db, user, shop)
+    organization_name = await _organization_name_for_user(platform_db, user, shop)
 
     return UserSession(
         id=user.id,
@@ -184,7 +188,7 @@ async def _validate_login_eligibility(
             )
 
     if user.role == UserRole.SHOP_ACCOUNT:
-        shop = user.shop
+        shop = await _shop_for_user(tenant_db, user)
         if shop is None or not shop.is_active:
             log_event(
                 logger,
@@ -206,24 +210,15 @@ async def _validate_login_eligibility(
 
 
 async def _load_tenant_user(
-    platform_db: AsyncSession,
+    db: AsyncSession,
     *,
-    schema_name: str,
     user_id: UUID,
 ) -> User | None:
-    token = set_active_tenant_schema(schema_name)
-    try:
-        await set_search_path(platform_db, schema_name)
-        return await platform_db.scalar(
-            select(User)
-            .options(
-                selectinload(User.shop).selectinload(Shop.organization),
-                selectinload(User.organization),
-            )
-            .where(User.id == user_id)
-        )
-    finally:
-        reset_active_tenant_schema(token)
+    return await db.scalar(
+        select(User)
+        .options(selectinload(User.organization))
+        .where(User.id == user_id)
+    )
 
 
 async def login_user(
@@ -238,14 +233,11 @@ async def login_user(
     await _check_login_rate_limit(client_ip, normalized_username)
 
     user: User | None = None
-    tenant_db = platform_db
+    tenant_schema_name: str | None = None
 
     super_admin = await platform_db.scalar(
         select(User)
-        .options(
-            selectinload(User.shop).selectinload(Shop.organization),
-            selectinload(User.organization),
-        )
+        .options(selectinload(User.organization))
         .where(
             func.lower(User.username) == normalized_username,
             User.role == UserRole.SUPER_ADMIN,
@@ -266,11 +258,11 @@ async def login_user(
                 auth_entry = None
 
         if auth_entry is not None:
-            candidate = await _load_tenant_user(
-                platform_db, schema_name=auth_entry.schema_name, user_id=auth_entry.user_id
-            )
-            if candidate is not None and verify_password(password, candidate.password_hash):
-                user = candidate
+            tenant_schema_name = auth_entry.schema_name
+            async with tenant_schema_scope(platform_db, tenant_schema_name):
+                candidate = await _load_tenant_user(platform_db, user_id=auth_entry.user_id)
+                if candidate is not None and verify_password(password, candidate.password_hash):
+                    user = candidate
 
     if user is None:
         await _record_login_failure(client_ip, normalized_username)
@@ -286,24 +278,28 @@ async def login_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
         )
 
-    await _validate_login_eligibility(tenant_db, platform_db, user, normalized_username)
+    async def _finish_login(db: AsyncSession) -> LoginResponse:
+        await _validate_login_eligibility(db, platform_db, user, normalized_username)
+        token = create_access_token_for_user(user)
+        session = await build_user_session(db, platform_db, user)
+        user.last_login_at = datetime.now(UTC)
+        await db.flush()
+        await db.commit()
+        log_event(
+            logger,
+            logging.INFO,
+            "login_succeeded",
+            "login succeeded",
+            user_id=str(user.id),
+            role=user.role.value,
+        )
+        return LoginResponse(access_token=token, user=session)
 
-    user.last_login_at = datetime.now(UTC)
-    await tenant_db.flush()
-    await tenant_db.commit()
+    if tenant_schema_name:
+        async with tenant_schema_scope(platform_db, tenant_schema_name):
+            return await _finish_login(platform_db)
 
-    log_event(
-        logger,
-        logging.INFO,
-        "login_succeeded",
-        "login succeeded",
-        user_id=str(user.id),
-        role=user.role.value,
-    )
-
-    token = create_access_token_for_user(user)
-    session = await build_user_session(tenant_db, platform_db, user)
-    return LoginResponse(access_token=token, user=session)
+    return await _finish_login(platform_db)
 
 
 async def reset_password_for_dev(
@@ -353,27 +349,27 @@ async def register_admin(platform_db: AsyncSession, payload: RegisterRequest) ->
             detail="Admin registration is already completed",
         )
 
-    default_org = await platform_db.scalar(
-        select(Organization).where(Organization.slug == DEFAULT_ORG_SLUG)
-    )
-    if default_org is None:
-        schema_name = derive_schema_name(DEFAULT_ORG_SLUG)
-        default_org = Organization(
-            name="Brolier 360 Default",
-            slug=DEFAULT_ORG_SLUG,
-            schema_name=schema_name,
-            is_active=True,
+    if not await is_postgres_session(platform_db):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin registration requires PostgreSQL",
         )
-        platform_db.add(default_org)
-        await platform_db.flush()
-        await _provision_schema_for_org(platform_db, default_org, schema_name)
-    elif default_org.schema_name is None:
-        default_org.schema_name = derive_schema_name(DEFAULT_ORG_SLUG)
-        await _provision_schema_for_org(platform_db, default_org, default_org.schema_name)
 
-    token = set_active_tenant_schema(default_org.schema_name)
+    target_org = await platform_db.scalar(
+        select(Organization)
+        .where(Organization.schema_name.is_not(None))
+        .order_by(Organization.created_at)
+        .limit(1)
+    )
+    if target_org is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Create an organization via super admin before registering a tenant admin",
+        )
+
+    token = set_active_tenant_schema(target_org.schema_name)
     try:
-        await set_search_path(platform_db, default_org.schema_name)
+        await set_search_path(platform_db, target_org.schema_name)
         if await username_is_globally_taken(platform_db, payload.username):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -384,21 +380,21 @@ async def register_admin(platform_db: AsyncSession, payload: RegisterRequest) ->
             username=payload.username,
             password_hash=get_password_hash(payload.password),
             role=UserRole.TENANT_ADMIN,
-            organization_id=default_org.id,
+            organization_id=target_org.id,
             is_active=True,
         )
         platform_db.add(user)
         await platform_db.flush()
-        await upsert_auth_index(platform_db, user=user, schema_name=default_org.schema_name)
+        await upsert_auth_index(platform_db, user=user, schema_name=target_org.schema_name)
         await platform_db.commit()
         await platform_db.refresh(user)
     finally:
         reset_active_tenant_schema(token)
 
     access = create_access_token_for_user(user)
-    ctx_token = set_active_tenant_schema(default_org.schema_name)
+    ctx_token = set_active_tenant_schema(target_org.schema_name)
     try:
-        await set_search_path(platform_db, default_org.schema_name)
+        await set_search_path(platform_db, target_org.schema_name)
         session = await build_user_session(platform_db, platform_db, user)
     finally:
         reset_active_tenant_schema(ctx_token)

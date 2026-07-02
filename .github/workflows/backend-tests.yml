@@ -37,6 +37,9 @@ jobs:
       - name: Tenant baseline table check
         run: python scripts/check_tenant_baseline.py
 
+      - name: Public schema contract check
+        run: python scripts/check_public_schema.py
+
       - name: Run unit tests
         run: |
           cd ..

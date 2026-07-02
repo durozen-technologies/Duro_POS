@@ -206,8 +206,8 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
               onSubmitEditing={() => void addCategory()}
             />
             <CategoryButton
-              label={creating ? "Adding" : "Add"}
-              icon="plus"
+              label={creating ? "Adding" : "Save"}
+              icon="folder-plus"
               palette={palette}
               tone="success"
               active

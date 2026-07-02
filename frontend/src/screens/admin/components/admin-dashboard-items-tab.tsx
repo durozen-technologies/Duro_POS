@@ -15,6 +15,7 @@ import {
 } from "tamagui";
 
 import { resolveApiUrl } from "@/api/client";
+import { authenticatedImageSource } from "@/utils/item-images";
 import {
   BaseUnit,
   UnitType,
@@ -526,7 +527,7 @@ const ImagePreview = memo(function ImagePreview({ uri, palette }: { uri: string;
 
   return (
     <Stack width="100%" aspectRatio={1} borderRadius={22} overflow="hidden" borderWidth={1} borderColor={palette.border}>
-      <Image source={{ uri }} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+      <Image source={authenticatedImageSource(uri)} contentFit="cover" style={{ width: "100%", height: "100%" }} />
     </Stack>
   );
 });

@@ -98,11 +98,6 @@ function movementOccurredAtForSave(
   if (!policy?.allow_shop_backdated_inventory) {
     return undefined;
   }
-  const todayLocal = toDateInputValue(new Date());
-  // ponytail: only send occurred_at for prior local dates; today uses server now and avoids timezone 422s
-  if (movementDate >= todayLocal) {
-    return undefined;
-  }
   return buildOccurredAtPayload(movementDate, movementTime) ?? undefined;
 }
 
@@ -721,6 +716,13 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           setItems(visibleStockRows(result.summary.items));
         } else {
           setItems((currentItems) => patchInventoryRow(currentItems, changedItem));
+        }
+      }
+      if (occurredAt) {
+        setHistoryDate(movementDate);
+        if (historyMode === "range") {
+          setHistoryRangeStart(movementDate);
+          setHistoryRangeEnd(movementDate);
         }
       }
       if (historyOpen) {

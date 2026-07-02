@@ -15,7 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.redis_cache import cache_get_json, cache_set_json, org_schema_cache_key
-from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
+from app.db.tenant_context_var import (
+    get_active_tenant_schema,
+    reset_active_tenant_schema,
+    set_active_tenant_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +63,7 @@ def assert_safe_schema_name(schema_name: str) -> str:
 
 
 async def set_search_path(session: AsyncSession, schema_name: str | None) -> None:
-    # ponytail: schema-per-tenant is Postgres-only; SQLite tests skip search_path
-    if not is_postgres_database():
+    if not await is_postgres_session(session):
         return
     await session.execute(text("RESET search_path"))
     if schema_name:
@@ -81,7 +84,7 @@ async def tenant_schema_scope(
         yield
     finally:
         reset_active_tenant_schema(token)
-        await set_search_path(session, None)
+        await set_search_path(session, get_active_tenant_schema())
 
 
 async def resolve_org_schema(session: AsyncSession, organization_id: UUID) -> str:
@@ -201,7 +204,6 @@ def list_tenant_schema_names_from_db(schema_filter: str | None = None) -> list[s
 
     Sources (unioned when unfiltered):
     - organizations.schema_name (when public.organizations exists)
-    - derive_schema_name(slug) for legacy orgs with schema_name IS NULL
     - existing information_schema schemata named tenant_*
     Explicit --schema is honored without an organizations row.
     """
@@ -230,11 +232,6 @@ def list_tenant_schema_names_from_db(schema_filter: str | None = None) -> list[s
                         )
                     ).scalars()
                 )
-                legacy_slugs = conn.execute(
-                    text("SELECT slug FROM organizations WHERE schema_name IS NULL")
-                ).scalars()
-                for slug in legacy_slugs:
-                    names.add(derive_schema_name(slug))
             names.update(
                 conn.execute(
                     text(

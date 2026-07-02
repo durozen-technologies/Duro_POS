@@ -26,6 +26,7 @@ from app.models import (
     ItemChangeEvent,
     Payment,
     Shop,
+    TransferShop,
     UnitType,
     User,
 )
@@ -111,6 +112,7 @@ from app.routers.shop import (
     shop_inventory_backdate_policy,
     shop_inventory_movements,
     today_prices,
+    transfer_inventory_stock,
     use_inventory_stock,
 )
 from app.schemas.admin import (
@@ -157,6 +159,8 @@ from app.schemas.inventory import (
 )
 from app.schemas.inventory_policy import InventoryBackdatePolicyUpdate
 from app.schemas.pricing import DailyPriceCreate, DailyPriceEntry, DailyPriceUpdate
+from app.schemas.transfer import InventoryTransferCreate
+from app.services.transfer import list_inventory_transfers
 
 
 async def _read_streaming_response_body(body_iterator: AsyncIterable[bytes | str]) -> bytes:
@@ -2427,6 +2431,37 @@ class BackendApiIntegrationTests(BackendTestCase):
                     limit=30,
                 )
                 self.assertEqual(len(history.items), 1)
+
+                destination = TransferShop(
+                    name="Outside Branch",
+                    tamil_name="வெளி கிளை",
+                    organization_id=current_shop.organization_id,
+                    is_active=True,
+                )
+                session.add(destination)
+                session.flush()
+
+                transfer_result = await transfer_inventory_stock(
+                    item.id,
+                    InventoryTransferCreate(
+                        transfer_shop_id=destination.id,
+                        quantity=Decimal("2"),
+                        occurred_at=yesterday,
+                    ),
+                    shop=current_shop,
+                    actor=shop_user,
+                    db=db,
+                )
+                self.assertEqual(transfer_result.occurred_at.date(), yesterday.date())
+
+                transfer_history = await list_inventory_transfers(
+                    db,
+                    source_shop_id=current_shop.id,
+                    reference_date=yesterday.date(),
+                    limit=30,
+                )
+                self.assertEqual(len(transfer_history.items), 1)
+                self.assertEqual(transfer_history.items[0].id, transfer_result.id)
 
                 with self.assertRaises(HTTPException) as use_denied:
                     await use_inventory_stock(

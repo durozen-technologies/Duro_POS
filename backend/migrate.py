@@ -84,9 +84,9 @@ def main(argv: list[str] | None = None) -> None:
         run_schema_migrations()
         asyncio.run(run_async_migration_phase(run_database_startup_tasks))
 
-    if args.repair_tenant_ddl and args.tenants_only:
+    if args.repair_tenant_ddl:
         run_all_tenant_ddl_repairs(schema_filter=args.schema)
-    else:
+    elif args.tenants or args.tenants_only:
         run_all_tenant_migrations(schema_filter=args.schema)
 
     if not args.tenants_only:

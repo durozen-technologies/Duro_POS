@@ -45,6 +45,7 @@ import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { useApiConnection } from "@/hooks/use-api-connection";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { AdminExpensesScreenProps } from "@/navigation/types";
+import { useFocusEffect } from "@react-navigation/native";
 import type {
   ExpenseEntryRead,
   ExpenseItemCounts,
@@ -72,6 +73,7 @@ import {
   triggerHaptic,
 } from "./admin-dashboard-utils";
 import { AdminHeaderActions } from "./components/admin-header-actions";
+import { AdminTextField } from "@/screens/admin/components/admin-text-field";
 import { useAdminTheme } from "./use-admin-theme";
 
 type ExpenseTab = "items" | "allocation" | "history";
@@ -547,32 +549,7 @@ function AdminLoadingState({
   );
 }
 
-function AdminTextField({
-  label,
-  palette,
-  ...props
-}: TextInputProps & {
-  label: string;
-  palette: ThemePalette;
-}) {
-  return (
-    <View style={styles.adminField}>
-      <Text style={[styles.adminFieldLabel, { color: palette.textMuted }]}>{label}</Text>
-      <TextInput
-        autoCorrect={false}
-        underlineColorAndroid="transparent"
-        selectionColor={palette.primary}
-        cursorColor={palette.primary}
-        placeholderTextColor={palette.textMuted}
-        style={[
-          styles.adminFieldInput,
-          { backgroundColor: palette.surfaceMuted, borderColor: palette.border, color: palette.textPrimary },
-        ]}
-        {...props}
-      />
-    </View>
-  );
-}
+
 
 function CountStrip({ counts, palette }: { counts: ExpenseItemCounts; palette: ReturnType<typeof useAdminTheme>["palette"] }) {
   return (
@@ -1607,9 +1584,11 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
     void loadShops();
   }, [loadShops]);
 
-  useEffect(() => {
-    void loadItems();
-  }, [loadItems]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadItems();
+    }, [loadItems])
+  );
 
   useEffect(() => {
     if (activeTab === "allocation") {
@@ -1624,30 +1603,12 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
   }, [activeTab, loadHistory]);
 
   const openCreateEditor = useCallback(() => {
-    setEditingItem(null);
-    setNameDraft("");
-    setTamilNameDraft("");
-    void deleteImageDraftFile(imageDraft);
-    setImageDraft(null);
-    setRemoveImageRequested(false);
-    setImageError(null);
-    setImageStatus(null);
-    setActiveDraft(true);
-    setEditorOpen(true);
-  }, [imageDraft]);
+    navigation.navigate("AdminExpenseItemEditor");
+  }, [navigation]);
 
   const openEditEditor = useCallback((item: ExpenseItemRead) => {
-    setEditingItem(item);
-    setNameDraft(item.name);
-    setTamilNameDraft(item.tamil_name);
-    void deleteImageDraftFile(imageDraft);
-    setImageDraft(null);
-    setRemoveImageRequested(false);
-    setImageError(null);
-    setImageStatus(null);
-    setActiveDraft(item.is_active);
-    setEditorOpen(true);
-  }, [imageDraft]);
+    navigation.navigate("AdminExpenseItemEditor", { initialItem: item });
+  }, [navigation]);
 
   const closeEditor = useCallback(() => {
     if (savingItem) {
@@ -2220,123 +2181,6 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       </View>
 
       {content}
-
-      <Modal visible={editorOpen} animationType="fade" transparent statusBarTranslucent onRequestClose={closeEditor}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
-          style={[styles.centeredModalBackdrop, { backgroundColor: palette.overlay }]}
-        >
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeEditor} />
-          <View style={styles.centeredKeyboardWrap} pointerEvents="box-none">
-            <View
-              style={[
-                styles.modalCard,
-                adminElevation(3),
-                { backgroundColor: palette.card },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <View style={styles.rowBody}>
-                  <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>
-                    {editingItem ? "Edit expense item" : "Create expense item"}
-                  </Text>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Close expense item editor"
-                  onPress={closeEditor}
-                  style={[styles.modalCloseButton, { backgroundColor: palette.backgroundElevated, borderColor: palette.border }]}
-                >
-                  <MaterialCommunityIcons name="close" size={18} color={palette.textPrimary} />
-                </Pressable>
-              </View>
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.modalScrollContent}
-              >
-                <AdminTextField label="Name" value={nameDraft} onChangeText={setNameDraft} placeholder="Example: Transport" palette={palette} />
-                <AdminTextField label="Tamil name" value={tamilNameDraft} onChangeText={setTamilNameDraft} placeholder="தமிழ் பெயர்" palette={palette} />
-                <View style={[styles.imagePanel, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                  <ItemThumbnail
-                    uri={currentImageUri}
-                    recyclingKey={editingItem?.id ?? "new-expense-item"}
-                    size={76}
-                    borderRadius={16}
-                    backgroundColor={palette.card}
-                    borderColor={palette.border}
-                    icon="image-plus"
-                    iconColor={palette.textMuted}
-                    iconSize={28}
-                  />
-                  <View style={styles.rowBody}>
-                    <Text style={[styles.switchTitle, { color: palette.textPrimary }]}>Image</Text>
-                    <Text style={[styles.switchSubtitle, { color: palette.textMuted }]}>
-                      Optional square image for expense rows.
-                    </Text>
-                    {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
-                    {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
-                    <View style={styles.imageActions}>
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={pickImage}
-                        style={[styles.imageActionButton, { backgroundColor: palette.card, borderColor: palette.border }]}
-                      >
-                        <MaterialCommunityIcons name="image-edit-outline" size={16} color={palette.cash} />
-                        <Text style={[styles.imageActionText, { color: palette.textPrimary }]}>Pick image</Text>
-                      </Pressable>
-                      {imageDraft || hasStoredImage || removeImageRequested ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={removeImage}
-                          style={[styles.imageActionButton, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}
-                        >
-                          <MaterialCommunityIcons name="image-remove-outline" size={16} color={palette.danger} />
-                          <Text style={[styles.imageActionText, { color: palette.danger }]}>
-                            {removeImageRequested ? "Undo" : imageDraft ? "Clear" : "Remove"}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </View>
-                </View>
-                <Pressable
-                  accessibilityRole="switch"
-                  accessibilityState={{ checked: activeDraft }}
-                  onPress={() => setActiveDraft((current) => !current)}
-                  style={[styles.switchRow, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
-                >
-                  <View style={[styles.switchIcon, { backgroundColor: activeDraft ? palette.successSoft : palette.dangerSoft }]}>
-                    <MaterialCommunityIcons
-                      name={activeDraft ? "check-circle-outline" : "pause-circle-outline"}
-                      size={18}
-                      color={activeDraft ? palette.success : palette.danger}
-                    />
-                  </View>
-                  <View style={styles.rowBody}>
-                    <Text style={[styles.switchTitle, { color: palette.textPrimary }]}>Active</Text>
-                    <Text style={[styles.switchSubtitle, { color: palette.textMuted }]}>
-                      Inactive expense items cannot be allocated to branches.
-                    </Text>
-                  </View>
-                </Pressable>
-              </ScrollView>
-              <View style={styles.modalActions}>
-                <ActionButton label="Cancel" icon="close" palette={palette} tone="warning" onPress={closeEditor} />
-                <ActionButton
-                  label={editingItem ? "Save changes" : "Save"}
-                  icon="content-save-outline"
-                  palette={palette}
-                  tone="success"
-                  active
-                  onPress={saveExpenseItem}
-                />
-              </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
       <Modal
         visible={historyEditorOpen}

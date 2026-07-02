@@ -1,4 +1,5 @@
 import { apiClient } from "@/api/client";
+import { AnalyticsPeriod } from "@/types/api";
 import type { UUID } from "@/types/api";
 
 export interface OrganizationRead {
@@ -9,6 +10,7 @@ export interface OrganizationRead {
   max_branches: number;
   branch_count: number;
   remaining_branches: number;
+  bill_number_prefix: string;
   settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -26,6 +28,44 @@ export interface OrganizationCounts {
   all: number;
   active: number;
   inactive: number;
+}
+
+export type SuperAdminAnalyticsDateRange = {
+  startDate?: string | null;
+  endDate?: string | null;
+};
+
+export interface SuperAdminBillingBranchRead {
+  shop_id: UUID;
+  shop_name: string;
+  is_active: boolean;
+  bill_count: number;
+}
+
+export interface SuperAdminBillingOrganizationRead {
+  organization_id: UUID;
+  organization_name: string;
+  organization_slug: string;
+  is_active: boolean;
+  branch_count: number;
+  total_bills_generated: number;
+  branches: SuperAdminBillingBranchRead[];
+}
+
+export interface SuperAdminBillingSummary {
+  total_organizations: number;
+  total_branches: number;
+  total_bills_generated: number;
+  bills_generated_today: number;
+}
+
+export interface SuperAdminBillingOverviewRead {
+  period: AnalyticsPeriod;
+  reference_date?: string | null;
+  range_start_date?: string | null;
+  range_end_date?: string | null;
+  summary: SuperAdminBillingSummary;
+  organizations: SuperAdminBillingOrganizationRead[];
 }
 
 export interface AdminRoleRead {
@@ -59,6 +99,20 @@ export interface TenantAdminCounts {
   active: number;
   inactive: number;
 }
+
+export interface BranchRead {
+  id: UUID;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  username: string;
+  last_active_at?: string | null;
+}
+
+export type HardDeletePayload = {
+  username: string;
+  password: string;
+};
 
 export interface AuditLogRead {
   id: UUID;
@@ -105,6 +159,19 @@ export type TenantAdminRowsParams = {
 };
 
 const SUPER_ADMIN_PREFIX = "/api/v1/super-admin";
+
+function analyticsParams(
+  period: AnalyticsPeriod,
+  referenceDate?: string | null,
+  range?: SuperAdminAnalyticsDateRange,
+) {
+  return {
+    period,
+    reference_date: referenceDate ?? undefined,
+    range_start_date: range?.startDate ?? undefined,
+    range_end_date: range?.endDate ?? undefined,
+  };
+}
 
 function tenantAdminRowParams(params: TenantAdminRowsParams = {}) {
   const query: Record<string, string | number | boolean> = {};
@@ -178,6 +245,30 @@ export async function fetchOrganizationCounts() {
   return data;
 }
 
+export type SuperAdminBillingOverviewFilters = {
+  organizationId?: UUID | null;
+  shopId?: UUID | null;
+};
+
+export async function fetchSuperAdminBillingOverview(
+  period: AnalyticsPeriod,
+  referenceDate?: string | null,
+  range?: SuperAdminAnalyticsDateRange,
+  filters?: SuperAdminBillingOverviewFilters,
+) {
+  const { data } = await apiClient.get<SuperAdminBillingOverviewRead>(
+    `${SUPER_ADMIN_PREFIX}/analytics/billing-overview`,
+    {
+      params: {
+        ...analyticsParams(period, referenceDate, range),
+        organization_id: filters?.organizationId ?? undefined,
+        shop_id: filters?.shopId ?? undefined,
+      },
+    },
+  );
+  return data;
+}
+
 export async function fetchOrganizationAdminRoles(organizationId: UUID) {
   const { data } = await apiClient.get<AdminRoleRead[]>(
     `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}/admin-roles`,
@@ -232,7 +323,7 @@ export async function createOrganization(payload: {
 
 export async function patchOrganization(
   organizationId: UUID,
-  payload: { name?: string; max_branches?: number },
+  payload: { name?: string; max_branches?: number; bill_number_prefix?: string },
 ) {
   const { data } = await apiClient.patch<OrganizationRead>(
     `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}`,
@@ -275,6 +366,35 @@ export async function updateTenantAdminRoles(userId: UUID, role_ids: UUID[]) {
     { role_ids },
   );
   return data;
+}
+
+export async function hardDeleteTenantAdmin(userId: UUID, payload: HardDeletePayload) {
+  await apiClient.post(`${SUPER_ADMIN_PREFIX}/tenant-admins/${userId}/hard-delete`, payload);
+}
+
+export async function hardDeleteOrganization(organizationId: UUID, payload: HardDeletePayload) {
+  await apiClient.post(
+    `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}/hard-delete`,
+    payload,
+  );
+}
+
+export async function fetchOrganizationBranches(organizationId: UUID) {
+  const { data } = await apiClient.get<BranchRead[]>(
+    `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}/branches`,
+  );
+  return data;
+}
+
+export async function hardDeleteBranch(
+  organizationId: UUID,
+  shopId: UUID,
+  payload: HardDeletePayload,
+) {
+  await apiClient.post(
+    `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}/branches/${shopId}/hard-delete`,
+    payload,
+  );
 }
 
 export async function deleteTenantAdmin(userId: UUID) {

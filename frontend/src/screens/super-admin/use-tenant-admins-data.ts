@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toApiError } from "@/api/client";
 import {
   createTenantAdmin,
-  deleteTenantAdmin,
+  hardDeleteTenantAdmin,
   fetchTenantAdmin,
   fetchTenantAdminCounts,
   fetchTenantAdminRows,
@@ -12,6 +12,7 @@ import {
   resetTenantAdminPassword,
   updateTenantAdminRoles,
   type AdminRoleRead,
+  type HardDeletePayload,
   type OrganizationRead,
   type TenantAdminCounts,
   type TenantAdminRead,
@@ -184,8 +185,8 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
   );
 
   const removeAdmin = useCallback(
-    async (userId: UUID) => {
-      await deleteTenantAdmin(userId);
+    async (userId: UUID, credentials: HardDeletePayload) => {
+      await hardDeleteTenantAdmin(userId, credentials);
       setAdmins((current) => current.filter((admin) => admin.id !== userId));
       await loadFirstPage();
     },

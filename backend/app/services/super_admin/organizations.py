@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.permission_codes import TENANT_FULL_ADMIN_PERMISSIONS
@@ -24,6 +24,7 @@ from app.db.tenant_schema import (
     tenant_schema_scope,
 )
 from app.models import AdminRole, AdminRolePermission, Organization, Shop, User
+from app.schemas.super_admin.hard_delete import HardDeleteRequest
 from app.schemas.super_admin.organizations import (
     AdminRoleRead,
     OrganizationCounts,
@@ -33,7 +34,14 @@ from app.schemas.super_admin.organizations import (
     OrganizationUpdate,
     slugify_name,
 )
-from app.services.super_admin._audit import record_super_admin_audit
+from app.services.super_admin._audit import record_hard_delete_audit, record_super_admin_audit
+from app.services.super_admin._credentials import verify_super_admin_credentials
+from app.services.bill_number import (
+    BILL_NUMBER_PREFIX_SETTING,
+    bill_number_prefix_from_settings,
+    normalize_bill_number_prefix,
+)
+from app.services.tenant_data_migration import purge_organization_rows_for_hard_delete
 
 logger = logging.getLogger(__name__)
 
@@ -82,30 +90,41 @@ def _org_to_read(org: Organization, *, branch_count: int = 0) -> OrganizationRea
         max_branches=org.max_branches,
         branch_count=branch_count,
         remaining_branches=remaining,
+        bill_number_prefix=bill_number_prefix_from_settings(org.settings),
         settings=dict(org.settings or {}),
         created_at=org.created_at,
         updated_at=org.updated_at,
     )
 
 
+async def _require_org_schema(org: Organization) -> str:
+    if not org.schema_name:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Tenant schema is not configured for this organization",
+        )
+    return org.schema_name
+
+
 async def count_organization_branches(db: AsyncSession, organization_id: UUID) -> int:
     org = await db.get(Organization, organization_id)
     if org is None:
         return 0
-    if org.schema_name:
-        async with tenant_schema_scope(db, org.schema_name):
-            return int(
-                await db.scalar(
-                    select(func.count(Shop.id)).where(Shop.organization_id == organization_id)
-                )
-                or 0
+    schema_name = await _require_org_schema(org) if await is_postgres_session(db) else org.schema_name
+    if not schema_name:
+        return int(
+            await db.scalar(
+                select(func.count(Shop.id)).where(Shop.organization_id == organization_id)
             )
-    return int(
-        await db.scalar(
-            select(func.count(Shop.id)).where(Shop.organization_id == organization_id)
+            or 0
         )
-        or 0
-    )
+    async with tenant_schema_scope(db, schema_name):
+        return int(
+            await db.scalar(
+                select(func.count(Shop.id)).where(Shop.organization_id == organization_id)
+            )
+            or 0
+        )
 
 
 async def assert_organization_can_add_branch(db: AsyncSession, organization_id: UUID) -> None:
@@ -184,21 +203,24 @@ async def create_organization(
     await _ensure_unique_organization_name(db, org_name)
 
     use_schema_tenant = await is_postgres_session(db)
+    if not use_schema_tenant:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Organization provisioning requires PostgreSQL",
+        )
+
     org = Organization(
         name=org_name,
         slug=slug,
-        schema_name=derive_schema_name(slug) if use_schema_tenant else None,
+        schema_name=derive_schema_name(slug),
         is_active=True,
         max_branches=payload.max_branches,
     )
     db.add(org)
     await db.flush()
 
-    if org.schema_name:
-        await _provision_schema_for_org(db, org, org.schema_name)
-        await tenant_router.evict_schema_cache(org.id)
-    else:
-        await _create_tenant_full_admin_role(db, org.id)
+    await _provision_schema_for_org(db, org, org.schema_name)
+    await tenant_router.evict_schema_cache(org.id)
 
     await record_super_admin_audit(
         db,
@@ -300,6 +322,8 @@ async def list_organization_admin_roles(
 ) -> list[AdminRoleRead]:
     org = await get_organization_or_404(db, organization_id)
 
+    schema_name = await _require_org_schema(org) if await is_postgres_session(db) else org.schema_name
+
     async def _fetch_roles(session: AsyncSession) -> list[AdminRole]:
         return list(
             await session.scalars(
@@ -309,9 +333,9 @@ async def list_organization_admin_roles(
             )
         )
 
-    if org.schema_name:
+    if schema_name:
         async with get_session_local()() as tenant_db:
-            await set_search_path(tenant_db, org.schema_name)
+            await set_search_path(tenant_db, schema_name)
             roles = await _fetch_roles(tenant_db)
     else:
         roles = await _fetch_roles(db)
@@ -380,6 +404,34 @@ async def update_organization(
         )
         await cache_delete(dashboard_cache_key(organization_id))
 
+    if payload.bill_number_prefix is not None:
+        try:
+            prefix = normalize_bill_number_prefix(payload.bill_number_prefix)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        previous_prefix = bill_number_prefix_from_settings(org.settings)
+        settings = dict(org.settings or {})
+        settings[BILL_NUMBER_PREFIX_SETTING] = prefix
+        org.settings = settings
+        if prefix != previous_prefix:
+            await record_super_admin_audit(
+                db,
+                actor=actor,
+                action="organization.bill_number_prefix_updated",
+                entity_type="organization",
+                entity_id=org.id,
+                organization_id=org.id,
+                details={
+                    "previous_bill_number_prefix": previous_prefix,
+                    "updated_bill_number_prefix": prefix,
+                    "modified_by": actor.username,
+                    "modified_at": modified_at,
+                },
+            )
+
     if payload.settings is not None:
         org.settings = payload.settings
         await record_super_admin_audit(
@@ -422,3 +474,134 @@ async def set_organization_status(
     await db.refresh(org)
     branch_count = await count_organization_branches(db, organization_id)
     return _org_to_read(org, branch_count=branch_count)
+
+
+async def _purge_legacy_tenant_data(db: AsyncSession, organization_id: UUID) -> None:
+    from app.models import AdminRole
+
+    shops = (
+        await db.scalars(select(Shop).where(Shop.organization_id == organization_id))
+    ).all()
+    for shop in shops:
+        owner = await db.get(User, shop.owner_user_id)
+        await db.delete(shop)
+        if owner is not None:
+            await db.delete(owner)
+    users = (
+        await db.scalars(select(User).where(User.organization_id == organization_id))
+    ).all()
+    for user in users:
+        await db.delete(user)
+    roles = (
+        await db.scalars(select(AdminRole).where(AdminRole.organization_id == organization_id))
+    ).all()
+    for role in roles:
+        await db.delete(role)
+    await db.flush()
+
+
+async def _purge_organization_rows_for_hard_delete(
+    db: AsyncSession,
+    organization_id: UUID,
+    *,
+    skip_schema: str | None,
+) -> None:
+    if not await is_postgres_session(db):
+        return
+
+    def _run(sync_session) -> None:
+        purge_organization_rows_for_hard_delete(
+            sync_session.connection(),
+            organization_id,
+            skip_schema=skip_schema,
+        )
+
+    await db.run_sync(_run)
+
+
+async def hard_delete_organization(
+    db: AsyncSession,
+    organization_id: UUID,
+    payload: HardDeleteRequest,
+    actor: User,
+    *,
+    client_ip: str | None = None,
+) -> None:
+    org = await get_organization_or_404(db, organization_id)
+    resource_name = org.name
+    org_id = org.id
+    slug = org.slug
+    schema_name = org.schema_name
+
+    try:
+        await verify_super_admin_credentials(
+            db,
+            actor,
+            username=payload.username,
+            password=payload.password,
+        )
+
+        dropped_schema: str | None = None
+        if not schema_name or not await is_postgres_session(db):
+            if not await is_postgres_session(db):
+                await _purge_legacy_tenant_data(db, organization_id)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tenant schema is not configured for this organization",
+                )
+        else:
+            safe_schema = assert_safe_schema_name(schema_name)
+            from sqlalchemy import text
+
+            await set_search_path(db, None)
+            await db.execute(text(f'DROP SCHEMA IF EXISTS "{safe_schema}" CASCADE'))
+            dropped_schema = safe_schema
+
+        await _purge_organization_rows_for_hard_delete(
+            db, organization_id, skip_schema=dropped_schema
+        )
+        await db.flush()
+        await delete_auth_index(db, organization_id=organization_id)
+
+        await record_hard_delete_audit(
+            db,
+            actor=actor,
+            action="organization.hard_delete",
+            entity_type="organization",
+            entity_id=org_id,
+            organization_id=org_id,
+            resource_name=resource_name,
+            result="success",
+            client_ip=client_ip,
+            extra={"slug": slug, "schema_name": schema_name},
+        )
+        # Core delete — ORM db.delete(org) would SELECT public.shops (tenant-only table).
+        await db.execute(delete(Organization).where(Organization.id == org_id))
+        await tenant_router.evict_schema_cache(org_id)
+        await db.commit()
+        await _evict_org_counts_cache()
+        log_event(
+            logger,
+            logging.INFO,
+            "organization_hard_deleted",
+            "organization hard deleted",
+            org_id=str(org_id),
+        )
+    except HTTPException as exc:
+        await db.rollback()
+        await record_hard_delete_audit(
+            db,
+            actor=actor,
+            action="organization.hard_delete",
+            entity_type="organization",
+            entity_id=org_id,
+            organization_id=org_id,
+            resource_name=resource_name,
+            result="failed",
+            client_ip=client_ip,
+            error=str(exc.detail),
+            extra={"slug": slug},
+        )
+        await db.commit()
+        raise

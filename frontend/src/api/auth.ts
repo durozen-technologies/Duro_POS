@@ -12,6 +12,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type AuthRequestError = Error & { status: number };
+
+function authRequestError(message: string, status: number): AuthRequestError {
+  const error = new Error(message) as AuthRequestError;
+  error.status = status;
+  return error;
+}
+
 function getAuthErrorMessage(data: unknown) {
   if (!isRecord(data)) {
     return "";
@@ -48,17 +56,29 @@ export async function login(payload: LoginRequest) {
       validateStatus: (responseStatus) =>
         (responseStatus >= 200 && responseStatus < 300) ||
         responseStatus === 401 ||
-        responseStatus === 403,
+        responseStatus === 403 ||
+        responseStatus === 429,
     },
   );
 
   if (status === 401) {
-    throw new Error(getAuthErrorMessage(data) || "Invalid username or password");
+    throw authRequestError(
+      getAuthErrorMessage(data) || "Invalid username or password",
+      401,
+    );
   }
   if (status === 403) {
-    throw new Error(
+    throw authRequestError(
       getAuthErrorMessage(data) ||
         "You do not have access to sign in. Please contact Durozen Technologies.",
+      403,
+    );
+  }
+  if (status === 429) {
+    throw authRequestError(
+      getAuthErrorMessage(data) ||
+        "Too many login attempts. Please wait a moment before retrying.",
+      429,
     );
   }
 

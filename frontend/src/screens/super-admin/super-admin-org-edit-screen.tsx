@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -15,8 +15,11 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-n
 
 import { toApiError } from "@/api/client";
 import {
+  fetchOrganizationBranches,
   fetchOrganizationRows,
+  hardDeleteBranch,
   patchOrganization,
+  type BranchRead,
   type OrganizationRead,
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
@@ -28,6 +31,19 @@ type NavProps = NativeStackNavigationProp<AppStackParamList, "SuperAdminOrgEdit"
 
 const MUTED = "#4B6356";
 const INK = "#0A110D";
+const DEFAULT_BILL_PREFIX = "SMB";
+
+function normalizeBillPrefixInput(value: string): string {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "");
+}
+
+function exampleBillNumber(prefix: string): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const safePrefix = prefix.trim().toUpperCase() || DEFAULT_BILL_PREFIX;
+  return `${safePrefix}-${year}-${month}-000001`;
+}
 
 export function SuperAdminOrgEditScreen() {
   const route = useRoute<RouteProps>();
@@ -37,9 +53,26 @@ export function SuperAdminOrgEditScreen() {
   const [org, setOrg] = useState<OrganizationRead>(initialOrg);
   const [name, setName] = useState(initialOrg.name);
   const [maxBranches, setMaxBranches] = useState(String(initialOrg.max_branches));
+  const [billNumberPrefix, setBillNumberPrefix] = useState(
+    initialOrg.bill_number_prefix || DEFAULT_BILL_PREFIX,
+  );
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [branches, setBranches] = useState<BranchRead[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(true);
+
+  const loadBranches = useCallback(async () => {
+    setBranchesLoading(true);
+    try {
+      const rows = await fetchOrganizationBranches(org.id);
+      setBranches(rows);
+    } catch (branchError) {
+      setError(toApiError(branchError).message || "Failed to load branches");
+    } finally {
+      setBranchesLoading(false);
+    }
+  }, [org.id]);
 
   const reloadOrg = useCallback(async () => {
     setRefreshing(true);
@@ -51,13 +84,19 @@ export function SuperAdminOrgEditScreen() {
         setOrg(latest);
         setName(latest.name);
         setMaxBranches(String(latest.max_branches));
+        setBillNumberPrefix(latest.bill_number_prefix || DEFAULT_BILL_PREFIX);
       }
+      await loadBranches();
     } catch (reloadError) {
       setError(toApiError(reloadError).message || "Failed to refresh organization");
     } finally {
       setRefreshing(false);
     }
-  }, [org.id]);
+  }, [org.id, loadBranches]);
+
+  useEffect(() => {
+    void loadBranches();
+  }, [loadBranches]);
 
   const handleSave = async () => {
     const trimmedName = name.trim();
@@ -74,6 +113,15 @@ export function SuperAdminOrgEditScreen() {
       setError(`Branch limit cannot be below the current branch count (${org.branch_count}).`);
       return;
     }
+    const normalizedPrefix = normalizeBillPrefixInput(billNumberPrefix);
+    if (normalizedPrefix.length < 1) {
+      setError("Bill number prefix is required.");
+      return;
+    }
+    if (normalizedPrefix.length > 20) {
+      setError("Bill number prefix must be 20 characters or fewer.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -81,6 +129,8 @@ export function SuperAdminOrgEditScreen() {
       await patchOrganization(org.id, {
         name: trimmedName !== org.name ? trimmedName : undefined,
         max_branches: limit !== org.max_branches ? limit : undefined,
+        bill_number_prefix:
+          normalizedPrefix !== org.bill_number_prefix ? normalizedPrefix : undefined,
       });
       navigation.goBack();
     } catch (saveError) {
@@ -90,7 +140,9 @@ export function SuperAdminOrgEditScreen() {
   };
 
   const hasChanges =
-    name.trim() !== org.name || Number.parseInt(maxBranches, 10) !== org.max_branches;
+    name.trim() !== org.name ||
+    Number.parseInt(maxBranches, 10) !== org.max_branches ||
+    normalizeBillPrefixInput(billNumberPrefix) !== org.bill_number_prefix;
 
   return (
     <View className="flex-1 bg-background">
@@ -160,6 +212,26 @@ export function SuperAdminOrgEditScreen() {
               </Text>
             </View>
 
+            <View className="gap-2">
+              <Text className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Bill number prefix
+              </Text>
+              <TextInput
+                accessibilityLabel="Bill number prefix"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                className="min-h-[48px] rounded-control border border-border bg-surface px-4 py-2 text-base text-ink"
+                placeholder={DEFAULT_BILL_PREFIX}
+                placeholderTextColor={MUTED}
+                value={billNumberPrefix}
+                onChangeText={(value) => setBillNumberPrefix(normalizeBillPrefixInput(value))}
+              />
+              <Text className="text-xs text-muted">
+                All branches use this prefix. Example:{" "}
+                {exampleBillNumber(billNumberPrefix || DEFAULT_BILL_PREFIX)}
+              </Text>
+            </View>
+
             {error ? (
               <View className="rounded-control border border-dangerSoft bg-dangerSoft px-4 py-3">
                 <Text className="text-sm font-medium text-danger">{error}</Text>
@@ -187,6 +259,47 @@ export function SuperAdminOrgEditScreen() {
                   <Text className="text-base font-semibold text-white">Save Changes</Text>
                 )}
               </Pressable>
+            </View>
+          </View>
+
+          <View className="mt-8">
+            <Text className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
+              Branches
+            </Text>
+            <View className="rounded-3xl border border-border bg-card">
+              {branchesLoading ? (
+                <View className="items-center py-6">
+                  <ActivityIndicator color={INK} />
+                </View>
+              ) : branches.length === 0 ? (
+                <Text className="px-4 py-5 text-sm text-muted">No branches yet.</Text>
+              ) : (
+                branches.map((branch, index) => (
+                  <View
+                    key={branch.id}
+                    className={`flex-row items-center px-4 py-3 ${index < branches.length - 1 ? "border-b border-border" : ""}`}
+                  >
+                    <View className="flex-1 pr-3">
+                      <Text className="text-sm font-semibold text-ink">{branch.name}</Text>
+                      <Text className="mt-0.5 text-xs text-muted">{branch.username}</Text>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Hard delete branch ${branch.name}`}
+                      className="min-h-[36px] min-w-[36px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft active:opacity-80"
+                      disabled={saving}
+                      onPress={() => navigation.navigate("SuperAdminHardDelete", {
+                        resourceType: "branch",
+                        resourceId: branch.id,
+                        resourceName: branch.name,
+                        organizationId: org.id,
+                      })}
+                    >
+                      <MaterialCommunityIcons name="delete-outline" size={18} color="#DC2626" />
+                    </Pressable>
+                  </View>
+                ))
+              )}
             </View>
           </View>
           </ScrollView>

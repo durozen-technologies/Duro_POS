@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_active_user
 from app.db.session import get_platform_db
 from app.db.tenant_session import get_tenant_db
-from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
-from app.db.tenant_schema import set_search_path, tenant_router
+from app.db.tenant_schema import tenant_router, tenant_schema_scope
 from app.models import User
 from app.models.enums import is_super_admin
 from app.schemas.auth import (
@@ -62,15 +61,17 @@ async def me(
         return await build_user_session(platform_db, platform_db, current_user)
 
     org_id = current_user.organization_id
-    if org_id is None and current_user.shop is not None:
-        org_id = current_user.shop.organization_id
-    schema_name = await tenant_router.resolve_schema(platform_db, org_id) if org_id else None
+    if org_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Tenant schema is not configured for this organization",
+        )
+    schema_name = await tenant_router.resolve_schema(platform_db, org_id)
     if schema_name is None:
-        return await build_user_session(platform_db, platform_db, current_user)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Tenant schema is not configured for this organization",
+        )
 
-    token = set_active_tenant_schema(schema_name)
-    try:
-        await set_search_path(platform_db, schema_name)
+    async with tenant_schema_scope(platform_db, schema_name):
         return await build_user_session(platform_db, platform_db, current_user)
-    finally:
-        reset_active_tenant_schema(token)

@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -11,10 +10,10 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { XStack, YStack } from "tamagui";
 
 import {
   createTransferShop,
@@ -23,11 +22,13 @@ import {
   updateTransferShop,
 } from "@/api/admin";
 import { isApiRequestCanceled, toApiError } from "@/api/client";
-import { BaseUnit, type InventoryTransferRead, type TransferShopRead, type UUID } from "@/types/api";
+import { type InventoryTransferRead, type TransferShopRead } from "@/types/api";
+import { formatDateTime } from "@/utils/format";
+import { adminElevation } from "../admin-dashboard-theme";
 import { triggerHaptic } from "../admin-dashboard-utils";
 import { useAdminTheme } from "../use-admin-theme";
-import { adminElevation, type ThemePalette } from "../admin-dashboard-theme";
-import { money } from "@/utils/decimal";
+import { ActionButton, EmptyStateCard, SearchField } from "./admin-dashboard-primitives";
+import { AdminTextField } from "./admin-text-field";
 
 function getRequestMessage(error: unknown, fallback: string) {
   return toApiError(error).message || fallback;
@@ -156,38 +157,60 @@ export function AdminTransferShopsTab() {
   };
 
   const renderRow = ({ item }: { item: TransferShopRead }) => (
-    <View style={[styles.row, { borderColor: palette.border, backgroundColor: palette.card }]}>
-      <View style={styles.rowContent}>
-        <View style={styles.rowHeader}>
+    <YStack 
+      backgroundColor={palette.card} 
+      borderColor={palette.border} 
+      borderWidth={1} 
+      borderRadius={16} 
+      padding={16}
+      gap={16}
+    >
+      <YStack gap={4}>
+        <XStack alignItems="center" justifyContent="space-between">
           <Text style={[styles.rowTitle, { color: palette.textPrimary }]}>{item.name}</Text>
           <View style={[styles.badge, { backgroundColor: item.is_active ? palette.inventorySoft : palette.surfaceMuted }]}>
             <Text style={[styles.badgeText, { color: item.is_active ? palette.inventory : palette.textMuted }]}>
               {item.is_active ? "Active" : "Inactive"}
             </Text>
           </View>
-        </View>
+        </XStack>
         <Text style={[styles.rowSubtitle, { color: palette.textSecondary }]}>{item.tamil_name}</Text>
-        
-        <View style={styles.rowActions}>
-          <Pressable style={styles.actionBtn} onPress={() => {
+      </YStack>
+      
+      <XStack 
+        paddingTop={16} 
+        borderTopWidth={1} 
+        borderTopColor={palette.border} 
+        gap={12} 
+        flexWrap="wrap"
+      >
+        <ActionButton 
+          label="Edit" 
+          icon="pencil-outline" 
+          palette={palette} 
+          onPress={() => {
             setEditName(item.name);
             setEditTamilName(item.tamil_name);
             setEditingShop(item);
-          }}>
-            <MaterialCommunityIcons name="pencil-outline" size={20} color={palette.textSecondary} />
-            <Text style={[styles.actionBtnText, { color: palette.textSecondary }]}>Edit</Text>
-          </Pressable>
-          <Pressable style={styles.actionBtn} onPress={() => toggleActive(item)}>
-            <MaterialCommunityIcons name={item.is_active ? "cancel" : "check"} size={20} color={palette.textSecondary} />
-            <Text style={[styles.actionBtnText, { color: palette.textSecondary }]}>{item.is_active ? "Deactivate" : "Activate"}</Text>
-          </Pressable>
-          <Pressable style={styles.actionBtn} onPress={() => loadHistory(item)}>
-            <MaterialCommunityIcons name="history" size={20} color={palette.inventory} />
-            <Text style={[styles.actionBtnText, { color: palette.inventory }]}>History</Text>
-          </Pressable>
-        </View>
-      </View>
-    </View>
+          }} 
+        />
+        <ActionButton 
+          label={item.is_active ? "Deactivate" : "Activate"} 
+          icon={item.is_active ? "cancel" : "check"} 
+          palette={palette} 
+          tone={item.is_active ? "neutral" : "success"}
+          onPress={() => toggleActive(item)} 
+        />
+        <ActionButton 
+          label="History" 
+          icon="history" 
+          palette={palette} 
+          tone="info"
+          active
+          onPress={() => loadHistory(item)} 
+        />
+      </XStack>
+    </YStack>
   );
 
   return (
@@ -200,25 +223,24 @@ export function AdminTransferShopsTab() {
       )}
 
       {/* SEARCH AND ADD */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', gap: 12 }}>
-        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, borderRadius: 12, paddingHorizontal: 12, height: 46 }}>
-          <MaterialCommunityIcons name="magnify" size={20} color={palette.textSecondary} />
-          <TextInput
-            style={{ flex: 1, marginLeft: 8, fontSize: 15, color: palette.textPrimary }}
-            placeholder="Search transfer shops..."
-            placeholderTextColor={palette.textMuted}
+      <XStack paddingHorizontal={16} paddingTop={16} paddingBottom={8} gap={12}>
+        <YStack flex={1}>
+          <SearchField 
             value={searchQuery}
             onChangeText={setSearchQuery}
+            placeholder="Search transfer shops..."
+            palette={palette}
           />
-        </View>
-        <Pressable
-          style={{ height: 46, paddingHorizontal: 16, backgroundColor: palette.inventory, borderRadius: 12, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 6 }}
-          onPress={() => setCreateModalOpen(true)}
-        >
-          <MaterialCommunityIcons name="plus" size={18} color={palette.onPrimary} />
-          <Text style={{ color: palette.onPrimary, fontSize: 14, fontWeight: '700' }}>Add</Text>
-        </Pressable>
-      </View>
+        </YStack>
+        <ActionButton 
+          label="Add shop" 
+          icon="plus" 
+          palette={palette} 
+          tone="success" 
+          active 
+          onPress={() => setCreateModalOpen(true)} 
+        />
+      </XStack>
 
       {/* LIST */}
       <FlatList
@@ -229,7 +251,16 @@ export function AdminTransferShopsTab() {
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} tintColor={palette.inventory} />}
         ListEmptyComponent={
-          !loading ? <Text style={[styles.emptyText, { color: palette.textMuted }]}>No transfer shops found.</Text> : null
+          !loading ? (
+            <EmptyStateCard 
+              title="No transfer shops found" 
+              subtitle={searchQuery ? "Try a different search query." : "You haven't added any transfer shops yet."} 
+              icon="storefront-outline" 
+              palette={palette} 
+              actionLabel={!searchQuery ? "Add a shop" : undefined}
+              onAction={!searchQuery ? () => setCreateModalOpen(true) : undefined}
+            />
+          ) : null
         }
       />
 
@@ -242,35 +273,38 @@ export function AdminTransferShopsTab() {
           <View style={[styles.modalContent, { backgroundColor: palette.card }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>Add Transfer Shop</Text>
-              <Pressable onPress={() => setCreateModalOpen(false)}>
+              <Pressable hitSlop={12} onPress={() => setCreateModalOpen(false)}>
                 <MaterialCommunityIcons name="close" size={24} color={palette.textSecondary} />
               </Pressable>
             </View>
-            <View style={{ padding: 16 }}>
-              <Text style={[styles.label, { color: palette.textSecondary }]}>English Name</Text>
-              <TextInput
-                style={[styles.input, { borderColor: palette.border, color: palette.textPrimary, backgroundColor: palette.surfaceMuted, marginBottom: 12 }]}
+            <YStack padding={20} gap={16}>
+              <AdminTextField
+                label="English Name"
+                placeholder="Shop Name"
                 value={draftName}
                 onChangeText={setDraftName}
-                placeholder="Shop Name"
-                placeholderTextColor={palette.textMuted}
+                palette={palette}
               />
-              <Text style={[styles.label, { color: palette.textSecondary }]}>Tamil Name</Text>
-              <TextInput
-                style={[styles.input, { borderColor: palette.border, color: palette.textPrimary, backgroundColor: palette.surfaceMuted, marginBottom: 24 }]}
+              <AdminTextField
+                label="Tamil Name"
+                placeholder="Shop Tamil Name"
                 value={draftTamilName}
                 onChangeText={setDraftTamilName}
-                placeholder="Shop Tamil Name"
-                placeholderTextColor={palette.textMuted}
+                palette={palette}
               />
-              <Pressable
-                style={[styles.modalBtn, { backgroundColor: draftName && draftTamilName ? palette.inventory : palette.surfaceMuted }]}
-                disabled={!draftName || !draftTamilName || saving}
-                onPress={handleCreate}
-              >
-                {saving ? <ActivityIndicator size="small" color={palette.onPrimary} /> : <Text style={[styles.modalBtnText, { color: draftName && draftTamilName ? palette.onPrimary : palette.textMuted }]}>Create Shop</Text>}
-              </Pressable>
-            </View>
+              <XStack paddingTop={8}>
+                <ActionButton 
+                  label="Create Shop" 
+                  icon="check" 
+                  palette={palette} 
+                  tone="success" 
+                  active 
+                  disabled={!draftName || !draftTamilName || saving}
+                  loading={saving}
+                  onPress={handleCreate} 
+                />
+              </XStack>
+            </YStack>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -284,31 +318,36 @@ export function AdminTransferShopsTab() {
           <View style={[styles.modalContent, { backgroundColor: palette.card }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>Edit Shop</Text>
-              <Pressable onPress={() => setEditingShop(null)}>
+              <Pressable hitSlop={12} onPress={() => setEditingShop(null)}>
                 <MaterialCommunityIcons name="close" size={24} color={palette.textSecondary} />
               </Pressable>
             </View>
-            <View style={{ padding: 16 }}>
-              <Text style={[styles.label, { color: palette.textSecondary }]}>English Name</Text>
-              <TextInput
-                style={[styles.input, { borderColor: palette.border, color: palette.textPrimary, backgroundColor: palette.surfaceMuted, marginBottom: 12 }]}
+            <YStack padding={20} gap={16}>
+              <AdminTextField
+                label="English Name"
                 value={editName}
                 onChangeText={setEditName}
+                palette={palette}
               />
-              <Text style={[styles.label, { color: palette.textSecondary }]}>Tamil Name</Text>
-              <TextInput
-                style={[styles.input, { borderColor: palette.border, color: palette.textPrimary, backgroundColor: palette.surfaceMuted, marginBottom: 24 }]}
+              <AdminTextField
+                label="Tamil Name"
                 value={editTamilName}
                 onChangeText={setEditTamilName}
+                palette={palette}
               />
-              <Pressable
-                style={[styles.modalBtn, { backgroundColor: palette.inventory }]}
-                disabled={!editName || !editTamilName || saving}
-                onPress={handleUpdate}
-              >
-                {saving ? <ActivityIndicator size="small" color={palette.onPrimary} /> : <Text style={[styles.modalBtnText, { color: palette.onPrimary }]}>Save Changes</Text>}
-              </Pressable>
-            </View>
+              <XStack paddingTop={8}>
+                <ActionButton 
+                  label="Save Changes" 
+                  icon="content-save-outline" 
+                  palette={palette} 
+                  tone="success" 
+                  active 
+                  disabled={!editName || !editTamilName || saving}
+                  loading={saving}
+                  onPress={handleUpdate} 
+                />
+              </XStack>
+            </YStack>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -317,7 +356,7 @@ export function AdminTransferShopsTab() {
       <Modal visible={!!historyShop} transparent animationType="slide">
         <View style={[styles.fullModalOverlay, { backgroundColor: palette.shell }]}>
           <View style={[styles.fullModalHeader, { borderBottomColor: palette.shellBorder, paddingTop: Math.max(insets.top, 16) }]}>
-            <Pressable onPress={() => setHistoryShop(null)}>
+            <Pressable hitSlop={12} onPress={() => setHistoryShop(null)}>
               <MaterialCommunityIcons name="close" size={24} color={palette.onShell} />
             </Pressable>
             <Text style={[styles.fullModalTitle, { color: palette.onShell }]}>{historyShop?.name} Transfers</Text>
@@ -331,20 +370,34 @@ export function AdminTransferShopsTab() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-              ListEmptyComponent={<Text style={[styles.emptyText, { color: palette.textMuted }]}>No transfer history found.</Text>}
+              ListEmptyComponent={
+                <EmptyStateCard 
+                  title="No transfer history" 
+                  subtitle="No items have been transferred to this shop yet." 
+                  icon="history" 
+                  palette={palette} 
+                />
+              }
               renderItem={({ item }) => (
-                <View style={[styles.historyRow, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                  <View style={styles.historyRowMain}>
-                    <Text style={[styles.historyItemName, { color: palette.textPrimary }]}>{item.inventory_item_name}</Text>
-                    <Text style={[styles.historyItemTamil, { color: palette.textSecondary }]}>{item.inventory_item_tamil_name}</Text>
-                    <Text style={[styles.historyDate, { color: palette.textMuted }]}>{new Date(item.created_at).toLocaleString()}</Text>
-                    <Text style={[styles.historyDate, { color: palette.textMuted }]}>From: {item.source_shop_name}</Text>
-                  </View>
-                  <View style={styles.historyQtyBox}>
-                    <Text style={[styles.historyQty, { color: palette.inventory }]}>{item.quantity}</Text>
-                    <Text style={[styles.historyUnit, { color: palette.textSecondary }]}>{item.unit}</Text>
-                  </View>
-                </View>
+                <YStack 
+                  backgroundColor={palette.card} 
+                  borderColor={palette.border} 
+                  borderWidth={1} 
+                  borderRadius={12} 
+                  padding={16}
+                >
+                  <XStack alignItems="center" gap={12}>
+                    <YStack flex={1}>
+                      <Text style={[styles.historyItemName, { color: palette.textPrimary }]}>{item.inventory_item_name}</Text>
+                      <Text style={[styles.historyItemTamil, { color: palette.textSecondary }]}>{item.inventory_item_tamil_name}</Text>
+                      <Text style={[styles.historyDate, { color: palette.textMuted }]}>{formatDateTime(item.occurred_at)} · From: {item.source_shop_name}</Text>
+                    </YStack>
+                    <YStack alignItems="flex-end" justifyContent="center">
+                      <Text style={[styles.historyQty, { color: palette.inventory }]}>{item.quantity}</Text>
+                      <Text style={[styles.historyUnit, { color: palette.textSecondary }]}>{item.unit}</Text>
+                    </YStack>
+                  </XStack>
+                </YStack>
               )}
             />
           )}
@@ -372,52 +425,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter-Medium",
   },
-  createBox: {
-    margin: 16,
-    marginBottom: 0,
-    padding: 16,
-    borderWidth: 1,
-    borderRadius: 12,
-  },
-  createTitle: {
-    fontSize: 16,
-    fontFamily: "Inter-SemiBold",
-    marginBottom: 12,
-  },
-  createForm: {
-    gap: 12,
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 44,
-    fontFamily: "Inter-Medium",
-    fontSize: 15,
-  },
-  addBtn: {
-    height: 44,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  addBtnText: {
-    fontFamily: "Inter-SemiBold",
-    fontSize: 15,
-  },
-  row: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-  },
-  rowContent: {},
-  rowHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
   rowTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontFamily: "Inter-SemiBold",
   },
   badge: {
@@ -432,30 +441,7 @@ const styles = StyleSheet.create({
   rowSubtitle: {
     fontSize: 14,
     fontFamily: "Inter-Regular",
-    marginTop: 4,
-  },
-  rowActions: {
-    flexDirection: "row",
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.05)",
-    gap: 16,
-  },
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  actionBtnText: {
-    fontSize: 14,
-    fontFamily: "Inter-Medium",
-  },
-  emptyText: {
-    textAlign: "center",
-    marginTop: 32,
-    fontFamily: "Inter-Regular",
-    fontSize: 15,
+    marginTop: 2,
   },
   modalOverlay: {
     flex: 1,
@@ -468,35 +454,20 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 520,
     maxHeight: "86%",
-    borderRadius: 12,
+    borderRadius: 16,
     ...adminElevation(3),
   },
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 16,
+    padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(0,0,0,0.05)",
   },
   modalTitle: {
     fontSize: 18,
     fontFamily: "Inter-SemiBold",
-  },
-  label: {
-    fontSize: 14,
-    fontFamily: "Inter-Medium",
-    marginBottom: 6,
-  },
-  modalBtn: {
-    height: 48,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalBtnText: {
-    fontFamily: "Inter-SemiBold",
-    fontSize: 16,
   },
   fullModalOverlay: {
     flex: 1,
@@ -513,16 +484,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: "Inter-SemiBold",
   },
-  historyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  historyRowMain: {
-    flex: 1,
-  },
   historyItemName: {
     fontSize: 16,
     fontFamily: "Inter-SemiBold",
@@ -535,11 +496,7 @@ const styles = StyleSheet.create({
   historyDate: {
     fontSize: 12,
     fontFamily: "Inter-Medium",
-    marginTop: 4,
-  },
-  historyQtyBox: {
-    alignItems: "flex-end",
-    justifyContent: "center",
+    marginTop: 6,
   },
   historyQty: {
     fontSize: 20,

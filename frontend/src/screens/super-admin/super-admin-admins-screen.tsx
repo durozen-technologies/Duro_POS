@@ -654,7 +654,14 @@ export function SuperAdminAdminsScreen() {
           roles={sheetRoles}
           visible={managedAdmin != null}
           onClose={() => setManagedAdmin(null)}
-          onDelete={(admin) => removeAdmin(admin.id)}
+          onDelete={(admin) => {
+            setManagedAdmin(null);
+            navigation.navigate("SuperAdminHardDelete", {
+              resourceType: "tenantAdmin",
+              resourceId: admin.id,
+              resourceName: admin.username,
+            });
+          }}
           onResetPassword={(admin, password) =>
             resetPassword(admin.id, password)
           }

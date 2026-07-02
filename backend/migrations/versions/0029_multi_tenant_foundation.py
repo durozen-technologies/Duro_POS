@@ -54,6 +54,50 @@ def _column_names(bind, table_name: str) -> set[str]:
     return {column["name"] for column in sa.inspect(bind).get_columns(table_name)}
 
 
+def _legacy_default_org_id(bind) -> UUID | None:
+    """Seed default org only when upgrading legacy single-tenant rows."""
+    existing = bind.execute(
+        sa.text("SELECT id FROM organizations WHERE slug = 'default' LIMIT 1")
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    orphan_shops = 0
+    if "shops" in _table_names(bind):
+        orphan_shops = bind.execute(
+            sa.text("SELECT COUNT(*) FROM shops WHERE organization_id IS NULL")
+        ).scalar_one()
+
+    orphan_admins = 0
+    if "users" in _table_names(bind):
+        if bind.dialect.name == "postgresql":
+            orphan_admins = bind.execute(
+                sa.text(
+                    "SELECT COUNT(*) FROM users "
+                    "WHERE organization_id IS NULL AND role = 'ADMIN'"
+                )
+            ).scalar_one()
+        else:
+            orphan_admins = bind.execute(
+                sa.text(
+                    "SELECT COUNT(*) FROM users "
+                    "WHERE organization_id IS NULL AND role IN ('ADMIN', 'admin')"
+                )
+            ).scalar_one()
+
+    if orphan_shops == 0 and orphan_admins == 0:
+        return None
+
+    bind.execute(
+        sa.text(
+            "INSERT INTO organizations (id, name, slug, is_active, settings, created_at, updated_at) "
+            "VALUES (:id, :name, :slug, true, '{}', NOW(), NOW())"
+        ),
+        {"id": DEFAULT_ORG_ID, "name": "Brolier 360 Default", "slug": "default"},
+    )
+    return DEFAULT_ORG_ID
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -213,30 +257,22 @@ def upgrade() -> None:
             op.f("ix_audit_logs_organization_id"), "audit_logs", ["organization_id"], unique=False
         )
 
-    # Seed default organization
-    org_count = bind.execute(sa.text("SELECT COUNT(*) FROM organizations")).scalar_one()
-    if org_count == 0:
+    default_org_id = _legacy_default_org_id(bind)
+
+    if default_org_id is not None:
+        bind.execute(
+            sa.text("UPDATE shops SET organization_id = :org_id WHERE organization_id IS NULL"),
+            {"org_id": default_org_id},
+        )
         bind.execute(
             sa.text(
-                "INSERT INTO organizations (id, name, slug, is_active, settings, created_at, updated_at) "
-                "VALUES (:id, :name, :slug, true, '{}', NOW(), NOW())"
+                "UPDATE users SET organization_id = :org_id "
+                "WHERE organization_id IS NULL AND role = 'ADMIN'"
             ),
-            {"id": DEFAULT_ORG_ID, "name": "Brolier 360 Default", "slug": "default"},
+            {"org_id": default_org_id},
         )
 
-    bind.execute(
-        sa.text("UPDATE shops SET organization_id = :org_id WHERE organization_id IS NULL"),
-        {"org_id": DEFAULT_ORG_ID},
-    )
-    bind.execute(
-        sa.text(
-            "UPDATE users SET organization_id = :org_id "
-            "WHERE organization_id IS NULL AND role = 'ADMIN'"
-        ),
-        {"org_id": DEFAULT_ORG_ID},
-    )
-
-    if bind.dialect.name == "postgresql":
+    if "shops" in _table_names(bind) and bind.dialect.name == "postgresql":
         op.alter_column("shops", "organization_id", nullable=False)
 
     # Drop legacy global username unique if present (postgres)
@@ -277,46 +313,47 @@ def upgrade() -> None:
             {"code": code, "description": description, "module": module},
         )
 
-    # Seed tenant full admin role for default org
-    role_id = bind.execute(
-        sa.text(
-            "SELECT id FROM admin_roles WHERE organization_id = :org_id AND name = 'TenantFullAdmin'"
-        ),
-        {"org_id": DEFAULT_ORG_ID},
-    ).scalar_one_or_none()
-    if role_id is None:
-        role_id = uuid7()
-        bind.execute(
+    # Seed tenant full admin role for default org (legacy upgrade path only)
+    if default_org_id is not None:
+        role_id = bind.execute(
             sa.text(
-                "INSERT INTO admin_roles (id, organization_id, name, is_system, created_at) "
-                "VALUES (:id, :org_id, 'TenantFullAdmin', true, NOW())"
+                "SELECT id FROM admin_roles WHERE organization_id = :org_id AND name = 'TenantFullAdmin'"
             ),
-            {"id": role_id, "org_id": DEFAULT_ORG_ID},
-        )
-        for code in TENANT_FULL_PERMISSIONS:
+            {"org_id": default_org_id},
+        ).scalar_one_or_none()
+        if role_id is None:
+            role_id = uuid7()
             bind.execute(
                 sa.text(
-                    "INSERT INTO admin_role_permissions (role_id, permission_code) "
-                    "VALUES (:role_id, :code) ON CONFLICT DO NOTHING"
+                    "INSERT INTO admin_roles (id, organization_id, name, is_system, created_at) "
+                    "VALUES (:id, :org_id, 'TenantFullAdmin', true, NOW())"
                 ),
-                {"role_id": role_id, "code": code},
+                {"id": role_id, "org_id": default_org_id},
             )
+            for code in TENANT_FULL_PERMISSIONS:
+                bind.execute(
+                    sa.text(
+                        "INSERT INTO admin_role_permissions (role_id, permission_code) "
+                        "VALUES (:role_id, :code) ON CONFLICT DO NOTHING"
+                    ),
+                    {"role_id": role_id, "code": code},
+                )
 
-    # Assign existing tenant admins to TenantFullAdmin role
-    tenant_admin_roles = (
-        "u.role = 'TENANT_ADMIN'"
-        if bind.dialect.name == "postgresql"
-        else "u.role IN ('TENANT_ADMIN', 'tenant_admin', 'ADMIN', 'admin')"
-    )
-    bind.execute(
-        sa.text(
-            "INSERT INTO admin_user_roles (user_id, role_id) "
-            f"SELECT u.id, :role_id FROM users u "
-            f"WHERE {tenant_admin_roles} "
-            "AND NOT EXISTS (SELECT 1 FROM admin_user_roles aur WHERE aur.user_id = u.id)"
-        ),
-        {"role_id": role_id},
-    )
+        # Assign existing tenant admins to TenantFullAdmin role
+        tenant_admin_roles = (
+            "u.role = 'TENANT_ADMIN'"
+            if bind.dialect.name == "postgresql"
+            else "u.role IN ('TENANT_ADMIN', 'tenant_admin', 'ADMIN', 'admin')"
+        )
+        bind.execute(
+            sa.text(
+                "INSERT INTO admin_user_roles (user_id, role_id) "
+                f"SELECT u.id, :role_id FROM users u "
+                f"WHERE {tenant_admin_roles} "
+                "AND NOT EXISTS (SELECT 1 FROM admin_user_roles aur WHERE aur.user_id = u.id)"
+            ),
+            {"role_id": role_id},
+        )
 
 
 def downgrade() -> None:

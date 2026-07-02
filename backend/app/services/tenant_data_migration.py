@@ -11,7 +11,11 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.schema import CreateSchema
 
 from app.db.database import Base
-from app.db.tenant_metadata import PLATFORM_TABLES, tenant_table_names
+from app.db.tenant_metadata import (
+    PLATFORM_TABLES,
+    drop_public_tenant_table_shells,
+    tenant_table_names,
+)
 from app.db.tenant_schema import (
     assert_safe_schema_name,
     create_tenant_schema,
@@ -25,6 +29,14 @@ from app.models import Organization
 from app.schemas.auth import normalize_username
 
 logger = logging.getLogger(__name__)
+
+
+def _rel(schema: str, table: str) -> str:
+    if schema == "public":
+        return f"public.{table}"
+    safe = assert_safe_schema_name(schema)
+    return f'"{safe}".{table}'
+
 
 # ponytail: direct org-scoped roots; child tables copied via FK join to these
 _ORG_ROOT_TABLES = frozenset(
@@ -61,6 +73,7 @@ class OrgMigrationReport:
     schema_name: str
     tables: list[TableMigrationReport] = field(default_factory=list)
     auth_index_rows: int = 0
+    public_ddl_dropped: int = 0
 
     @property
     def ok(self) -> bool:
@@ -82,6 +95,8 @@ def _table_has_column(table: Table, column_name: str) -> bool:
 
 
 def _public_count(conn: Connection, table_name: str, org_id: UUID) -> int:
+    if not inspect(conn).has_table(table_name, schema="public"):
+        return 0
     table = Table(table_name, MetaData(), autoload_with=conn)
     if _table_has_column(table, "organization_id"):
         return conn.execute(
@@ -106,9 +121,25 @@ def _child_public_count(conn: Connection, table_name: str, org_id: UUID) -> int:
     return conn.execute(text(sql), {"org_id": org_id}).scalar_one()
 
 
-def _child_select_sql(table_name: str, org_id: UUID, *, count_only: bool) -> str | None:
+def _child_select_sql(
+    table_name: str, org_id: UUID, *, count_only: bool, schema: str = "public"
+) -> str | None:
     if table_name in _ORG_ROOT_TABLES:
         return None
+    expense_item_children = {"expense_entries", "shop_expense_allocations"}
+    if table_name in expense_item_children:
+        shop_link = (
+            f"EXISTS (SELECT 1 FROM {_rel(schema, 'shops')} s "
+            f"WHERE s.organization_id = :org_id AND {_fk_exists_clause(table_name, 's', schema=schema)})"
+        )
+        item_link = (
+            f"EXISTS (SELECT 1 FROM {_rel(schema, 'expense_items')} ei "
+            "WHERE ei.organization_id = :org_id AND ei.id = p.expense_item_id)"
+        )
+        where = f"WHERE ({shop_link} OR {item_link})"
+        if count_only:
+            return f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p {where}"
+        return f"SELECT p.* FROM {_rel(schema, table_name)} p {where}"
     # Common child patterns via shops
     shop_children = {
         "bills",
@@ -117,9 +148,7 @@ def _child_select_sql(table_name: str, org_id: UUID, *, count_only: bool) -> str
         "receipts",
         "payments",
         "shop_item_allocations",
-        "shop_expense_allocations",
         "shop_inventory_allocations",
-        "expense_entries",
         "inventory_movements",
         "inventory_movement_splits",
         "whatsapp_user_shops",
@@ -129,17 +158,17 @@ def _child_select_sql(table_name: str, org_id: UUID, *, count_only: bool) -> str
     if table_name in shop_children:
         if count_only:
             return (
-                f"SELECT COUNT(*) FROM public.{table_name} p "
+                f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p "
                 "WHERE EXISTS ("
-                "SELECT 1 FROM public.shops s "
-                f"WHERE s.organization_id = :org_id AND {_fk_exists_clause(table_name, 's')}"
+                f"SELECT 1 FROM {_rel(schema, 'shops')} s "
+                f"WHERE s.organization_id = :org_id AND {_fk_exists_clause(table_name, 's', schema=schema)}"
                 ")"
             )
         return (
-            f"SELECT p.* FROM public.{table_name} p "
+            f"SELECT p.* FROM {_rel(schema, table_name)} p "
             "WHERE EXISTS ("
-            "SELECT 1 FROM public.shops s "
-            f"WHERE s.organization_id = :org_id AND {_fk_exists_clause(table_name, 's')}"
+            f"SELECT 1 FROM {_rel(schema, 'shops')} s "
+            f"WHERE s.organization_id = :org_id AND {_fk_exists_clause(table_name, 's', schema=schema)}"
             ")"
         )
     item_children = {"item_change_events"}
@@ -147,13 +176,13 @@ def _child_select_sql(table_name: str, org_id: UUID, *, count_only: bool) -> str
         col = "item_id"
         if count_only:
             return (
-                f"SELECT COUNT(*) FROM public.{table_name} p "
-                "WHERE EXISTS (SELECT 1 FROM public.items i "
+                f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p "
+                f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'items')} i "
                 f"WHERE i.organization_id = :org_id AND i.id = p.{col})"
             )
         return (
-            f"SELECT p.* FROM public.{table_name} p "
-            "WHERE EXISTS (SELECT 1 FROM public.items i "
+            f"SELECT p.* FROM {_rel(schema, table_name)} p "
+            f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'items')} i "
             f"WHERE i.organization_id = :org_id AND i.id = p.{col})"
         )
     rbac_children = {"admin_role_permissions", "admin_user_roles"}
@@ -161,13 +190,13 @@ def _child_select_sql(table_name: str, org_id: UUID, *, count_only: bool) -> str
         role_col = "role_id"
         if count_only:
             return (
-                f"SELECT COUNT(*) FROM public.{table_name} p "
-                "WHERE EXISTS (SELECT 1 FROM public.admin_roles r "
+                f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p "
+                f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'admin_roles')} r "
                 f"WHERE r.organization_id = :org_id AND r.id = p.{role_col})"
             )
         return (
-            f"SELECT p.* FROM public.{table_name} p "
-            "WHERE EXISTS (SELECT 1 FROM public.admin_roles r "
+            f"SELECT p.* FROM {_rel(schema, table_name)} p "
+            f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'admin_roles')} r "
             f"WHERE r.organization_id = :org_id AND r.id = p.{role_col})"
         )
     inv_children = {
@@ -178,71 +207,97 @@ def _child_select_sql(table_name: str, org_id: UUID, *, count_only: bool) -> str
     if table_name in inv_children:
         if count_only:
             return (
-                f"SELECT COUNT(*) FROM public.{table_name} p "
-                "WHERE EXISTS (SELECT 1 FROM public.inventory_items i "
+                f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p "
+                f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'inventory_items')} i "
                 "WHERE i.organization_id = :org_id AND i.id = p.inventory_item_id)"
             )
         return (
-            f"SELECT p.* FROM public.{table_name} p "
-            "WHERE EXISTS (SELECT 1 FROM public.inventory_items i "
+            f"SELECT p.* FROM {_rel(schema, table_name)} p "
+            f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'inventory_items')} i "
             "WHERE i.organization_id = :org_id AND i.id = p.inventory_item_id)"
         )
     if table_name == "inventory_transfers":
         if count_only:
             return (
-                "SELECT COUNT(*) FROM public.inventory_transfers p "
-                "WHERE EXISTS (SELECT 1 FROM public.transfer_shops t "
+                f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p "
+                f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'transfer_shops')} t "
                 "WHERE t.organization_id = :org_id AND t.id = p.transfer_shop_id)"
             )
         return (
-            "SELECT p.* FROM public.inventory_transfers p "
-            "WHERE EXISTS (SELECT 1 FROM public.transfer_shops t "
+            f"SELECT p.* FROM {_rel(schema, table_name)} p "
+            f"WHERE EXISTS (SELECT 1 FROM {_rel(schema, 'transfer_shops')} t "
             "WHERE t.organization_id = :org_id AND t.id = p.transfer_shop_id)"
         )
     logger.warning("No org filter for table %s — skipping", table_name)
     return None
 
 
-def _fk_exists_clause(table_name: str, shop_alias: str) -> str:
+def _child_delete_sql(table_name: str, org_id: UUID, *, schema: str = "public") -> str | None:
+    count_sql = _child_select_sql(table_name, org_id, count_only=True, schema=schema)
+    if count_sql is None:
+        return None
+    prefix = f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p "
+    if not count_sql.startswith(prefix):
+        return None
+    return f"DELETE FROM {_rel(schema, table_name)} p {count_sql[len(prefix):]}"
+
+
+def _fk_exists_clause(table_name: str, shop_alias: str, *, schema: str = "public") -> str:
+    bills = _rel(schema, "bills")
+    movements = _rel(schema, "inventory_movements")
+    whatsapp_users = _rel(schema, "whatsapp_users")
+    whatsapp_user_shops = _rel(schema, "whatsapp_user_shops")
     mapping = {
         "bills": f"{shop_alias}.id = p.shop_id",
-        "bill_items": f"EXISTS (SELECT 1 FROM public.bills b WHERE b.shop_id = {shop_alias}.id AND b.id = p.bill_id)",
+        "bill_items": f"EXISTS (SELECT 1 FROM {bills} b WHERE b.shop_id = {shop_alias}.id AND b.id = p.bill_id)",
         "daily_prices": f"{shop_alias}.id = p.shop_id",
-        "receipts": f"EXISTS (SELECT 1 FROM public.bills b WHERE b.shop_id = {shop_alias}.id AND b.id = p.bill_id)",
-        "payments": f"EXISTS (SELECT 1 FROM public.bills b WHERE b.shop_id = {shop_alias}.id AND b.id = p.bill_id)",
+        "receipts": f"EXISTS (SELECT 1 FROM {bills} b WHERE b.shop_id = {shop_alias}.id AND b.id = p.bill_id)",
+        "payments": f"EXISTS (SELECT 1 FROM {bills} b WHERE b.shop_id = {shop_alias}.id AND b.id = p.bill_id)",
         "shop_item_allocations": f"{shop_alias}.id = p.shop_id",
         "shop_expense_allocations": f"{shop_alias}.id = p.shop_id",
         "shop_inventory_allocations": f"{shop_alias}.id = p.shop_id",
         "expense_entries": f"{shop_alias}.id = p.shop_id",
         "inventory_movements": f"{shop_alias}.id = p.shop_id",
         "inventory_movement_splits": (
-            "EXISTS (SELECT 1 FROM public.inventory_movements m "
+            f"EXISTS (SELECT 1 FROM {movements} m "
             f"WHERE m.shop_id = {shop_alias}.id AND m.id = p.movement_id)"
         ),
         "whatsapp_user_shops": f"{shop_alias}.id = p.shop_id",
         "whatsapp_conversations": (
-            "EXISTS (SELECT 1 FROM public.whatsapp_users wu "
-            f"JOIN public.whatsapp_user_shops wus ON wus.whatsapp_user_id = wu.id "
-            f"WHERE wus.shop_id = {shop_alias}.id AND wu.id = p.whatsapp_user_id)"
+            f"EXISTS (SELECT 1 FROM {whatsapp_users} wu "
+            f"JOIN {whatsapp_user_shops} wus ON wus.user_id = wu.id "
+            f"WHERE wus.shop_id = {shop_alias}.id AND wu.phone_number = p.phone_number)"
         ),
         "processed_whatsapp_messages": (
-            "EXISTS (SELECT 1 FROM public.whatsapp_conversations wc "
-            "JOIN public.whatsapp_users wu ON wu.id = wc.whatsapp_user_id "
-            "JOIN public.whatsapp_user_shops wus ON wus.whatsapp_user_id = wu.id "
-            f"WHERE wus.shop_id = {shop_alias}.id AND wc.id = p.conversation_id)"
+            f"EXISTS (SELECT 1 FROM {whatsapp_users} wu "
+            f"JOIN {whatsapp_user_shops} wus ON wus.user_id = wu.id "
+            f"WHERE wus.shop_id = {shop_alias}.id AND wu.phone_number = p.phone_number)"
         ),
     }
     return mapping.get(table_name, f"{shop_alias}.id = p.shop_id")
 
 
+def _common_column_names(conn: Connection, table_name: str, schema: str) -> list[str]:
+    insp = inspect(conn)
+    if not insp.has_table(table_name, schema="public"):
+        return []
+    public_names = {c["name"] for c in insp.get_columns(table_name, schema="public")}
+    tenant_cols = insp.get_columns(table_name, schema=schema)
+    return [c["name"] for c in tenant_cols if c["name"] in public_names]
+
+
 def _copy_table(conn: Connection, schema: str, table: Table, org_id: UUID) -> int:
     safe = assert_safe_schema_name(schema)
     name = table.name
+    cols = _common_column_names(conn, name, safe)
+    if not cols:
+        return 0
+    col_list = ", ".join(cols)
     if _table_has_column(table, "organization_id"):
         result = conn.execute(
             text(
-                f'INSERT INTO "{safe}".{name} '
-                f"SELECT * FROM public.{name} WHERE organization_id = :org_id "
+                f'INSERT INTO "{safe}".{name} ({col_list}) '
+                f"SELECT {col_list} FROM public.{name} WHERE organization_id = :org_id "
                 "ON CONFLICT DO NOTHING"
             ),
             {"org_id": org_id},
@@ -251,20 +306,24 @@ def _copy_table(conn: Connection, schema: str, table: Table, org_id: UUID) -> in
     if name == "users":
         result = conn.execute(
             text(
-                f'INSERT INTO "{safe}".users '
-                "SELECT * FROM public.users WHERE organization_id = :org_id "
+                f'INSERT INTO "{safe}".users ({col_list}) '
+                f"SELECT {col_list} FROM public.users WHERE organization_id = :org_id "
                 "ON CONFLICT DO NOTHING"
             ),
             {"org_id": org_id},
         )
         return result.rowcount or 0
-    select_sql = _child_select_sql(name, org_id, count_only=False)
+    select_sql = _child_select_sql(name, org_id, count_only=True)
     if select_sql is None:
+        return 0
+    prefix = f"SELECT COUNT(*) FROM public.{name} p "
+    if not select_sql.startswith(prefix):
         return 0
     result = conn.execute(
         text(
-            f'INSERT INTO "{safe}".{name} '
-            f"{select_sql} ON CONFLICT DO NOTHING"
+            f'INSERT INTO "{safe}".{name} ({col_list}) '
+            f"SELECT {col_list} FROM public.{name} p {select_sql[len(prefix):]} "
+            "ON CONFLICT DO NOTHING"
         ),
         {"org_id": org_id},
     )
@@ -309,27 +368,53 @@ def _build_auth_index(conn: Connection, schema: str, org_id: UUID) -> int:
     return count
 
 
-def _delete_public_tenant_rows(conn: Connection, org_id: UUID) -> None:
+def _delete_org_scoped_tenant_rows(conn: Connection, org_id: UUID, schema: str) -> None:
+    insp = inspect(conn)
+    pg_schema = "public" if schema == "public" else assert_safe_schema_name(schema)
     for table in reversed(_tenant_tables()):
         name = table.name
+        if not insp.has_table(name, schema=pg_schema):
+            continue
         if _table_has_column(table, "organization_id"):
             conn.execute(
-                text(f"DELETE FROM public.{name} WHERE organization_id = :org_id"),
+                text(f"DELETE FROM {_rel(pg_schema, name)} WHERE organization_id = :org_id"),
                 {"org_id": org_id},
             )
         elif name == "users":
             conn.execute(
-                text("DELETE FROM public.users WHERE organization_id = :org_id"),
+                text(f"DELETE FROM {_rel(pg_schema, 'users')} WHERE organization_id = :org_id"),
                 {"org_id": org_id},
             )
         else:
-            select_sql = _child_select_sql(name, org_id, count_only=False)
-            if select_sql is None:
+            delete_sql = _child_delete_sql(name, org_id, schema=pg_schema)
+            if delete_sql is None:
                 continue
-            conn.execute(
-                text(f"DELETE FROM public.{name} p WHERE p.id IN (SELECT id FROM ({select_sql}) sub)"),
-                {"org_id": org_id},
-            )
+            conn.execute(text(delete_sql), {"org_id": org_id})
+
+
+def _delete_public_tenant_rows(conn: Connection, org_id: UUID) -> None:
+    _delete_org_scoped_tenant_rows(conn, org_id, "public")
+
+
+def purge_public_tenant_rows_for_org(conn: Connection, org_id: UUID) -> None:
+    """Delete legacy public tenant rows for one org (pre-cutover leftovers)."""
+    _delete_public_tenant_rows(conn, org_id)
+
+
+def purge_organization_rows_for_hard_delete(
+    conn: Connection,
+    org_id: UUID,
+    *,
+    skip_schema: str | None,
+) -> None:
+    """Drop org-scoped rows everywhere before deleting public.organizations."""
+    from app.db.tenant_schema import list_tenant_schema_names_from_db
+
+    _delete_org_scoped_tenant_rows(conn, org_id, "public")
+    for schema_name in list_tenant_schema_names_from_db():
+        if schema_name == skip_schema:
+            continue
+        _delete_org_scoped_tenant_rows(conn, org_id, schema_name)
 
 
 def migrate_organization_data(
@@ -403,6 +488,7 @@ def migrate_organization_data(
             raise RuntimeError(f"Migration verification failed for org {org.slug}")
 
         _delete_public_tenant_rows(conn, org.id)
+        report.public_ddl_dropped = drop_public_tenant_table_shells(conn)
 
     return report
 
@@ -433,5 +519,7 @@ def format_report(report: OrgMigrationReport) -> str:
             f"{row.table:<40} {row.public_count:>8} {row.copied:>8} {row.tenant_count:>8}"
         )
     lines.append(f"auth_index_rows: {report.auth_index_rows}")
+    if report.public_ddl_dropped:
+        lines.append(f"public_ddl_dropped: {report.public_ddl_dropped}")
     lines.append(f"ok: {report.ok}")
     return "\n".join(lines)

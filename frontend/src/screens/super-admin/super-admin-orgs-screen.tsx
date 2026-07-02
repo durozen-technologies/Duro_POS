@@ -19,6 +19,7 @@ import { toApiError } from "@/api/client";
 import {
   createOrganization,
   fetchOrganizationRows,
+  hardDeleteOrganization,
   patchOrganizationStatus,
   type OrganizationRead,
 } from "@/api/super-admin";
@@ -45,7 +46,6 @@ export function SuperAdminOrgsScreen() {
   const [newOrgMaxBranches, setNewOrgMaxBranches] = useState("5");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // ponytail: track which org is toggling so its button shows a spinner
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
@@ -163,6 +163,20 @@ export function SuperAdminOrgsScreen() {
             </Text>
           </View>
         </View>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Hard delete ${org.name}`}
+          className="mr-2 min-h-[36px] min-w-[36px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft active:opacity-80"
+          disabled={togglingId != null}
+          onPress={() => navigation.navigate("SuperAdminHardDelete", {
+            resourceType: "organization",
+            resourceId: org.id,
+            resourceName: org.name,
+          })}
+        >
+          <MaterialCommunityIcons name="delete-outline" size={18} color="#DC2626" />
+        </Pressable>
 
         <Pressable
           accessibilityRole="button"

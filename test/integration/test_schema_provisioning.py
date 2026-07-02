@@ -21,10 +21,19 @@ from test.postgres_support import PostgresHarness, postgres_test_url
 
 from app.core.security import get_password_hash
 from app.db.tenant_metadata import tenant_table_names
-from app.db.tenant_schema import derive_schema_name, repair_tenant_schema_ddl, set_search_path, tenant_router
+from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
+from app.db.tenant_schema import (
+    derive_schema_name,
+    repair_tenant_schema_ddl,
+    set_search_path,
+    tenant_router,
+)
 from app.models import AdminRole, Organization, Shop, User, UserRole
+from app.schemas.admin import ShopCreate
 from app.schemas.super_admin.organizations import OrganizationCreate
+from app.services.admin.shops import create_shop_account
 from app.services.super_admin import organizations as org_service
+from app.services.super_admin.organizations import assert_organization_can_add_branch
 
 _SKIP_REASON = (
     "Postgres test DB required: set TEST_DATABASE_URL or DATABASE_URL_TEST in backend/.env"
@@ -36,6 +45,9 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls) -> None:
         os.environ["DATABASE_URL"] = postgres_test_url() or ""
+        from app.core.config import get_settings
+
+        get_settings.cache_clear()
         cls.harness = PostgresHarness()
         cls.harness.run_migrations()
 
@@ -49,6 +61,13 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
         if getattr(self, "_cleanup_org_id", None):
             async with self.harness.session_factory() as session:
                 await set_search_path(session, None)
+                from sqlalchemy import text
+
+                if await session.scalar(text("SELECT to_regclass('public.shops')")):
+                    await session.execute(
+                        text("DELETE FROM public.shops WHERE organization_id = :org_id"),
+                        {"org_id": self._cleanup_org_id},
+                    )
                 await session.execute(
                     delete(Organization).where(Organization.id == self._cleanup_org_id)
                 )
@@ -85,7 +104,11 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
             )
             self._cleanup_org_id = org_read.id
 
-        self.assertEqual(org_read.schema_name, expected_schema)
+        async with self.harness.session_factory() as session:
+            await set_search_path(session, None)
+            org = await session.get(Organization, org_read.id)
+            assert org is not None
+            self.assertEqual(org.schema_name, expected_schema)
         self.assertTrue(await self.harness.schema_exists(expected_schema))
         self.assertTrue(await self.harness.tenant_alembic_at_head(expected_schema))
 
@@ -112,10 +135,10 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
             f"expected >={min_tables} tables in {schema_name}, got {table_count}",
         )
 
-    async def test_tenant_ddl_created_when_public_has_legacy_tables(self) -> None:
+    async def test_repair_tenant_schema_ddl_on_broken_schema(self) -> None:
         from sqlalchemy import text as sql_text
 
-        slug = f"legacy-{uuid4().hex[:8]}"
+        slug = f"repair-{uuid4().hex[:8]}"
         schema_name = derive_schema_name(slug)
         self._cleanup_schema = schema_name
         min_tables = len(tenant_table_names())
@@ -123,7 +146,7 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
         async with self.harness.session_factory() as session:
             await set_search_path(session, None)
             org = Organization(
-                name="Legacy DDL Org",
+                name="Repair DDL Org",
                 slug=slug,
                 schema_name=schema_name,
                 is_active=True,
@@ -131,21 +154,6 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
             session.add(org)
             await session.flush()
             self._cleanup_org_id = org.id
-
-            owner = User(
-                username=f"legacy-{uuid4().hex[:6]}",
-                password_hash="x",
-                role=UserRole.SHOP_ACCOUNT,
-                organization_id=org.id,
-                is_active=True,
-            )
-            shop = Shop(
-                name="Legacy Public Shop",
-                organization_id=org.id,
-                owner=owner,
-                is_active=True,
-            )
-            session.add_all([owner, shop])
             await session.commit()
 
         async with self.harness.session_factory() as session:
@@ -190,12 +198,8 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.harness.session_factory() as platform_db:
             await set_search_path(platform_db, None)
-            public_roles = list(
-                await platform_db.scalars(
-                    select(AdminRole).where(AdminRole.organization_id == org_read.id)
-                )
-            )
-            self.assertEqual(public_roles, [])
+            public_tables = await self.harness.list_public_tables()
+            self.assertNotIn("admin_roles", public_tables)
 
         async with self.harness.session_factory() as tenant_db:
             await set_search_path(tenant_db, schema_name)
@@ -282,12 +286,55 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
 
         await self.harness.drop_schema(schema_a)
         await self.harness.drop_schema(schema_b)
+
         async with self.harness.session_factory() as session:
             await set_search_path(session, None)
             await session.execute(
                 delete(Organization).where(Organization.id.in_([org_a.id, org_b.id]))
             )
             await session.commit()
+
+    async def test_tenant_schema_scope_preserves_parent_search_path_for_shop_create(self) -> None:
+        super_admin = await self._create_super_admin()
+        slug = f"shop-create-{uuid4().hex[:8]}"
+        schema_name = derive_schema_name(slug)
+        self._cleanup_schema = schema_name
+
+        async with self.harness.session_factory() as session:
+            await set_search_path(session, None)
+            org_read = await org_service.create_organization(
+                session,
+                OrganizationCreate(name="Shop Create Org", slug=slug),
+                super_admin,
+            )
+        self._cleanup_org_id = org_read.id
+
+        admin = User(
+            username=f"admin-{uuid4().hex[:8]}",
+            password_hash=get_password_hash("password123"),
+            role=UserRole.TENANT_ADMIN,
+            organization_id=org_read.id,
+            is_active=True,
+        )
+
+        async with self.harness.session_factory() as session:
+            token = set_active_tenant_schema(schema_name)
+            try:
+                await set_search_path(session, schema_name)
+                await assert_organization_can_add_branch(session, org_read.id)
+                created = await create_shop_account(
+                    session,
+                    ShopCreate(
+                        name="Demo Shop1",
+                        username=f"shop-{uuid4().hex[:8]}",
+                        password="password123",
+                    ),
+                    admin,
+                )
+                self.assertEqual(created.name, "Demo Shop1")
+            finally:
+                reset_active_tenant_schema(token)
+                await set_search_path(session, None)
 
     async def test_tenant_data_migration_dry_run_and_execute(self) -> None:
         from sqlalchemy import create_engine, text
@@ -299,12 +346,14 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
         schema_name = derive_schema_name(slug)
         self._cleanup_schema = schema_name
 
+        self.harness.ensure_legacy_public_fixture_tables()
+
         async with self.harness.session_factory() as session:
             await set_search_path(session, None)
             org = Organization(
                 name="Migration Test Org",
                 slug=slug,
-                schema_name=None,
+                schema_name=schema_name,
                 is_active=True,
             )
             session.add(org)
@@ -349,11 +398,15 @@ class SchemaProvisioningTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.harness.session_factory() as session:
             await set_search_path(session, None)
-            public_count = await session.scalar(
-                text("SELECT COUNT(*) FROM public.shops WHERE organization_id = :org_id"),
-                {"org_id": org_id},
-            )
-            self.assertEqual(public_count, 0)
+            has_shops = await session.scalar(text("SELECT to_regclass('public.shops')"))
+            if has_shops:
+                public_count = await session.scalar(
+                    text("SELECT COUNT(*) FROM public.shops WHERE organization_id = :org_id"),
+                    {"org_id": org_id},
+                )
+                self.assertEqual(public_count, 0)
+            public_tables = await self.harness.list_public_tables()
+            self.assertNotIn("shops", public_tables)
 
         from app.models import UserAuthIndex
 

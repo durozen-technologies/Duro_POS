@@ -90,15 +90,15 @@ RUSTFS_READ_TIMEOUT_SECONDS=15
 ITEM_IMAGE_MAX_BYTES=5242880
 ITEM_IMAGE_THUMBNAIL_SIZE=192
 ITEM_IMAGE_FULL_MAX_SIZE=1024
-REDIS_URL=
-REDIS_KEY_PREFIX=brolier360
+REDIS_URL=redis://127.0.0.1:6379/0
+REDIS_PREFIX=brolier360
 REDIS_DEFAULT_TTL=60
 ```
 
 Optional Redis (cache only; app degrades when unset):
 
-- `REDIS_URL` — e.g. `redis://redis:6379/0` in production compose
-- `REDIS_KEY_PREFIX` — key namespace (default `brolier360`)
+- `REDIS_URL` — e.g. `redis://127.0.0.1:6379/0` locally, `redis://redis:6379/0` in production compose
+- `REDIS_PREFIX` — key namespace for `fastapi-redis-sdk` (default `brolier360`)
 - Permission, dashboard bootstrap, super-admin org counts, and login rate-limit keys use this prefix
 
 Important backend defaults from [`app/core/config.py`](app/core/config.py):
@@ -205,30 +205,31 @@ See the root [README.md — Database migrations](../README.md#database-migration
 
 ### Schema-per-tenant (ADR-003)
 
-PostgreSQL tenants get a dedicated schema (`tenant_<slug>`) stored on `organizations.schema_name`. Platform tables (`organizations`, `permissions`, `user_auth_index`, super-admin `users`) stay in `public`.
+PostgreSQL tenants get a dedicated schema (`tenant_<slug>`) stored on `organizations.schema_name` (**required**). The `public` schema is the super-admin control plane only: `organizations`, `permissions`, `user_auth_index`, super-admin `users`, super-admin `audit_logs`, `alembic_version`.
 
 - **Platform + tenant migrations:** `uv run python migrate.py` (Postgres also upgrades all registered tenant schemas and repairs missing tenant DDL)
 - **Tenant schemas only:** `uv run python migrate.py --tenants-only`
-- **Single tenant:** `uv run python migrate.py --tenants-only --schema tenant_default`
-- **Repair broken tenant DDL** (schema has only `alembic_version`): `uv run python migrate.py --repair-tenant-ddl` discovers `tenant_<slug>` for legacy orgs even when `organizations.schema_name` is null; `--repair-tenant-ddl --schema tenant_default` targets one schema directly
-- **Baseline check:** `uv run python scripts/check_tenant_baseline.py`
-- **Data migration (legacy orgs):** `pg_dump` first, then `uv run python -m app.cli migrate-tenant-data --all-legacy --dry-run` then `--execute` (optional `--cleanup-public-backups`)
+- **Single tenant:** `uv run python migrate.py --tenants-only --schema tenant_<slug>`
+- **Repair broken tenant DDL** (schema has only `alembic_version`): `uv run python migrate.py --repair-tenant-ddl` or `--repair-tenant-ddl --schema tenant_<slug>`
+- **Baseline checks:** `uv run python scripts/check_tenant_baseline.py` and `uv run python scripts/check_public_schema.py`
 - **Tenant baseline:** applied on org create and via `migrate.py`
 
-**Broken tenant schema recovery** (legacy DB where `public` still has operational tables):
+**Legacy org cutover** (run once per environment before deploying migration `0034`):
 
 ```bash
 pg_dump ...
-uv run python migrate.py --repair-tenant-ddl
-uv run python -m app.cli migrate-tenant-data --slug default --dry-run
-uv run python -m app.cli migrate-tenant-data --slug default --execute
+uv run python migrate.py --repair-tenant-ddl   # if tenant schema DDL is incomplete
+uv run python -m app.cli migrate-tenant-data --slug <slug> --dry-run
+uv run python -m app.cli migrate-tenant-data --slug <slug> --execute
+uv run python migrate.py                         # applies 0034_public_schema_cutover
+uv run python scripts/check_public_schema.py
 ```
 
 Postgres integration tests (from repo root; uses `DATABASE_URL_TEST` or `TEST_DATABASE_URL` from `backend/.env` when unset):
 
 ```bash
 PYTHONPATH=backend:. uv run --directory backend \
-  python -m unittest test.integration.test_schema_provisioning -v
+  python -m unittest test.integration.test_schema_provisioning test.integration.test_public_schema_cutover -v
 ```
 
 ## Docker

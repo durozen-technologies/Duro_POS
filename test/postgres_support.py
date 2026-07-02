@@ -70,10 +70,13 @@ class PostgresHarness:
         self._sync_engine = create_engine(self.sync_url, future=True)
 
     def run_migrations(self) -> None:
+        from app.core.config import get_settings
+
+        get_settings.cache_clear()
         env = os.environ.copy()
         env["DATABASE_URL"] = self.database_url
         subprocess.run(
-            [sys.executable, "migrate.py"],
+            [sys.executable, "migrate.py", "--tenants"],
             cwd=BACKEND_DIR,
             check=True,
             env=env,
@@ -121,3 +124,28 @@ class PostgresHarness:
                 {"name": schema_name},
             )
             return int(count or 0)
+
+    async def list_public_tables(self) -> set[str]:
+        async with self.session_factory() as session:
+            rows = await session.scalars(
+                text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+                )
+            )
+            return set(rows.all())
+
+    def ensure_legacy_public_fixture_tables(self) -> None:
+        """Create minimal public tenant table shells for legacy migration tests."""
+        from sqlalchemy import inspect
+
+        from app import models as _models  # noqa: F401
+        from app.db.database import Base
+
+        with self._sync_engine.begin() as conn:
+            inspector = inspect(conn)
+            for table in Base.metadata.sorted_tables:
+                if table.name not in {"shops", "users"}:
+                    continue
+                if inspector.has_table(table.name, schema="public"):
+                    continue
+                table.create(conn, checkfirst=True)

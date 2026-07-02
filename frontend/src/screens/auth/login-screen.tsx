@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+// ═══════════════════════════════════════════════════════════════════════════════
+// LoginScreen.tsx — Production-grade authentication entry point
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  type TextStyle,
+  ActivityIndicator,
+  Animated,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
+  Linking,
+  Pressable,
   StatusBar,
+  Text,
+  TextInput,
   TouchableWithoutFeedback,
+  View,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -15,545 +24,776 @@ import {
   LockKeyhole,
   LogIn,
   ShieldCheck,
-  Store,
   TriangleAlert,
   User2,
 } from "lucide-react-native";
+import { Image } from "expo-image";
 
 import { branding } from "@/constants/branding";
-import { Image } from "expo-image";
-import {
-  Button as TButton,
-  Input,
-  ScrollView,
-  Spinner,
-  Text,
-  View as Stack,
-  XStack,
-  YStack,
-} from "tamagui";
-
 import { login } from "@/api/auth";
 import { toApiError } from "@/api/client";
 import { useAuthStore } from "@/store/auth-store";
 import { useCartStore } from "@/store/cart-store";
 import { usePriceStore } from "@/store/price-store";
 
-const logoImage = require("../../../assets/Logo.png");
-
-const fieldInputTextStyle: TextStyle = {
-  fontWeight: "700",
-};
-
-const C = {
-  background: "#F6F8F5",
-  hero: "#09110D",
-  heroDeep: "#050806",
-  heroSoft: "rgba(255,255,255,0.07)",
-  heroBorder: "rgba(255,255,255,0.14)",
-  card: "#FFFFFF",
-  surface: "#F3F7F4",
-  surfaceStrong: "#ECF5EF",
-  border: "#DCE6DF",
-  borderStrong: "#B9D5C4",
-  accent: "#16A34A",
-  accentDark: "#166534",
-  accentBlack: "#0F2A1A",
-  accentSoft: "#DCFCE7",
-  ink: "#101827",
-  muted: "#667085",
-  mutedDark: "#475467",
-  danger: "#DC2626",
-  dangerBorder: "#FECACA",
-  dangerSoft: "#FEF2F2",
-  white: "#FFFFFF",
-};
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type FieldName = "username" | "password";
 
-function collapseWhitespace(value: string) {
-  return value.split(/\s+/).filter(Boolean).join(" ");
+interface FieldState {
+  value: string;
+  error: string | null;
+  touched: boolean;
 }
 
-function FieldLabel({ children }: { children: string }) {
+// ─── Theme Tokens ────────────────────────────────────────────────────────────
+// Centralized JS color values for icon tinting and dynamic styles.
+// These MUST stay in sync with the NativeWind tailwind.config theme tokens.
+
+const TINT = {
+  accent: "#0F7642",
+  muted: "#4B6356",
+  danger: "#DC2626",
+  dangerText: "#B42318",
+  white: "#FFFFFF",
+} as const;
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const LOGO_SOURCE = require("../../../assets/Logo.png");
+
+const ANIM = {
+  staggerDelay: 120,
+  duration: 500,
+  slideDistance: 24,
+  pressScale: 0.97,
+  pressDuration: 80,
+  releaseDuration: 150,
+} as const;
+
+const VALIDATION = {
+  username: {
+    required: "Username is required.",
+    maxLength: 128,
+    tooLong: "Username must not exceed 128 characters.",
+  },
+  password: {
+    required: "Password is required.",
+  },
+} as const;
+
+const SCROLL_OFFSET_BY_FIELD: Record<FieldName, number> = {
+  username: 160,
+  password: 260,
+} as const;
+
+const FALLBACK_ERROR_MESSAGE =
+  "An unexpected error occurred. Please try again.";
+
+// ─── Pure Utilities ──────────────────────────────────────────────────────────
+
+function sanitizeUsername(raw: string): string {
+  return raw
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function validateField(name: FieldName, value: string): string | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) return VALIDATION[name].required;
+
+  if (name === "username" && trimmed.length > VALIDATION.username.maxLength) {
+    return VALIDATION.username.tooLong;
+  }
+
+  return null;
+}
+
+function resolveErrorMessage(
+  error: ReturnType<typeof toApiError>
+): string {
+  if (error.status === 401) return "Invalid username or password.";
+  if (error.status === 403) return "Access denied. Please contact your administrator.";
+  if (error.status === 429) return "Too many login attempts. Please wait a moment before retrying.";
+  const message = error.message.trim();
+  if (message) return message;
+  return FALLBACK_ERROR_MESSAGE;
+}
+
+// ─── Form State Hook ─────────────────────────────────────────────────────────
+
+function useLoginForm() {
+  const [fields, setFields] = useState<Record<FieldName, FieldState>>({
+    username: { value: "", error: null, touched: false },
+    password: { value: "", error: null, touched: false },
+  });
+
+  const updateValue = useCallback((field: FieldName, value: string) => {
+    setFields((prev) => ({
+      ...prev,
+      [field]: {
+        ...prev[field],
+        value,
+        error: prev[field].touched ? validateField(field, value) : null,
+      },
+    }));
+  }, []);
+
+  const markTouched = useCallback((field: FieldName) => {
+    setFields((prev) => {
+      if (prev[field].touched) return prev;
+      return {
+        ...prev,
+        [field]: {
+          ...prev[field],
+          touched: true,
+          error: validateField(field, prev[field].value),
+        },
+      };
+    });
+  }, []);
+
+  const validateAll = useCallback((): boolean => {
+    let isValid = true;
+
+    setFields((prev) => {
+      const next: Record<FieldName, FieldState> = {
+        username: { ...prev.username },
+        password: { ...prev.password },
+      };
+
+      for (const field of ["username", "password"] as const) {
+        const error = validateField(field, prev[field].value);
+        next[field] = { ...prev[field], touched: true, error };
+        if (error) isValid = false;
+      }
+
+      return next;
+    });
+
+    return isValid;
+  }, []);
+
+  const reset = useCallback(() => {
+    setFields({
+      username: { value: "", error: null, touched: false },
+      password: { value: "", error: null, touched: false },
+    });
+  }, []);
+
+  const credentials = useMemo(
+    () => ({
+      username: sanitizeUsername(fields.username.value),
+      password: fields.password.value.trim(),
+    }),
+    [fields.username.value, fields.password.value]
+  );
+
+  const canSubmit = useMemo(
+    () => Boolean(credentials.username && credentials.password),
+    [credentials]
+  );
+
+  const hasErrors = useMemo(
+    () => Boolean(fields.username.error || fields.password.error),
+    [fields.username.error, fields.password.error]
+  );
+
+  return {
+    fields,
+    credentials,
+    canSubmit,
+    hasErrors,
+    updateValue,
+    markTouched,
+    validateAll,
+    reset,
+  };
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function FieldLabel({
+  children,
+  nativeID,
+}: {
+  children: string;
+  nativeID: string;
+}) {
   return (
     <Text
-      style={{
-        color: C.mutedDark,
-        fontSize: 11,
-        fontWeight: "900",
-        letterSpacing: 1.1,
-        textTransform: "uppercase",
-      }}
+      className="text-[11px] font-bold uppercase tracking-widest text-muted"
+      nativeID={nativeID}
     >
       {children}
     </Text>
   );
 }
 
-function IconTile({
-  children,
-  tone = "soft",
-}: {
-  children: React.ReactNode;
-  tone?: "soft" | "inverse";
-}) {
+interface InputFieldProps {
+  field: FieldName;
+  label: string;
+  value: string;
+  error: string | null;
+  touched: boolean;
+  isFocused: boolean;
+  isDisabled: boolean;
+  onChangeText: (text: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  onSubmitEditing?: () => void;
+  returnKeyType: "next" | "done";
+  secureTextEntry?: boolean;
+  inputRef?: React.RefObject<TextInput | null>;
+  trailingElement?: React.ReactNode;
+}
+
+function InputField({
+  field,
+  label,
+  value,
+  error,
+  touched,
+  isFocused,
+  isDisabled,
+  onChangeText,
+  onFocus,
+  onBlur,
+  onSubmitEditing,
+  returnKeyType,
+  secureTextEntry = false,
+  inputRef,
+  trailingElement,
+}: InputFieldProps) {
+  const hasError = touched && error;
+  const labelID = `${field}-label`;
+  const errorID = `${field}-error`;
+
+  const borderClass = hasError
+    ? "border-danger"
+    : isFocused
+      ? "border-accent"
+      : "border-border";
+
+  const bgClass = isFocused ? "bg-white" : "bg-surface";
+
+  const iconColor = hasError
+    ? TINT.danger
+    : isFocused
+      ? TINT.accent
+      : TINT.muted;
+
+  const LeadingIcon = field === "username" ? User2 : LockKeyhole;
+
   return (
-    <Stack
-      width={44}
-      height={44}
-      alignItems="center"
-      justifyContent="center"
-      borderRadius={12}
-      borderWidth={1}
-      borderColor={tone === "inverse" ? C.heroBorder : C.borderStrong}
-      backgroundColor={tone === "inverse" ? C.heroSoft : C.accentSoft}
-    >
-      {children}
-    </Stack>
+    <View className="gap-2.5">
+      <FieldLabel nativeID={labelID}>{label}</FieldLabel>
+
+      <View
+        className={`min-h-[52px] flex-row items-center gap-3 rounded-card border-2 px-3.5 ${borderClass} ${bgClass}`}
+      >
+        <LeadingIcon size={20} color={iconColor} strokeWidth={2.4} />
+
+        <TextInput
+          ref={inputRef}
+          className="flex-1 text-base font-bold text-ink"
+          value={value}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry={secureTextEntry}
+          autoComplete={
+            field === "username" ? "username" : "current-password"
+          }
+          textContentType={field === "username" ? "username" : "password"}
+          placeholder={`Enter your ${label.toLowerCase()}`}
+          placeholderTextColor={TINT.muted}
+          editable={!isDisabled}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onChangeText={onChangeText}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={returnKeyType === "done"}
+          aria-labelledby={labelID}
+          aria-invalid={hasError ? true : undefined}
+          aria-errormessage={hasError ? errorID : undefined}
+          importantForAccessibility={hasError ? "yes" : "no"}
+        />
+
+        {trailingElement}
+      </View>
+
+      {hasError ? (
+        <Text
+          className="text-xs font-semibold text-danger pl-1"
+          nativeID={errorID}
+          role="alert"
+        >
+          {error}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
-function SecurityChip({
-  icon,
-  label,
-}: {
-  icon: React.ReactNode;
-  label: string;
-}) {
+function ErrorBanner({ message }: { message: string }) {
   return (
-    <XStack
-      alignItems="center"
-      gap={7}
-      minHeight={34}
-      paddingHorizontal={12}
-      borderRadius={10}
-      borderWidth={1}
-      borderColor={C.heroBorder}
-      backgroundColor="rgba(255,255,255,0.06)"
+    <View
+      className="flex-row items-start gap-3 rounded-card border border-dangerSoft bg-dangerSoft p-3.5"
+      accessible
+      accessibilityRole="alert"
+      accessibilityLiveRegion="assertive"
     >
-      {icon}
-      <Text
-        numberOfLines={1}
-        style={{
-          color: "#DDFBE8",
-          fontSize: 11,
-          fontWeight: "800",
-          flexShrink: 1,
-        }}
-      >
-        {label}
+      <TriangleAlert
+        size={18}
+        color={TINT.danger}
+        strokeWidth={2.5}
+      />
+      <Text className="flex-1 text-sm font-semibold leading-snug text-dangerText">
+        {message}
       </Text>
-    </XStack>
+    </View>
   );
 }
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 export function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const scrollViewRef = useRef<React.ElementRef<typeof ScrollView>>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+
+  // Form state
+  const {
+    fields,
+    credentials,
+    canSubmit,
+    hasErrors,
+    updateValue,
+    markTouched,
+    validateAll,
+    reset,
+  } = useLoginForm();
+
+  // UI state
   const [submitting, setSubmitting] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<FieldName | null>(null);
 
-  const setSession = useAuthStore((state) => state.setSession);
-  const resetCart = useCartStore((state) => state.resetCart);
-  const clearPrices = usePriceStore((state) => state.clear);
+  // Submission lock — prevents double-taps and rapid retries
+  const submitLockRef = useRef(false);
 
-  const credentialsReady = Boolean(collapseWhitespace(username).trim() && password.trim());
+  // Store actions
+  const setSession = useAuthStore((s) => s.setSession);
+  const resetCart = useCartStore((s) => s.resetCart);
+  const clearPrices = usePriceStore((s) => s.clear);
+
+  // ── Entrance Animations ────────────────────────────────────────────────
+
+  const headerOpacity = useRef(new Animated.Value(0)).current;
+  const headerTranslate = useRef(
+    new Animated.Value(ANIM.slideDistance)
+  ).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const cardTranslate = useRef(
+    new Animated.Value(ANIM.slideDistance)
+  ).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const keyboardShowEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const animation = Animated.stagger(ANIM.staggerDelay, [
+      Animated.parallel([
+        Animated.timing(headerOpacity, {
+          toValue: 1,
+          duration: ANIM.duration,
+          useNativeDriver: true,
+        }),
+        Animated.timing(headerTranslate, {
+          toValue: 0,
+          duration: ANIM.duration,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(cardOpacity, {
+          toValue: 1,
+          duration: ANIM.duration,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardTranslate, {
+          toValue: 0,
+          duration: ANIM.duration,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]);
 
-    const subscription = Keyboard.addListener(keyboardShowEvent, () => {
-      if (!focusedField) {
-        return;
-      }
+    animation.start();
+    return () => animation.stop();
+  }, [cardOpacity, cardTranslate, headerOpacity, headerTranslate]);
 
-      requestAnimationFrame(() => {
-        scrollViewRef.current?.scrollTo({
-          y: focusedField === "password" ? 260 : 160,
-          animated: true,
-        });
-      });
-    });
+  // ── Submit Logic ───────────────────────────────────────────────────────
 
-    return () => subscription.remove();
-  }, [focusedField]);
+  const handleLogin = useCallback(async () => {
+    if (submitLockRef.current || submitting) return;
+    submitLockRef.current = true;
 
-  async function handleLogin() {
-    const normalizedUsername = collapseWhitespace(username).trim();
-
-    if (!normalizedUsername || !password.trim()) {
-      setErrorMessage("Username and password are required.");
+    const isValid = validateAll();
+    if (!isValid) {
+      submitLockRef.current = false;
       return;
     }
 
     Keyboard.dismiss();
-
     setSubmitting(true);
-    setErrorMessage("");
+    setFormError(null);
 
     try {
       const response = await login({
-        username: normalizedUsername,
-        password,
+        username: credentials.username,
+        password: credentials.password,
       });
 
       resetCart();
       clearPrices();
-
+      reset();
       setSession(response.access_token, response.user);
     } catch (error) {
-      setErrorMessage(toApiError(error).message);
+      setFormError(resolveErrorMessage(toApiError(error)));
     } finally {
       setSubmitting(false);
+      setTimeout(() => {
+        submitLockRef.current = false;
+      }, 500);
     }
-  }
+  }, [
+    submitting,
+    validateAll,
+    credentials,
+    resetCart,
+    clearPrices,
+    reset,
+    setSession,
+  ]);
 
-  function clearError() {
-    if (errorMessage) {
-      setErrorMessage("");
-    }
-  }
+  // ── Button Press Animation ─────────────────────────────────────────────
+
+  const handlePressIn = useCallback(() => {
+    Animated.timing(buttonScale, {
+      toValue: ANIM.pressScale,
+      duration: ANIM.pressDuration,
+      useNativeDriver: true,
+    }).start();
+  }, [buttonScale]);
+
+  const handlePressOut = useCallback(() => {
+    Animated.timing(buttonScale, {
+      toValue: 1,
+      duration: ANIM.releaseDuration,
+      useNativeDriver: true,
+    }).start();
+  }, [buttonScale]);
+
+  // ── Field Handlers ─────────────────────────────────────────────────────
+
+  const handleUsernameChange = useCallback(
+    (text: string) => {
+      updateValue("username", text);
+      if (formError) setFormError(null);
+    },
+    [updateValue, formError]
+  );
+
+  const handlePasswordChange = useCallback(
+    (text: string) => {
+      updateValue("password", text);
+      if (formError) setFormError(null);
+    },
+    [updateValue, formError]
+  );
+
+  const handleUsernameFocus = useCallback(
+    () => setFocusedField("username"),
+    []
+  );
+
+  const handleUsernameBlur = useCallback(() => {
+    setFocusedField(null);
+    markTouched("username");
+  }, [markTouched]);
+
+  const handlePasswordFocus = useCallback(
+    () => setFocusedField("password"),
+    []
+  );
+
+  const handlePasswordBlur = useCallback(() => {
+    setFocusedField(null);
+    markTouched("password");
+  }, [markTouched]);
+
+  const handleUsernameSubmitEditing = useCallback(() => {
+    passwordInputRef.current?.focus();
+  }, []);
+
+  const togglePasswordVisibility = useCallback(() => {
+    setShowPassword((prev) => !prev);
+  }, []);
+
+  // ── Derived State ──────────────────────────────────────────────────────
+
+  const isButtonActive = canSubmit && !hasErrors && !submitting;
+  const shouldAnimateButton = canSubmit && !hasErrors && !submitting;
+
+  const passwordToggleIcon = showPassword ? (
+    <EyeOff
+      size={20}
+      color={
+        focusedField === "password" ? TINT.accent : TINT.muted
+      }
+      strokeWidth={2.4}
+    />
+  ) : (
+    <Eye
+      size={20}
+      color={
+        focusedField === "password" ? TINT.accent : TINT.muted
+      }
+      strokeWidth={2.4}
+    />
+  );
+
+  const passwordTrailing = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={
+        showPassword ? "Hide password" : "Show password"
+      }
+      className="h-10 w-10 items-center justify-center rounded-control active:bg-surface"
+      onPress={togglePasswordVisibility}
+      disabled={submitting}
+    >
+      {passwordToggleIcon}
+    </Pressable>
+  );
+
+  // ── Render ─────────────────────────────────────────────────────────────
 
   return (
     <>
-      <StatusBar barStyle="light-content" backgroundColor={C.heroDeep} />
+      <StatusBar barStyle="dark-content" backgroundColor="#F2F7F4" />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: C.background }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      <TouchableWithoutFeedback
+        onPress={Keyboard.dismiss}
+        accessible={false}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <ScrollView
-            ref={scrollViewRef}
-            keyboardShouldPersistTaps="handled"
+        <KeyboardAwareScrollView
+          enableOnAndroid={true}
+          keyboardShouldPersistTaps="handled"
+          extraScrollHeight={30}
+          extraHeight={80}
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
             bounces={false}
-            backgroundColor={C.background}
+            className="flex-1 bg-background"
             contentContainerStyle={{
               flexGrow: 1,
-              backgroundColor: C.background,
+              justifyContent: "center",
+              paddingTop: insets.top + 32,
+              paddingBottom: insets.bottom + 32,
+              paddingHorizontal: 20,
             }}
           >
-            <YStack flex={1} backgroundColor={C.background}>
-              <YStack
-                minHeight={244}
-                paddingHorizontal={22}
-                paddingTop={insets.top + 18}
-                paddingBottom={28}
-                backgroundColor={C.hero}
-                borderBottomWidth={1}
-                borderBottomColor="rgba(255,255,255,0.08)"
+            <View className="w-full max-w-[420px] self-center">
+              {/* ── Header / Logo ─────────────────────────────────────── */}
+              <Animated.View
+                className="mb-8 items-center gap-4"
+                style={{
+                  opacity: headerOpacity,
+                  transform: [{ translateY: headerTranslate }],
+                }}
               >
-                <YStack width="100%" maxWidth={520} alignSelf="center" gap={14}>
-                  <XStack alignItems="center" justifyContent="space-between" gap={16}>
-                    <XStack alignItems="center" gap={12} flex={1} minWidth={0}>
-                      <Stack
-                        width={82}
-                        height={82}
-                        alignItems="center"
-                        justifyContent="center"
-                        borderRadius={18}
-                        borderWidth={1}
-                        borderColor={C.heroBorder}
-                        backgroundColor={C.heroSoft}
-                      >
-                        <Image
-                          source={logoImage}
-                          style={{ width: 74, height: 74, borderRadius: 12, overflow: "hidden" }}
-                          contentFit="contain"
-                        />
-                      </Stack>
+                <View className="h-24 w-24 items-center justify-center rounded-3xl border border-accent/20 bg-accentSoft/50 shadow-sm">
+                  <Image
+                    source={LOGO_SOURCE}
+                    style={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: 18,
+                      overflow: "hidden",
+                    }}
+                    contentFit="contain"
+                    accessibilityLabel={`${branding.appName} logo`}
+                  />
+                </View>
 
-                      <YStack flex={1} minWidth={0}>
-                        <Text
-                          numberOfLines={2}
-                          style={{
-                            color: C.white,
-                            fontSize: 20,
-                            lineHeight: 25,
-                            fontWeight: "900",
-                            flexShrink: 1,
-                          }}
-                        >
-                          {branding.appName}
-                        </Text>
-                        <Text
-                          numberOfLines={1}
-                          style={{
-                            color: "#9AE6B4",
-                            fontSize: 12,
-                            fontWeight: "900",
-                            letterSpacing: 1.2,
-                            marginTop: 3,
-                          }}
-                        >
-                          Point of Sale
-                        </Text>
-                      </YStack>
-                    </XStack>
+                <View className="items-center gap-1.5">
+                  <Text className="text-center text-3xl font-bold tracking-tight text-ink">
+                    {branding.appName}
+                  </Text>
+                  <Text className="text-center text-[13px] font-bold uppercase tracking-widest text-accent">
+                    Point of Sale
+                  </Text>
+                </View>
+              </Animated.View>
 
-                    <IconTile tone="inverse">
-                      <ShieldCheck size={22} color="#BBF7D0" strokeWidth={2.5} />
-                    </IconTile>
-                  </XStack>
-
-                  <YStack gap={8} marginTop={0}>
-                    <Text
-                      style={{
-                        color: "rgba(255,255,255,0.76)",
-                        fontSize: 14,
-                        lineHeight: 21,
-                        fontWeight: "600",
-                      }}
-                    >
-                      Manage billing, inventory, pricing, and staff operations from one secure counter.
-                    </Text>
-                  </YStack>
-
-                </YStack>
-              </YStack>
-
-              <YStack
-                flex={1}
-                justifyContent="space-between"
-                marginTop={-28}
-                paddingHorizontal={18}
-                paddingBottom={insets.bottom + 26}
+              {/* ── Form Card ─────────────────────────────────────────── */}
+              <Animated.View
+                className="w-full gap-6 rounded-[24px] border border-border bg-card p-6 shadow-float"
+                style={{
+                  opacity: cardOpacity,
+                  transform: [{ translateY: cardTranslate }],
+                }}
               >
-                <YStack
-                  width="100%"
-                  maxWidth={520}
-                  alignSelf="center"
-                  gap={22}
-                  padding={18}
-                  borderRadius={16}
-                  borderWidth={1}
-                  borderColor={C.border}
-                  backgroundColor={C.card}
-                  shadowColor="#07110B"
-                  shadowOpacity={0.14}
-                  shadowRadius={18}
-                  shadowOffset={{ width: 0, height: 10 }}
-                  elevation={5}
+                <View className="gap-1.5">
+                  <Text className="text-xl font-bold tracking-tight text-ink">
+                    Welcome back
+                  </Text>
+                  <Text className="text-sm font-medium text-muted">
+                    Sign in with your staff credentials.
+                  </Text>
+                </View>
+
+                {/* ── Fields ──────────────────────────────────────────── */}
+                <View className="gap-5">
+                  <InputField
+                    field="username"
+                    label="Username"
+                    value={fields.username.value}
+                    error={fields.username.error}
+                    touched={fields.username.touched}
+                    isFocused={focusedField === "username"}
+                    isDisabled={submitting}
+                    onChangeText={handleUsernameChange}
+                    onFocus={handleUsernameFocus}
+                    onBlur={handleUsernameBlur}
+                    onSubmitEditing={handleUsernameSubmitEditing}
+                    returnKeyType="next"
+                  />
+
+                  <InputField
+                    field="password"
+                    label="Password"
+                    value={fields.password.value}
+                    error={fields.password.error}
+                    touched={fields.password.touched}
+                    isFocused={focusedField === "password"}
+                    isDisabled={submitting}
+                    onChangeText={handlePasswordChange}
+                    onFocus={handlePasswordFocus}
+                    onBlur={handlePasswordBlur}
+                    onSubmitEditing={handleLogin}
+                    returnKeyType="done"
+                    secureTextEntry={!showPassword}
+                    inputRef={passwordInputRef}
+                    trailingElement={passwordTrailing}
+                  />
+                </View>
+
+                {/* ── Form-level Error ────────────────────────────────── */}
+                {formError ? <ErrorBanner message={formError} /> : null}
+
+                {/* ── Submit Button ───────────────────────────────────── */}
+                <Animated.View
+                  style={{ transform: [{ scale: buttonScale }] }}
                 >
-                  <YStack gap={6}>
-                    <Text
-                      style={{
-                        color: C.ink,
-                        fontSize: 24,
-                        lineHeight: 30,
-                        fontWeight: "900",
-                      }}
-                    >
-                      Welcome back
-                    </Text>
-                    <Text
-                      style={{
-                        color: C.muted,
-                        fontSize: 13,
-                        lineHeight: 20,
-                        fontWeight: "600",
-                      }}
-                    >
-                      Use your staff credentials to enter the billing workspace.
-                    </Text>
-                  </YStack>
-
-                  <YStack gap={16}>
-                    <YStack gap={8}>
-                      <FieldLabel>Username</FieldLabel>
-                      <XStack
-                        alignItems="center"
-                        gap={12}
-                        paddingHorizontal={13}
-                        minHeight={62}
-                        borderRadius={14}
-                        borderWidth={1.5}
-                        borderColor={focusedField === "username" ? C.accent : C.border}
-                        backgroundColor={focusedField === "username" ? "#FAFFFC" : C.surface}
-                      >
-                        <IconTile>
-                          <User2 size={20} color={C.accentDark} strokeWidth={2.4} />
-                        </IconTile>
-                        <Input
-                          flex={1}
-                          unstyled
-                          value={username}
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          autoComplete="username"
-                          textContentType="username"
-                          placeholder="Enter your username"
-                          placeholderTextColor={C.muted as never}
-                          color={C.ink}
-                          fontSize={16}
-                          fontWeight="700"
-                          style={fieldInputTextStyle}
-                          paddingVertical={15}
-                          onFocus={() => setFocusedField("username")}
-                          onBlur={() => setFocusedField(null)}
-                          onChangeText={(value) => {
-                            setUsername(value);
-                            clearError();
-                          }}
-                          returnKeyType="next"
-                          blurOnSubmit={false}
-                        />
-                      </XStack>
-                    </YStack>
-
-                    <YStack gap={8}>
-                      <FieldLabel>Password</FieldLabel>
-                      <XStack
-                        alignItems="center"
-                        gap={12}
-                        paddingHorizontal={13}
-                        minHeight={62}
-                        borderRadius={14}
-                        borderWidth={1.5}
-                        borderColor={focusedField === "password" ? C.accent : C.border}
-                        backgroundColor={focusedField === "password" ? "#FAFFFC" : C.surface}
-                      >
-                        <IconTile>
-                          <LockKeyhole size={20} color={C.accentDark} strokeWidth={2.4} />
-                        </IconTile>
-                        <Input
-                          flex={1}
-                          unstyled
-                          secureTextEntry={!showPassword}
-                          autoCorrect={false}
-                          autoComplete="password"
-                          textContentType="password"
-                          placeholder="Enter your password"
-                          placeholderTextColor={C.muted as never}
-                          color={C.ink}
-                          fontSize={16}
-                          fontWeight="700"
-                          style={fieldInputTextStyle}
-                          paddingVertical={15}
-                          onFocus={() => setFocusedField("password")}
-                          onBlur={() => setFocusedField(null)}
-                          onChangeText={(value) => {
-                            setPassword(value);
-                            clearError();
-                          }}
-                          returnKeyType="done"
-                          onSubmitEditing={handleLogin}
-                        />
-
-                        <TButton
-                          accessibilityRole="button"
-                          accessibilityLabel={showPassword ? "Hide password" : "Show password"}
-                          width={44}
-                          height={44}
-                          padding={0}
-                          borderRadius={12}
-                          borderWidth={1}
-                          borderColor={C.border}
-                          backgroundColor={C.card}
-                          pressStyle={{ scale: 0.97, backgroundColor: C.surfaceStrong }}
-                          onPress={() => setShowPassword((prev) => !prev)}
-                        >
-                          {showPassword ? (
-                            <EyeOff size={20} color={C.mutedDark} strokeWidth={2.4} />
-                          ) : (
-                            <Eye size={20} color={C.mutedDark} strokeWidth={2.4} />
-                          )}
-                        </TButton>
-                      </XStack>
-                    </YStack>
-                  </YStack>
-
-                  {errorMessage ? (
-                    <XStack
-                      alignItems="flex-start"
-                      gap={11}
-                      padding={14}
-                      borderRadius={14}
-                      borderWidth={1}
-                      borderColor={C.dangerBorder}
-                      backgroundColor={C.dangerSoft}
-                    >
-                      <TriangleAlert size={19} color={C.danger} strokeWidth={2.5} />
-                      <Text
-                        style={{
-                          color: "#B42318",
-                          fontSize: 13,
-                          lineHeight: 19,
-                          fontWeight: "800",
-                          flex: 1,
-                        }}
-                      >
-                        {errorMessage}
-                      </Text>
-                    </XStack>
-                  ) : null}
-
-                  <TButton
+                  <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Enter workspace"
+                    accessibilityLabel="Sign in to workspace"
+                    accessibilityState={{
+                      disabled: !isButtonActive,
+                      busy: submitting,
+                    }}
                     onPress={handleLogin}
+                    onPressIn={
+                      shouldAnimateButton
+                        ? handlePressIn
+                        : undefined
+                    }
+                    onPressOut={
+                      shouldAnimateButton
+                        ? handlePressOut
+                        : undefined
+                    }
                     disabled={submitting}
-                    minHeight={54}
-                    borderRadius={14}
-                    borderWidth={1}
-                    borderColor={credentialsReady ? "#1F5D35" : C.borderStrong}
-                    backgroundColor={credentialsReady ? C.accentBlack : "#315B3D"}
-                    opacity={submitting ? 0.82 : 1}
-                    pressStyle={{ scale: 0.985, backgroundColor: "#0B2014" }}
+                    className={`mt-2 min-h-[52px] flex-row items-center justify-center gap-2.5 rounded-card border ${
+                      isButtonActive
+                        ? "border-accentDeep bg-accent active:bg-accentDeep"
+                        : "border-border bg-surface"
+                    } ${submitting ? "opacity-80" : ""}`}
                   >
                     {submitting ? (
-                      <XStack alignItems="center" justifyContent="center" gap={10}>
-                        <Spinner color={C.white} />
-                        <Text style={{ color: C.white, fontSize: 15, fontWeight: "900" }}>
-                          Signing in...
+                      <>
+                        <ActivityIndicator
+                          color={
+                            isButtonActive
+                              ? TINT.white
+                              : TINT.muted
+                          }
+                        />
+                        <Text
+                          className={`text-base font-bold ${
+                            isButtonActive
+                              ? "text-white"
+                              : "text-muted"
+                          }`}
+                        >
+                          Signing in…
                         </Text>
-                      </XStack>
+                      </>
                     ) : (
-                      <XStack alignItems="center" justifyContent="center" gap={9}>
-                        <LogIn size={18} color={C.white} strokeWidth={2.5} />
-                        <Text style={{ color: C.white, fontSize: 15, fontWeight: "900" }}>
+                      <>
+                        <LogIn
+                          size={18}
+                          color={
+                            isButtonActive
+                              ? TINT.white
+                              : TINT.muted
+                          }
+                          strokeWidth={2.5}
+                        />
+                        <Text
+                          className={`text-base font-bold ${
+                            isButtonActive
+                              ? "text-white"
+                              : "text-muted"
+                          }`}
+                        >
                           Enter workspace
                         </Text>
-                      </XStack>
+                      </>
                     )}
-                  </TButton>
-                </YStack>
+                  </Pressable>
+                </Animated.View>
+              </Animated.View>
 
-                <XStack
-                  width="100%"
-                  maxWidth={520}
-                  alignSelf="center"
-                  alignItems="center"
-                  justifyContent="center"
-                  gap={8}
-                  paddingTop={18}
-                  paddingHorizontal={12}
+              {/* ── Footer ────────────────────────────────────────────── */}
+              <Animated.View
+                className="mt-8 flex-row items-center justify-center"
+                style={{
+                  opacity: Animated.multiply(cardOpacity, 0.9),
+                }}
+              >
+                <Pressable 
+                  className="flex-row items-center gap-2 rounded-full border border-border bg-white px-4 py-2 shadow-sm active:bg-surface"
+                  onPress={() => Linking.openURL("https://durozen.in").catch(() => {})}
                 >
-                  <Store size={16} color={C.mutedDark} strokeWidth={2.2} />
-                  <Text
-                    style={{
-                      color: C.mutedDark,
-                      fontSize: 12,
-                      lineHeight: 18,
-                      fontWeight: "600",
-                    }}
-                  >
-                    Powered by Durozen Technologies Pvt Ltd.
+                  <ShieldCheck
+                    size={14}
+                    color={TINT.accent}
+                    strokeWidth={2.5}
+                  />
+                  <Text className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                    Secure POS <Text className="text-accent/50">•</Text> By <Text className="text-accent">Durozen Tech</Text>
                   </Text>
-                </XStack>
-              </YStack>
-            </YStack>
-          </ScrollView>
+                </Pressable>
+              </Animated.View>
+            </View>
+          </KeyboardAwareScrollView>
         </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
     </>
   );
 }

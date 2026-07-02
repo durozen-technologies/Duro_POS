@@ -21,15 +21,15 @@ type Nav = NativeStackNavigationProp<AppStackParamList, "SuperAdminDashboard">;
 const ACCENT = "#0F7642";
 const MUTED = "#4B6356";
 
-// Nav tile config — one place, not repeated inline
 const NAV_TILES = [
+  
   {
     route: "SuperAdminOrgs" as const,
     title: "Organizations",
     subtitle: "Create and manage tenant organizations",
     icon: "domain" as const,
-    iconBg: "bg-accentSoft",
-    iconColor: ACCENT,
+    iconBg: "bg-surface",
+    iconColor: MUTED,
   },
   {
     route: "SuperAdminAdmins" as const,
@@ -38,6 +38,14 @@ const NAV_TILES = [
     icon: "account-cog-outline" as const,
     iconBg: "bg-surface",
     iconColor: MUTED,
+  },
+  {
+    route: "SuperAdminBillingOverview" as const,
+    title: "Billing Overview",
+    subtitle: "Multi-tenant billing analytics across organizations",
+    icon: "chart-bar" as const,
+    iconBg: "bg-accentSoft",
+    iconColor: ACCENT,
   },
   {
     route: "SuperAdminAudit" as const,
@@ -57,11 +65,8 @@ export function SuperAdminDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [counts, setCounts] = useState<{ active: number; all: number } | null>(
-    null,
-  );
+  const [counts, setCounts] = useState<{ active: number; all: number } | null>(null);
   const [recentOrgs, setRecentOrgs] = useState<OrganizationRead[]>([]);
-
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -109,7 +114,6 @@ export function SuperAdminDashboardScreen() {
             />
           }
         >
-          {/* Header */}
           <View className="flex-row items-start justify-between px-4 pb-6 pt-10">
             <View>
               <Text className="text-xs font-semibold text-muted">
@@ -129,17 +133,16 @@ export function SuperAdminDashboardScreen() {
                 refreshing={refreshing}
               />
               <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Sign out"
-              className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:bg-dangerSoft active:border-dangerSoft"
-              onPress={() => clearSession()}
-            >
-              <MaterialCommunityIcons name="logout" size={20} color={MUTED} />
-            </Pressable>
+                accessibilityRole="button"
+                accessibilityLabel="Sign out"
+                className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:bg-dangerSoft active:border-dangerSoft"
+                onPress={() => clearSession()}
+              >
+                <MaterialCommunityIcons name="logout" size={20} color={MUTED} />
+              </Pressable>
             </View>
           </View>
 
-          {/* Stats strip */}
           <View className="px-4">
             {loading ? (
               <View className="flex-row gap-3">
@@ -152,7 +155,6 @@ export function SuperAdminDashboardScreen() {
               </View>
             ) : counts ? (
               <View className="flex-row gap-3">
-                {/* Total */}
                 <View className="flex-1 rounded-card border border-border bg-card px-4 pb-3 pt-3">
                   <Text className="text-xs font-medium text-muted">Total</Text>
                   <Text className="mt-1 text-2xl font-bold text-ink">
@@ -160,21 +162,15 @@ export function SuperAdminDashboardScreen() {
                   </Text>
                   <Text className="text-xs text-muted">orgs</Text>
                 </View>
-                {/* Active — success highlight */}
                 <View className="flex-1 rounded-card border border-success bg-successSoft px-4 pb-3 pt-3">
-                  <Text className="text-xs font-medium text-success">
-                    Active
-                  </Text>
+                  <Text className="text-xs font-medium text-success">Active</Text>
                   <Text className="mt-1 text-2xl font-bold text-success">
                     {counts.active}
                   </Text>
                   <Text className="text-xs text-success">orgs</Text>
                 </View>
-                {/* Inactive */}
                 <View className="flex-1 rounded-card border border-border bg-card px-4 pb-3 pt-3">
-                  <Text className="text-xs font-medium text-muted">
-                    Inactive
-                  </Text>
+                  <Text className="text-xs font-medium text-muted">Inactive</Text>
                   <Text className="mt-1 text-2xl font-bold text-ink">
                     {counts.all - counts.active}
                   </Text>
@@ -190,58 +186,47 @@ export function SuperAdminDashboardScreen() {
             ) : null}
           </View>
 
-          {/* Navigation tiles */}
           <View className="mt-6 px-4">
             <Text className="mb-3 text-xs font-semibold text-muted">
               Management
             </Text>
-            {NAV_TILES.map((tile, index) => (
-              <Pressable
-                key={tile.route}
-                accessibilityRole="button"
-                className={`flex-row items-center gap-4 px-4 py-4 active:bg-surface ${index < NAV_TILES.length - 1 ? "border-b border-border" : ""}`}
-                style={
-                  index === 0
-                    ? { borderTopWidth: 1, borderTopColor: "#B4C7BC" }
-                    : undefined
-                }
-                onPress={() => navigation.navigate(tile.route)}
-              >
-                {/* Icon */}
-                <View
-                  className={`h-10 w-10 items-center justify-center rounded-control ${tile.iconBg}`}
+            <View className="rounded-card border border-border bg-card">
+              {NAV_TILES.map((tile, index) => (
+                <Pressable
+                  key={tile.route}
+                  accessibilityRole="button"
+                  className={`flex-row items-center gap-4 px-4 py-4 active:bg-surface ${index < NAV_TILES.length - 1 ? "border-b border-border" : ""}`}
+                  onPress={() => navigation.navigate(tile.route)}
                 >
+                  <View
+                    className={`h-10 w-10 items-center justify-center rounded-control ${tile.iconBg}`}
+                  >
+                    <MaterialCommunityIcons
+                      name={tile.icon}
+                      size={20}
+                      color={tile.iconColor}
+                    />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="font-semibold text-ink">{tile.title}</Text>
+                    <Text className="mt-0.5 text-xs text-muted">
+                      {tile.subtitle}
+                    </Text>
+                  </View>
                   <MaterialCommunityIcons
-                    name={tile.icon}
+                    name="chevron-right"
                     size={20}
-                    color={tile.iconColor}
+                    color={MUTED}
                   />
-                </View>
-
-                {/* Text */}
-                <View className="flex-1">
-                  <Text className="font-semibold text-ink">{tile.title}</Text>
-                  <Text className="mt-0.5 text-xs text-muted">
-                    {tile.subtitle}
-                  </Text>
-                </View>
-
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={20}
-                  color={MUTED}
-                />
-              </Pressable>
-            ))}
-            {/* Bottom border */}
-            <View className="border-b border-border" />
+                </Pressable>
+              ))}
+            </View>
           </View>
 
-          {/* Recent organizations */}
           {!loading && recentOrgs.length > 0 ? (
             <View className="mt-6 px-4">
               <View className="mb-3 flex-row items-center justify-between">
-                <Text className="text-xs font-semibold uppercase tracking-wider text-muted">
+                <Text className="text-xs font-semibold text-muted">
                   Recent Organizations
                 </Text>
                 <Pressable
@@ -260,7 +245,6 @@ export function SuperAdminDashboardScreen() {
                     key={org.id}
                     className={`flex-row items-center px-4 py-3 ${index < recentOrgs.length - 1 ? "border-b border-border" : ""}`}
                   >
-                    {/* Status dot */}
                     <View
                       className={`mr-3 h-2 w-2 rounded-full ${org.is_active ? "bg-success" : "bg-border"}`}
                     />
@@ -287,8 +271,6 @@ export function SuperAdminDashboardScreen() {
               </View>
             </View>
           ) : null}
-
-
         </ScrollView>
       </View>
     </View>

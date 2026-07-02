@@ -68,6 +68,11 @@ async def get_tenant_context(
     schema_name = None
     if org_id is not None:
         schema_name = await tenant_router.resolve_schema(platform_db, org_id)
+        if schema_name is None and is_tenant_admin(current_user.role):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Tenant schema is not configured for this organization",
+            )
 
     if schema_name:
         token = set_active_tenant_schema(schema_name)

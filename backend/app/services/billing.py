@@ -31,6 +31,7 @@ from app.models import (
     Shop,
     ShopItemAllocation,
 )
+from app.services.bill_number import bill_no_from_sequence, bill_number_prefix_from_settings
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutPreviewRead,
@@ -171,8 +172,9 @@ def _payload_fingerprint(payload: BillCheckoutRequest) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _bill_no_from_sequence(now: datetime, sequence: int) -> str:
-    return f"SMB-{now.year:04d}-{now.month:02d}-{sequence:06d}"
+async def _org_bill_number_prefix(db: AsyncSession, shop: Shop) -> str:
+    org = await db.get(Organization, shop.organization_id)
+    return bill_number_prefix_from_settings(org.settings if org is not None else None)
 
 
 async def _peek_next_bill_sequence(db: AsyncSession, now: datetime) -> int:
@@ -388,17 +390,20 @@ async def preview_bill(
     """Build a printable bill without saving any billing data."""
     prepared = await _prepare_checkout(db, shop, payload)
     now = datetime.now(UTC)
+    prefix = await _org_bill_number_prefix(db, shop)
     sequence = await _peek_next_bill_sequence(db, now)
-    if sequence > 999999:
+    try:
+        bill_no = bill_no_from_sequence(now, sequence, prefix)
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Monthly bill sequence limit reached for SMB bill format",
-        )
+            detail="Monthly bill sequence limit reached for this bill format",
+        ) from None
 
-    bill_no = _bill_no_from_sequence(now, sequence)
     organization_name = await _shop_organization_name(db, shop)
     token_payload = {
         "bill_no": bill_no,
+        "bill_prefix": prefix,
         "created_at": now.isoformat(),
         "issued_at": now.isoformat(),
         "month_year": f"{now.year:04d}-{now.month:02d}",
@@ -453,11 +458,15 @@ async def create_bill(
         )
 
     bill_no = token_payload.get("bill_no")
+    bill_prefix = token_payload.get("bill_prefix")
     month_str = token_payload.get("month_year")
     sequence = token_payload.get("sequence")
     created_at_raw = token_payload.get("created_at")
+    expected_prefix = await _org_bill_number_prefix(db, shop)
     if (
         not isinstance(bill_no, str)
+        or not isinstance(bill_prefix, str)
+        or bill_prefix != expected_prefix
         or not isinstance(month_str, str)
         or not isinstance(sequence, int)
         or not isinstance(created_at_raw, str)

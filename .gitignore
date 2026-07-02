@@ -29,7 +29,10 @@ Desktop.ini
 # Agent harness (keep .github/workflows/ tracked)
 .github/skills/
 .github/hooks/
+.github/copilot-instructions.md
+skills-lock.json
 AGENTS.md
+CLAUDE.md
 PRODUCT.md
 DESIGN.md
 

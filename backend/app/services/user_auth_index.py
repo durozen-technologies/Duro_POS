@@ -51,7 +51,9 @@ async def upsert_auth_index(
     if schema_name is None:
         schema_name = await tenant_router.resolve_schema(db, user.organization_id)
     if not schema_name:
-        return
+        raise UsernameTakenError(
+            f"No tenant schema for organization {user.organization_id}"
+        )
 
     username_lower = normalize_username(user.username)
     if await username_is_globally_taken(db, user.username, exclude_user_id=user.id):
@@ -81,14 +83,18 @@ async def delete_auth_index(
     organization_id: UUID | None = None,
     username_lower: str | None = None,
 ) -> None:
+    if user_id is None and organization_id is None and username_lower is None:
+        return
     stmt = delete(UserAuthIndex)
     if user_id is not None:
         stmt = stmt.where(UserAuthIndex.user_id == user_id)
-    if organization_id is not None and username_lower is not None:
+    elif organization_id is not None and username_lower is not None:
         stmt = stmt.where(
             UserAuthIndex.organization_id == organization_id,
             UserAuthIndex.username_lower == username_lower,
         )
+    elif organization_id is not None:
+        stmt = stmt.where(UserAuthIndex.organization_id == organization_id)
     elif username_lower is not None:
         stmt = stmt.where(UserAuthIndex.username_lower == username_lower)
     await db.execute(stmt)

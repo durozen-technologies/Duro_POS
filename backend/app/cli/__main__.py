@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> None:
             if args.command == "bootstrap-super-admin":
                 await bootstrap_super_admin(args.username, args.password)
             elif args.command == "migrate-tenant-data":
-                from app.cli.migrate_tenant_data import migrate_tenant_data_main
+                from app.cli.migrate_tenant_data import run_migrate_tenant_data
 
                 migrate_argv = []
                 if args.org_id:
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> None:
                     migrate_argv.append("--execute")
                 if getattr(args, "cleanup_public_backups", False):
                     migrate_argv.append("--cleanup-public-backups")
-                migrate_tenant_data_main(migrate_argv)
+                await run_migrate_tenant_data(migrate_argv)
                 return
         finally:
             await close_database_connections()

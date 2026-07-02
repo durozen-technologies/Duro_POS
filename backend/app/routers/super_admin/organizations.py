@@ -1,11 +1,12 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_super_admin_context
 from app.db.session import get_platform_db
+from app.schemas.super_admin.hard_delete import HardDeleteRequest
 from app.schemas.super_admin.organizations import (
     AdminRoleRead,
     OrganizationCounts,
@@ -86,3 +87,25 @@ async def update_organization_status(
     return await org_service.set_organization_status(
         db, organization_id, is_active=payload.is_active, actor=ctx.actor
     )
+
+
+@router.post(
+    "/organizations/{organization_id}/hard-delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def hard_delete_organization(
+    organization_id: UUID,
+    payload: HardDeleteRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_platform_db),
+    ctx=Depends(get_super_admin_context),
+) -> Response:
+    client_ip = request.client.host if request.client else None
+    await org_service.hard_delete_organization(
+        db,
+        organization_id,
+        payload,
+        ctx.actor,
+        client_ip=client_ip,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

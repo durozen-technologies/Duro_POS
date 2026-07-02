@@ -55,6 +55,7 @@ import {
   type UUID,
 } from "@/types/api";
 import { money } from "@/utils/decimal";
+import { formatDateTime } from "@/utils/format";
 import { toDateInputValue } from "@/utils/expense-history-filters";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
@@ -1577,6 +1578,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                 />
                 <View style={styles.itemText}>
                   <Text style={[styles.itemName, { color: palette.textPrimary }]}>{movement.inventory_item_name}</Text>
+                  <Text style={[styles.itemMeta, { color: palette.textMuted }]}>{formatDateTime(movement.occurred_at)}</Text>
                   <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
                     {movement.movement_type === InventoryMovementType.ADD ? "Added" : `Used for ${movement.category_name ?? "category"}`} · {formatInventoryQuantity(movement.quantity, movement.unit)}
                   </Text>

@@ -300,6 +300,75 @@ class ServiceUnitTests(BackendTestCase):
 
         self.run_async(scenario())
 
+    def test_over_report_transfer_stock_uses_occurred_at_not_created_at(self) -> None:
+        _actor, shop = self.run_async(
+            self.harness.create_shop_user(shop_name="Backdate Transfer Branch")
+        )
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.get(Shop, shop.id)
+                inventory_item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Backdate Transfer Stock",
+                        tamil_name="பின்தேதி பரிமாற்ற இருப்பு",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        category_ids=[],
+                        billing_item_ids=[],
+                    ),
+                )
+                await allocate_shop_inventory_items(db, current_shop, [inventory_item.id])
+                destination = TransferShop(
+                    name="Outside Backdate Branch",
+                    tamil_name="வெளி பின்தேதி கிளை",
+                    organization_id=current_shop.organization_id,
+                )
+                session.add(destination)
+                session.flush()
+
+                report_date = date(2026, 6, 1)
+                in_period = datetime(2026, 6, 1, 10, tzinfo=UTC)
+                recorded_later = datetime(2026, 7, 2, 15, tzinfo=UTC)
+                session.add_all(
+                    [
+                        InventoryMovement(
+                            shop_id=current_shop.id,
+                            inventory_item_id=inventory_item.id,
+                            movement_type=InventoryMovementType.ADD,
+                            quantity=Decimal("20"),
+                            created_at=in_period,
+                            occurred_at=in_period,
+                        ),
+                        InventoryTransfer(
+                            source_shop_id=current_shop.id,
+                            transfer_shop_id=destination.id,
+                            inventory_item_id=inventory_item.id,
+                            quantity=Decimal("8"),
+                            unit=BaseUnit.KG,
+                            created_at=recorded_later,
+                            occurred_at=in_period,
+                        ),
+                    ]
+                )
+                session.commit()
+
+                overall = await build_overall_report(
+                    db,
+                    detail_level="summary",
+                    period="date",
+                    reference_date=report_date,
+                    shop_ids=[current_shop.id],
+                    organization_id=current_shop.organization_id,
+                )
+
+                item = overall.statements[0].inventory_items[0]
+                self.assertEqual(item.transfer_stock, Decimal("8.000"))
+
+        self.run_async(scenario())
+
     def test_register_admin_rejects_second_admin(self) -> None:
         self.run_async(self.harness.create_admin_user())
 

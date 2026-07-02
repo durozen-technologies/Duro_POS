@@ -10,8 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Organization, Shop, User
 
-DEFAULT_ORG_SLUG = "default"
-
 
 async def resolve_organization_id(
     db: AsyncSession,
@@ -25,11 +23,6 @@ async def resolve_organization_id(
         org_id = await db.scalar(select(Shop.organization_id).where(Shop.id == shop_id))
         if org_id is not None:
             return org_id
-    default_org_id = await db.scalar(
-        select(Organization.id).where(Organization.slug == DEFAULT_ORG_SLUG)
-    )
-    if default_org_id is not None:
-        return default_org_id
     first_org_id = await db.scalar(
         select(Organization.id).order_by(Organization.created_at).limit(1)
     )

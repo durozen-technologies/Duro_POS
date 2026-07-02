@@ -24,7 +24,7 @@ except ImportError:  # ponytail: tests/dev without redis sdk still run
     def get_redis_settings():  # type: ignore[misc]
         class _Disabled:
             url = ""
-            key_prefix = "brolier360"
+            prefix = "brolier360"
 
         return _Disabled()
 
@@ -86,7 +86,7 @@ async def redis_health_status() -> str:
 
 
 def _redis_key_prefix() -> str:
-    return getattr(get_redis_settings(), "key_prefix", None) or "brolier360"
+    return getattr(get_redis_settings(), "prefix", None) or "brolier360"
 
 
 def permission_cache_key(user_id: str, perm_version: int) -> str:

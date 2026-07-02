@@ -8,7 +8,6 @@ Create Date: 2026-06-30 01:00:00
 from __future__ import annotations
 
 from collections.abc import Sequence
-from uuid import UUID
 
 import sqlalchemy as sa
 from alembic import op
@@ -17,8 +16,6 @@ revision: str = "0030_master_data_org_scope"
 down_revision: str | None = "0029_multi_tenant_foundation"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
-DEFAULT_ORG_ID = UUID("01900000-0000-7000-8000-000000000001")
 
 MASTER_TABLES = (
     "item_categories",
@@ -38,6 +35,10 @@ def _column_names(bind, table_name: str) -> set[str]:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    default_org_id = bind.execute(
+        sa.text("SELECT id FROM organizations WHERE slug = 'default' LIMIT 1")
+    ).scalar_one_or_none()
+
     for table_name in MASTER_TABLES:
         if "organization_id" in _column_names(bind, table_name):
             continue
@@ -54,13 +55,13 @@ def upgrade() -> None:
         )
         op.create_index(f"ix_{table_name}_organization_id", table_name, ["organization_id"])
 
-    if "items" in sa.inspect(bind).get_table_names():
+    if default_org_id is not None and "items" in sa.inspect(bind).get_table_names():
         bind.execute(
             sa.text(
                 "UPDATE items SET organization_id = :org_id "
                 "WHERE organization_id IS NULL AND shop_id IS NULL"
             ),
-            {"org_id": DEFAULT_ORG_ID},
+            {"org_id": default_org_id},
         )
         bind.execute(
             sa.text(
@@ -69,20 +70,21 @@ def upgrade() -> None:
             )
         )
 
-    for table_name in (
-        "item_categories",
-        "inventory_categories",
-        "inventory_items",
-        "expense_items",
-        "transfer_shops",
-    ):
-        if table_name in sa.inspect(bind).get_table_names():
-            bind.execute(
-                sa.text(
-                    f"UPDATE {table_name} SET organization_id = :org_id WHERE organization_id IS NULL"
-                ),
-                {"org_id": DEFAULT_ORG_ID},
-            )
+    if default_org_id is not None:
+        for table_name in (
+            "item_categories",
+            "inventory_categories",
+            "inventory_items",
+            "expense_items",
+            "transfer_shops",
+        ):
+            if table_name in sa.inspect(bind).get_table_names():
+                bind.execute(
+                    sa.text(
+                        f"UPDATE {table_name} SET organization_id = :org_id WHERE organization_id IS NULL"
+                    ),
+                    {"org_id": default_org_id},
+                )
 
     for table_name in MASTER_TABLES:
         if table_name in sa.inspect(bind).get_table_names():

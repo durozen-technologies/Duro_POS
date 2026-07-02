@@ -5,6 +5,7 @@ import "./src/navigation/bootstrap";
 
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
+import * as SystemUI from "expo-system-ui";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
@@ -20,6 +21,8 @@ import { tamaguiConfig } from "./tamagui.config";
 SplashScreen.preventAutoHideAsync().catch(() => {
   /* splash already hidden on web reload */
 });
+
+SystemUI.setBackgroundColorAsync(appTheme.background).catch(() => {});
 
 if (__DEV__ && Constants.appOwnership !== "expo") {
   void import("expo-dev-client");

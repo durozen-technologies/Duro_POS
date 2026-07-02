@@ -10,7 +10,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from sqlalchemy.engine import Connection
 
-# Tables that live only in public; never created inside a tenant schema.
+# Tables never created inside a tenant schema (tenant DDL skips these).
 PLATFORM_TABLES = frozenset(
     {
         "organizations",
@@ -18,6 +18,17 @@ PLATFORM_TABLES = frozenset(
         "user_auth_index",
     }
 )
+
+# Tables allowed in public after schema-per-tenant cutover (super-admin control plane).
+PUBLIC_SCHEMA_TABLES = PLATFORM_TABLES | frozenset(
+    {
+        "users",
+        "audit_logs",
+        "alembic_version",
+    }
+)
+
+_SHARED_PUBLIC_TABLES = frozenset({"users", "audit_logs"})
 
 
 def tenant_table_names() -> tuple[str, ...]:
@@ -27,6 +38,55 @@ def tenant_table_names() -> tuple[str, ...]:
     return tuple(
         table.name for table in Base.metadata.sorted_tables if table.name not in PLATFORM_TABLES
     )
+
+
+def public_tenant_tables_to_drop() -> tuple[str, ...]:
+    """Pure-tenant table shells to DROP from public after row purge."""
+    return tuple(name for name in tenant_table_names() if name not in _SHARED_PUBLIC_TABLES)
+
+
+def list_public_tables(connection: Connection) -> set[str]:
+    return set(inspect(connection).get_table_names(schema="public"))
+
+
+def drop_public_tenant_table_shells(connection: Connection) -> int:
+    """DROP pure-tenant tables from public (rows must already be purged)."""
+    dropped = 0
+    for table_name in public_tenant_tables_to_drop():
+        if not inspect(connection).has_table(table_name, schema="public"):
+            continue
+        connection.execute(text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
+        dropped += 1
+    return dropped
+
+
+def verify_public_schema_clean(connection: Connection) -> None:
+    """Raise if public schema violates the super-admin control-plane contract."""
+    actual = list_public_tables(connection)
+    extra = sorted(actual - PUBLIC_SCHEMA_TABLES)
+    if extra:
+        raise RuntimeError(
+            f"public schema has {len(extra)} non-platform table(s): {extra}"
+        )
+
+    null_schemas = connection.execute(
+        text("SELECT COUNT(*) FROM organizations WHERE schema_name IS NULL")
+    ).scalar_one()
+    if null_schemas:
+        raise RuntimeError(f"{null_schemas} organization(s) have schema_name IS NULL")
+
+    tenant_users = connection.execute(
+        text("SELECT COUNT(*) FROM public.users WHERE organization_id IS NOT NULL")
+    ).scalar_one()
+    if tenant_users:
+        raise RuntimeError(f"public.users has {tenant_users} tenant row(s)")
+
+    for table in public_tenant_tables_to_drop():
+        if table not in actual:
+            continue
+        count = connection.execute(text(f"SELECT COUNT(*) FROM public.{table}")).scalar_one()
+        if count:
+            raise RuntimeError(f"public.{table} has {count} row(s) after cutover")
 
 
 def _safe_schema_name(schema_name: str) -> str:

@@ -21,10 +21,17 @@ export type AppStackParamList = {
   BootstrapState: undefined;
   Login: undefined;
   SuperAdminDashboard: undefined;
+  SuperAdminBillingOverview: undefined;
   SuperAdminOrgs: undefined;
   SuperAdminOrgEdit: { org: import("@/api/super-admin").OrganizationRead };
   SuperAdminAdmins: undefined;
   SuperAdminAudit: undefined;
+  SuperAdminHardDelete: {
+    resourceType: "organization" | "tenantAdmin" | "branch";
+    resourceId: UUID;
+    resourceName: string;
+    organizationId?: UUID;
+  };
   AdminDashboard: undefined;
   AdminItemsCatalogue: undefined;
   AdminItemAssumption: undefined;
@@ -51,6 +58,11 @@ export type AppStackParamList = {
   };
   AdminExpenses: { shopId?: UUID } | undefined;
   AdminShopExpensesOrder: { shopId: UUID; shopName?: string };
+  AdminExpenseItemEditor:
+    | {
+        initialItem?: import("@/types/api").ExpenseItemRead;
+      }
+    | undefined;
   AdminInventoryItemEditor:
     | {
         itemId?: UUID;
@@ -79,6 +91,10 @@ export type SuperAdminDashboardScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "SuperAdminDashboard"
 >;
+export type SuperAdminBillingOverviewScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "SuperAdminBillingOverview"
+>;
 export type SuperAdminOrgsScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "SuperAdminOrgs"
@@ -94,6 +110,10 @@ export type SuperAdminAdminsScreenProps = NativeStackScreenProps<
 export type SuperAdminAuditScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "SuperAdminAudit"
+>;
+export type SuperAdminHardDeleteScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "SuperAdminHardDelete"
 >;
 export type AdminDashboardScreenProps = NativeStackScreenProps<
   AppStackParamList,
@@ -142,6 +162,10 @@ export type AdminExpensesScreenProps = NativeStackScreenProps<
 export type AdminShopExpensesOrderScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "AdminShopExpensesOrder"
+>;
+export type AdminExpenseItemEditorScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminExpenseItemEditor"
 >;
 export type AdminInventoryItemEditorScreenProps = NativeStackScreenProps<
   AppStackParamList,

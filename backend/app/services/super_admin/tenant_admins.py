@@ -14,13 +14,15 @@ from app.core.security import get_password_hash
 from app.db.tenant_schema import tenant_schema_scope
 from app.models import AdminRole, AdminUserRole, Organization, Shop, User, UserAuthIndex, UserRole
 from app.schemas.auth import normalize_username
+from app.schemas.super_admin.hard_delete import HardDeleteRequest
 from app.schemas.super_admin.tenant_admins import (
     TenantAdminCounts,
     TenantAdminCreate,
     TenantAdminRead,
     TenantAdminRowsPage,
 )
-from app.services.super_admin._audit import record_super_admin_audit
+from app.services.super_admin._audit import record_hard_delete_audit, record_super_admin_audit
+from app.services.super_admin._credentials import verify_super_admin_credentials
 from app.services.super_admin.organizations import get_organization_or_404
 from app.services.user_auth_index import delete_auth_index, upsert_auth_index, username_is_globally_taken
 
@@ -379,46 +381,96 @@ async def get_tenant_admin(platform_db: AsyncSession, user_id: UUID) -> TenantAd
         return await _tenant_admin_read(platform_db, user, org.name)
 
 
-async def delete_tenant_admin(platform_db: AsyncSession, user_id: UUID, actor: User) -> None:
+async def hard_delete_tenant_admin(
+    platform_db: AsyncSession,
+    user_id: UUID,
+    payload: HardDeleteRequest,
+    actor: User,
+    *,
+    client_ip: str | None = None,
+) -> None:
     entry = await _auth_entry_for_user(platform_db, user_id)
-    if entry is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found")
+    resource_name = str(user_id)
+    organization_id: UUID | None = None
 
-    async with tenant_schema_scope(platform_db, entry.schema_name):
-        user = await platform_db.scalar(select(User).where(User.id == user_id))
-        if user is None or user.role != UserRole.TENANT_ADMIN:
+    try:
+        await verify_super_admin_credentials(
+            platform_db,
+            actor,
+            username=payload.username,
+            password=payload.password,
+        )
+
+        if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found")
 
-        owns_shop = await platform_db.scalar(select(Shop.id).where(Shop.owner_user_id == user.id))
-        if owns_shop is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Cannot delete a tenant admin that owns a shop",
+        async with tenant_schema_scope(platform_db, entry.schema_name):
+            user = await platform_db.scalar(select(User).where(User.id == user_id))
+            if user is None or user.role != UserRole.TENANT_ADMIN:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found"
+                )
+
+            owns_shop = await platform_db.scalar(
+                select(Shop.id).where(Shop.owner_user_id == user.id)
             )
+            if owns_shop is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot delete a tenant admin that owns a branch",
+                )
 
-        username = user.username
-        organization_id = user.organization_id
-        await evict_user_permission_cache(user.id, user.permissions_version)
-        await platform_db.delete(user)
+            resource_name = user.username
+            organization_id = user.organization_id
+            await evict_user_permission_cache(user.id, user.permissions_version)
+            await platform_db.delete(user)
+            # Flush tenant-side relationship work before search_path resets to public.
+            await platform_db.flush()
 
-    await delete_auth_index(platform_db, user_id=user_id)
-    await record_super_admin_audit(
-        platform_db,
-        actor=actor,
-        action="tenant_admin.deleted",
-        entity_type="user",
-        entity_id=user_id,
-        organization_id=organization_id,
-        details={"username": username},
-    )
-    await platform_db.commit()
-    log_event(
-        logger,
-        logging.INFO,
-        "tenant_admin_deleted",
-        "tenant admin deleted",
-        user_id=str(user_id),
-        org_id=str(organization_id) if organization_id else None,
+        await delete_auth_index(platform_db, user_id=user_id)
+        await record_hard_delete_audit(
+            platform_db,
+            actor=actor,
+            action="tenant_admin.hard_delete",
+            entity_type="user",
+            entity_id=user_id,
+            organization_id=organization_id,
+            resource_name=resource_name,
+            result="success",
+            client_ip=client_ip,
+        )
+        await platform_db.commit()
+        log_event(
+            logger,
+            logging.INFO,
+            "tenant_admin_hard_deleted",
+            "tenant admin hard deleted",
+            user_id=str(user_id),
+            org_id=str(organization_id) if organization_id else None,
+        )
+    except HTTPException as exc:
+        await platform_db.rollback()
+        await record_hard_delete_audit(
+            platform_db,
+            actor=actor,
+            action="tenant_admin.hard_delete",
+            entity_type="user",
+            entity_id=user_id,
+            organization_id=organization_id,
+            resource_name=resource_name,
+            result="failed",
+            client_ip=client_ip,
+            error=str(exc.detail),
+        )
+        await platform_db.commit()
+        raise
+
+
+async def delete_tenant_admin(platform_db: AsyncSession, user_id: UUID, actor: User) -> None:
+    """Deprecated: use hard_delete_tenant_admin with credential verification."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Use POST /tenant-admins/{user_id}/hard-delete with super admin credentials",
     )
 
 
