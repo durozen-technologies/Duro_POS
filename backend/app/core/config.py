@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     rustfs_public_read_enabled: bool = False
     rustfs_connect_timeout_seconds: int = 5
     rustfs_read_timeout_seconds: int = 15
+    redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
+    redis_prefix: str = Field(default="brolier360", validation_alias="REDIS_PREFIX")
+    redis_default_ttl: int = Field(default=60, validation_alias="REDIS_DEFAULT_TTL")
     item_image_max_bytes: int = 5 * 1024 * 1024
     item_image_thumbnail_size: int = 192
     item_image_full_max_size: int = 1024

@@ -13,7 +13,6 @@ The Billing System is a mobile-first POS application for meat shop billing. It h
 - Alembic migrations managed through `backend/migrate.py`
 - Caddy as the active HTTPS reverse proxy
 - an Nginx configuration kept as an alternate or older proxy option
-- a FastAPI WhatsApp bot that reuses backend models and schemas for sales reporting
 
 ## Core Business Rules
 
@@ -23,7 +22,7 @@ These rules are part of the application contract:
 - Checkout payment is exact payment only. Cash plus UPI must equal the bill total.
 - Item images live in RustFS using `image_object_key` and `image_content_type`. Do not store image bytes in Postgres.
 - `tamil_name` is required for item admin flows and is first-class data for shop display and receipts.
-- Shared models and schemas belong in `backend.app`; the WhatsApp bot imports them instead of duplicating them.
+- Shared models and schemas belong in `backend.app`.
 
 ## Component Docs
 
@@ -34,7 +33,6 @@ These rules are part of the application contract:
 - [Nginx](nginx.md)
 - [Postgres](postgres.md)
 - [RustFS](rustfs.md)
-- [WhatsApp Bot](whatsapp.md)
 
 ## High-Level Architecture
 
@@ -52,12 +50,6 @@ FastAPI backend
   | async SQLAlchemy         | S3-compatible API
   v                         v
 PostgreSQL               RustFS
-
-WhatsApp Bot
-  |
-  | imports backend.app models and schemas
-  v
-PostgreSQL shared domain
 ```
 
 ## Main Validation Commands
@@ -78,7 +70,6 @@ nub run typecheck
 ```text
 backend/                 FastAPI app, models, schemas, services, migrations
 frontend/                Expo React Native app
-WhatsApp Bot/            WhatsApp sales bot FastAPI app
 backend/migrations/      Alembic revision files
 backend/migrate.py       Deployment migration entrypoint
 caddy/                   Active reverse proxy image/config

@@ -1,6 +1,6 @@
 # Brolier 360
 
-Mobile-first meat billing and POS platform with multi-tenant PostgreSQL isolation, Android receipt printing, and optional WhatsApp sales reporting.
+Mobile-first meat billing and POS platform with multi-tenant PostgreSQL isolation and Android receipt printing.
 
 ## What’s in the repo
 
@@ -8,7 +8,6 @@ Mobile-first meat billing and POS platform with multi-tenant PostgreSQL isolatio
 |------|------|
 | [`backend/`](backend/) | FastAPI API — auth, shops, catalog, billing, inventory, reports, super-admin |
 | [`frontend/`](frontend/) | Expo React Native app — tenant admin, shop counter, super-admin |
-| [`WhatsApp Bot/`](WhatsApp%20Bot/) | FastAPI WhatsApp bot — branch sales summaries (shared `backend.app` models) |
 | [`caddy/`](caddy/) | Reverse proxy, TLS, rate limiting |
 | [`rustfs/`](rustfs/) | Optional S3-compatible object storage helpers |
 | [`test/`](test/) | Backend unit and integration tests |
@@ -21,7 +20,6 @@ Mobile-first meat billing and POS platform with multi-tenant PostgreSQL isolatio
 3. Shop staff set daily prices, build carts, and checkout with exact payment matching.
 4. Receipts print on Android via Bluetooth/USB ESC/POS; web/iOS use fallback printing.
 5. Bills, inventory movements, and audit data are stored in the tenant schema.
-6. Optional WhatsApp bot reports sales by branch and date range.
 
 ## Tech stack
 
@@ -37,7 +35,6 @@ Mobile-first meat billing and POS platform with multi-tenant PostgreSQL isolatio
 flowchart TB
   subgraph clients [Clients]
     Mobile[Expo app]
-    WA[WhatsApp]
   end
 
   subgraph edge [Edge]
@@ -46,7 +43,6 @@ flowchart TB
 
   subgraph api [API layer]
     BE[Backend FastAPI]
-    Bot[WhatsApp Bot]
   end
 
   subgraph data [Data]
@@ -56,8 +52,6 @@ flowchart TB
   end
 
   Mobile --> Caddy --> BE
-  WA --> Bot
-  Bot --> PG
   BE --> PG
   BE --> RF
   BE --> RD
@@ -70,7 +64,7 @@ Production uses **one database, many schemas** ([ADR-003](docs/decisions/ADR-003
 | Schema | Contents |
 |--------|----------|
 | `public` | `organizations`, `permissions`, `user_auth_index`, super-admin `users`, platform audit |
-| `tenant_<slug>` | Shops, tenant users, items, bills, inventory, expenses, WhatsApp tables, etc. |
+| `tenant_<slug>` | Shops, tenant users, items, bills, inventory, expenses, etc. |
 
 - New orgs get `organizations.schema_name` and a provisioned tenant schema automatically.
 - Tenant API requests set `search_path` via session deps + a `ContextVar` (pool-safe across commits).
@@ -81,7 +75,7 @@ Details and cutover steps: [`docs/postgres.md`](docs/postgres.md).
 
 ### Shared domain package
 
-SQLAlchemy models and Pydantic schemas live in `backend/app/`. The WhatsApp bot imports them via thin shims in `WhatsApp Bot/app/models.py` and `schemas.py`. **Change shared types in `backend.app` first** — do not duplicate models in the bot.
+SQLAlchemy models and Pydantic schemas live in `backend/app/`.
 
 ## Prerequisites
 
@@ -150,16 +144,6 @@ EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 More frontend detail: [`frontend/README.md`](frontend/README.md).
-
-### WhatsApp Bot
-
-```bash
-cd "WhatsApp Bot"
-uv sync
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8001
-```
-
-Uses the same `DATABASE_URL` as the backend. Resolves tenant `search_path` per shop before operational queries.
 
 ## Docker (local)
 

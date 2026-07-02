@@ -151,50 +151,6 @@ backend/*.log
 backend/*.pid
 backend/*.pid.lock
 
-# WhatsApp bot
-WhatsApp Bot/.env
-WhatsApp Bot/.env.*
-!WhatsApp Bot/.env.example
-WhatsApp Bot/.env.local
-WhatsApp Bot/.envrc
-WhatsApp Bot/.direnv/
-WhatsApp Bot/.agents
-WhatsApp Bot/.agents/
-WhatsApp Bot/.codex
-WhatsApp Bot/.codex/
-WhatsApp Bot/.trae
-WhatsApp Bot/.trae/
-WhatsApp Bot/.python-version
-WhatsApp Bot/.venv/
-WhatsApp Bot/__pycache__/
-WhatsApp Bot/.pytest_cache/
-WhatsApp Bot/.mypy_cache/
-WhatsApp Bot/.dmypy.json
-WhatsApp Bot/.ruff_cache/
-WhatsApp Bot/.pyre/
-WhatsApp Bot/.pytype/
-WhatsApp Bot/.hypothesis/
-WhatsApp Bot/.nox/
-WhatsApp Bot/.tox/
-WhatsApp Bot/.cache/
-WhatsApp Bot/.uv-cache/
-WhatsApp Bot/.coverage
-WhatsApp Bot/.coverage.*
-WhatsApp Bot/coverage.xml
-WhatsApp Bot/htmlcov/
-WhatsApp Bot/*.py,cover
-WhatsApp Bot/*.prof
-WhatsApp Bot/build/
-WhatsApp Bot/dist/
-WhatsApp Bot/wheels/
-WhatsApp Bot/*.egg-info/
-WhatsApp Bot/*.sqlite
-WhatsApp Bot/*.sqlite3
-WhatsApp Bot/*.db
-WhatsApp Bot/*.log
-WhatsApp Bot/*.pid
-WhatsApp Bot/*.pid.lock
-
 # Node / Expo frontend
 frontend/.env
 frontend/.env.*

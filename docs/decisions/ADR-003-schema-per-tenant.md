@@ -14,7 +14,7 @@ Brolier 360 uses shared-schema row isolation (`organization_id` on tenant tables
 
 Constraints:
 
-- Preserve API contracts, JWT shape (`sub`, `role`, `org_id`, `perm_version`), frontend, and `backend.app.models` / `backend.app.schemas` shared with the WhatsApp Bot.
+- Preserve API contracts, JWT shape (`sub`, `role`, `org_id`, `perm_version`), and frontend.
 - Ship incrementally with rollback path; no big-bang cutover.
 - SQLite unit tests must keep working (schema-per-tenant is Postgres-only).
 
@@ -35,7 +35,7 @@ Constraints:
 
 **Tenant schema (`tenant_<slug_normalized>`)**
 
-All operational data per organization: `shops`, tenant `users`, `admin_roles*`, catalogue, inventory, billing, expenses, transfers, tenant `audit_logs`, `whatsapp_*`, `inventory_backdate_policy`, etc.
+All operational data per organization: `shops`, tenant `users`, `admin_roles*`, catalogue, inventory, billing, expenses, transfers, tenant `audit_logs`, `inventory_backdate_policy`, etc.
 
 Cross-schema FKs (e.g. `users.organization_id → public.organizations`, `admin_role_permissions.permission_code → public.permissions`) are allowed; tenant sessions use `SET search_path TO <tenant_schema>, public`.
 
@@ -94,10 +94,6 @@ JWT unchanged; schema resolved server-side from `org_id`.
 - No cross-schema scans on tenant hot paths.
 - Super-admin org list counts: Redis / platform cache — no N-schema fan-out per page load (extend `super_org_counts_cache_key` pattern).
 - Cursor pagination unchanged.
-
-### WhatsApp Bot (Phase 4)
-
-Resolve shop → org (public) → schema → tenant session before DB access.
 
 ## Implementation phases
 

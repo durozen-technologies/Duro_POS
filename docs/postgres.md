@@ -10,7 +10,6 @@ PostgreSQL is the relational database for the Billing System.
 - Daily prices
 - Inventory items, categories, allocations, and movement ledger
 - Bills, bill items, payments, and receipts
-- WhatsApp bot conversation and processed message data
 
 ## Production Compose Service
 

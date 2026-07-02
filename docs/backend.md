@@ -14,7 +14,6 @@ The backend is a FastAPI application in `backend/`. It is the main domain owner 
 - Receipt records
 - Admin analytics and bill history
 - RustFS-backed image upload and thumbnail metadata
-- Shared models and schemas for the WhatsApp bot
 
 ## Stack
 
@@ -46,9 +45,9 @@ backend/migrate.py                    Deployment migration command
 backend/docker-entrypoint.sh          Migrate then start Gunicorn
 ```
 
-## Shared Domain Rule
+## Domain Package
 
-`backend.app.models` and `backend.app.schemas` are the source of truth for both the API and the WhatsApp bot. If the bot and backend both need a model or schema, add it under `backend/app/` and import it from the bot.
+`backend.app.models` and `backend.app.schemas` are the source of truth for the API. Define shared entities and request/response types under `backend/app/` only.
 
 ## Local Setup
 

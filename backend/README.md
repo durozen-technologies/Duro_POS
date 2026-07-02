@@ -43,16 +43,10 @@ backend/
 
 ## Shared Package Contract
 
-`backend.app` is the shared domain package for both the backend API and the WhatsApp bot.
+`backend.app` is the domain package for the API.
 
-- Put shared SQLAlchemy entities in [`app/models/`](app/models/)
-- Put shared Pydantic response/request types in [`app/schemas/`](app/schemas/)
-- Put WhatsApp-specific shared entities in [`app/models/whatsapp.py`](app/models/whatsapp.py)
-- Put WhatsApp-specific shared payload/state schemas in [`app/schemas/whatsapp.py`](app/schemas/whatsapp.py)
-
-The WhatsApp bot imports these as `backend.app.models` and `backend.app.schemas`. Its local [`../WhatsApp Bot/app/models.py`](../WhatsApp%20Bot/app/models.py) and [`../WhatsApp Bot/app/schemas.py`](../WhatsApp%20Bot/app/schemas.py) files are only thin re-export shims for compatibility with existing bot imports.
-
-If a model or schema is used by both services, define it here instead of duplicating it under the bot app package.
+- Put SQLAlchemy entities in [`app/models/`](app/models/)
+- Put Pydantic request/response types in [`app/schemas/`](app/schemas/)
 
 ## Prerequisites
 

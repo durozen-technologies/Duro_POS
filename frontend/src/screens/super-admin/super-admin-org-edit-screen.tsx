@@ -17,7 +17,6 @@ import { toApiError } from "@/api/client";
 import {
   fetchOrganizationBranches,
   fetchOrganizationRows,
-  hardDeleteBranch,
   patchOrganization,
   type BranchRead,
   type OrganizationRead,

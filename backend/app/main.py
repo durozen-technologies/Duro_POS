@@ -17,8 +17,11 @@ from app.core.middleware import (
     SecurityHeadersMiddleware,
     SelectiveGZipMiddleware,
 )
+from app.core.redis_cache import configure_redis_environment
 from app.db.startup import run_database_startup_tasks
 from app.routers import api_router
+
+configure_redis_environment()
 
 settings = get_settings()
 configure_logging(production=settings.production)
@@ -64,8 +67,12 @@ try:
     from redis_fastapi import FastAPIRedis
 
     FastAPIRedis(app).lifespan().caching()
-except ImportError:
-    logger.warning("fastapi-redis-sdk not installed; Redis caching disabled")
+except ImportError as exc:
+    logger.warning(
+        "fastapi-redis-sdk not available (%s); Redis caching disabled. "
+        "Run: cd backend && uv sync && uv run uvicorn main:app --reload",
+        exc,
+    )
 
 
 @app.exception_handler(HTTPException)

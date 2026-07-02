@@ -19,6 +19,7 @@ from app.schemas.super_admin.organizations import OrganizationCreate
 from app.schemas.super_admin.tenant_admins import TenantAdminCreate
 from app.services.auth import login_user
 from app.services.super_admin import analytics as analytics_service
+from app.services.super_admin import branches as branch_service
 from app.services.super_admin import organizations as org_service
 from app.services.super_admin import tenant_admins as tenant_admin_service
 
@@ -307,6 +308,92 @@ class SuperAdminApiTests(BackendTestCase):
                 with self.assertRaises(HTTPException) as ctx:
                     await org_service.get_organization_or_404(adapter, org.id)
                 self.assertEqual(ctx.exception.status_code, 404)
+
+        self.run_async(scenario())
+
+    def test_hard_delete_branch_removes_shop_and_owner(self) -> None:
+        async def scenario() -> None:
+            super_admin = await self.harness.create_super_admin_user()
+            org = await self.harness.create_default_organization()
+            _owner, shop = await self.harness.create_shop_user(
+                username="delete.branch.shop",
+                shop_name="Delete Me Branch",
+            )
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                branches = await branch_service.list_organization_branches(adapter, org.id)
+                self.assertEqual(len(branches), 1)
+                self.assertEqual(branches[0].id, shop.id)
+
+                await branch_service.hard_delete_branch(
+                    adapter,
+                    org.id,
+                    shop.id,
+                    HardDeleteRequest(username=super_admin.username, password="password123"),
+                    super_admin,
+                )
+
+                self.assertEqual(await branch_service.list_organization_branches(adapter, org.id), [])
+                self.assertIsNone(session.get(Shop, shop.id))
+                self.assertIsNone(session.get(User, _owner.id))
+
+        self.run_async(scenario())
+
+    def test_hard_delete_branch_blocked_when_billing_exists(self) -> None:
+        async def scenario() -> None:
+            super_admin = await self.harness.create_super_admin_user()
+            org = await self.harness.create_default_organization()
+            _owner, shop = await self.harness.create_shop_user(
+                username="billed.branch.shop",
+                shop_name="Billed Branch",
+            )
+
+            with self.harness.session_factory() as session:
+                session.add(
+                    Bill(
+                        bill_no="SMB-2026-01-000001",
+                        shop_id=shop.id,
+                        total_amount=Decimal("100.00"),
+                        status=BillStatus.PAID,
+                    )
+                )
+                session.commit()
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                with self.assertRaises(HTTPException) as ctx:
+                    await branch_service.hard_delete_branch(
+                        adapter,
+                        org.id,
+                        shop.id,
+                        HardDeleteRequest(username=super_admin.username, password="password123"),
+                        super_admin,
+                    )
+                self.assertEqual(ctx.exception.status_code, 409)
+
+        self.run_async(scenario())
+
+    def test_hard_delete_branch_requires_valid_credentials(self) -> None:
+        async def scenario() -> None:
+            super_admin = await self.harness.create_super_admin_user()
+            org = await self.harness.create_default_organization()
+            _owner, shop = await self.harness.create_shop_user(
+                username="cred.branch.shop",
+                shop_name="Cred Branch",
+            )
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                with self.assertRaises(HTTPException) as ctx:
+                    await branch_service.hard_delete_branch(
+                        adapter,
+                        org.id,
+                        shop.id,
+                        HardDeleteRequest(username=super_admin.username, password="wrong-password"),
+                        super_admin,
+                    )
+                self.assertEqual(ctx.exception.status_code, 401)
 
         self.run_async(scenario())
 

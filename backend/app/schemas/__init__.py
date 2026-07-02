@@ -102,18 +102,6 @@ from .transfer import (
     TransferShopRead,
     TransferShopUpdate,
 )
-from .whatsapp import (
-    BotStage,
-    BranchRead,
-    ConversationState,
-    HealthResponse,
-    IncomingMessageKind,
-    IncomingUserMessage,
-    SalesSummaryItem,
-    SalesSummaryResponse,
-    WebhookProcessResponse,
-    WhatsAppWebhookPayload,
-)
 
 __all__ = [
     "AdminBillSummary",
@@ -199,16 +187,6 @@ __all__ = [
     "ShopInventoryAllocationBulkCreate",
     "ShopInventoryAllocationBulkRead",
     "ShopInventoryAllocationUpdate",
-    "BotStage",
-    "BranchRead",
-    "ConversationState",
-    "HealthResponse",
-    "IncomingMessageKind",
-    "IncomingUserMessage",
-    "SalesSummaryItem",
-    "SalesSummaryResponse",
-    "WebhookProcessResponse",
-    "WhatsAppWebhookPayload",
     "TransferShopCreate",
     "TransferShopUpdate",
     "TransferShopRead",

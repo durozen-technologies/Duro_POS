@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from uuid import UUID
@@ -30,6 +31,20 @@ except ImportError:  # ponytail: tests/dev without redis sdk still run
 
     def _get_pool_state(_app):  # type: ignore[misc]
         raise RuntimeError("redis sdk unavailable")
+
+
+def configure_redis_environment() -> None:
+    """Push backend/.env Redis settings into os.environ for redis_fastapi."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if settings.redis_url:
+        os.environ.setdefault("REDIS_URL", settings.redis_url.strip())
+    if settings.redis_prefix:
+        os.environ.setdefault("REDIS_PREFIX", settings.redis_prefix.strip())
+    os.environ.setdefault("REDIS_DEFAULT_TTL", str(settings.redis_default_ttl))
+    if CacheBackend is not None:
+        get_redis_settings.cache_clear()  # type: ignore[attr-defined]
 
 
 def bind_app(app: FastAPI) -> None:

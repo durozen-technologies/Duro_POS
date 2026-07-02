@@ -33,12 +33,6 @@ from .shop_item_allocation import ShopItemAllocation
 from .transfer import InventoryTransfer, TransferShop
 from .user import User
 from .user_auth_index import UserAuthIndex
-from .whatsapp import (
-    ProcessedWhatsAppMessage,
-    WhatsAppConversation,
-    WhatsAppUser,
-    WhatsAppUserShop,
-)
 
 __all__ = [
     "Base",
@@ -72,10 +66,6 @@ __all__ = [
     "User",
     "UserAuthIndex",
     "UserRole",
-    "ProcessedWhatsAppMessage",
-    "WhatsAppConversation",
-    "WhatsAppUser",
-    "WhatsAppUserShop",
     "TransferShop",
     "InventoryTransfer",
     "AuditLog",

@@ -53,7 +53,6 @@ _ORG_ROOT_TABLES = frozenset(
         "audit_logs",
         "inventory_backdate_policy",
         "monthly_bill_sequences",
-        "whatsapp_users",
     }
 )
 
@@ -151,9 +150,6 @@ def _child_select_sql(
         "shop_inventory_allocations",
         "inventory_movements",
         "inventory_movement_splits",
-        "whatsapp_user_shops",
-        "whatsapp_conversations",
-        "processed_whatsapp_messages",
     }
     if table_name in shop_children:
         if count_only:
@@ -245,8 +241,6 @@ def _child_delete_sql(table_name: str, org_id: UUID, *, schema: str = "public") 
 def _fk_exists_clause(table_name: str, shop_alias: str, *, schema: str = "public") -> str:
     bills = _rel(schema, "bills")
     movements = _rel(schema, "inventory_movements")
-    whatsapp_users = _rel(schema, "whatsapp_users")
-    whatsapp_user_shops = _rel(schema, "whatsapp_user_shops")
     mapping = {
         "bills": f"{shop_alias}.id = p.shop_id",
         "bill_items": f"EXISTS (SELECT 1 FROM {bills} b WHERE b.shop_id = {shop_alias}.id AND b.id = p.bill_id)",
@@ -261,17 +255,6 @@ def _fk_exists_clause(table_name: str, shop_alias: str, *, schema: str = "public
         "inventory_movement_splits": (
             f"EXISTS (SELECT 1 FROM {movements} m "
             f"WHERE m.shop_id = {shop_alias}.id AND m.id = p.movement_id)"
-        ),
-        "whatsapp_user_shops": f"{shop_alias}.id = p.shop_id",
-        "whatsapp_conversations": (
-            f"EXISTS (SELECT 1 FROM {whatsapp_users} wu "
-            f"JOIN {whatsapp_user_shops} wus ON wus.user_id = wu.id "
-            f"WHERE wus.shop_id = {shop_alias}.id AND wu.phone_number = p.phone_number)"
-        ),
-        "processed_whatsapp_messages": (
-            f"EXISTS (SELECT 1 FROM {whatsapp_users} wu "
-            f"JOIN {whatsapp_user_shops} wus ON wus.user_id = wu.id "
-            f"WHERE wus.shop_id = {shop_alias}.id AND wu.phone_number = p.phone_number)"
         ),
     }
     return mapping.get(table_name, f"{shop_alias}.id = p.shop_id")

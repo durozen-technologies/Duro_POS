@@ -26,7 +26,6 @@ Brolier 360 operated as a single-organization deployment: one global `ADMIN` man
 
 - All tenant admin queries must filter by `organization_id` (Phase 4).
 - Cross-tenant access returns 404 for shop UUIDs (IDOR-safe).
-- WhatsApp Bot must resolve org from shop context.
 - Username uniqueness is per-organization (partial indexes on `users`).
 
 ## Rollback
