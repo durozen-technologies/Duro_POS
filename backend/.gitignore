@@ -5,6 +5,8 @@
 !.env.example
 .envrc
 .direnv/
+.impeccable/
+.history/
 .agents
 .agents/
 .codex
@@ -17,7 +19,6 @@
 
 # Python versioning / virtualenvs
 .python-version
-!.python-version
 .venv/
 venv/
 env/
@@ -70,5 +71,9 @@ pip-wheel-metadata/
 tmp/
 todo.txt
 diff.txt
+scratch.js
+scratch.*
+fix_db.py
 *.zip
 test_shop_endpoint.py
+/WhatsApp Image*

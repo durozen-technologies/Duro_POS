@@ -201,6 +201,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const [shopSelectorOpen, setShopSelectorOpen] = useState(false);
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<AdminNavTab>("dashboard");
+  const bottomNavActiveKey = activeNav === "billing" ? "sales" : activeNav;
   const [itemSearch, setItemSearch] = useState("");
   const [createShopOpen, setCreateShopOpen] = useState(false);
   const [manageShopOpen, setManageShopOpen] = useState(false);
@@ -732,8 +733,22 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       navigation.navigate("AdminExpenses", { shopId: selectedShopId ?? undefined });
       return;
     }
+    if (key === "retailers") {
+      navigation.navigate("AdminRetailers", { tab: "retailers" });
+      return;
+    }
     setActiveNav(key as AdminNavTab);
   }, [navigation, selectedShopId]);
+
+  const handleOpenBilling = useCallback(() => {
+    triggerHaptic();
+    setActiveNav("billing");
+  }, []);
+
+  const handleBackToSales = useCallback(() => {
+    triggerHaptic();
+    setActiveNav("sales");
+  }, []);
 
   if (loading && shops.length === 0) {
     return <DashboardSkeleton palette={palette} />;
@@ -1104,6 +1119,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
             onOpenBill={handleOpenBillPreview}
             onPrintAll={handleStartPrintAllBills}
             onLoadMore={handleLoadMoreBills}
+            onBackToSales={handleBackToSales}
           />
         ) : null}
 
@@ -1119,6 +1135,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
             refreshing={refreshing}
             bottomPadding={inventoryContentPadding}
             onRefresh={handleQuickRefresh}
+            onOpenBilling={handleOpenBilling}
           />
         ) : null}
 
@@ -1145,7 +1162,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
 
       <BottomNav
         items={bottomNavItems}
-        activeKey={activeNav}
+        activeKey={bottomNavActiveKey}
         onSelect={handleSelectNav}
         palette={palette}
         bottomOffset={bottomNavOffset}

@@ -1,4 +1,4 @@
-import { BillRead } from "@/types/api";
+import { BillRead, BillStatus, type RetailerSaleRead, type RetailerSaleReceiptRead } from "@/types/api";
 import { getLocalizedItemName } from "@/hooks/use-shop-translation";
 import { ShopLanguage } from "@/store/shop-language-store";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
@@ -195,6 +195,48 @@ function buildReceiptImageExportScript() {
               };
             }
 
+            function measureFittedTextHeight(context, text, maxWidth, options) {
+              var size = options.size;
+              var minSize = options.minSize || Math.max(12, Math.floor(size * 0.6));
+              var line = String(text || "").trim();
+
+              while (size > minSize) {
+                setFont(context, size, options.weight);
+                if (context.measureText(line).width <= maxWidth) {
+                  break;
+                }
+                size -= 1;
+              }
+
+              return getLineHeight(size, options.lineHeightRatio || 1.3);
+            }
+
+            function drawFittedText(context, text, x, y, maxWidth, options) {
+              var size = options.size;
+              var minSize = options.minSize || Math.max(12, Math.floor(size * 0.6));
+              var line = String(text || "").trim();
+              var align = options.align || "right";
+
+              while (size > minSize) {
+                setFont(context, size, options.weight);
+                if (context.measureText(line).width <= maxWidth) {
+                  break;
+                }
+                size -= 1;
+              }
+
+              setFont(context, size, options.weight);
+              var drawX = x;
+              if (align === "right") {
+                drawX = x + maxWidth - context.measureText(line).width;
+              } else if (align === "center") {
+                drawX = x + (maxWidth - context.measureText(line).width) / 2;
+              }
+
+              context.fillText(line, drawX, y);
+              return getLineHeight(size, options.lineHeightRatio || 1.3);
+            }
+
             function sliceCanvasToBase64Chunks(canvas) {
               var maxSliceHeight = 900;
               var chunks = [];
@@ -246,9 +288,11 @@ function buildReceiptImageExportScript() {
                 throw new Error("Canvas context is unavailable.");
               }
 
-              var columnItemWidth = Math.floor(receiptWidth * 0.55);
-              var columnQtyWidth = Math.floor(receiptWidth * 0.20);
+              var columnItemWidth = Math.floor(receiptWidth * 0.50);
+              var columnQtyWidth = Math.floor(receiptWidth * 0.18);
               var columnTotalWidth = receiptWidth - columnItemWidth - columnQtyWidth;
+              var totalLabelWidth = Math.floor(receiptWidth * 0.42);
+              var totalValueWidth = receiptWidth - totalLabelWidth;
               var xItem = 0;
               var xQty = columnItemWidth;
               var xTotal = columnItemWidth + columnQtyWidth;
@@ -301,7 +345,11 @@ function buildReceiptImageExportScript() {
                   var itemNameLines = wrapText(measureContext, item.itemName, columnItemWidth - 6);
                   var itemNameHeight = itemNameLines.length * getLineHeight(18, 1.3);
                   var qtyHeight = getLineHeight(22, 1.15);
-                  var totalHeight = getLineHeight(21, 1.15);
+                  var totalHeight = measureFittedTextHeight(measureContext, item.lineTotal, columnTotalWidth, {
+                    size: 21,
+                    weight: 800,
+                    lineHeightRatio: 1.15,
+                  });
                   var rowHeight = Math.max(itemNameHeight, qtyHeight, totalHeight);
 
                   y += 8;
@@ -312,12 +360,42 @@ function buildReceiptImageExportScript() {
                 y += 10;
                 y += 4;
 
-                y += getLineHeight(18, 1.3);
+                y += measureFittedTextHeight(measureContext, payload.cashValue, totalValueWidth, {
+                  size: 18,
+                  weight: 700,
+                  lineHeightRatio: 1.3,
+                });
                 y += 8;
-                y += getLineHeight(18, 1.3);
+                y += measureFittedTextHeight(measureContext, payload.upiValue, totalValueWidth, {
+                  size: 18,
+                  weight: 700,
+                  lineHeightRatio: 1.3,
+                });
                 y += 12;
-                y += getLineHeight(26, 1.2);
+                y += measureFittedTextHeight(measureContext, payload.totalValue, totalValueWidth, {
+                  size: 26,
+                  weight: 800,
+                  lineHeightRatio: 1.2,
+                });
                 y += 8;
+                if (payload.paidAmountLabel || payload.balanceAmountLabel) {
+                  y += 10;
+                }
+                if (payload.paidAmountLabel && payload.paidAmountValue) {
+                  y += 8;
+                  y += measureFittedTextHeight(measureContext, payload.paidAmountValue, totalValueWidth, {
+                    size: 18,
+                    weight: 800,
+                    lineHeightRatio: 1.3,
+                  });
+                }
+                if (payload.balanceAmountLabel && payload.balanceAmountValue) {
+                  y += measureFittedTextHeight(measureContext, payload.balanceAmountValue, totalValueWidth, {
+                    size: 18,
+                    weight: 800,
+                    lineHeightRatio: 1.3,
+                  });
+                }
                 y += 18;
                 y += 14;
                 y += getLineHeight(19, 1.3);
@@ -438,14 +516,14 @@ function buildReceiptImageExportScript() {
                   lineHeightRatio: 1.15,
                   noWrap: true,
                 });
-                var totalBlock = drawWrappedText(context, item.lineTotal, xTotal, y, columnTotalWidth, {
+                var totalBlockHeight = drawFittedText(context, item.lineTotal, xTotal, y, columnTotalWidth, {
                   size: 21,
                   weight: 800,
                   align: "right",
                   lineHeightRatio: 1.15,
                 });
 
-                y += Math.max(itemName.height, qtyBlock.height, totalBlock.height);
+                y += Math.max(itemName.height, qtyBlock.height, totalBlockHeight);
                 y += 8;
               }
 
@@ -457,26 +535,25 @@ function buildReceiptImageExportScript() {
               y += 10;
 
               function drawTotalRow(label, value, fontSize, fontWeight) {
-                drawWrappedText(context, label, 0, y, Math.floor(receiptWidth * 0.55), {
+                var labelBlock = drawWrappedText(context, label, 0, y, totalLabelWidth, {
                   size: fontSize,
                   weight: fontWeight,
                   align: "left",
                   lineHeightRatio: 1.3,
                 });
-                drawWrappedText(context, value, Math.floor(receiptWidth * 0.55), y, receiptWidth - Math.floor(receiptWidth * 0.55), {
+                var valueHeight = drawFittedText(context, value, totalLabelWidth, y, totalValueWidth, {
                   size: fontSize,
                   weight: fontWeight,
                   align: "right",
                   lineHeightRatio: 1.3,
                 });
+                return Math.max(labelBlock.height, valueHeight);
               }
 
-              drawTotalRow(payload.cashLabel, payload.cashValue, 18, 700);
-              y += getLineHeight(18, 1.3);
+              y += drawTotalRow(payload.cashLabel, payload.cashValue, 18, 700);
               y += 8;
 
-              drawTotalRow(payload.upiLabel, payload.upiValue, 18, 700);
-              y += getLineHeight(18, 1.3);
+              y += drawTotalRow(payload.upiLabel, payload.upiValue, 18, 700);
               context.lineWidth = 1.5;
               context.beginPath();
               context.moveTo(0, y + 4);
@@ -484,9 +561,26 @@ function buildReceiptImageExportScript() {
               context.stroke();
               y += 12;
 
-              drawTotalRow(payload.totalLabel, payload.totalValue, 26, 800);
-              y += getLineHeight(26, 1.2);
+              y += drawTotalRow(payload.totalLabel, payload.totalValue, 26, 800);
               y += 8;
+
+              if (payload.paidAmountLabel || payload.balanceAmountLabel) {
+                context.lineWidth = 2.5;
+                context.beginPath();
+                context.moveTo(0, y);
+                context.lineTo(receiptWidth, y);
+                context.stroke();
+                y += 10;
+              }
+
+              if (payload.paidAmountLabel && payload.paidAmountValue) {
+                y += drawTotalRow(payload.paidAmountLabel, payload.paidAmountValue, 18, 800);
+                y += 8;
+              }
+
+              if (payload.balanceAmountLabel && payload.balanceAmountValue) {
+                y += drawTotalRow(payload.balanceAmountLabel, payload.balanceAmountValue, 18, 800);
+              }
 
               context.lineWidth = 2.5;
               context.beginPath();
@@ -572,6 +666,10 @@ type ReceiptExportPayload = {
   upiValue: string;
   totalLabel: string;
   totalValue: string;
+  paidAmountLabel?: string;
+  paidAmountValue?: string;
+  balanceAmountLabel?: string;
+  balanceAmountValue?: string;
   thankYou: string;
   poweredBy: string;
   provider: string;
@@ -585,7 +683,7 @@ function serializeReceiptExportPayload(payload: ReceiptExportPayload) {
     .replaceAll("&", "\\u0026");
 }
 
-function buildReceiptHtmlMarkup(
+export function buildReceiptHtmlMarkup(
   receiptMarkup: string,
   exportPayload?: ReceiptExportPayload,
 ) {
@@ -692,9 +790,11 @@ function buildReceiptHtmlMarkup(
             border-collapse: collapse;
             table-layout: fixed;
           }
-          col.col-item-name  { width: 55%; }
-          col.col-item-qty   { width: 20%; }
-          col.col-item-total { width: 25%; }
+          col.col-item-name  { width: 50%; }
+          col.col-item-qty   { width: 18%; }
+          col.col-item-total { width: 32%; }
+          col.col-total-label { width: 42%; }
+          col.col-total-value { width: 58%; }
 
           .items-header { border-bottom: 2.5px solid #000000; border-top: 2.5px solid #000000; }
           .items-header th {
@@ -736,10 +836,10 @@ function buildReceiptHtmlMarkup(
             padding-right: 4px;
           }
           .item-total {
-            font-size: 21px;
+            font-size: 17px;
             text-align: right;
-            white-space: normal;
-            word-break: break-word;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
             color: #000000;
             font-weight: 800;
           }
@@ -755,7 +855,7 @@ function buildReceiptHtmlMarkup(
             margin-bottom: 4px;
           }
 
-          .totals-section { margin-top: 4px; width: 100%; }
+          .totals-section { margin-top: 4px; width: 100%; table-layout: fixed; }
           .total-row td {
             padding: 4px 0;
             font-size: 18px;
@@ -763,11 +863,18 @@ function buildReceiptHtmlMarkup(
             line-height: 1.3;
             color: #000000;
           }
+          .total-row td:last-child {
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+          }
           .grand-total td {
             font-size: 26px;
             font-weight: 800;
             padding-top: 8px;
             color: #000000;
+          }
+          .grand-total td:last-child {
+            font-size: 20px;
           }
 
           .footer {
@@ -867,6 +974,7 @@ function buildReceiptHtmlBody(bill: BillRead, language?: ShopLanguage) {
     bill.organization_name,
     resolvedLanguage,
   );
+  const showBalance = Number(bill.payment.balance) > 0;
   const itemRows = bill.items
     .map(
       (item) => `
@@ -912,6 +1020,10 @@ function buildReceiptHtmlBody(bill: BillRead, language?: ShopLanguage) {
       <div class="payment-divider"></div>
 
       <table class="totals-section">
+        <colgroup>
+          <col class="col-total-label" />
+          <col class="col-total-value" />
+        </colgroup>
         <tr class="total-row">
           <td>${copy.cash}</td>
           <td class="align-right">${formatReceiptCurrency(bill.payment.cash_amount)}</td>
@@ -924,6 +1036,19 @@ function buildReceiptHtmlBody(bill: BillRead, language?: ShopLanguage) {
           <td class="strong">${copy.total}</td>
           <td class="align-right strong">Rs. ${formatReceiptCurrency(bill.total_amount)}</td>
         </tr>
+        ${
+          showBalance
+            ? `
+        <tr class="total-row">
+          <td class="strong">Paid</td>
+          <td class="align-right strong">Rs. ${formatReceiptCurrency(bill.payment.total_paid)}</td>
+        </tr>
+        <tr class="total-row">
+          <td class="strong">Balance Due</td>
+          <td class="align-right strong">Rs. ${formatReceiptCurrency(bill.payment.balance)}</td>
+        </tr>`
+            : ""
+        }
       </table>
 
       <div class="total-divider"></div>
@@ -974,4 +1099,57 @@ export function buildReceiptHtml(bill: BillRead, language?: ShopLanguage) {
 
 export function buildBatchReceiptHtml(bills: BillRead[], language?: ShopLanguage) {
   return buildReceiptHtmlMarkup(bills.map((bill) => buildReceiptHtmlBody(bill, language)).join(""));
+}
+
+export function retailerSaleToBillRead(
+  sale: RetailerSaleRead,
+  receipt?: RetailerSaleReceiptRead,
+): BillRead {
+  const invoiceReceipt =
+    receipt ??
+    sale.receipt ??
+    sale.receipts?.find((row) => row.receipt_type === "sale_invoice") ??
+    sale.receipts?.[0];
+  const linkedPayment =
+    sale.payments.find((payment) => payment.id === invoiceReceipt?.retailer_payment_id) ??
+    sale.payments[0];
+  const paidAtCheckout = linkedPayment?.total_paid ?? sale.amount_paid_total;
+  const balanceAtInvoice = invoiceReceipt
+    ? String(Number(sale.total_amount) - Number(paidAtCheckout))
+    : sale.balance_due;
+  return {
+    id: sale.id,
+    bill_no: sale.sale_no,
+    shop_id: sale.shop_id,
+    shop_name: sale.shop_name,
+    organization_name: `${sale.organization_name}\nRetailer Sale · ${sale.retailer_name}`,
+    total_amount: sale.total_amount,
+    status:
+      Number(balanceAtInvoice) === 0 ? BillStatus.PAID : BillStatus.PENDING_PAYMENT,
+    created_at: sale.created_at,
+    items: sale.items.map((item) => ({
+      item_id: item.item_id,
+      item_name: item.item_name,
+      item_tamil_name: item.item_tamil_name,
+      item_unit_type: item.item_unit_type,
+      item_base_unit: item.item_base_unit,
+      quantity: item.quantity,
+      unit: item.unit,
+      price_per_unit: item.price_per_unit,
+      line_total: item.line_total,
+    })),
+    payment: {
+      id: linkedPayment?.id ?? sale.id,
+      cash_amount: linkedPayment?.cash_amount ?? "0.00",
+      upi_amount: linkedPayment?.upi_amount ?? "0.00",
+      total_paid: paidAtCheckout,
+      balance: balanceAtInvoice,
+      is_settled: Number(balanceAtInvoice) === 0,
+    },
+    receipt: {
+      id: invoiceReceipt?.id ?? sale.id,
+      receipt_number: invoiceReceipt?.receipt_number ?? `RCT-${sale.sale_no}`,
+      printed_at: invoiceReceipt?.printed_at ?? sale.created_at,
+    },
+  };
 }

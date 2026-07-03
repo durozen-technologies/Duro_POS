@@ -1,13 +1,5 @@
 import { memo } from "react";
-import { RefreshControl } from "react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-  ScrollView,
-  Text,
-  View as Stack,
-  XStack,
-  YStack,
-} from "tamagui";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { UUID } from "@/types/api";
 
@@ -30,66 +22,6 @@ type AdminDashboardTabProps = {
   useCompactMetricCards: boolean;
 };
 
-type SnapshotChipProps = {
-  label: string;
-  value: string;
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-  backgroundColor: string;
-  borderColor: string;
-  iconColor: string;
-  textColor: string;
-};
-
-function SnapshotChip({
-  label,
-  value,
-  icon,
-  backgroundColor,
-  borderColor,
-  iconColor,
-  textColor,
-}: SnapshotChipProps) {
-  return (
-    <XStack
-      flex={1}
-      minWidth={136}
-      alignItems="center"
-      gap={9}
-      paddingHorizontal={11}
-      paddingVertical={10}
-      borderRadius={14}
-      borderWidth={1}
-      borderColor={borderColor}
-      backgroundColor={backgroundColor}
-    >
-      <Stack
-        width={34}
-        height={34}
-        borderRadius={12}
-        alignItems="center"
-        justifyContent="center"
-        backgroundColor="rgba(255,255,255,0.42)"
-      >
-        <MaterialCommunityIcons name={icon} size={17} color={iconColor} />
-      </Stack>
-      <YStack flex={1} minWidth={0} gap={2}>
-        <Text
-          numberOfLines={1}
-          style={{ color: textColor, fontSize: 10, lineHeight: 13, fontWeight: "800", opacity: 0.72 }}
-        >
-          {label}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={{ color: textColor, fontSize: 13, lineHeight: 17, fontWeight: "900", flexShrink: 1 }}
-        >
-          {value}
-        </Text>
-      </YStack>
-    </XStack>
-  );
-}
-
 export const AdminDashboardTab = memo(function AdminDashboardTab({
   dashboardError,
   hasShops,
@@ -97,19 +29,12 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
   refreshing,
   onRefresh,
   bottomSpacer,
-  selectedShopId,
-  selectedShopName,
-  analyticsReferenceLabel,
   metricCards,
   useCompactMetricCards,
 }: AdminDashboardTabProps) {
-  const subtitle = selectedShopId
-    ? `${selectedShopName} · ${analyticsReferenceLabel}`
-    : `All branches · ${analyticsReferenceLabel}`;
-
   return (
     <ScrollView
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomSpacer }}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomSpacer }]}
       showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl
@@ -124,51 +49,73 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
         dashboardError={dashboardError}
         hasShops={hasShops}
         palette={palette}
-        style={{ marginBottom: 12 }}
+        style={styles.errorBanner}
       />
 
-      <YStack gap={14}>
-        <YStack
-          gap={16}
-          padding={16}
-          borderRadius={12}
-          borderWidth={1}
-          borderColor={palette.border}
-          backgroundColor={palette.card}
-        >
-          <YStack gap={12}>
-            <YStack minWidth={0} gap={4}>
-              <Text style={{ color: palette.textPrimary, fontSize: 16, lineHeight: 20, fontWeight: "700" }}>
-                Performance Snapshot
-              </Text>
-            </YStack>
-          </YStack>
+      <View
+        style={[
+          styles.card,
+          { borderColor: palette.border, backgroundColor: palette.card },
+        ]}
+      >
+        <Text style={[styles.cardTitle, { color: palette.textPrimary }]}>
+          Performance Snapshot
+        </Text>
 
-          <YStack gap={10}>
-            <XStack
-              flexDirection={useCompactMetricCards ? "column" : "row"}
-              flexWrap={useCompactMetricCards ? "nowrap" : "wrap"}
-              gap={12}
-              alignItems="stretch"
-            >
-              {metricCards.map((metric) => (
-                <MetricCard
-                  key={metric.key}
-                  label={metric.label}
-                  value={metric.value}
-                  formatter={metric.formatter}
-                  note={metric.note}
-                  icon={metric.icon}
-                  accent={metric.accent}
-                  accentSoft={metric.accentSoft}
-                  fullWidth={useCompactMetricCards}
-                  palette={palette}
-                />
-              ))}
-            </XStack>
-          </YStack>
-        </YStack>
-      </YStack>
+        <View
+          style={[
+            styles.metricGrid,
+            useCompactMetricCards ? styles.metricGridCompact : styles.metricGridWide,
+          ]}
+        >
+          {metricCards.map((metric) => (
+            <MetricCard
+              key={metric.key}
+              label={metric.label}
+              value={metric.value}
+              formatter={metric.formatter}
+              note={metric.note}
+              icon={metric.icon}
+              accent={metric.accent}
+              accentSoft={metric.accentSoft}
+              fullWidth={useCompactMetricCards}
+              palette={palette}
+            />
+          ))}
+        </View>
+      </View>
     </ScrollView>
   );
+});
+
+const styles = StyleSheet.create({
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  errorBanner: {
+    marginBottom: 12,
+  },
+  card: {
+    gap: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  cardTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  metricGrid: {
+    gap: 12,
+  },
+  metricGridCompact: {
+    flexDirection: "column",
+  },
+  metricGridWide: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "stretch",
+  },
 });

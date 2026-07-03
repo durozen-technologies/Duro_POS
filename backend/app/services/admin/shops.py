@@ -354,6 +354,13 @@ async def create_item(
         )
         await db.commit()
         return _item_to_read(item)
+    except IntegrityError:
+        await db.rollback()
+        await delete_item_image_storage(uploaded_image_object_key, uploaded_thumbnail_object_key)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Item name already exists",
+        ) from None
     except Exception:
         await db.rollback()
         await delete_item_image_storage(uploaded_image_object_key, uploaded_thumbnail_object_key)

@@ -63,6 +63,24 @@ export type AppStackParamList = {
         initialItem?: import("@/types/api").ExpenseItemRead;
       }
     | undefined;
+  AdminRetailers:
+    | {
+        tab?: import("@/screens/admin/admin-dashboard-utils").AdminRetailersTab;
+      }
+    | undefined;
+  AdminRetailerEditor:
+    | {
+        initialRetailer?: import("@/types/api").RetailerRead;
+      }
+    | undefined;
+  AdminRetailerDetail: { retailer: import("@/types/api").RetailerRead };
+  AdminRetailerBranches: {
+    retailerId: UUID;
+    retailerName: string;
+    requireSelection?: boolean;
+  };
+  AdminRetailerItems: { retailerId: UUID; retailerName: string };
+  AdminRetailerSaleDetail: { saleId: UUID };
   AdminInventoryItemEditor:
     | {
         itemId?: UUID;
@@ -78,6 +96,11 @@ export type AppStackParamList = {
   };
   Billing: undefined;
   Checkout: undefined;
+  RetailerSelect: undefined;
+  RetailerSales: undefined;
+  RetailerBilling: { retailerId: UUID; retailerName: string };
+  RetailerCheckout: { retailerId: UUID; retailerName: string };
+  RetailerSaleDetail: { saleId: UUID };
   InventoryManagement: undefined;
   ShopExpenses: undefined;
   PrinterSetup: undefined;
@@ -167,6 +190,30 @@ export type AdminExpenseItemEditorScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "AdminExpenseItemEditor"
 >;
+export type AdminRetailersScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminRetailers"
+>;
+export type AdminRetailerEditorScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminRetailerEditor"
+>;
+export type AdminRetailerDetailScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminRetailerDetail"
+>;
+export type AdminRetailerBranchesScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminRetailerBranches"
+>;
+export type AdminRetailerItemsScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminRetailerItems"
+>;
+export type AdminRetailerSaleDetailScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminRetailerSaleDetail"
+>;
 export type AdminInventoryItemEditorScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "AdminInventoryItemEditor"
@@ -182,6 +229,26 @@ export type BillingScreenProps = NativeStackScreenProps<
 export type CheckoutScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "Checkout"
+>;
+export type RetailerSelectScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "RetailerSelect"
+>;
+export type RetailerSalesScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "RetailerSales"
+>;
+export type RetailerBillingScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "RetailerBilling"
+>;
+export type RetailerCheckoutScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "RetailerCheckout"
+>;
+export type RetailerSaleDetailScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "RetailerSaleDetail"
 >;
 export type InventoryManagementScreenProps = NativeStackScreenProps<
   AppStackParamList,

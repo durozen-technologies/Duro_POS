@@ -710,16 +710,11 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       customAttributes = attributesToObject(values.attributes);
     } catch (requestError) {
       triggerHaptic();
+      savingRef.current = false;
+      setSaving(false);
       setSaveError(requestError instanceof Error ? requestError.message : "Invalid custom attributes.");
       return;
     }
-    if (savingRef.current) {
-      return;
-    }
-    savingRef.current = true;
-    setSaving(true);
-    setSaveError(null);
-    setImageError(null);
     setImageStatus(hasImageChange ? "Saving item image..." : null);
     try {
       if (isCustomize) {
@@ -832,8 +827,13 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       void saveImageOnlyChange();
       return;
     }
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError(null);
+    setImageError(null);
+    setImageStatus(hasImageChange ? "Saving item image..." : null);
     void submit();
-  }, [isImageOnlyChange, saveDisabled, saveImageOnlyChange, submit]);
+  }, [hasImageChange, isImageOnlyChange, saveDisabled, saveImageOnlyChange, submit]);
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>

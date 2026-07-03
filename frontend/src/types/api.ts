@@ -892,3 +892,196 @@ export interface InventoryTransferCreate {
   quantity: string;
   occurred_at?: string | null;
 }
+
+export enum RetailerSaleStatus {
+  OPEN = "open",
+  PARTIAL = "partial",
+  SETTLED = "settled",
+  VOID = "void",
+}
+
+export interface RetailerRead {
+  id: UUID;
+  name: string;
+  phone?: string | null;
+  notes?: string | null;
+  is_active: boolean;
+  allocated_shop_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RetailerBranchAllocationRead {
+  shop_id: UUID;
+  shop_name: string;
+  shop_is_active: boolean;
+  is_allocated: boolean;
+  allocation_is_active?: boolean | null;
+}
+
+export interface RetailerBranchAllocationSync {
+  shop_ids: UUID[];
+}
+
+export interface RetailerPage {
+  items: RetailerRead[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface RetailerCreate {
+  name: string;
+  phone?: string | null;
+  notes?: string | null;
+  is_active?: boolean;
+}
+
+export interface RetailerUpdate {
+  name?: string | null;
+  phone?: string | null;
+  notes?: string | null;
+  is_active?: boolean | null;
+}
+
+export interface RetailerItemPriceInput {
+  item_id: UUID;
+  price_per_unit: string;
+  is_active?: boolean;
+}
+
+export interface RetailerItemPriceRead {
+  id: UUID;
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name: string;
+  price_per_unit: string;
+  is_active: boolean;
+}
+
+export interface RetailerCatalogItemRead {
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name: string;
+  item_unit_type: UnitType;
+  item_base_unit: BaseUnit;
+  price_per_unit: string;
+  image_path?: string | null;
+  image_thumb_path?: string | null;
+}
+
+export interface RetailerOpenSaleSummary {
+  id: UUID;
+  sale_no: string;
+  shop_id: UUID;
+  shop_name: string;
+  total_amount: string;
+  amount_paid_total: string;
+  balance_due: string;
+  status: RetailerSaleStatus;
+  created_at: string;
+}
+
+export interface RetailerBalanceRead {
+  retailer_id: UUID;
+  retailer_name: string;
+  outstanding_balance: string;
+  open_sales: RetailerOpenSaleSummary[];
+}
+
+export interface RetailerSaleLineRead {
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name?: string | null;
+  item_unit_type?: UnitType | null;
+  item_base_unit?: BaseUnit | null;
+  quantity: string;
+  unit: BaseUnit;
+  price_per_unit: string;
+  line_total: string;
+}
+
+export interface RetailerPaymentRead {
+  id: UUID;
+  cash_amount: string;
+  upi_amount: string;
+  total_paid: string;
+  paid_at: string;
+  recorded_by_user_id: UUID;
+}
+
+export enum RetailerReceiptType {
+  SALE_INVOICE = "sale_invoice",
+  BALANCE_PAYMENT = "balance_payment",
+}
+
+export interface RetailerSaleReceiptRead {
+  id: UUID;
+  receipt_number: string;
+  receipt_type: RetailerReceiptType;
+  retailer_payment_id: UUID;
+  printed_at: string;
+  payment_total?: string | null;
+}
+
+export interface RetailerSaleRead {
+  id: UUID;
+  sale_no: string;
+  retailer_id: UUID;
+  retailer_name: string;
+  shop_id: UUID;
+  shop_name: string;
+  organization_name: string;
+  total_amount: string;
+  amount_paid_total: string;
+  balance_due: string;
+  status: RetailerSaleStatus;
+  created_at: string;
+  created_by_user_id: UUID;
+  items: RetailerSaleLineRead[];
+  payments: RetailerPaymentRead[];
+  receipts?: RetailerSaleReceiptRead[];
+  receipt?: RetailerSaleReceiptRead | null;
+}
+
+export interface RetailerSaleReceiptPage {
+  items: RetailerSaleReceiptRead[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface RetailerPaymentRecordResponse {
+  sale: RetailerSaleRead;
+  payment_receipt: RetailerSaleReceiptRead;
+}
+
+export interface RetailerSalePreviewRead extends RetailerSaleRead {
+  checkout_token: string;
+}
+
+export interface RetailerSalePage {
+  items: RetailerSaleRead[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface RetailerSaleItemInput {
+  item_id: UUID;
+  quantity: string;
+}
+
+export interface RetailerSaleCheckoutRequest {
+  retailer_id: UUID;
+  items: RetailerSaleItemInput[];
+  payment: CheckoutPaymentInput;
+}
+
+export interface RetailerSaleCheckoutCommitRequest extends RetailerSaleCheckoutRequest {
+  checkout_token: string;
+}
+
+export interface RetailerPaymentCreate {
+  payment: CheckoutPaymentInput;
+}

@@ -28,7 +28,8 @@ _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 ORG_SCHEMA_CACHE_TTL_SECONDS = 300
-TENANT_MIGRATION_HEAD = "0002_drop_tenant_organization_id"
+TENANT_MIGRATION_HEAD = "0006_shop_retailer_allocations"
+RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
 
 
 async def is_postgres_session(session: AsyncSession) -> bool:
@@ -101,6 +102,37 @@ async def create_tenant_schema(session: AsyncSession, schema_name: str) -> None:
     await session.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{safe}"'))
 
 
+def _ensure_tenant_retailer_permissions(connection, schema_name: str) -> None:
+    """Idempotent grant of retailer RBAC codes (mirrors tenant migration 0004)."""
+    from sqlalchemy import inspect as sa_inspect
+
+    safe = assert_safe_schema_name(schema_name)
+    connection.execute(text(f'SET search_path TO "{safe}", public'))
+    inspector = sa_inspect(connection)
+    if not inspector.has_table("admin_role_permissions"):
+        return
+    for code in RETAILER_RBAC_PERMISSIONS:
+        connection.execute(
+            text(
+                """
+                INSERT INTO admin_role_permissions (role_id, permission_code)
+                SELECT r.id, :code
+                FROM admin_roles r
+                WHERE r.is_system = TRUE AND r.name = 'TenantFullAdmin'
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {"code": code},
+        )
+    if inspector.has_table("users"):
+        connection.execute(
+            text(
+                "UPDATE users SET permissions_version = permissions_version + 1 "
+                "WHERE role = 'TENANT_ADMIN'"
+            )
+        )
+
+
 def _stamp_tenant_alembic_version(connection, schema_name: str) -> None:
     safe = assert_safe_schema_name(schema_name)
     connection.execute(
@@ -157,6 +189,7 @@ def repair_tenant_schema_ddl(schema_name: str) -> None:
             create_tenant_tables(conn, safe)
             verify_tenant_schema_ddl(conn, safe)
             _stamp_tenant_alembic_version(conn, safe)
+            _ensure_tenant_retailer_permissions(conn, safe)
         logger.info("Repaired tenant DDL for schema %s", safe)
     finally:
         engine.dispose()
@@ -189,6 +222,11 @@ def run_tenant_migrations(schema_name: str) -> None:
     os.environ["TARGET_SCHEMA"] = safe
     alembic_config = Config(str(backend_root / "migrations" / "tenant" / "alembic.ini"))
     alembic_config.set_main_option("script_location", str(backend_root / "migrations" / "tenant"))
+    # ponytail: force sync driver so Alembic commits tenant DDL/RBAC (asyncpg path rolled back)
+    alembic_config.set_main_option(
+        "sqlalchemy.url",
+        sync_postgres_database_url(str(get_settings().database_url)),
+    )
     logger.info("Running tenant migrations for schema %s", safe)
     command.upgrade(alembic_config, TENANT_MIGRATION_HEAD)
 

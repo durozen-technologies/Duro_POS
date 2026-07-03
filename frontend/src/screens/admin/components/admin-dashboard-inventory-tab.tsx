@@ -8,6 +8,7 @@ import { InventoryItemCard } from "./admin-dashboard-tab-cards";
 import {
   DashboardErrorBanner,
   EmptyStateCard,
+  PrimaryButton,
   SearchField,
   TabSectionHeader,
 } from "./admin-dashboard-primitives";
@@ -23,6 +24,7 @@ type AdminInventoryTabProps = {
   refreshing: boolean;
   bottomPadding: number;
   onRefresh: () => void;
+  onOpenBilling: () => void;
 };
 
 export const AdminInventoryTab = memo(function AdminInventoryTab({
@@ -36,6 +38,7 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
   refreshing,
   bottomPadding,
   onRefresh,
+  onOpenBilling,
 }: AdminInventoryTabProps) {
   return (
     <FlatList
@@ -53,6 +56,15 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
             badgeBackgroundColor={palette.analyticsSoft}
             badgeTextColor={palette.analyticsStrong}
             palette={palette}
+          />
+          <PrimaryButton
+            label="Show Bill"
+            icon="receipt-text-outline"
+            variant="success"
+            fullWidth
+            palette={palette}
+            onPress={onOpenBilling}
+            accessibilityLabel="Show bill"
           />
           <SearchField
             value={itemSearch}

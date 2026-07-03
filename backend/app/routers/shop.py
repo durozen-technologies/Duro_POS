@@ -39,6 +39,30 @@ from app.schemas.transfer import (
     TransferShopRead,
 )
 from app.services.billing import create_bill, preview_bill
+from app.schemas.retailers import (
+    RetailerCatalogItemRead,
+    RetailerPaymentCreate,
+    RetailerPaymentRecordResponse,
+    RetailerRead,
+    RetailerSaleCheckoutCommitRequest,
+    RetailerSaleCheckoutRequest,
+    RetailerSalePage,
+    RetailerSalePreviewRead,
+    RetailerSaleRead,
+    RetailerSaleReceiptPage,
+    RetailerSaleReceiptRead,
+)
+from app.services.retailer_sales import (
+    create_retailer_sale,
+    get_retailer_catalog,
+    get_retailer_sale,
+    get_retailer_sale_receipt,
+    list_retailer_sale_receipts,
+    list_retailer_sales,
+    preview_retailer_sale,
+    record_retailer_payment,
+)
+from app.services.retailers import list_active_retailers_for_shop
 from app.services.expenses import (
     create_shop_expense_entry,
     list_current_shop_expense_items,
@@ -420,3 +444,137 @@ async def checkout(
 ) -> BillRead:
     """Save a paid bill after the signed-in shop has printed its receipt."""
     return await create_bill(db, shop, payload)
+
+
+@router.get(
+    "/retailers",
+    response_model=list[RetailerRead],
+    summary="List active retailers",
+)
+async def shop_list_retailers(
+    q: str | None = Query(None, max_length=120),
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> list[RetailerRead]:
+    return await list_active_retailers_for_shop(db, shop, q=q)
+
+
+@router.get(
+    "/retailers/{retailer_id}/catalog",
+    response_model=list[RetailerCatalogItemRead],
+    summary="Retailer catalog for shop",
+)
+async def shop_retailer_catalog(
+    retailer_id: UUID,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> list[RetailerCatalogItemRead]:
+    return await get_retailer_catalog(db, shop, retailer_id)
+
+
+@router.post(
+    "/retailer-sales/preview",
+    response_model=RetailerSalePreviewRead,
+    summary="Preview retailer sale",
+)
+async def shop_preview_retailer_sale(
+    payload: RetailerSaleCheckoutRequest,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+    user: User = Depends(get_current_user),
+) -> RetailerSalePreviewRead:
+    return await preview_retailer_sale(db, shop, user, payload)
+
+
+@router.post(
+    "/retailer-sales",
+    response_model=RetailerSaleRead,
+    status_code=201,
+    summary="Commit retailer sale",
+)
+async def shop_create_retailer_sale(
+    payload: RetailerSaleCheckoutCommitRequest,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+    user: User = Depends(get_current_user),
+) -> RetailerSaleRead:
+    return await create_retailer_sale(db, shop, user, payload)
+
+
+# ponytail: rate-limit deferred — no shared payment rate-limit middleware yet
+@router.post(
+    "/retailer-sales/{sale_id}/payments",
+    response_model=RetailerPaymentRecordResponse,
+    summary="Record retailer payment",
+)
+async def shop_record_retailer_payment(
+    sale_id: UUID,
+    payload: RetailerPaymentCreate,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+    user: User = Depends(get_current_user),
+) -> RetailerPaymentRecordResponse:
+    return await record_retailer_payment(db, shop, user, sale_id, payload)
+
+
+@router.get(
+    "/retailer-sales",
+    response_model=RetailerSalePage,
+    summary="List shop retailer sales",
+)
+async def shop_list_retailer_sales(
+    retailer_id: UUID | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> RetailerSalePage:
+    return await list_retailer_sales(
+        db, shop_id=shop.id, retailer_id=retailer_id, page=page, page_size=page_size
+    )
+
+
+@router.get(
+    "/retailer-sales/{sale_id}",
+    response_model=RetailerSaleRead,
+    summary="Get retailer sale",
+)
+async def shop_get_retailer_sale(
+    sale_id: UUID,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> RetailerSaleRead:
+    return await get_retailer_sale(db, sale_id, shop_id=shop.id)
+
+
+@router.get(
+    "/retailer-sales/{sale_id}/receipts",
+    response_model=RetailerSaleReceiptPage,
+    summary="List retailer sale receipts",
+)
+async def shop_list_retailer_sale_receipts(
+    sale_id: UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> RetailerSaleReceiptPage:
+    return await list_retailer_sale_receipts(
+        db, sale_id, shop_id=shop.id, page=page, page_size=page_size
+    )
+
+
+@router.get(
+    "/retailer-sales/{sale_id}/receipts/{receipt_id}",
+    response_model=RetailerSaleReceiptRead,
+    summary="Get retailer sale receipt",
+)
+async def shop_get_retailer_sale_receipt(
+    sale_id: UUID,
+    receipt_id: UUID,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> RetailerSaleReceiptRead:
+    return await get_retailer_sale_receipt(
+        db, sale_id, receipt_id, shop_id=shop.id
+    )

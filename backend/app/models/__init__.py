@@ -10,6 +10,8 @@ from .enums import (
     BillStatus,
     InventoryMovementType,
     ItemAssumptionStatus,
+    RetailerReceiptType,
+    RetailerSaleStatus,
     UnitType,
     UserRole,
 )
@@ -28,6 +30,16 @@ from .item_category import ItemCategory
 from .item_change_event import ItemChangeEvent
 from .payment import Payment
 from .receipt import Receipt
+from .retailer import (
+    MonthlyRetailerSaleSequence,
+    Retailer,
+    RetailerItemPrice,
+    RetailerPayment,
+    RetailerSale,
+    RetailerSaleItem,
+    RetailerSaleReceipt,
+    ShopRetailerAllocation,
+)
 from .shop import Shop
 from .shop_item_allocation import ShopItemAllocation
 from .transfer import InventoryTransfer, TransferShop
@@ -58,6 +70,16 @@ __all__ = [
     "MonthlyBillSequence",
     "Payment",
     "Receipt",
+    "Retailer",
+    "RetailerItemPrice",
+    "RetailerPayment",
+    "RetailerSale",
+    "RetailerSaleItem",
+    "RetailerSaleReceipt",
+    "RetailerReceiptType",
+    "RetailerSaleStatus",
+    "MonthlyRetailerSaleSequence",
+    "ShopRetailerAllocation",
     "Shop",
     "ShopExpenseAllocation",
     "ShopInventoryAllocation",

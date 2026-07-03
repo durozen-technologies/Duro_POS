@@ -39,6 +39,7 @@ type AdminBillingTabProps = {
   onOpenBill: (billId: UUID) => void;
   onPrintAll: () => void;
   onLoadMore: () => void;
+  onBackToSales: () => void;
 };
 
 type BillingItem = BillingSection["data"][number];
@@ -220,6 +221,7 @@ export const AdminBillingTab = memo(function AdminBillingTab({
   onOpenBill,
   onPrintAll,
   onLoadMore,
+  onBackToSales,
 }: AdminBillingTabProps) {
   const hasBills = visibleBillsLength > 0;
 
@@ -239,6 +241,15 @@ export const AdminBillingTab = memo(function AdminBillingTab({
       ListHeaderComponent={
         <View style={styles.billingListHeader}>
           <DashboardErrorBanner dashboardError={dashboardError} hasShops={hasShops} palette={palette} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to sales"
+            onPress={onBackToSales}
+            style={[styles.backRow, { borderColor: palette.border, backgroundColor: palette.card }]}
+          >
+            <MaterialCommunityIcons name="chevron-left" size={22} color={palette.billingStrong} />
+            <Text style={[styles.backText, { color: palette.billingStrong }]}>Sales</Text>
+          </Pressable>
           <View style={styles.headerTitleRow}>
             <View style={styles.headerTitle}>
               <TabSectionHeader
@@ -325,6 +336,21 @@ const styles = StyleSheet.create({
   billingListHeader: {
     gap: 16,
     marginBottom: 12,
+  },
+  backRow: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  backText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
   },
   emptyContainer: {
     flex: 1,

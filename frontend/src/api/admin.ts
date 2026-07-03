@@ -84,7 +84,7 @@ export type AnalyticsDateRange = {
   startDate?: string | null;
   endDate?: string | null;
 };
-export type AdminReportSection = "sales" | "billing" | "expenses" | "transfers" | "over_report";
+export type AdminReportSection = "sales" | "billing" | "expenses" | "transfers" | "retailers" | "over_report";
 export type AdminReportDetailLevel = "summary" | "full";
 export type DownloadAdminReportPdfParams = {
   sections: AdminReportSection[];

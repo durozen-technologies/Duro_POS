@@ -52,3 +52,15 @@ class BillStatus(str, Enum):
 class InventoryMovementType(str, Enum):
     ADD = "add"
     USE = "use"
+
+
+class RetailerSaleStatus(str, Enum):
+    OPEN = "open"
+    PARTIAL = "partial"
+    SETTLED = "settled"
+    VOID = "void"
+
+
+class RetailerReceiptType(str, Enum):
+    SALE_INVOICE = "sale_invoice"
+    BALANCE_PAYMENT = "balance_payment"

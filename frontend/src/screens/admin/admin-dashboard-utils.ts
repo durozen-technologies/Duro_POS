@@ -4,7 +4,9 @@ import { AnalyticsPeriod, BaseUnit, type ShopRead } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatDate } from "@/utils/format";
 
-export type AdminNavTab = "dashboard" | "billing" | "items" | "sales" | "inventory" | "expenses" | "settings";
+export type AdminNavTab = "dashboard" | "billing" | "items" | "sales" | "inventory" | "expenses" | "retailers" | "settings";
+
+export type AdminRetailersTab = "retailers" | "items" | "sales";
 export type SectionKey = AdminNavTab;
 export type AnalyticsSectionKey = "sales" | "billing" | "settings";
 export type LogSeverity = "info" | "warning" | "error" | "critical";
@@ -22,22 +24,21 @@ export type SeverityMeta = {
 export const NAV_ITEMS: { key: AdminNavTab; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "view-dashboard-outline" },
   { key: "sales", label: "Sales", icon: "chart-line" },
-  { key: "billing", label: "Billing", icon: "receipt-text-outline" },
   { key: "items", label: "Items", icon: "playlist-edit" },
   { key: "inventory", label: "Inventory", icon: "warehouse" },
   { key: "expenses", label: "Expenses", icon: "cash-minus" },
+  { key: "retailers", label: "Retailers", icon: "store-outline" },
   { key: "settings", label: "Settings", icon: "cog-outline" },
 ];
 
-const compactCurrencyFormatter = new Intl.NumberFormat("en-IN", {
-  notation: "compact",
-  maximumFractionDigits: 0,
-});
-
-const compactCurrencyPrecisionFormatter = new Intl.NumberFormat("en-IN", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
+// ponytail: Hermes on Android does not support Intl.NumberFormat { notation: "compact" } —
+// it throws "Cannot convert undefined value to object" at module init. Use manual compact logic.
+function compactNumber(value: number, precision: number): string {
+  if (Math.abs(value) >= 10_000_000) return `${(value / 10_000_000).toFixed(precision)}Cr`;
+  if (Math.abs(value) >= 100_000) return `${(value / 100_000).toFixed(precision)}L`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(precision)}K`;
+  return `${value.toFixed(0)}`;
+}
 
 const optionDayFormatter = new Intl.DateTimeFormat("en-IN", {
   weekday: "short",
@@ -78,11 +79,8 @@ export function triggerHaptic(style: Haptics.ImpactFeedbackStyle = Haptics.Impac
 
 export function formatCompactCurrency(value: string | number) {
   const numericValue = Number(money(value).toFixed(2));
-  const compact = (
-    numericValue >= 100000 ? compactCurrencyPrecisionFormatter : compactCurrencyFormatter
-  ).format(numericValue);
-
-  return `Rs. ${compact}`;
+  const precision = Math.abs(numericValue) >= 100_000 ? 1 : 0;
+  return `Rs. ${compactNumber(numericValue, precision)}`;
 }
 
 export function formatRelativeTime(value?: string | null) {

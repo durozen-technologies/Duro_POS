@@ -26,9 +26,14 @@ def get_target_schema() -> str:
 
 
 def get_alembic_database_url() -> str:
-    database_url = str(get_settings().database_url)
+    configured = config.get_main_option("sqlalchemy.url")
+    database_url = configured or str(get_settings().database_url)
     if database_url.startswith("sqlite+aiosqlite:"):
         return database_url.replace("sqlite+aiosqlite:", "sqlite:", 1)
+    if "+asyncpg" in database_url:
+        from app.db.tenant_schema import sync_postgres_database_url
+
+        return sync_postgres_database_url(database_url)
     return database_url
 
 
@@ -81,7 +86,7 @@ async def run_async_migrations() -> None:
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
+    async with connectable.begin() as connection:
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()
@@ -110,7 +115,7 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
-    with connectable.connect() as connection:
+    with connectable.begin() as connection:
         do_run_migrations(connection)
 
 

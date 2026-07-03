@@ -1,0 +1,200 @@
+from datetime import datetime
+from decimal import Decimal
+from uuid import UUID
+
+from pydantic import BaseModel, Field, model_validator
+
+from ..models.enums import BaseUnit, RetailerReceiptType, RetailerSaleStatus, UnitType
+from .billing import CheckoutPaymentInput
+from .common import ORMModel
+
+
+class RetailerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    phone: str | None = Field(default=None, max_length=30)
+    notes: str | None = Field(default=None, max_length=500)
+    is_active: bool = True
+
+
+class RetailerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    phone: str | None = Field(default=None, max_length=30)
+    notes: str | None = Field(default=None, max_length=500)
+    is_active: bool | None = None
+
+
+class RetailerRead(ORMModel):
+    id: UUID
+    name: str
+    phone: str | None = None
+    notes: str | None = None
+    is_active: bool
+    allocated_shop_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class RetailerBranchAllocationRead(BaseModel):
+    shop_id: UUID
+    shop_name: str
+    shop_is_active: bool
+    is_allocated: bool
+    allocation_is_active: bool | None = None
+
+
+class RetailerBranchAllocationSync(BaseModel):
+    shop_ids: list[UUID] = Field(default_factory=list)
+
+
+class RetailerPage(BaseModel):
+    items: list[RetailerRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class RetailerItemPriceInput(BaseModel):
+    item_id: UUID
+    price_per_unit: Decimal = Field(gt=0)
+    is_active: bool = True
+
+
+class RetailerItemPriceRead(ORMModel):
+    id: UUID
+    item_id: UUID
+    item_name: str
+    item_tamil_name: str
+    price_per_unit: Decimal
+    is_active: bool
+
+
+class RetailerItemPriceSync(BaseModel):
+    items: list[RetailerItemPriceInput]
+
+
+class RetailerCatalogItemRead(ORMModel):
+    item_id: UUID
+    item_name: str
+    item_tamil_name: str
+    item_unit_type: UnitType
+    item_base_unit: BaseUnit
+    price_per_unit: Decimal
+    image_path: str | None = None
+    image_thumb_path: str | None = None
+
+
+class RetailerOpenSaleSummary(ORMModel):
+    id: UUID
+    sale_no: str
+    shop_id: UUID
+    shop_name: str
+    total_amount: Decimal
+    amount_paid_total: Decimal
+    balance_due: Decimal
+    status: RetailerSaleStatus
+    created_at: datetime
+
+
+class RetailerBalanceRead(BaseModel):
+    retailer_id: UUID
+    retailer_name: str
+    outstanding_balance: Decimal
+    open_sales: list[RetailerOpenSaleSummary]
+
+
+class RetailerSaleItemInput(BaseModel):
+    item_id: UUID
+    quantity: Decimal = Field(gt=0)
+
+
+class RetailerSaleCheckoutRequest(BaseModel):
+    retailer_id: UUID
+    items: list[RetailerSaleItemInput]
+    payment: CheckoutPaymentInput
+
+    @model_validator(mode="after")
+    def validate_items(self) -> "RetailerSaleCheckoutRequest":
+        if not self.items:
+            raise ValueError("At least one cart item is required")
+        return self
+
+
+class RetailerSaleCheckoutCommitRequest(RetailerSaleCheckoutRequest):
+    checkout_token: str = Field(min_length=1)
+
+
+class RetailerSaleLineRead(ORMModel):
+    item_id: UUID
+    item_name: str
+    item_tamil_name: str | None = None
+    item_unit_type: UnitType | None = None
+    item_base_unit: BaseUnit | None = None
+    quantity: Decimal
+    unit: BaseUnit
+    price_per_unit: Decimal
+    line_total: Decimal
+
+
+class RetailerPaymentRead(ORMModel):
+    id: UUID
+    cash_amount: Decimal
+    upi_amount: Decimal
+    total_paid: Decimal
+    paid_at: datetime
+    recorded_by_user_id: UUID
+
+
+class RetailerSaleReceiptRead(ORMModel):
+    id: UUID
+    receipt_number: str
+    receipt_type: RetailerReceiptType
+    retailer_payment_id: UUID
+    printed_at: datetime
+    payment_total: Decimal | None = None
+
+
+class RetailerSaleRead(ORMModel):
+    id: UUID
+    sale_no: str
+    retailer_id: UUID
+    retailer_name: str
+    shop_id: UUID
+    shop_name: str
+    organization_name: str
+    total_amount: Decimal
+    amount_paid_total: Decimal
+    balance_due: Decimal
+    status: RetailerSaleStatus
+    created_at: datetime
+    created_by_user_id: UUID
+    items: list[RetailerSaleLineRead]
+    payments: list[RetailerPaymentRead]
+    receipts: list[RetailerSaleReceiptRead] = []
+    receipt: RetailerSaleReceiptRead | None = None
+
+
+class RetailerSaleReceiptPage(BaseModel):
+    items: list[RetailerSaleReceiptRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class RetailerPaymentRecordResponse(BaseModel):
+    sale: RetailerSaleRead
+    payment_receipt: RetailerSaleReceiptRead
+
+
+class RetailerSalePreviewRead(RetailerSaleRead):
+    checkout_token: str
+
+
+class RetailerSalePage(BaseModel):
+    items: list[RetailerSaleRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class RetailerPaymentCreate(BaseModel):
+    payment: CheckoutPaymentInput

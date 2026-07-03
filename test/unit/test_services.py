@@ -63,6 +63,7 @@ from app.schemas.inventory import (
 )
 from app.schemas.pricing import DailyPriceCreate, DailyPriceEntry
 from app.services.admin import allocate_catalogue_item, create_shop_account, update_item_assumption
+from app.services.admin.shops import create_item
 from app.services.auth import register_admin
 from app.services.billing import create_bill, preview_bill
 from app.services.inventory import (
@@ -2444,6 +2445,25 @@ class ServiceUnitTests(BackendTestCase):
                 unit_type=UnitType.COUNT,
                 base_unit=BaseUnit.KG,
             )
+
+    def test_create_item_rejects_duplicate_catalogue_name(self) -> None:
+        async def scenario() -> None:
+            org = await self.harness.create_default_organization()
+            payload = ItemCreate(
+                name="Duplicate Chicken",
+                tamil_name="நகல் கோழி",
+                unit_type=UnitType.WEIGHT,
+                base_unit=BaseUnit.KG,
+            )
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                await create_item(db, payload, organization_id=org.id)
+                with self.assertRaises(HTTPException) as duplicate_context:
+                    await create_item(db, payload, organization_id=org.id)
+                self.assertEqual(duplicate_context.exception.status_code, 409)
+                self.assertEqual(duplicate_context.exception.detail, "Item name already exists")
+
+        self.run_async(scenario())
 
     def test_global_bootstrap_requires_every_item_priced_today(self) -> None:
         _actor, shop = self.run_async(self.harness.create_shop_user())

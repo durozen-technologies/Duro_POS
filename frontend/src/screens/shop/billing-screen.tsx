@@ -560,6 +560,10 @@ export function BillingScreen({
     navigation.navigate("PrinterSetup");
   }, [navigation]);
 
+  const handleOpenRetailers = useCallback(() => {
+    navigation.navigate("RetailerSelect");
+  }, [navigation]);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
@@ -569,6 +573,7 @@ export function BillingScreen({
           refreshing={loading}
           onInventory={handleOpenInventory}
           onExpenses={handleOpenExpenses}
+          onRetailers={handleOpenRetailers}
           onPrinter={handleOpenPrinter}
         />
       ),
@@ -578,6 +583,7 @@ export function BillingScreen({
     handleRefreshBilling,
     handleOpenExpenses,
     handleOpenInventory,
+    handleOpenRetailers,
     handleOpenPrinter,
     loading,
     navigation,

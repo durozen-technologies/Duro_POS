@@ -17,13 +17,10 @@ Desktop.ini
 *.bak
 *.orig
 *.tmp
-.agents
-.agents/
-.codex
-.codex/
-.trae
-.trae/
-.cursor/
+# Cursor — share team rules; ignore local IDE state
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .cursorrules
 .git.backup/
 # Agent harness (keep .github/workflows/ tracked)
@@ -35,6 +32,12 @@ AGENTS.md
 CLAUDE.md
 PRODUCT.md
 DESIGN.md
+.agents
+.agents/
+.codex
+.codex/
+.trae
+.trae/
 
 # Environment and secrets
 .env
@@ -119,8 +122,9 @@ backend/.codex
 backend/.codex/
 backend/.trae
 backend/.trae/
+backend/.impeccable/
+backend/.history/
 backend/.python-version
-!backend/.python-version
 backend/.venv/
 backend/__pycache__/
 backend/.pytest_cache/
@@ -167,6 +171,8 @@ frontend/.codex
 frontend/.codex/
 frontend/.trae
 frontend/.trae/
+frontend/.impeccable/
+frontend/.history/
 frontend/.vscode/
 frontend/node_modules/
 frontend/.npm/
@@ -260,6 +266,9 @@ test/**/__pycache__/
 test/.pytest_cache/
 test/.env
 test/.env.*
+test/.mypy_cache/
+test/.ruff_cache/
+test/.cache/
 
 # Additional local files and IDEs
 .marscode/

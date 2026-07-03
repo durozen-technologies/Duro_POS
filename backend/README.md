@@ -93,7 +93,7 @@ Optional Redis (cache only; app degrades when unset):
 
 - `REDIS_URL` — e.g. `redis://127.0.0.1:6379/0` locally, `redis://redis:6379/0` in production compose
 - `REDIS_PREFIX` — key namespace for `fastapi-redis-sdk` (default `brolier360`)
-- Permission, dashboard bootstrap, super-admin org counts, and login rate-limit keys use this prefix
+- Permission, super-admin org counts, and login rate-limit keys use this prefix
 
 Important backend defaults from [`app/core/config.py`](app/core/config.py):
 

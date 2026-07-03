@@ -14,6 +14,7 @@ from app.routers.admin import (
     pricing,
     shops,
     transfers,
+    retailers,
 )
 
 router = APIRouter(tags=["Admin"], dependencies=[Depends(require_tenant_admin())])
@@ -28,6 +29,7 @@ for module in (
     pricing,
     dashboard,
     transfers,
+    retailers,
 ):
     router.include_router(module.router)
 

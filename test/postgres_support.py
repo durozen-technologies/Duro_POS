@@ -105,7 +105,7 @@ class PostgresHarness:
             return result is not None
 
     async def tenant_alembic_at_head(
-        self, schema_name: str, head: str = "0002_drop_tenant_organization_id"
+        self, schema_name: str, head: str = "0004_retailer_role_perms"
     ) -> bool:
         async with self.session_factory() as session:
             await session.execute(text(f'SET search_path TO "{schema_name}", public'))

@@ -305,7 +305,7 @@ async def count_organizations(db: AsyncSession) -> OrganizationCounts:
         or 0
     )
     result = OrganizationCounts(all=total, active=active, inactive=total - active)
-    await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=30)
+    await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=5)
     return result
 
 
@@ -348,8 +348,6 @@ async def update_organization(
     payload: OrganizationUpdate,
     actor: User,
 ) -> OrganizationRead:
-    from app.core.redis_cache import cache_delete, dashboard_cache_key
-
     org = await get_organization_or_404(db, organization_id)
     modified_at = datetime.now(UTC).isoformat()
 
@@ -402,7 +400,6 @@ async def update_organization(
                 "modified_at": modified_at,
             },
         )
-        await cache_delete(dashboard_cache_key(organization_id))
 
     if payload.bill_number_prefix is not None:
         try:

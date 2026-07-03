@@ -15,7 +15,8 @@ import type { ShopLanguage } from "@/store/shop-language-store";
 
 type ReceiptPrintJob = {
   id: string;
-  bills: BillRead[];
+  bills?: BillRead[];
+  htmlPages?: string[];
   device: PrinterDevice;
   language?: ShopLanguage;
 };
@@ -75,9 +76,11 @@ function ReceiptImagePrintBridge({
     setCurrentAttempt(0);
   }, [job?.id]);
 
-  const currentBill = job?.bills[currentIndex] ?? null;
+  const pageCount = job?.htmlPages?.length ?? job?.bills?.length ?? 0;
+  const currentBill = job?.bills?.[currentIndex] ?? null;
+  const currentHtml = job?.htmlPages?.[currentIndex] ?? null;
   const currentExportKey =
-    job && currentBill
+    job && (currentBill || currentHtml)
       ? `${job.id}:${currentIndex}:${currentAttempt}`
       : null;
 
@@ -139,7 +142,7 @@ function ReceiptImagePrintBridge({
 
       void printReceiptImageBase64WithPrinter(message.payload, job.device)
         .then(() => {
-          if (currentIndex >= job.bills.length - 1) {
+          if (currentIndex >= pageCount - 1) {
             onComplete();
             return;
           }
@@ -152,12 +155,15 @@ function ReceiptImagePrintBridge({
           );
         });
     },
-    [advanceToNextBill, currentIndex, currentExportKey, job, onComplete, retryReceiptExport],
+    [advanceToNextBill, currentIndex, currentExportKey, job, onComplete, pageCount, retryReceiptExport],
   );
 
-  if (!job || !currentBill) {
+  if (!job || (!currentBill && !currentHtml)) {
     return null;
   }
+
+  const sourceHtml =
+    currentHtml ?? (currentBill ? buildReceiptHtml(currentBill, job.language) : "");
 
   return (
     <View pointerEvents="none" style={styles.hiddenBridge}>
@@ -165,7 +171,7 @@ function ReceiptImagePrintBridge({
         ref={webViewRef}
         key={currentExportKey ?? job.id}
         originWhitelist={["*"]}
-        source={{ html: buildReceiptHtml(currentBill, job.language) }}
+        source={{ html: sourceHtml }}
         onLoadEnd={handleLoadEnd}
         onMessage={handleMessage}
         scrollEnabled={false}
@@ -256,9 +262,41 @@ export function useReceiptImagePrintJob() {
     [clearPendingJob, job],
   );
 
+  const startReceiptHtmlPrintJob = useCallback(
+    (htmlPages: string[], device: PrinterDevice, language?: ShopLanguage) =>
+      new Promise<void>((resolve, reject) => {
+        if (htmlPages.length === 0) {
+          resolve();
+          return;
+        }
+
+        const nextJobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        if (pendingPromiseRef.current) {
+          pendingPromiseRef.current.reject(
+            new Error("A new receipt print job replaced the previous unfinished job."),
+          );
+        }
+
+        pendingPromiseRef.current = {
+          resolve,
+          reject,
+        };
+
+        setJob({
+          id: nextJobId,
+          htmlPages,
+          device,
+          language,
+        });
+      }),
+    [],
+  );
+
   return {
     receiptImagePrintBridge,
     startReceiptImagePrintJob,
+    startReceiptHtmlPrintJob,
   };
 }
 

@@ -15,6 +15,7 @@ from app.db.startup import (
     run_database_startup_tasks,
 )
 from app.db.tenant_schema import (
+    is_postgres_database,
     platform_schema_ready,
     run_all_tenant_ddl_repairs,
     run_all_tenant_migrations,
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.repair_tenant_ddl:
         run_all_tenant_ddl_repairs(schema_filter=args.schema)
-    elif args.tenants or args.tenants_only:
+    elif args.tenants or args.tenants_only or is_postgres_database():
         run_all_tenant_migrations(schema_filter=args.schema)
 
     if not args.tenants_only:

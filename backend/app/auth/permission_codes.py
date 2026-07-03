@@ -16,6 +16,8 @@ BILLING_READ = "billing.read"
 REPORTS_EXPORT = "reports.export"
 EXPENSES_MANAGE = "expenses.manage"
 TRANSFERS_MANAGE = "transfers.manage"
+RETAILERS_READ = "retailers.read"
+RETAILERS_MANAGE = "retailers.manage"
 
 ALL_PERMISSION_CODES: frozenset[str] = frozenset(
     [
@@ -33,6 +35,8 @@ ALL_PERMISSION_CODES: frozenset[str] = frozenset(
         REPORTS_EXPORT,
         EXPENSES_MANAGE,
         TRANSFERS_MANAGE,
+        RETAILERS_READ,
+        RETAILERS_MANAGE,
     ]
 )
 

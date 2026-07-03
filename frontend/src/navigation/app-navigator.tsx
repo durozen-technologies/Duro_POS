@@ -116,6 +116,18 @@ const getAdminInventoryItemEditorScreen = () =>
     .AdminInventoryItemEditorScreen;
 const getAdminItemEditorScreen = () =>
   require("@/screens/admin/admin-item-editor-screen").AdminItemEditorScreen;
+const getAdminRetailersScreen = () =>
+  require("@/screens/admin/admin-retailers-screen").AdminRetailersScreen;
+const getAdminRetailerEditorScreen = () =>
+  require("@/screens/admin/admin-retailer-editor-screen").AdminRetailerEditorScreen;
+const getAdminRetailerDetailScreen = () =>
+  require("@/screens/admin/admin-retailer-detail-screen").AdminRetailerDetailScreen;
+const getAdminRetailerBranchesScreen = () =>
+  require("@/screens/admin/admin-retailer-branches-screen").AdminRetailerBranchesScreen;
+const getAdminRetailerItemsScreen = () =>
+  require("@/screens/admin/admin-retailer-items-screen").AdminRetailerItemsScreen;
+const getAdminRetailerSaleDetailScreen = () =>
+  require("@/screens/admin/admin-retailer-sale-detail-screen").AdminRetailerSaleDetailScreen;
 const getBillingScreen = () =>
   require("@/screens/shop/billing-screen").BillingScreen;
 const getCheckoutScreen = () =>
@@ -125,6 +137,16 @@ const getInventoryManagementScreen = () =>
     .InventoryManagementScreen;
 const getShopExpensesScreen = () =>
   require("@/screens/shop/expenses-screen").ShopExpensesScreen;
+const getRetailerSelectScreen = () =>
+  require("@/screens/shop/retailer-select-screen").RetailerSelectScreen;
+const getRetailerSalesScreen = () =>
+  require("@/screens/shop/retailer-sales-screen").RetailerSalesScreen;
+const getRetailerBillingScreen = () =>
+  require("@/screens/shop/retailer-billing-screen").RetailerBillingScreen;
+const getRetailerCheckoutScreen = () =>
+  require("@/screens/shop/retailer-checkout-screen").RetailerCheckoutScreen;
+const getRetailerSaleDetailScreen = () =>
+  require("@/screens/shop/retailer-sale-detail-screen").RetailerSaleDetailScreen;
 const getPrinterSetupScreen = () =>
   require("@/screens/shop/printer-setup-screen").PrinterSetupScreen;
 
@@ -350,6 +372,36 @@ function AdminStack() {
         getComponent={getAdminItemEditorScreen}
         options={HEADER_HIDDEN_OPTIONS}
       />
+      <Stack.Screen
+        name="AdminRetailers"
+        getComponent={getAdminRetailersScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="AdminRetailerEditor"
+        getComponent={getAdminRetailerEditorScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="AdminRetailerDetail"
+        getComponent={getAdminRetailerDetailScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="AdminRetailerBranches"
+        getComponent={getAdminRetailerBranchesScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="AdminRetailerItems"
+        getComponent={getAdminRetailerItemsScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="AdminRetailerSaleDetail"
+        getComponent={getAdminRetailerSaleDetailScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
     </Stack.Navigator>
   );
 }
@@ -386,6 +438,18 @@ function ShopStack() {
   const renderExpensesHeaderTitle = useCallback(
     () => (
       <AnimatedHeaderTitle titleKey="header.expenses" shopName={shopName} />
+    ),
+    [shopName],
+  );
+  const renderRetailerHeaderTitle = useCallback(
+    () => (
+      <AnimatedHeaderTitle titleKey="header.retailers" shopName={shopName} />
+    ),
+    [shopName],
+  );
+  const renderRetailerSalesHeaderTitle = useCallback(
+    () => (
+      <AnimatedHeaderTitle titleKey="header.retailerSales" shopName={shopName} />
     ),
     [shopName],
   );
@@ -442,6 +506,42 @@ function ShopStack() {
         options={{
           headerTitle: renderExpensesHeaderTitle,
           headerRight: renderHeaderActions,
+        }}
+      />
+      <Stack.Screen
+        name="RetailerSelect"
+        getComponent={getRetailerSelectScreen}
+        options={{
+          headerTitle: renderRetailerHeaderTitle,
+        }}
+      />
+      <Stack.Screen
+        name="RetailerSales"
+        getComponent={getRetailerSalesScreen}
+        options={{
+          headerTitle: renderRetailerSalesHeaderTitle,
+        }}
+      />
+      <Stack.Screen
+        name="RetailerBilling"
+        getComponent={getRetailerBillingScreen}
+        options={{
+          headerTitle: renderRetailerHeaderTitle,
+        }}
+      />
+      <Stack.Screen
+        name="RetailerCheckout"
+        getComponent={getRetailerCheckoutScreen}
+        options={{
+          headerTitle: renderRetailerHeaderTitle,
+          presentation: Platform.OS === "ios" ? "modal" : "card",
+        }}
+      />
+      <Stack.Screen
+        name="RetailerSaleDetail"
+        getComponent={getRetailerSaleDetailScreen}
+        options={{
+          headerTitle: renderRetailerHeaderTitle,
         }}
       />
     </Stack.Navigator>

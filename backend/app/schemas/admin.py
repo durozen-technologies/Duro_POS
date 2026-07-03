@@ -18,6 +18,7 @@ AdminReportSection = Literal[
     "inventory",
     "expenses",
     "transfers",
+    "retailers",
     "over_report",
 ]
 AdminReportDetailLevel = Literal["summary", "full"]

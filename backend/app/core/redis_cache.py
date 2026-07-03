@@ -109,12 +109,6 @@ def permission_cache_key(user_id: str, perm_version: int) -> str:
     return f"{prefix}:perm:{user_id}:{perm_version}"
 
 
-def dashboard_cache_key(organization_id: UUID, *, shop_id: UUID | None = None) -> str:
-    prefix = _redis_key_prefix()
-    shop_part = str(shop_id) if shop_id else "all"
-    return f"{prefix}:org:{organization_id}:dashboard:bootstrap:v1:{shop_part}"
-
-
 def super_org_counts_cache_key() -> str:
     prefix = _redis_key_prefix()
     return f"{prefix}:super:orgs:counts:v1"

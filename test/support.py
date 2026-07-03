@@ -94,8 +94,11 @@ class AsyncSessionAdapter:
     async def delete(self, instance: Any) -> None:
         self._session.delete(instance)
 
-    async def refresh(self, instance: Any) -> None:
-        self._session.refresh(instance)
+    async def refresh(self, instance: Any, attribute_names: list[str] | None = None) -> None:
+        if attribute_names is None:
+            self._session.refresh(instance)
+        else:
+            self._session.refresh(instance, attribute_names=attribute_names)
 
     async def flush(self, objects: list[Any] | None = None) -> None:
         if objects is None:

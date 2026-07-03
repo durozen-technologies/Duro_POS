@@ -527,16 +527,6 @@ async def get_dashboard_bootstrap(
     period has no bills, the expensive largest-bill, bill-page, and item-sales
     queries are skipped entirely.
     """
-    from app.core.redis_cache import cache_get_json, cache_set_json, dashboard_cache_key
-
-    cache_key = dashboard_cache_key(organization_id, shop_id=shop_id)
-    cached = await cache_get_json(cache_key)
-    if isinstance(cached, dict):
-        try:
-            return AdminDashboardBootstrap.model_validate(cached)
-        except Exception:
-            pass
-
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     shops = await list_shops(db, organization_id)
     branch_quota = await _branch_quota_for_organization(db, organization_id, len(shops))
@@ -605,7 +595,7 @@ async def get_dashboard_bootstrap(
             next_cursor_created_at=None,
             next_cursor_id=None,
         )
-        result = AdminDashboardBootstrap(
+        return AdminDashboardBootstrap(
             shops=shops,
             sales_summary=sales_summary,
             payment_summary=payment_summary,
@@ -613,8 +603,6 @@ async def get_dashboard_bootstrap(
             item_sales=[],
             branch_quota=branch_quota,
         )
-        await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=45)
-        return result
 
     largest_result, item_sales = await asyncio.gather(
         db.execute(
@@ -661,7 +649,7 @@ async def get_dashboard_bootstrap(
         precalculated_largest_bill=largest_bill,
     )
 
-    result = AdminDashboardBootstrap(
+    return AdminDashboardBootstrap(
         shops=shops,
         sales_summary=sales_summary,
         payment_summary=payment_summary,
@@ -669,5 +657,3 @@ async def get_dashboard_bootstrap(
         item_sales=item_sales,
         branch_quota=branch_quota,
     )
-    await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=45)
-    return result

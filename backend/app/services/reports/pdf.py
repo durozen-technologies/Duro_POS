@@ -38,6 +38,9 @@ from app.models import (
     Item,
     Organization,
     Payment,
+    Retailer,
+    RetailerPayment,
+    RetailerSale,
     Shop,
     ShopInventoryAllocation,
     TransferShop,
@@ -63,6 +66,7 @@ SECTION_ORDER: tuple[AdminReportSection, ...] = (
     "inventory",
     "expenses",
     "transfers",
+    "retailers",
     "over_report",
 )
 SECTION_LABELS: dict[AdminReportSection, str] = {
@@ -72,6 +76,7 @@ SECTION_LABELS: dict[AdminReportSection, str] = {
     "inventory": "Inventory",
     "expenses": "Expenses",
     "transfers": "Transfer Stock",
+    "retailers": "Retailers",
     "over_report": "Overall Report",
 }
 SUMMARY_BILL_ROWS = 25
@@ -1143,6 +1148,8 @@ async def generate_admin_report_pdf(
                     await _write_expenses_section(db, writer, non_over_context)
                 elif section == "transfers":
                     await _write_transfers_section(db, writer, non_over_context)
+                elif section == "retailers":
+                    await _write_retailers_section(db, writer, non_over_context)
         writer.save()
         rl_bytes = rl_output.getvalue()
 
@@ -1673,6 +1680,101 @@ async def _write_expenses_section(
         [
             ("Total Expenses", str(int(stats.expense_count or 0))),
             ("Total Amount", _money(stats.total_expenses)),
+        ]
+    )
+
+
+async def _write_retailers_section(
+    db: AsyncSession,
+    writer: PdfReportWriter,
+    context: ReportContext,
+) -> None:
+    period_start = context.start.date()
+    period_end = (context.end - timedelta(days=1)).date()
+    if period_start == period_end:
+        date_line = f"Date: {_date_text(period_start)}"
+    else:
+        date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
+
+    writer.statement_header(
+        _report_org_header(context),
+        _report_branch_header(context),
+        "Retailer Sales Report",
+        date_line,
+    )
+
+    filters: list[object] = [
+        RetailerSale.created_at >= context.start,
+        RetailerSale.created_at < context.end,
+    ]
+    scoped_shop_ids = context.scoped_shop_ids
+    if scoped_shop_ids:
+        filters.append(RetailerSale.shop_id.in_(scoped_shop_ids))
+    else:
+        filters.append(RetailerSale.id.is_(None))
+
+    cash_subq = (
+        select(
+            RetailerPayment.retailer_sale_id.label("sale_id"),
+            func.coalesce(func.sum(RetailerPayment.cash_amount), 0).label("cash_total"),
+            func.coalesce(func.sum(RetailerPayment.upi_amount), 0).label("upi_total"),
+        )
+        .group_by(RetailerPayment.retailer_sale_id)
+        .subquery()
+    )
+
+    widths = [70, 58, 90, 70, 58, 58, 58, 58, 58]
+    alignments = ["left", "left", "left", "left", "right", "right", "right", "right", "right"]
+    writer.table_header(
+        ["Sale No", "Date", "Retailer", "Shop", "Total", "Paid", "Balance", "Cash", "UPI"],
+        widths,
+        alignments,
+    )
+
+    rows = (
+        await db.execute(
+            select(
+                RetailerSale.sale_no,
+                RetailerSale.created_at,
+                Retailer.name.label("retailer_name"),
+                Shop.name.label("shop_name"),
+                RetailerSale.total_amount,
+                RetailerSale.amount_paid_total,
+                RetailerSale.balance_due,
+                func.coalesce(cash_subq.c.cash_total, 0).label("cash_total"),
+                func.coalesce(cash_subq.c.upi_total, 0).label("upi_total"),
+            )
+            .join(Retailer, Retailer.id == RetailerSale.retailer_id)
+            .join(Shop, Shop.id == RetailerSale.shop_id)
+            .outerjoin(cash_subq, cash_subq.c.sale_id == RetailerSale.id)
+            .where(*filters)
+            .order_by(RetailerSale.created_at.asc(), RetailerSale.id.asc())
+        )
+    ).all()
+
+    total_balance = Decimal("0.00")
+    for row in rows:
+        total_balance += row.balance_due
+        writer.table_row(
+            [
+                row.sale_no,
+                row.created_at.strftime("%d/%m/%Y") if row.created_at else "",
+                row.retailer_name,
+                row.shop_name,
+                _money(row.total_amount),
+                _money(row.amount_paid_total),
+                _money(row.balance_due),
+                _money(row.cash_total),
+                _money(row.upi_total),
+            ],
+            widths,
+            alignments,
+        )
+
+    writer.financial_summary(
+        [
+            ("Sales", str(len(rows))),
+            ("Outstanding Balance", _money(total_balance)),
         ]
     )
 

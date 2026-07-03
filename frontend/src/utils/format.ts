@@ -10,8 +10,13 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   dateStyle: "medium",
 });
 
+const currencyFormatter = new Intl.NumberFormat("en-IN", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export function formatCurrency(value?: string | number | null) {
-  return `Rs. ${money(value).toFixed(2)}`;
+  return `Rs. ${currencyFormatter.format(money(value).toNumber())}`;
 }
 
 export function formatUnit(unit: BaseUnit) {

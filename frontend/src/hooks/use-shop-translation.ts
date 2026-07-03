@@ -21,7 +21,7 @@ function interpolate(template: string, params?: TranslationParams) {
 }
 
 function getDictionary(language: ShopLanguage) {
-  return translations[language] as TranslationDictionary;
+  return (translations[language] ?? translations.en) as TranslationDictionary;
 }
 
 export function translateShopText(language: ShopLanguage, key: ShopTranslationKey, params?: TranslationParams) {
