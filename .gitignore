@@ -279,9 +279,14 @@ scratch.js
 scratch.*
 fix_db.py
 backend/fix_db.py
+backend/check_db.py
+backend/check_tables.py
+backend/scratch_tables.py
 *.zip
 test_shop_endpoint.py
 /WhatsApp Image*
+caveman/
+ponytail/
 
 
 # Ignore alternative package manager lock files (using nub with lock.yaml)

@@ -11,12 +11,12 @@ import {
   Text,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchRetailers } from "@/api/retailers";
 import { toApiError } from "@/api/client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { RetailerRead } from "@/types/api";
+import { formatCurrency } from "@/utils/format";
 
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
 import { triggerHaptic } from "../admin-dashboard-utils";
@@ -24,6 +24,7 @@ import {
   ChipButton,
   EmptyStateCard,
   SearchField,
+  ActionButton,
   usePressAnimation,
 } from "./admin-dashboard-primitives";
 
@@ -37,6 +38,8 @@ const RetailerRow = memo(function RetailerRow({ item, onPress, palette }: Retail
   const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
   const statusBg = item.is_active ? palette.successSoft : palette.surfaceMuted;
   const statusFg = item.is_active ? palette.success : palette.textMuted;
+  const balance = Number(item.outstanding_balance ?? 0);
+  const hasBalance = balance > 0;
 
   return (
     <Pressable
@@ -70,11 +73,20 @@ const RetailerRow = memo(function RetailerRow({ item, onPress, palette }: Retail
                 {item.phone}
               </Text>
             ) : null}
-            <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 2 }]} numberOfLines={1}>
-              {(item.allocated_shop_count ?? 0) === 0
-                ? "No branches assigned"
-                : `${item.allocated_shop_count} branch${item.allocated_shop_count === 1 ? "" : "es"}`}
-            </Text>
+            {(item.branch_names ?? []).length > 0 ? (
+              <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                {item.branch_names!.join(" · ")}
+              </Text>
+            ) : (
+              <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                No branches assigned
+              </Text>
+            )}
+            {hasBalance ? (
+              <Text style={[adminTypography.body, { color: palette.warning, marginTop: 3, fontWeight: "700" }]} numberOfLines={1}>
+                Balance due {formatCurrency(item.outstanding_balance)}
+              </Text>
+            ) : null}
           </View>
           <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
             <Text style={[adminTypography.badge, { color: statusFg }]}>
@@ -102,7 +114,6 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
   onOpenRetailer,
   onCreateRetailer,
 }: AdminRetailersDirectoryTabProps) {
-  const insets = useSafeAreaInsets();
   const [retailers, setRetailers] = useState<RetailerRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -110,24 +121,6 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
   const [search, setSearch] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
   const debouncedSearch = useDebouncedValue(search, 250);
-
-  const fabAnim = useRef(new Animated.Value(1)).current;
-  const onFabPressIn = useCallback(() => {
-    Animated.timing(fabAnim, {
-      toValue: 0.93,
-      duration: 100,
-      easing: Easing.bezier(0.25, 1, 0.5, 1),
-      useNativeDriver: true,
-    }).start();
-  }, [fabAnim]);
-  const onFabPressOut = useCallback(() => {
-    Animated.timing(fabAnim, {
-      toValue: 1,
-      duration: 200,
-      easing: Easing.bezier(0.25, 1, 0.5, 1),
-      useNativeDriver: true,
-    }).start();
-  }, [fabAnim]);
 
   const loadRetailers = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -159,30 +152,30 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
     }
   }, [loadRetailers, refreshNonce]);
 
-  const fabStyle = useMemo(
-    () => ({
-      position: "absolute" as const,
-      right: adminSpacing.lg,
-      bottom: insets.bottom + adminSpacing.md,
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: palette.primary,
-      alignItems: "center" as const,
-      justifyContent: "center" as const,
-    }),
-    [insets.bottom, palette.primary],
-  );
-
   return (
     <View style={styles.container}>
-      <SearchField
-        value={search}
-        onChangeText={setSearch}
-        placeholder="Search retailers"
-        palette={palette}
-        accessibilityLabel="Search retailers"
-      />
+      <View style={{ flexDirection: "row", gap: adminSpacing.sm, alignItems: "center" }}>
+        <View style={{ flex: 1 }}>
+          <SearchField
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search retailers"
+            palette={palette}
+            accessibilityLabel="Search retailers"
+          />
+        </View>
+        <ActionButton
+          icon="plus"
+          label="Add"
+          tone="success"
+          palette={palette}
+          active
+          onPress={() => {
+            triggerHaptic();
+            onCreateRetailer();
+          }}
+        />
+      </View>
 
       <View style={styles.filterRow}>
         <ChipButton
@@ -244,21 +237,6 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
           )}
         />
       )}
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Add retailer"
-        onPress={() => {
-          triggerHaptic();
-          onCreateRetailer();
-        }}
-        onPressIn={onFabPressIn}
-        onPressOut={onFabPressOut}
-      >
-        <Animated.View style={[fabStyle, { transform: [{ scale: fabAnim }] }]}>
-          <MaterialCommunityIcons name="plus" size={28} color={palette.onPrimary} />
-        </Animated.View>
-      </Pressable>
     </View>
   );
 });

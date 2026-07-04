@@ -6,7 +6,7 @@ import { formatDate } from "@/utils/format";
 
 export type AdminNavTab = "dashboard" | "billing" | "items" | "sales" | "inventory" | "expenses" | "retailers" | "settings";
 
-export type AdminRetailersTab = "retailers" | "allocateItems" | "sales";
+export type AdminRetailersTab = "retailers" | "allocateItems" | "retailerPrices" | "sales";
 export type SectionKey = AdminNavTab;
 export type AnalyticsSectionKey = "sales" | "billing" | "settings";
 export type LogSeverity = "info" | "warning" | "error" | "critical";

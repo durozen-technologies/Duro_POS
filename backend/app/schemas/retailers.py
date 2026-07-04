@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -30,6 +30,8 @@ class RetailerRead(ORMModel):
     notes: str | None = None
     is_active: bool
     allocated_shop_count: int = 0
+    outstanding_balance: Decimal = Decimal("0.00")
+    branch_names: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -46,6 +48,10 @@ class RetailerBranchAllocationSync(BaseModel):
     shop_ids: list[UUID] = Field(default_factory=list)
 
 
+class ShopRetailerCatalogSync(BaseModel):
+    item_ids: list[UUID] = Field(default_factory=list)
+
+
 class RetailerPage(BaseModel):
     items: list[RetailerRead]
     total: int
@@ -59,12 +65,18 @@ class RetailerItemPriceInput(BaseModel):
     is_active: bool = True
 
 
+class PriceHistoryEntry(BaseModel):
+    effective_date: date
+    price_per_unit: Decimal
+
+
 class RetailerItemPriceRead(ORMModel):
     id: UUID
     item_id: UUID
     item_name: str
     item_tamil_name: str
     price_per_unit: Decimal
+    effective_date: date
     is_active: bool
 
 
@@ -85,6 +97,7 @@ class RetailerItemAllocationRead(BaseModel):
     retailer_item_price_id: UUID | None = None
     price_per_unit: Decimal | None = None
     allocation_is_active: bool | None = None
+    price_history: list[PriceHistoryEntry] = Field(default_factory=list)
 
 
 class RetailerItemAllocationListRead(BaseModel):

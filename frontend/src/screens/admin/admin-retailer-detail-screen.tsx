@@ -104,62 +104,51 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
               {formatCurrency(balance?.outstanding_balance ?? "0")}
             </Text>
           </View>
-          <Pressable
-            onPress={() => {
-              triggerHaptic();
-              navigation.navigate("AdminRetailerBranches", {
-                retailerId: retailer.id,
-                retailerName: retailer.name,
-              });
-            }}
-            style={{
-              borderRadius: adminRadii.card,
-              borderWidth: 1,
-              borderColor: palette.border,
-              backgroundColor: palette.card,
-              padding: 14,
-            }}
-          >
-            <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Assign branches</Text>
-            <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
-              {allocatedShopCount
-                ? `${allocatedShopCount} branch${allocatedShopCount === 1 ? "" : "es"} assigned`
-                : "No branches assigned yet"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              triggerHaptic();
-              navigation.navigate("AdminRetailers", {
-                tab: "allocateItems",
-                retailerId: retailer.id,
-              });
-            }}
-            style={{
-              borderRadius: adminRadii.card,
-              borderWidth: 1,
-              borderColor: palette.border,
-              backgroundColor: palette.card,
-              padding: 14,
-            }}
-          >
-            <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Allocate items</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              triggerHaptic();
-              navigation.navigate("AdminRetailerEditor", { initialRetailer: retailer });
-            }}
-            style={{
-              borderRadius: adminRadii.card,
-              borderWidth: 1,
-              borderColor: palette.border,
-              backgroundColor: palette.card,
-              padding: 14,
-            }}
-          >
-            <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Edit retailer</Text>
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <Pressable
+              onPress={() => {
+                triggerHaptic();
+                navigation.navigate("AdminRetailerBranches", {
+                  retailerId: retailer.id,
+                  retailerName: retailer.name,
+                });
+              }}
+              style={{
+                flex: 1,
+                borderRadius: adminRadii.card,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.card,
+                padding: 14,
+              }}
+            >
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Assign branches</Text>
+              <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
+                {allocatedShopCount
+                  ? `${allocatedShopCount} branch${allocatedShopCount === 1 ? "" : "es"}`
+                  : "None assigned"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                triggerHaptic();
+                navigation.navigate("AdminRetailerEditor", { initialRetailer: retailer });
+              }}
+              style={{
+                flex: 1,
+                borderRadius: adminRadii.card,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.card,
+                padding: 14,
+              }}
+            >
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Edit retailer</Text>
+              <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
+                Update details
+              </Text>
+            </Pressable>
+          </View>
           <Text style={{ color: palette.textPrimary, fontWeight: "700", marginTop: 8 }}>Open sales</Text>
           {(balance?.open_sales ?? []).length === 0 ? (
             <Text style={{ color: palette.textMuted }}>No open or partial sales.</Text>

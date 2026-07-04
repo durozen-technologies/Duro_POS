@@ -298,36 +298,42 @@ export function WorkspaceTabs({
     { value: AdminItemWorkspace.Prices, label: "Prices", icon: "cash-edit", onPress: onPrices },
   ];
   return (
-    <View style={[styles.tabs, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
-      {items.map((item) => {
-        const active = item.value === workspace;
-        return (
-          <Pressable
-            key={item.value}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            onPress={item.onPress}
-            style={[
-              styles.tab,
-              {
-                backgroundColor: active ? palette.card : "transparent",
-              },
-            ]}
-          >
-            <MaterialCommunityIcons
-              name={item.icon}
-              size={16}
-              color={active ? palette.itemsStrong : palette.textMuted}
-            />
-            <Text
-              numberOfLines={1}
-              style={[styles.tabText, { color: active ? palette.itemsStrong : palette.textMuted }]}
+    <View style={[styles.tabs, { borderColor: palette.border, backgroundColor: palette.surfaceMuted, padding: 0, gap: 0 }]}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ padding: 4, gap: 4 }}
+      >
+        {items.map((item) => {
+          const active = item.value === workspace;
+          return (
+            <Pressable
+              key={item.value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              onPress={item.onPress}
+              style={[
+                styles.tab,
+                {
+                  backgroundColor: active ? palette.card : "transparent",
+                },
+              ]}
             >
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+              <MaterialCommunityIcons
+                name={item.icon}
+                size={16}
+                color={active ? palette.itemsStrong : palette.textMuted}
+              />
+              <Text
+                numberOfLines={1}
+                style={[styles.tabText, { color: active ? palette.itemsStrong : palette.textMuted }]}
+              >
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -743,26 +749,12 @@ export function StatsStrip({
   totalCount: number;
   palette: ThemePalette;
 }) {
-  const stats = [
-    { label: "Total", value: totalCount || counts?.all || 0, icon: "format-list-bulleted" as IconName, tone: "primary" as const },
-  ];
+  const value = totalCount || counts?.all || 0;
   return (
-    <View style={styles.statsStrip}>
-      {stats.map((stat) => {
-        const colors = buttonColors(palette, stat.tone, false);
-        return (
-          <View
-            key={stat.label}
-            style={[styles.statCell, { borderColor: colors.border, backgroundColor: colors.bg }]}
-          >
-            <MaterialCommunityIcons name={stat.icon} size={15} color={colors.fg} />
-            <Text style={[styles.statValue, { color: palette.textPrimary }]}>{stat.value}</Text>
-            <Text numberOfLines={1} style={[styles.statLabel, { color: palette.textMuted }]}>
-              {stat.label}
-            </Text>
-          </View>
-        );
-      })}
+    <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 4 }}>
+      <Text style={{ fontSize: 13, fontWeight: "800", color: palette.textMuted }}>
+        Total : {value}
+      </Text>
     </View>
   );
 }
@@ -1826,14 +1818,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tab: {
-    flex: 1,
     minHeight: 40,
     borderRadius: 9,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    paddingHorizontal: 6,
+    paddingHorizontal: 12,
   },
   tabText: {
     fontSize: 12,

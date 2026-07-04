@@ -23,6 +23,7 @@ import type {
 export async function fetchRetailers(params?: {
   q?: string;
   active?: boolean;
+  shop_id?: UUID;
   page?: number;
   page_size?: number;
 }) {
@@ -43,26 +44,8 @@ export async function updateRetailer(retailerId: UUID, payload: RetailerUpdate) 
   return data;
 }
 
-export async function fetchRetailerItemPrices(retailerId: UUID) {
-  const { data } = await apiClient.get<RetailerItemPriceRead[]>(
-    `/api/v1/admin/retailers/${retailerId}/items`,
-  );
-  return data;
-}
-
-export async function syncRetailerItemPrices(
-  retailerId: UUID,
-  items: RetailerItemPriceInput[],
-) {
-  const { data } = await apiClient.put<RetailerItemPriceRead[]>(
-    `/api/v1/admin/retailers/${retailerId}/items`,
-    { items },
-  );
-  return data;
-}
-
-export async function fetchRetailerItemAllocations(
-  retailerId: UUID,
+export async function fetchShopRetailerCatalog(
+  shopId: UUID,
   params?: {
     q?: string;
     allocated?: "allocated" | "available";
@@ -70,37 +53,93 @@ export async function fetchRetailerItemAllocations(
   },
 ) {
   const { data } = await apiClient.get<RetailerItemAllocationListRead>(
-    `/api/v1/admin/retailers/${retailerId}/item-allocations`,
+    `/api/v1/admin/shops/${shopId}/retailer-catalog`,
     { params },
+  );
+  return data;
+}
+
+export async function syncShopRetailerCatalog(shopId: UUID, itemIds: UUID[]) {
+  const { data } = await apiClient.put<RetailerItemAllocationListRead>(
+    `/api/v1/admin/shops/${shopId}/retailer-catalog`,
+    { item_ids: itemIds },
+  );
+  return data;
+}
+
+export async function fetchRetailerItemPrices(retailerId: UUID, shopId: UUID) {
+  const { data } = await apiClient.get<RetailerItemPriceRead[]>(
+    `/api/v1/admin/retailers/${retailerId}/items`,
+    { params: { shop_id: shopId } },
+  );
+  return data;
+}
+
+export async function syncRetailerItemPrices(
+  retailerId: UUID,
+  shopId: UUID,
+  items: RetailerItemPriceInput[],
+) {
+  const { data } = await apiClient.put<RetailerItemPriceRead[]>(
+    `/api/v1/admin/retailers/${retailerId}/items`,
+    { items },
+    { params: { shop_id: shopId } },
+  );
+  return data;
+}
+
+export async function fetchRetailerItemAllocations(
+  retailerId: UUID,
+  shopId: UUID,
+  params?: {
+    q?: string;
+    allocated?: "allocated" | "available";
+    limit?: number;
+    effective_date?: string;
+  },
+) {
+  const { data } = await apiClient.get<RetailerItemAllocationListRead>(
+    `/api/v1/admin/retailers/${retailerId}/item-allocations`,
+    { params: { shop_id: shopId, ...params } },
   );
   return data;
 }
 
 export async function bulkAllocateRetailerItems(
   retailerId: UUID,
+  shopId: UUID,
   items: RetailerItemPriceInput[],
 ) {
   const { data } = await apiClient.post<RetailerItemAllocationBulkRead>(
     `/api/v1/admin/retailers/${retailerId}/item-allocations`,
     { items },
+    { params: { shop_id: shopId } },
   );
   return data;
 }
 
 export async function updateRetailerItemAllocation(
   retailerId: UUID,
+  shopId: UUID,
   itemId: UUID,
   payload: RetailerItemAllocationUpdate,
 ) {
   const { data } = await apiClient.patch<RetailerItemPriceRead>(
     `/api/v1/admin/retailers/${retailerId}/item-allocations/${itemId}`,
     payload,
+    { params: { shop_id: shopId } },
   );
   return data;
 }
 
-export async function deleteRetailerItemAllocation(retailerId: UUID, itemId: UUID) {
-  await apiClient.delete(`/api/v1/admin/retailers/${retailerId}/item-allocations/${itemId}`);
+export async function deleteRetailerItemAllocation(
+  retailerId: UUID,
+  shopId: UUID,
+  itemId: UUID,
+) {
+  await apiClient.delete(`/api/v1/admin/retailers/${retailerId}/item-allocations/${itemId}`, {
+    params: { shop_id: shopId },
+  });
 }
 
 export async function fetchRetailerBalance(retailerId: UUID) {

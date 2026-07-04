@@ -39,6 +39,7 @@ from .retailer import (
     RetailerSaleItem,
     RetailerSaleReceipt,
     ShopRetailerAllocation,
+    ShopRetailerItemAllocation,
 )
 from .shop import Shop
 from .shop_item_allocation import ShopItemAllocation
@@ -80,6 +81,7 @@ __all__ = [
     "RetailerSaleStatus",
     "MonthlyRetailerSaleSequence",
     "ShopRetailerAllocation",
+    "ShopRetailerItemAllocation",
     "Shop",
     "ShopExpenseAllocation",
     "ShopInventoryAllocation",

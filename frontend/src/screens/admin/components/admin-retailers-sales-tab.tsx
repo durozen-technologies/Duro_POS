@@ -45,12 +45,6 @@ type SaleRowProps = {
 
 const SaleRow = memo(function SaleRow({ sale, filter, palette, onPress }: SaleRowProps) {
   const pending = filter === "pending";
-  const statusColor =
-    sale.status === RetailerSaleStatus.SETTLED
-      ? palette.success
-      : sale.status === RetailerSaleStatus.PARTIAL
-        ? palette.warning
-        : palette.textMuted;
 
   return (
     <Pressable
@@ -62,58 +56,44 @@ const SaleRow = memo(function SaleRow({ sale, filter, palette, onPress }: SaleRo
       style={({ pressed }) => [
         styles.saleRow,
         {
-          backgroundColor: palette.card,
-          borderColor: palette.border,
-          opacity: pressed ? 0.92 : 1,
+          backgroundColor: pressed ? palette.surfaceMuted : "transparent",
         },
       ]}
     >
-      <View style={styles.saleHeader}>
-        <View style={styles.saleHeaderText}>
-          <Text style={[styles.saleNo, { color: palette.textPrimary }]} numberOfLines={1}>
-            {formatRetailerSaleNoDisplay(sale.sale_no)}
-          </Text>
-          <Text style={[adminTypography.body, { color: palette.textPrimary, fontWeight: "700" }]} numberOfLines={1}>
-            {sale.retailer_name}
-          </Text>
-          <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 2 }]}>
-            {sale.shop_name} · {formatDateTime(sale.created_at)}
-          </Text>
-        </View>
-        <View style={[styles.statusBadge, { backgroundColor: palette.surfaceMuted }]}>
-          <Text style={[adminTypography.badge, { color: statusColor, textTransform: "uppercase" }]}>
-            {sale.status}
-          </Text>
-        </View>
+      <View style={styles.saleRowLeft}>
+        <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary, fontSize: 16 }]} numberOfLines={1}>
+          {sale.retailer_name}
+        </Text>
+        <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 4 }]} numberOfLines={1}>
+          {formatRetailerSaleNoDisplay(sale.sale_no)}
+        </Text>
+        <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 1 }]} numberOfLines={1}>
+          {formatDateTime(sale.created_at)}
+        </Text>
       </View>
 
-      <View style={styles.amountGrid}>
-        <View style={styles.amountCell}>
-          <Text style={[styles.amountLabel, { color: palette.textMuted }]}>Total</Text>
-          <Text style={[styles.amountValue, { color: palette.textPrimary }]} numberOfLines={1}>
-            {formatCurrency(sale.total_amount)}
+      <View style={styles.saleRowRight}>
+        <Text
+          style={[
+            adminTypography.bodyStrong,
+            { 
+              color: pending ? palette.warning : palette.textPrimary, 
+              fontSize: 16, 
+              textAlign: "right",
+              fontVariant: ["tabular-nums"]
+            },
+          ]}
+        >
+          {pending ? formatCurrency(sale.balance_due) : formatCurrency(sale.total_amount)}
+        </Text>
+        <Text style={[adminTypography.caption, { color: pending ? palette.warning : palette.textMuted, textAlign: "right", marginTop: 2, fontWeight: '700' }]}>
+          {pending ? "Balance Due" : "Settled"}
+        </Text>
+        {pending && (
+          <Text style={[adminTypography.caption, { color: palette.textMuted, textAlign: "right", marginTop: 4, fontVariant: ["tabular-nums"] }]}>
+            Total: {formatCurrency(sale.total_amount)} · Paid: {formatCurrency(sale.amount_paid_total)}
           </Text>
-        </View>
-        <View style={styles.amountCell}>
-          <Text style={[styles.amountLabel, { color: palette.textMuted }]}>Paid</Text>
-          <Text style={[styles.amountValue, { color: palette.textPrimary }]} numberOfLines={1}>
-            {formatCurrency(sale.amount_paid_total)}
-          </Text>
-        </View>
-        <View style={styles.amountCell}>
-          <Text style={[styles.amountLabel, { color: palette.textMuted }]}>
-            {pending ? "Balance" : "Settled"}
-          </Text>
-          <Text
-            style={[
-              styles.amountValue,
-              { color: pending ? palette.warning : palette.success, fontWeight: "800" },
-            ]}
-            numberOfLines={1}
-          >
-            {pending ? formatCurrency(sale.balance_due) : formatCurrency(sale.total_amount)}
-          </Text>
-        </View>
+        )}
       </View>
     </Pressable>
   );
@@ -207,11 +187,6 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
   return (
     <View style={styles.container}>
-      <SectionHint
-        text="Track wholesale sales with balance due and fully settled transactions across all branches."
-        palette={palette}
-      />
-
       <AdminSegmentedTabs
         items={filterTabs}
         activeValue={filter}
@@ -219,7 +194,7 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
         onChange={(value) => setFilter(value as SalesFilter)}
       />
 
-      <View style={[styles.summaryCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+      <View style={[styles.summaryCard, { backgroundColor: palette.surfaceMuted }]}>
         <Text style={[adminTypography.caption, { color: palette.textMuted, fontWeight: "700" }]}>
           {filter === "pending" ? "Total balance due" : "Total settled"}
         </Text>
@@ -246,7 +221,7 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
             tintColor={palette.primary}
           />
         }
-        ItemSeparatorComponent={() => <View style={{ height: adminSpacing.xs }} />}
+        ItemSeparatorComponent={() => <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: palette.border, marginLeft: adminSpacing.md }} />}
         ListEmptyComponent={
           <EmptyStateCard
             title={filter === "pending" ? "No pending sales" : "No fully paid sales"}
@@ -275,7 +250,6 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    gap: adminSpacing.sm,
   },
   centered: {
     flex: 1,
@@ -285,8 +259,10 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     borderRadius: adminRadii.card,
-    borderWidth: 1,
     padding: adminSpacing.md,
+    marginHorizontal: adminSpacing.md,
+    marginBottom: adminSpacing.sm,
+    marginTop: adminSpacing.sm,
   },
   summaryValue: {
     marginTop: 6,
@@ -298,48 +274,17 @@ const styles = StyleSheet.create({
     paddingBottom: adminSpacing.lg,
   },
   saleRow: {
-    borderRadius: adminRadii.card,
-    borderWidth: 1,
-    padding: adminSpacing.md,
-    gap: adminSpacing.sm,
-  },
-  saleHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: adminSpacing.sm,
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: adminSpacing.md,
+    paddingHorizontal: adminSpacing.md,
   },
-  saleHeaderText: {
+  saleRowLeft: {
     flex: 1,
-    minWidth: 0,
+    paddingRight: adminSpacing.sm,
   },
-  saleNo: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "800",
-    fontVariant: ["tabular-nums"],
-  },
-  statusBadge: {
-    borderRadius: adminRadii.pill,
-    paddingHorizontal: adminSpacing.xs,
-    paddingVertical: 4,
-  },
-  amountGrid: {
-    flexDirection: "row",
-    gap: adminSpacing.xs,
-  },
-  amountCell: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  amountLabel: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "700",
-  },
-  amountValue: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "700",
+  saleRowRight: {
+    alignItems: "flex-end",
   },
 });

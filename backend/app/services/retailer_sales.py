@@ -38,6 +38,7 @@ from app.models import (
     RetailerSaleStatus,
     Shop,
     ShopItemAllocation,
+    ShopRetailerItemAllocation,
     User,
 )
 from app.schemas.retailers import (
@@ -257,6 +258,14 @@ async def _prepare_retailer_checkout(
                 ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
             )
             .join(Item, Item.id == RetailerItemPrice.item_id)
+            .join(
+                ShopRetailerItemAllocation,
+                and_(
+                    ShopRetailerItemAllocation.item_id == Item.id,
+                    ShopRetailerItemAllocation.shop_id == shop.id,
+                    ShopRetailerItemAllocation.is_active.is_(True),
+                ),
+            )
             .outerjoin(
                 ShopItemAllocation,
                 and_(
@@ -266,17 +275,11 @@ async def _prepare_retailer_checkout(
             )
             .where(
                 RetailerItemPrice.retailer_id == payload.retailer_id,
+                RetailerItemPrice.shop_id == shop.id,
                 RetailerItemPrice.item_id.in_(item_ids),
+                RetailerItemPrice.effective_date == func.current_date(),
                 RetailerItemPrice.is_active.is_(True),
                 Item.is_active.is_(True),
-                or_(
-                    Item.shop_id == shop.id,
-                    and_(
-                        Item.shop_id.is_(None),
-                        ShopItemAllocation.id.is_not(None),
-                        ShopItemAllocation.is_active.is_(True),
-                    ),
-                ),
             )
         )
     ).all()
@@ -450,6 +453,14 @@ async def get_retailer_catalog(
                 ShopItemAllocation.display_name,
             )
             .join(Item, Item.id == RetailerItemPrice.item_id)
+            .join(
+                ShopRetailerItemAllocation,
+                and_(
+                    ShopRetailerItemAllocation.item_id == Item.id,
+                    ShopRetailerItemAllocation.shop_id == shop.id,
+                    ShopRetailerItemAllocation.is_active.is_(True),
+                ),
+            )
             .outerjoin(
                 ShopItemAllocation,
                 and_(
@@ -459,16 +470,10 @@ async def get_retailer_catalog(
             )
             .where(
                 RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop.id,
+                RetailerItemPrice.effective_date == func.current_date(),
                 RetailerItemPrice.is_active.is_(True),
                 Item.is_active.is_(True),
-                or_(
-                    Item.shop_id == shop.id,
-                    and_(
-                        Item.shop_id.is_(None),
-                        ShopItemAllocation.id.is_not(None),
-                        ShopItemAllocation.is_active.is_(True),
-                    ),
-                ),
             )
             .order_by(Item.sort_order.asc(), Item.name.asc())
         )

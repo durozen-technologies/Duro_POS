@@ -194,6 +194,73 @@ export function AdminRetailerSaleDetailScreen({
               </Text>
             </View>
           </View>
+          {hasBalance ? (
+            <View
+              style={{
+                borderRadius: adminRadii.card,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.card,
+                padding: 16,
+                gap: 12,
+              }}
+            >
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Record payment</Text>
+              <View>
+                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>Cash</Text>
+                <TextInput
+                  value={cashAmount}
+                  onChangeText={setCashAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={palette.textMuted}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: palette.border,
+                    borderRadius: adminRadii.control,
+                    padding: 10,
+                    color: palette.textPrimary,
+                    backgroundColor: palette.surfaceMuted,
+                  }}
+                />
+              </View>
+              <View>
+                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>UPI</Text>
+                <TextInput
+                  value={upiAmount}
+                  onChangeText={setUpiAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={palette.textMuted}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: palette.border,
+                    borderRadius: adminRadii.control,
+                    padding: 10,
+                    color: palette.textPrimary,
+                    backgroundColor: palette.surfaceMuted,
+                  }}
+                />
+              </View>
+              <Pressable
+                onPress={() => void collectPayment()}
+                disabled={submitting}
+                style={{
+                  borderRadius: adminRadii.card,
+                  backgroundColor: palette.primary,
+                  paddingVertical: 14,
+                  alignItems: "center",
+                  opacity: submitting ? 0.7 : 1,
+                }}
+              >
+                {submitting ? (
+                  <ActivityIndicator color={palette.onPrimary} />
+                ) : (
+                  <Text style={{ color: palette.onPrimary, fontWeight: "700" }}>Record payment</Text>
+                )}
+              </Pressable>
+            </View>
+          ) : null}
           <View
             style={{
               borderRadius: adminRadii.card,
@@ -320,73 +387,6 @@ export function AdminRetailerSaleDetailScreen({
                   ) : null}
                 </View>
               ))}
-            </View>
-          ) : null}
-          {hasBalance ? (
-            <View
-              style={{
-                borderRadius: adminRadii.card,
-                borderWidth: 1,
-                borderColor: palette.border,
-                backgroundColor: palette.card,
-                padding: 16,
-                gap: 12,
-              }}
-            >
-              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Record payment</Text>
-              <View>
-                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>Cash</Text>
-                <TextInput
-                  value={cashAmount}
-                  onChangeText={setCashAmount}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={palette.textMuted}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: palette.border,
-                    borderRadius: adminRadii.control,
-                    padding: 10,
-                    color: palette.textPrimary,
-                    backgroundColor: palette.surfaceMuted,
-                  }}
-                />
-              </View>
-              <View>
-                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>UPI</Text>
-                <TextInput
-                  value={upiAmount}
-                  onChangeText={setUpiAmount}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={palette.textMuted}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: palette.border,
-                    borderRadius: adminRadii.control,
-                    padding: 10,
-                    color: palette.textPrimary,
-                    backgroundColor: palette.surfaceMuted,
-                  }}
-                />
-              </View>
-              <Pressable
-                onPress={() => void collectPayment()}
-                disabled={submitting}
-                style={{
-                  borderRadius: adminRadii.card,
-                  backgroundColor: palette.primary,
-                  paddingVertical: 14,
-                  alignItems: "center",
-                  opacity: submitting ? 0.7 : 1,
-                }}
-              >
-                {submitting ? (
-                  <ActivityIndicator color={palette.onPrimary} />
-                ) : (
-                  <Text style={{ color: palette.onPrimary, fontWeight: "700" }}>Record payment</Text>
-                )}
-              </Pressable>
             </View>
           ) : null}
         </ScrollView>

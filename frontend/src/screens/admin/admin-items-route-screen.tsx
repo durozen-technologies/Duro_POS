@@ -818,7 +818,6 @@ function AdminItemsRoute({
         <YStack gap={12}>
           {commonHeader}
           <ErrorState message={catalogueState.error} palette={palette} onRetry={refreshCatalogue} />
-          <StatsStrip counts={catalogueState.counts} totalCount={catalogueState.totalCount} palette={palette} />
           <FilterBar
             workspace={AdminItemWorkspace.Catalogue}
             search={search}
@@ -826,6 +825,7 @@ function AdminItemsRoute({
             onChangeSearch={setSearch}
             onCreate={() => navigateCreate(AdminItemFormScope.Catalogue)}
           />
+          <StatsStrip counts={catalogueState.counts} totalCount={catalogueState.totalCount} palette={palette} />
         </YStack>
       }
       renderItem={(item) => {
@@ -1013,7 +1013,6 @@ function AdminItemsRoute({
               onArrangeOrder={navigateArrangeOrder}
               arrangeDisabled={!selectedShopId}
             />
-            <StatsStrip counts={shopItemsState.counts} totalCount={shopItemsState.totalCount} palette={palette} />
             <FilterBar
               workspace={AdminItemWorkspace.Shop}
               search={search}
@@ -1021,6 +1020,7 @@ function AdminItemsRoute({
               onChangeSearch={setSearch}
               onCreate={openAvailableCatalogue}
             />
+            <StatsStrip counts={shopItemsState.counts} totalCount={shopItemsState.totalCount} palette={palette} />
           </YStack>
         }
         renderItem={(item) => {

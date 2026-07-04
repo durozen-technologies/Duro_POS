@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -11,14 +11,16 @@ import { adminSpacing, adminTypography } from "./admin-dashboard-theme";
 import type { AdminRetailersTab } from "./admin-dashboard-utils";
 import { AdminSegmentedTabs } from "./components/admin-design-system";
 import { AdminRetailersAllocateItemsTab } from "./components/admin-retailers-allocate-items-tab";
+import { AdminRetailersPricesTab } from "./components/admin-retailers-prices-tab";
 import { AdminRetailersDirectoryTab } from "./components/admin-retailers-directory-tab";
 import { AdminRetailersSalesTab } from "./components/admin-retailers-sales-tab";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { useAdminTheme } from "./use-admin-theme";
 
-const TAB_ITEMS: { value: AdminRetailersTab; label: string; icon: "account-group-outline" | "playlist-plus" | "receipt-text-outline" }[] = [
+const TAB_ITEMS: { value: AdminRetailersTab; label: string; icon: "account-group-outline" | "playlist-plus" | "tag-outline" | "receipt-text-outline" }[] = [
   { value: "retailers", label: "Retailers", icon: "account-group-outline" },
   { value: "allocateItems", label: "Allocate items", icon: "playlist-plus" },
+  { value: "retailerPrices", label: "Retailer prices", icon: "tag-outline" },
   { value: "sales", label: "Open sales", icon: "receipt-text-outline" },
 ];
 
@@ -99,12 +101,13 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
         <AdminHeaderActions onRefresh={handleHeaderRefresh} refreshing={refreshing} />
       </View>
 
-      <View style={styles.content}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.content}>
         <AdminSegmentedTabs
           items={TAB_ITEMS}
           activeValue={activeTab}
           palette={palette}
           onChange={(value) => setActiveTab(value as AdminRetailersTab)}
+          scrollable
         />
 
         <View style={styles.tabBody}>
@@ -127,6 +130,15 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
             />
           ) : null}
 
+          {activeTab === "retailerPrices" ? (
+            <AdminRetailersPricesTab
+              palette={palette}
+              refreshNonce={refreshNonce}
+              onRefreshComplete={handleRefreshComplete}
+              initialRetailerId={initialRetailerId}
+            />
+          ) : null}
+
           {activeTab === "sales" ? (
             <AdminRetailersSalesTab
               palette={palette}
@@ -136,7 +148,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
             />
           ) : null}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

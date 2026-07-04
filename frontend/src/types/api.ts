@@ -907,6 +907,8 @@ export interface RetailerRead {
   notes?: string | null;
   is_active: boolean;
   allocated_shop_count?: number;
+  outstanding_balance?: string | null;
+  branch_names?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -921,6 +923,10 @@ export interface RetailerBranchAllocationRead {
 
 export interface RetailerBranchAllocationSync {
   shop_ids: UUID[];
+}
+
+export interface ShopRetailerCatalogSync {
+  item_ids: UUID[];
 }
 
 export interface RetailerPage {
@@ -950,12 +956,18 @@ export interface RetailerItemPriceInput {
   is_active?: boolean;
 }
 
+export interface PriceHistoryEntry {
+  effective_date: string;
+  price_per_unit: string;
+}
+
 export interface RetailerItemPriceRead {
   id: UUID;
   item_id: UUID;
   item_name: string;
   item_tamil_name: string;
   price_per_unit: string;
+  effective_date: string;
   is_active: boolean;
 }
 
@@ -972,6 +984,7 @@ export interface RetailerItemAllocationRead {
   retailer_item_price_id?: UUID | null;
   price_per_unit?: string | null;
   allocation_is_active?: boolean | null;
+  price_history?: PriceHistoryEntry[];
 }
 
 export interface RetailerItemAllocationListRead {

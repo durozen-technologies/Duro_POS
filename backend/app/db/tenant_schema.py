@@ -28,7 +28,7 @@ _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 ORG_SCHEMA_CACHE_TTL_SECONDS = 300
-TENANT_MIGRATION_HEAD = "0006_shop_retailer_allocations"
+TENANT_MIGRATION_HEAD = "0010_retailer_item_price_default"
 RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
 
 

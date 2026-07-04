@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +21,12 @@ from app.models import (
     RetailerSale,
     RetailerSaleStatus,
     Shop,
+    ShopItemAllocation,
     ShopRetailerAllocation,
+    ShopRetailerItemAllocation,
 )
 from app.schemas.retailers import (
+    PriceHistoryEntry,
     RetailerBalanceRead,
     RetailerBranchAllocationRead,
     RetailerCreate,
@@ -44,11 +47,18 @@ def _retailer_to_read(
     retailer: Retailer,
     *,
     allocated_shop_count: int | None = None,
+    outstanding_balance: Decimal | None = None,
+    branch_names: list[str] | None = None,
 ) -> RetailerRead:
     data = RetailerRead.model_validate(retailer)
+    updates: dict = {}
     if allocated_shop_count is not None:
-        return data.model_copy(update={"allocated_shop_count": allocated_shop_count})
-    return data
+        updates["allocated_shop_count"] = allocated_shop_count
+    if outstanding_balance is not None:
+        updates["outstanding_balance"] = outstanding_balance
+    if branch_names is not None:
+        updates["branch_names"] = branch_names
+    return data.model_copy(update=updates) if updates else data
 
 
 async def list_retailers(
@@ -56,6 +66,7 @@ async def list_retailers(
     *,
     q: str | None = None,
     active: bool | None = None,
+    shop_id: UUID | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> RetailerPage:
@@ -74,6 +85,14 @@ async def list_retailers(
         )
 
     count_query = select(func.count()).select_from(Retailer)
+    if shop_id is not None:
+        count_query = count_query.join(
+            ShopRetailerAllocation,
+            ShopRetailerAllocation.retailer_id == Retailer.id,
+        ).where(
+            ShopRetailerAllocation.shop_id == shop_id,
+            ShopRetailerAllocation.is_active.is_(True),
+        )
     if filters:
         count_query = count_query.where(*filters)
     total = int(await db.scalar(count_query) or 0)
@@ -88,11 +107,55 @@ async def list_retailers(
         .subquery()
     )
 
+    # Aggregate outstanding balance from open/partial sales
+    balance_sub = (
+        select(
+            RetailerSale.retailer_id.label("retailer_id"),
+            func.coalesce(
+                func.sum(RetailerSale.balance_due), Decimal("0.00")
+            ).label("outstanding_balance"),
+        )
+        .where(
+            RetailerSale.status.in_(
+                [RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]
+            )
+        )
+        .group_by(RetailerSale.retailer_id)
+        .subquery()
+    )
+
+    # Aggregate branch names for allocated shops
+    branch_names_sub = (
+        select(
+            ShopRetailerAllocation.retailer_id.label("retailer_id"),
+            func.string_agg(Shop.name, ", ").label("branch_names"),
+        )
+        .join(Shop, Shop.id == ShopRetailerAllocation.shop_id)
+        .where(ShopRetailerAllocation.is_active.is_(True))
+        .group_by(ShopRetailerAllocation.retailer_id)
+        .subquery()
+    )
+
     query = (
-        select(Retailer, allocation_count.c.allocated_shop_count)
+        select(
+            Retailer,
+            allocation_count.c.allocated_shop_count,
+            balance_sub.c.outstanding_balance,
+            branch_names_sub.c.branch_names,
+        )
         .outerjoin(allocation_count, allocation_count.c.retailer_id == Retailer.id)
+        .outerjoin(balance_sub, balance_sub.c.retailer_id == Retailer.id)
+        .outerjoin(branch_names_sub, branch_names_sub.c.retailer_id == Retailer.id)
         .order_by(Retailer.name.asc(), Retailer.id.asc())
     )
+    if shop_id is not None:
+        query = query.join(
+            ShopRetailerAllocation,
+            ShopRetailerAllocation.retailer_id == Retailer.id,
+        ).where(
+            ShopRetailerAllocation.shop_id == shop_id,
+            ShopRetailerAllocation.is_active.is_(True),
+        )
     if filters:
         query = query.where(*filters)
     query = query.offset((page - 1) * page_size).limit(page_size)
@@ -101,9 +164,15 @@ async def list_retailers(
         items=[
             _retailer_to_read(
                 retailer,
-                allocated_shop_count=int(allocated_shop_count or 0),
+                allocated_shop_count=int(alloc_count or 0),
+                outstanding_balance=Decimal(str(balance or "0.00")),
+                branch_names=(
+                    [n.strip() for n in str(bnames).split(",") if n.strip()]
+                    if bnames
+                    else []
+                ),
             )
-            for retailer, allocated_shop_count in rows
+            for retailer, alloc_count, balance, bnames in rows
         ],
         total=total,
         page=page,
@@ -159,88 +228,44 @@ async def update_retailer(
     return _retailer_to_read(retailer)
 
 
-async def list_retailer_item_prices(
-    db: AsyncSession, retailer_id: UUID
-) -> list[RetailerItemPriceRead]:
-    await get_retailer_or_404(db, retailer_id)
-    rows = (
-        await db.execute(
-            select(RetailerItemPrice, Item.name, Item.tamil_name)
-            .join(Item, Item.id == RetailerItemPrice.item_id)
-            .where(RetailerItemPrice.retailer_id == retailer_id)
-            .order_by(Item.sort_order.asc(), Item.name.asc())
-        )
-    ).all()
-    return [
-        RetailerItemPriceRead(
-            id=price.id,
-            item_id=price.item_id,
-            item_name=item_name,
-            item_tamil_name=item_tamil_name,
-            price_per_unit=price.price_per_unit,
-            is_active=price.is_active,
-        )
-        for price, item_name, item_tamil_name in rows
-    ]
+async def get_shop_or_404(db: AsyncSession, shop_id: UUID) -> Shop:
+    shop = await db.get(Shop, shop_id)
+    if shop is None:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return shop
 
 
-async def sync_retailer_item_prices(
+async def ensure_retailer_at_shop(
     db: AsyncSession,
+    *,
     retailer_id: UUID,
-    items: list[RetailerItemPriceInput],
-) -> list[RetailerItemPriceRead]:
+    shop_id: UUID,
+) -> None:
     await get_retailer_or_404(db, retailer_id)
-    if not items:
-        existing = await db.scalars(
-            select(RetailerItemPrice).where(RetailerItemPrice.retailer_id == retailer_id)
+    await get_shop_or_404(db, shop_id)
+    if not await is_retailer_allocated_to_shop(
+        db,
+        shop_id=shop_id,
+        retailer_id=retailer_id,
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Retailer is not assigned to this branch",
         )
-        for row in existing:
-            await db.delete(row)
-        await db.commit()
-        return []
-
-    item_ids = [line.item_id for line in items]
-    valid_items = (
-        await db.scalars(select(Item.id).where(Item.id.in_(item_ids), Item.is_active.is_(True)))
-    ).all()
-    valid_set = set(valid_items)
-    missing = [str(i) for i in item_ids if i not in valid_set]
-    if missing:
-        raise HTTPException(status_code=422, detail=f"Invalid or inactive items: {missing}")
-
-    existing_rows = (
-        await db.scalars(
-            select(RetailerItemPrice).where(RetailerItemPrice.retailer_id == retailer_id)
-        )
-    ).all()
-    by_item_id = {row.item_id: row for row in existing_rows}
-    seen: set[UUID] = set()
-    for line in items:
-        if line.item_id in seen:
-            raise HTTPException(status_code=422, detail="Duplicate item in mapping")
-        seen.add(line.item_id)
-        row = by_item_id.get(line.item_id)
-        if row is None:
-            row = RetailerItemPrice(
-                retailer_id=retailer_id,
-                item_id=line.item_id,
-                price_per_unit=line.price_per_unit.quantize(Decimal("0.01")),
-                is_active=line.is_active,
-            )
-            db.add(row)
-        else:
-            row.price_per_unit = line.price_per_unit.quantize(Decimal("0.01"))
-            row.is_active = line.is_active
-
-    for item_id, row in by_item_id.items():
-        if item_id not in seen:
-            await db.delete(row)
-
-    await db.commit()
-    return await list_retailer_item_prices(db, retailer_id)
 
 
-def _latest_billing_prices_subquery():
+def _shop_billing_catalogue_filter(shop_id: UUID):
+    return or_(
+        Item.shop_id == shop_id,
+        and_(
+            Item.shop_id.is_(None),
+            ShopItemAllocation.shop_id == shop_id,
+            ShopItemAllocation.is_active.is_(True),
+        ),
+    )
+
+
+def _shop_latest_billing_prices_subquery(shop_id: UUID):
     return (
         select(
             DailyPrice.item_id.label("item_id"),
@@ -256,51 +281,156 @@ def _latest_billing_prices_subquery():
             )
             .label("rn"),
         )
-        .join(Shop, Shop.id == DailyPrice.shop_id)
-        .where(Shop.is_active.is_(True))
+        .where(DailyPrice.shop_id == shop_id)
         .subquery()
     )
 
 
-async def list_retailer_item_allocations(
+async def _valid_branch_catalogue_item_ids(
     db: AsyncSession,
-    retailer_id: UUID,
+    shop_id: UUID,
+    item_ids: list[UUID],
+) -> set[UUID]:
+    if not item_ids:
+        return set()
+    rows = (
+        await db.scalars(
+            select(Item.id)
+            .outerjoin(
+                ShopItemAllocation,
+                and_(
+                    ShopItemAllocation.item_id == Item.id,
+                    ShopItemAllocation.shop_id == shop_id,
+                ),
+            )
+            .where(
+                Item.id.in_(item_ids),
+                Item.is_active.is_(True),
+                or_(Item.shop_id == shop_id, Item.shop_id.is_(None)),
+            )
+        )
+    ).all()
+    return set(rows)
+
+
+async def _valid_shop_retailer_catalog_item_ids(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+) -> set[UUID]:
+    if not item_ids:
+        return set()
+    rows = (
+        await db.scalars(
+            select(ShopRetailerItemAllocation.item_id)
+            .join(Item, Item.id == ShopRetailerItemAllocation.item_id)
+            .where(
+                ShopRetailerItemAllocation.shop_id == shop_id,
+                ShopRetailerItemAllocation.is_active.is_(True),
+                ShopRetailerItemAllocation.item_id.in_(item_ids),
+                Item.is_active.is_(True),
+            )
+        )
+    ).all()
+    return set(rows)
+
+
+def _allocation_read_from_row(
+    item: Item,
+    billing_allocation: ShopItemAllocation | None,
+    *,
+    billing_price,
+    is_allocated: bool,
+    retailer_item_price_id: UUID | None = None,
+    price_per_unit=None,
+    allocation_is_active: bool | None = None,
+    price_history: list[PriceHistoryEntry] | None = None,
+) -> RetailerItemAllocationRead:
+    return RetailerItemAllocationRead(
+        item_id=item.id,
+        item_name=(
+            billing_allocation.display_name
+            if billing_allocation and billing_allocation.display_name
+            else item.name
+        ),
+        item_tamil_name=(
+            billing_allocation.tamil_name
+            if billing_allocation and billing_allocation.tamil_name
+            else item.tamil_name
+        ),
+        unit_type=item.unit_type,
+        base_unit=item.base_unit,
+        image_path=build_item_image_path(item.id, item.image_object_key, item.image_content_type),
+        image_thumb_path=build_item_image_thumb_path(
+            item.id,
+            item.image_thumbnail_object_key,
+            item.image_thumbnail_content_type,
+            original_object_key=item.image_object_key,
+        ),
+        billing_price=billing_price,
+        is_allocated=is_allocated,
+        retailer_item_price_id=retailer_item_price_id,
+        price_per_unit=price_per_unit,
+        allocation_is_active=allocation_is_active,
+        price_history=price_history or [],
+    )
+
+
+async def list_shop_retailer_item_catalog(
+    db: AsyncSession,
+    shop_id: UUID,
     *,
     q: str | None = None,
     allocated: Literal["allocated", "available"] | None = None,
     limit: int = 200,
 ) -> RetailerItemAllocationListRead:
-    await get_retailer_or_404(db, retailer_id)
+    await get_shop_or_404(db, shop_id)
     limit = min(max(limit, 1), 500)
-    latest_prices = _latest_billing_prices_subquery()
-    is_allocated_expr = RetailerItemPrice.id.is_not(None)
+    latest_prices = _shop_latest_billing_prices_subquery(shop_id)
+    is_allocated_expr = ShopRetailerItemAllocation.id.is_not(None)
 
     query = (
         select(
             Item,
-            RetailerItemPrice,
+            ShopItemAllocation,
+            ShopRetailerItemAllocation,
             latest_prices.c.price_per_unit.label("billing_price"),
         )
         .outerjoin(
-            RetailerItemPrice,
+            ShopItemAllocation,
             and_(
-                RetailerItemPrice.item_id == Item.id,
-                RetailerItemPrice.retailer_id == retailer_id,
+                ShopItemAllocation.item_id == Item.id,
+                ShopItemAllocation.shop_id == shop_id,
+            ),
+        )
+        .outerjoin(
+            ShopRetailerItemAllocation,
+            and_(
+                ShopRetailerItemAllocation.item_id == Item.id,
+                ShopRetailerItemAllocation.shop_id == shop_id,
+                ShopRetailerItemAllocation.is_active.is_(True),
             ),
         )
         .outerjoin(
             latest_prices,
             and_(latest_prices.c.item_id == Item.id, latest_prices.c.rn == 1),
         )
-        .where(Item.shop_id.is_(None), Item.is_active.is_(True))
+        .where(
+            or_(Item.shop_id == shop_id, Item.shop_id.is_(None)),
+            Item.is_active.is_(True),
+        )
     )
 
     if q:
         pattern = f"%{q.strip().lower()}%"
         query = query.where(
             or_(
-                func.lower(Item.name).like(pattern),
-                func.lower(Item.tamil_name).like(pattern),
+                func.lower(func.coalesce(ShopItemAllocation.display_name, Item.name)).like(
+                    pattern
+                ),
+                func.lower(
+                    func.coalesce(ShopItemAllocation.tamil_name, Item.tamil_name)
+                ).like(pattern),
             )
         )
 
@@ -313,28 +443,289 @@ async def list_retailer_item_allocations(
     rows = (await db.execute(query)).all()
 
     items = [
-        RetailerItemAllocationRead(
-            item_id=item.id,
-            item_name=item.name,
-            item_tamil_name=item.tamil_name,
-            unit_type=item.unit_type,
-            base_unit=item.base_unit,
-            image_path=build_item_image_path(
-                item.id, item.image_object_key, item.image_content_type
-            ),
-            image_thumb_path=build_item_image_thumb_path(
-                item.id,
-                item.image_thumbnail_object_key,
-                item.image_thumbnail_content_type,
-                original_object_key=item.image_object_key,
-            ),
+        _allocation_read_from_row(
+            item,
+            billing_allocation,
             billing_price=billing_price,
-            is_allocated=allocation is not None,
-            retailer_item_price_id=allocation.id if allocation else None,
-            price_per_unit=allocation.price_per_unit if allocation else None,
-            allocation_is_active=allocation.is_active if allocation else None,
+            is_allocated=catalog_row is not None,
+            retailer_item_price_id=catalog_row.id if catalog_row else None,
         )
-        for item, allocation, billing_price in rows
+        for item, billing_allocation, catalog_row, billing_price in rows
+    ]
+    allocated_count = sum(1 for row in items if row.is_allocated)
+    return RetailerItemAllocationListRead(
+        items=items,
+        total=len(items),
+        allocated_count=allocated_count,
+    )
+
+
+async def sync_shop_retailer_item_catalog(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+) -> RetailerItemAllocationListRead:
+    await get_shop_or_404(db, shop_id)
+    requested = list(dict.fromkeys(item_ids))
+    if requested:
+        valid_set = await _valid_branch_catalogue_item_ids(db, shop_id, requested)
+        missing = [str(item_id) for item_id in requested if item_id not in valid_set]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid or inactive branch billing items: {missing}",
+            )
+
+    existing_rows = (
+        await db.scalars(
+            select(ShopRetailerItemAllocation).where(
+                ShopRetailerItemAllocation.shop_id == shop_id
+            )
+        )
+    ).all()
+    by_item_id = {row.item_id: row for row in existing_rows}
+    requested_set = set(requested)
+
+    for item_id in requested:
+        row = by_item_id.get(item_id)
+        if row is None:
+            db.add(
+                ShopRetailerItemAllocation(
+                    shop_id=shop_id,
+                    item_id=item_id,
+                    is_active=True,
+                )
+            )
+        else:
+            row.is_active = True
+            row.updated_at = datetime.now(UTC)
+
+    for item_id, row in by_item_id.items():
+        if item_id not in requested_set:
+            await db.delete(row)
+            price_rows = (
+                await db.scalars(
+                    select(RetailerItemPrice).where(
+                        RetailerItemPrice.shop_id == shop_id,
+                        RetailerItemPrice.item_id == item_id,
+                    )
+                )
+            ).all()
+            for price_row in price_rows:
+                await db.delete(price_row)
+
+    await db.commit()
+    return await list_shop_retailer_item_catalog(db, shop_id, allocated="allocated")
+
+
+async def list_retailer_item_prices(
+    db: AsyncSession,
+    retailer_id: UUID,
+    *,
+    shop_id: UUID,
+) -> list[RetailerItemPriceRead]:
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
+    rows = (
+        await db.execute(
+            select(RetailerItemPrice, Item.name, Item.tamil_name)
+            .join(Item, Item.id == RetailerItemPrice.item_id)
+            .where(
+                RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop_id,
+                RetailerItemPrice.effective_date == func.current_date(),
+            )
+            .order_by(Item.sort_order.asc(), Item.name.asc())
+        )
+    ).all()
+    return [
+        RetailerItemPriceRead(
+            id=price.id,
+            item_id=price.item_id,
+            item_name=item_name,
+            item_tamil_name=item_tamil_name,
+            price_per_unit=price.price_per_unit,
+            effective_date=price.effective_date,
+            is_active=price.is_active,
+        )
+        for price, item_name, item_tamil_name in rows
+    ]
+
+
+async def sync_retailer_item_prices(
+    db: AsyncSession,
+    retailer_id: UUID,
+    shop_id: UUID,
+    items: list[RetailerItemPriceInput],
+) -> list[RetailerItemPriceRead]:
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
+    if not items:
+        existing = await db.scalars(
+            select(RetailerItemPrice).where(
+                RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop_id,
+            )
+        )
+        for row in existing:
+            await db.delete(row)
+        await db.commit()
+        return []
+
+    item_ids = [line.item_id for line in items]
+    valid_set = await _valid_shop_retailer_catalog_item_ids(db, shop_id, item_ids)
+    missing = [str(i) for i in item_ids if i not in valid_set]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Items not allocated to branch retailer catalog: {missing}",
+        )
+
+    existing_rows = (
+        await db.scalars(
+            select(RetailerItemPrice).where(
+                RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop_id,
+            )
+        )
+    ).all()
+    by_item_id = {row.item_id: row for row in existing_rows}
+    seen: set[UUID] = set()
+    for line in items:
+        if line.item_id in seen:
+            raise HTTPException(status_code=422, detail="Duplicate item in mapping")
+        seen.add(line.item_id)
+        row = by_item_id.get(line.item_id)
+        if row is None:
+            row = RetailerItemPrice(
+                retailer_id=retailer_id,
+                shop_id=shop_id,
+                item_id=line.item_id,
+                price_per_unit=line.price_per_unit.quantize(Decimal("0.01")),
+                is_active=line.is_active,
+            )
+            db.add(row)
+        else:
+            row.price_per_unit = line.price_per_unit.quantize(Decimal("0.01"))
+            row.is_active = line.is_active
+
+    for item_id, row in by_item_id.items():
+        if item_id not in seen:
+            await db.delete(row)
+
+    await db.commit()
+    return await list_retailer_item_prices(db, retailer_id, shop_id=shop_id)
+
+
+async def list_retailer_item_allocations(
+    db: AsyncSession,
+    retailer_id: UUID,
+    *,
+    shop_id: UUID,
+    q: str | None = None,
+    allocated: Literal["allocated", "available"] | None = None,
+    limit: int = 200,
+    effective_date: date | None = None,
+) -> RetailerItemAllocationListRead:
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
+    limit = min(max(limit, 1), 500)
+    latest_prices = _shop_latest_billing_prices_subquery(shop_id)
+    is_allocated_expr = RetailerItemPrice.id.is_not(None)
+    
+    target_date = effective_date if effective_date is not None else func.current_date()
+
+    query = (
+        select(
+            Item,
+            ShopItemAllocation,
+            RetailerItemPrice,
+            latest_prices.c.price_per_unit.label("billing_price"),
+        )
+        .join(
+            ShopRetailerItemAllocation,
+            and_(
+                ShopRetailerItemAllocation.item_id == Item.id,
+                ShopRetailerItemAllocation.shop_id == shop_id,
+                ShopRetailerItemAllocation.is_active.is_(True),
+            ),
+        )
+        .outerjoin(
+            ShopItemAllocation,
+            and_(
+                ShopItemAllocation.item_id == Item.id,
+                ShopItemAllocation.shop_id == shop_id,
+            ),
+        )
+        .outerjoin(
+            RetailerItemPrice,
+            and_(
+                RetailerItemPrice.item_id == Item.id,
+                RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop_id,
+                RetailerItemPrice.effective_date == target_date,
+            ),
+        )
+        .outerjoin(
+            latest_prices,
+            and_(latest_prices.c.item_id == Item.id, latest_prices.c.rn == 1),
+        )
+        .where(Item.is_active.is_(True))
+    )
+
+    if q:
+        pattern = f"%{q.strip().lower()}%"
+        query = query.where(
+            or_(
+                func.lower(func.coalesce(ShopItemAllocation.display_name, Item.name)).like(
+                    pattern
+                ),
+                func.lower(
+                    func.coalesce(ShopItemAllocation.tamil_name, Item.tamil_name)
+                ).like(pattern),
+            )
+        )
+
+    if allocated == "allocated":
+        query = query.where(is_allocated_expr)
+    elif allocated == "available":
+        query = query.where(~is_allocated_expr)
+
+    query = query.order_by(Item.sort_order.asc(), Item.name.asc()).limit(limit)
+    rows = (await db.execute(query)).all()
+
+    # Fetch price history for the items in the current page
+    item_ids = [row[0].id for row in rows]
+    price_history_map: dict[UUID, list[PriceHistoryEntry]] = {item_id: [] for item_id in item_ids}
+    if item_ids:
+        history_query = (
+            select(RetailerItemPrice)
+            .where(
+                RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop_id,
+                RetailerItemPrice.item_id.in_(item_ids),
+            )
+            .order_by(RetailerItemPrice.item_id, RetailerItemPrice.effective_date.desc())
+        )
+        history_rows = (await db.execute(history_query)).scalars().all()
+        for h in history_rows:
+            if len(price_history_map[h.item_id]) < 5:
+                price_history_map[h.item_id].append(
+                    PriceHistoryEntry(
+                        effective_date=h.effective_date,
+                        price_per_unit=h.price_per_unit,
+                    )
+                )
+
+    items = [
+        _allocation_read_from_row(
+            item,
+            billing_allocation,
+            billing_price=billing_price,
+            is_allocated=price_row is not None,
+            retailer_item_price_id=price_row.id if price_row else None,
+            price_per_unit=price_row.price_per_unit if price_row else None,
+            allocation_is_active=price_row.is_active if price_row else None,
+            price_history=price_history_map.get(item.id, []),
+        )
+        for item, billing_allocation, price_row, billing_price in rows
     ]
     allocated_count = sum(1 for row in items if row.is_allocated)
     return RetailerItemAllocationListRead(
@@ -347,9 +738,10 @@ async def list_retailer_item_allocations(
 async def bulk_allocate_retailer_items(
     db: AsyncSession,
     retailer_id: UUID,
+    shop_id: UUID,
     items: list[RetailerItemPriceInput],
 ) -> RetailerItemAllocationBulkRead:
-    await get_retailer_or_404(db, retailer_id)
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
     if not items:
         return RetailerItemAllocationBulkRead(
             items=[],
@@ -358,27 +750,19 @@ async def bulk_allocate_retailer_items(
         )
 
     item_ids = [line.item_id for line in items]
-    valid_items = (
-        await db.scalars(
-            select(Item.id).where(
-                Item.id.in_(item_ids),
-                Item.is_active.is_(True),
-                Item.shop_id.is_(None),
-            )
-        )
-    ).all()
-    valid_set = set(valid_items)
+    valid_set = await _valid_shop_retailer_catalog_item_ids(db, shop_id, item_ids)
     missing = [str(item_id) for item_id in item_ids if item_id not in valid_set]
     if missing:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid or inactive catalogue items: {missing}",
+            detail=f"Items not allocated to branch retailer catalog: {missing}",
         )
 
     existing_rows = (
         await db.scalars(
             select(RetailerItemPrice).where(
                 RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop_id,
                 RetailerItemPrice.item_id.in_(item_ids),
             )
         )
@@ -399,6 +783,7 @@ async def bulk_allocate_retailer_items(
         db.add(
             RetailerItemPrice(
                 retailer_id=retailer_id,
+                shop_id=shop_id,
                 item_id=line.item_id,
                 price_per_unit=line.price_per_unit.quantize(Decimal("0.01")),
                 is_active=line.is_active,
@@ -412,7 +797,7 @@ async def bulk_allocate_retailer_items(
 
     created: list[RetailerItemPriceRead] = []
     if new_ids:
-        all_prices = await list_retailer_item_prices(db, retailer_id)
+        all_prices = await list_retailer_item_prices(db, retailer_id, shop_id=shop_id)
         new_id_set = set(new_ids)
         created = [row for row in all_prices if row.item_id in new_id_set]
 
@@ -426,24 +811,43 @@ async def bulk_allocate_retailer_items(
 async def update_retailer_item_allocation(
     db: AsyncSession,
     retailer_id: UUID,
+    shop_id: UUID,
     item_id: UUID,
     payload: RetailerItemAllocationUpdate,
 ) -> RetailerItemPriceRead:
-    await get_retailer_or_404(db, retailer_id)
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
     row = await db.scalar(
         select(RetailerItemPrice).where(
             RetailerItemPrice.retailer_id == retailer_id,
+            RetailerItemPrice.shop_id == shop_id,
             RetailerItemPrice.item_id == item_id,
+            RetailerItemPrice.effective_date == func.current_date(),
         )
     )
     if row is None:
-        raise HTTPException(status_code=404, detail="Item allocation not found")
-    if payload.price_per_unit is not None:
-        row.price_per_unit = payload.price_per_unit.quantize(Decimal("0.01"))
-    if payload.is_active is not None:
-        row.is_active = payload.is_active
+        if payload.price_per_unit is None:
+            raise HTTPException(status_code=404, detail="Item allocation not found")
+        valid = await _valid_shop_retailer_catalog_item_ids(db, shop_id, [item_id])
+        if item_id not in valid:
+            raise HTTPException(
+                status_code=422,
+                detail="Item not allocated to branch retailer catalog",
+            )
+        row = RetailerItemPrice(
+            retailer_id=retailer_id,
+            shop_id=shop_id,
+            item_id=item_id,
+            price_per_unit=payload.price_per_unit.quantize(Decimal("0.01")),
+            is_active=payload.is_active if payload.is_active is not None else True,
+        )
+        db.add(row)
+    else:
+        if payload.price_per_unit is not None:
+            row.price_per_unit = payload.price_per_unit.quantize(Decimal("0.01"))
+        if payload.is_active is not None:
+            row.is_active = payload.is_active
     await db.commit()
-    prices = await list_retailer_item_prices(db, retailer_id)
+    prices = await list_retailer_item_prices(db, retailer_id, shop_id=shop_id)
     match = next((price for price in prices if price.item_id == item_id), None)
     if match is None:
         raise HTTPException(status_code=404, detail="Item allocation not found")
@@ -453,12 +857,14 @@ async def update_retailer_item_allocation(
 async def delete_retailer_item_allocation(
     db: AsyncSession,
     retailer_id: UUID,
+    shop_id: UUID,
     item_id: UUID,
 ) -> None:
-    await get_retailer_or_404(db, retailer_id)
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
     row = await db.scalar(
         select(RetailerItemPrice).where(
             RetailerItemPrice.retailer_id == retailer_id,
+            RetailerItemPrice.shop_id == shop_id,
             RetailerItemPrice.item_id == item_id,
         )
     )

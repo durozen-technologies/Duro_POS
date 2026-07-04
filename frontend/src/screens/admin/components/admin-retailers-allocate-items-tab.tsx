@@ -15,11 +15,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { fetchShops } from "@/api/admin";
 import { toApiError } from "@/api/client";
 import {
   fetchRetailerItemAllocations,
   fetchRetailers,
+  fetchShopRetailerCatalog,
   syncRetailerItemPrices,
+  syncShopRetailerCatalog,
 } from "@/api/retailers";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -27,6 +30,7 @@ import type {
   RetailerItemAllocationRead,
   RetailerItemPriceInput,
   RetailerRead,
+  ShopRead,
   UUID,
 } from "@/types/api";
 import { getItemThumbnailUri } from "@/utils/item-images";
@@ -34,6 +38,9 @@ import { getItemThumbnailUri } from "@/utils/item-images";
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
 import { triggerHaptic } from "../admin-dashboard-utils";
 import { ChipButton, EmptyStateCard, SearchField, SectionHint } from "./admin-dashboard-primitives";
+import { AdminSegmentedTabs } from "./admin-design-system";
+
+type WorkMode = "branch" | "prices";
 
 type ItemFilter = "all" | "allocated" | "available";
 
@@ -50,6 +57,7 @@ type AdminRetailersAllocateItemsTabProps = {
   palette: ThemePalette;
   refreshNonce?: number;
   onRefreshComplete?: () => void;
+  initialShopId?: UUID | null;
   initialRetailerId?: UUID | null;
 };
 
@@ -62,34 +70,77 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   palette,
   refreshNonce = 0,
   onRefreshComplete,
+  initialShopId = null,
   initialRetailerId = null,
 }: AdminRetailersAllocateItemsTabProps) {
   const insets = useSafeAreaInsets();
+
+  const [branches, setBranches] = useState<ShopRead[]>([]);
+  const [selectedShopId, setSelectedShopId] = useState<UUID | null>(initialShopId);
   const [retailers, setRetailers] = useState<RetailerRead[]>([]);
   const [selectedRetailerId, setSelectedRetailerId] = useState<UUID | null>(initialRetailerId);
   const [catalogueItems, setCatalogueItems] = useState<RetailerItemAllocationRead[]>([]);
   const [allocations, setAllocations] = useState<Map<UUID, AllocationDraft>>(new Map());
-  const [loadingRetailers, setLoadingRetailers] = useState(true);
+  const [loadingBranches, setLoadingBranches] = useState(true);
+  const [loadingRetailers, setLoadingRetailers] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ItemFilter>("all");
+  const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const [retailerPickerOpen, setRetailerPickerOpen] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<UUID>>(new Set());
   const [dirty, setDirty] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 250);
+
+  const selectedBranch = useMemo(
+    () => branches.find((row) => row.id === selectedShopId) ?? null,
+    [branches, selectedShopId],
+  );
 
   const selectedRetailer = useMemo(
     () => retailers.find((row) => row.id === selectedRetailerId) ?? null,
     [retailers, selectedRetailerId],
   );
 
+  const loadBranches = useCallback(async () => {
+    setLoadingBranches(true);
+    try {
+      const rows = await fetchShops();
+      const activeBranches = rows.filter((row) => row.is_active);
+      setBranches(activeBranches);
+      setSelectedShopId((current) => {
+        if (current && activeBranches.some((row) => row.id === current)) {
+          return current;
+        }
+        if (initialShopId && activeBranches.some((row) => row.id === initialShopId)) {
+          return initialShopId;
+        }
+        return activeBranches[0]?.id ?? null;
+      });
+      setError(null);
+    } catch (err) {
+      setError(toApiError(err).message);
+    } finally {
+      setLoadingBranches(false);
+    }
+  }, [initialShopId]);
+
   const loadRetailers = useCallback(async () => {
+    if (!selectedShopId) {
+      setRetailers([]);
+      setSelectedRetailerId(null);
+      return;
+    }
     setLoadingRetailers(true);
     try {
-      const page = await fetchRetailers({ active: true, page_size: 100 });
+      const page = await fetchRetailers({
+        active: true,
+        shop_id: selectedShopId,
+        page_size: 100,
+      });
       setRetailers(page.items);
       setSelectedRetailerId((current) => {
         if (current && page.items.some((row) => row.id === current)) {
@@ -106,31 +157,32 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
     } finally {
       setLoadingRetailers(false);
     }
-  }, [initialRetailerId]);
+  }, [initialRetailerId, selectedShopId]);
 
   const loadItems = useCallback(
     async (isRefresh = false) => {
-      if (!selectedRetailerId) {
+      if (!selectedShopId) {
         setCatalogueItems([]);
         setAllocations(new Map());
         return;
       }
+
       if (isRefresh) setRefreshing(true);
       else setLoadingItems(true);
       try {
-        const response = await fetchRetailerItemAllocations(selectedRetailerId, {
+        const response = await fetchShopRetailerCatalog(selectedShopId, {
           q: debouncedSearch || undefined,
           limit: 200,
         });
         const nextAllocations = new Map<UUID, AllocationDraft>();
         for (const item of response.items) {
-          if (!item.is_allocated || !item.price_per_unit) continue;
+          if (!item.is_allocated) continue;
           nextAllocations.set(item.item_id, {
             item_id: item.item_id,
             item_name: item.item_name,
             image_thumb_path: item.image_thumb_path,
             image_path: item.image_path,
-            price_per_unit: item.price_per_unit,
+            price_per_unit: item.price_per_unit ?? defaultWholesalePrice(item),
             billing_price: item.billing_price,
           });
         }
@@ -150,14 +202,18 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         }
       }
     },
-    [debouncedSearch, onRefreshComplete, selectedRetailerId],
+    [debouncedSearch, onRefreshComplete, selectedRetailerId, selectedShopId],
   );
 
   useFocusEffect(
     useCallback(() => {
-      void loadRetailers();
-    }, [loadRetailers]),
+      void loadBranches();
+    }, [loadBranches]),
   );
+
+  useEffect(() => {
+    void loadRetailers();
+  }, [loadRetailers]);
 
   useEffect(() => {
     void loadItems();
@@ -165,10 +221,17 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
 
   useEffect(() => {
     if (refreshNonce > 0) {
+      void loadBranches();
       void loadRetailers();
       void loadItems(true);
     }
-  }, [loadItems, loadRetailers, refreshNonce]);
+  }, [loadBranches, loadItems, loadRetailers, refreshNonce]);
+
+  useEffect(() => {
+    if (initialShopId) {
+      setSelectedShopId(initialShopId);
+    }
+  }, [initialShopId]);
 
   useEffect(() => {
     if (initialRetailerId) {
@@ -270,33 +333,69 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   );
 
   const save = useCallback(async () => {
-    if (!selectedRetailerId) return;
-    const payload: RetailerItemPriceInput[] = [];
-    for (const row of allocations.values()) {
-      const price = row.price_per_unit.trim();
-      if (!price || Number(price) <= 0) {
-        Alert.alert("Invalid price", `Set a wholesale price for ${row.item_name}.`);
-        return;
-      }
-      payload.push({
-        item_id: row.item_id,
-        price_per_unit: price,
-        is_active: true,
-      });
-    }
+    if (!selectedShopId) return;
+
     setSaving(true);
     try {
-      await syncRetailerItemPrices(selectedRetailerId, payload);
+      await syncShopRetailerCatalog(selectedShopId, Array.from(allocations.keys()));
       triggerHaptic();
       setDirty(false);
       await loadItems();
-      Alert.alert("Saved", `${payload.length} item${payload.length === 1 ? "" : "s"} allocated.`);
+      Alert.alert("Saved", `${allocations.size} item${allocations.size === 1 ? "" : "s"} allocated to branch.`);
     } catch (err) {
       Alert.alert("Save failed", toApiError(err).message);
     } finally {
       setSaving(false);
     }
-  }, [allocations, loadItems, selectedRetailerId]);
+  }, [allocations, loadItems, selectedRetailer, selectedRetailerId, selectedShopId]);
+
+  const renderBranchPicker = () => (
+    <Modal visible={branchPickerOpen} transparent animationType="fade" onRequestClose={() => setBranchPickerOpen(false)}>
+      <Pressable style={styles.modalBackdrop} onPress={() => setBranchPickerOpen(false)}>
+        <Pressable
+          style={[styles.modalSheet, { backgroundColor: palette.card, borderColor: palette.border }]}
+          onPress={() => undefined}
+        >
+          <Text style={[adminTypography.section, { color: palette.textPrimary, marginBottom: adminSpacing.sm }]}>
+            Select branch
+          </Text>
+          <FlatList
+            data={branches}
+            keyExtractor={(item) => item.id}
+            style={{ maxHeight: 360 }}
+            renderItem={({ item }) => {
+              const active = item.id === selectedShopId;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => {
+                    triggerHaptic();
+                    setSelectedShopId(item.id);
+                    setBranchPickerOpen(false);
+                  }}
+                  style={[
+                    styles.pickerOption,
+                    {
+                      backgroundColor: active ? palette.primarySoft : palette.surfaceMuted,
+                      borderColor: active ? palette.primary : palette.border,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: palette.textPrimary, fontWeight: active ? "800" : "600" }} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {active ? (
+                    <MaterialCommunityIcons name="check-circle" size={18} color={palette.primary} />
+                  ) : null}
+                </Pressable>
+              );
+            }}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 
   const renderRetailerPicker = () => (
     <Modal visible={retailerPickerOpen} transparent animationType="fade" onRequestClose={() => setRetailerPickerOpen(false)}>
@@ -324,7 +423,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
                     setRetailerPickerOpen(false);
                   }}
                   style={[
-                    styles.retailerOption,
+                    styles.pickerOption,
                     {
                       backgroundColor: active ? palette.primarySoft : palette.surfaceMuted,
                       borderColor: active ? palette.primary : palette.border,
@@ -346,272 +445,289 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
     </Modal>
   );
 
-  if (loadingRetailers) {
+  if (loadingBranches) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={palette.primary} />
         <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: adminSpacing.sm }]}>
-          Loading retailers…
+          Loading branches…
         </Text>
       </View>
     );
   }
 
-  if (error && retailers.length === 0) {
+  if (error && branches.length === 0) {
     return (
       <EmptyStateCard
-        title="Unable to load retailers"
+        title="Unable to load branches"
         subtitle={error}
         actionLabel="Retry"
-        onAction={() => void loadRetailers()}
+        onAction={() => void loadBranches()}
         palette={palette}
         icon="store-alert"
       />
     );
   }
 
-  if (retailers.length === 0) {
+  if (branches.length === 0) {
     return (
       <EmptyStateCard
-        title="No active retailers"
-        subtitle="Create a retailer first, then allocate billing items here."
+        title="No active branches"
+        subtitle="Create a branch first, then allocate billing items here."
         palette={palette}
-        icon="account-group-outline"
+        icon="store-off-outline"
       />
     );
   }
 
   return (
     <View style={styles.container}>
+      {renderBranchPicker()}
       {renderRetailerPicker()}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Select retailer"
-        onPress={() => setRetailerPickerOpen(true)}
-        style={[styles.retailerSelect, { backgroundColor: palette.card, borderColor: palette.border }]}
-      >
-        <View style={styles.retailerSelectText}>
-          <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Retailer</Text>
-          <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
-            {selectedRetailer?.name ?? "Select retailer"}
-          </Text>
-        </View>
-        <MaterialCommunityIcons name="chevron-down" size={22} color={palette.textMuted} />
-      </Pressable>
-
-      <SectionHint
-        text="Import billing items for the selected retailer. Set wholesale prices before saving — shop billing only shows allocated items."
-        palette={palette}
-      />
-
-      <SearchField
-        value={search}
-        onChangeText={setSearch}
-        placeholder="Search billing items"
-        palette={palette}
-        accessibilityLabel="Search billing items"
-      />
-
-      <View style={styles.filterRow}>
-        {(
-          [
-            { value: "all", label: "All" },
-            { value: "allocated", label: `Allocated (${allocatedCount})` },
-            { value: "available", label: "Available" },
-          ] as const
-        ).map((chip) => (
-          <ChipButton
-            key={chip.value}
-            label={chip.label}
-            active={filter === chip.value}
-            onPress={() => setFilter(chip.value)}
-            palette={palette}
-          />
-        ))}
-      </View>
-
-      {pendingAddCount > 0 ? (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Allocate ${pendingAddCount} selected items`}
-          onPress={allocatePending}
-          style={[styles.bulkAction, { backgroundColor: palette.primarySoft, borderColor: palette.primary }]}
+          accessibilityLabel="Select branch"
+          onPress={() => setBranchPickerOpen(true)}
+          style={[styles.selector, { flex: 1, backgroundColor: palette.card, borderColor: palette.border }]}
         >
-          <MaterialCommunityIcons name="playlist-plus" size={18} color={palette.primary} />
-          <Text style={{ color: palette.primaryStrong, fontWeight: "800" }}>
-            Allocate {pendingAddCount} selected
-          </Text>
+          <View style={styles.selectorText}>
+            <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Branch</Text>
+            <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
+              {selectedBranch?.name ?? "Select branch"}
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-down" size={22} color={palette.textMuted} />
         </Pressable>
-      ) : null}
-
-      {loadingItems ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={palette.primary} />
-        </View>
-      ) : (
-        <FlatList
-          style={{ flex: 1 }}
-          data={filteredItems}
-          keyExtractor={(item) => item.item_id}
-          contentContainerStyle={{ paddingBottom: 96 + insets.bottom }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void loadItems(true)}
-              tintColor={palette.primary}
-            />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Information"
+          onPress={() =>
+            Alert.alert(
+              "Information",
+              "Allocate billing catalogue items once per branch. These items become available for all retailers at this branch.",
+            )
           }
-          ItemSeparatorComponent={() => <View style={{ height: adminSpacing.xs }} />}
-          ListEmptyComponent={
-            <EmptyStateCard
-              title={filter === "allocated" ? "No allocated items" : "No billing items found"}
-              subtitle={
-                filter === "allocated"
-                  ? "Select available items and allocate them to this retailer."
-                  : "Try a different search or add items in the billing catalogue."
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: palette.card,
+            borderWidth: 1,
+            borderColor: palette.border,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <MaterialCommunityIcons name="exclamation" size={24} color={palette.textMuted} />
+        </Pressable>
+      </View>
+
+
+
+
+      {selectedShopId ? (
+        <>
+          <SearchField
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search branch billing items"
+            palette={palette}
+            accessibilityLabel="Search branch billing items"
+          />
+
+          <View style={styles.filterRow}>
+            {(
+              [
+                { value: "all", label: "All" },
+                {
+                  value: "allocated",
+                  label: `Allocated (${allocatedCount})`,
+                },
+                { value: "available", label: "Available" },
+              ] as const
+            ).map((chip) => (
+              <ChipButton
+                key={chip.value}
+                label={chip.label}
+                active={filter === chip.value}
+                onPress={() => setFilter(chip.value)}
+                palette={palette}
+              />
+            ))}
+          </View>
+
+          {pendingAddCount > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Allocate ${pendingAddCount} selected items`}
+              onPress={allocatePending}
+              style={[styles.bulkAction, { backgroundColor: palette.primarySoft, borderColor: palette.primary }]}
+            >
+              <MaterialCommunityIcons name="playlist-plus" size={18} color={palette.primary} />
+              <Text style={{ color: palette.primaryStrong, fontWeight: "800" }}>
+                Allocate {pendingAddCount} selected
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {loadingItems ? (
+            <View style={styles.centered}>
+              <ActivityIndicator color={palette.primary} />
+            </View>
+          ) : (
+            <FlatList
+              style={{ flex: 1 }}
+              data={filteredItems}
+              keyExtractor={(item) => item.item_id}
+              contentContainerStyle={{ paddingBottom: 96 + insets.bottom }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={() => void loadItems(true)}
+                  tintColor={palette.primary}
+                />
               }
-              palette={palette}
-              icon="tag-off-outline"
-            />
-          }
-          renderItem={({ item }) => {
-            const allocated = allocations.has(item.item_id);
-            const draft = allocations.get(item.item_id);
-            const pending = pendingIds.has(item.item_id);
-            const thumbUri = getItemThumbnailUri({
-              image_thumb_path: item.image_thumb_path,
-              image_path: item.image_path,
-            });
+              ItemSeparatorComponent={() => <View style={{ height: adminSpacing.xs }} />}
+              ListEmptyComponent={
+                <EmptyStateCard
+                  title={
+                    filter === "allocated"
+                      ? "No branch items allocated"
+                      : "No billing items found"
+                  }
+                  subtitle={
+                    filter === "allocated"
+                      ? "Select items from the billing catalogue for this branch."
+                      : "Try a different search or add items in the billing catalogue."
+                  }
+                  palette={palette}
+                  icon="tag-off-outline"
+                />
+              }
+              renderItem={({ item }) => {
+                const allocated = allocations.has(item.item_id);
+                const draft = allocations.get(item.item_id);
+                const pending = pendingIds.has(item.item_id);
+                const thumbUri = getItemThumbnailUri({
+                  image_thumb_path: item.image_thumb_path,
+                  image_path: item.image_path,
+                });
 
-            return (
-              <View
-                style={[
-                  styles.itemCard,
-                  { backgroundColor: palette.card, borderColor: allocated ? palette.primary : palette.border },
-                ]}
-              >
-                <View style={styles.itemHeader}>
-                  <Pressable
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: allocated || pending }}
-                    onPress={() => {
-                      if (allocated) {
-                        toggleAllocated(item);
-                        return;
-                      }
-                      togglePending(item.item_id);
-                    }}
-                    style={styles.itemHeaderPressable}
+                return (
+                  <View
+                    style={[
+                      styles.itemCard,
+                      { backgroundColor: palette.card, borderColor: allocated ? palette.primary : palette.border },
+                    ]}
                   >
-                    <MaterialCommunityIcons
-                      name={
-                        allocated
-                          ? "check-circle"
-                          : pending
-                            ? "checkbox-marked-circle-outline"
-                            : "checkbox-blank-circle-outline"
-                      }
-                      size={22}
-                      color={allocated || pending ? palette.primary : palette.textMuted}
-                    />
-                    {thumbUri ? (
-                      <ItemThumbnail
-                        uri={thumbUri}
-                        recyclingKey={item.item_id}
-                        size={44}
-                        borderRadius={8}
-                        backgroundColor={palette.surfaceMuted}
-                        icon="food-drumstick-outline"
-                        iconColor={palette.textMuted}
-                        iconSize={20}
-                      />
-                    ) : (
-                      <View style={[styles.itemThumbFallback, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                        <MaterialCommunityIcons name="food-drumstick-outline" size={20} color={palette.textMuted} />
-                      </View>
-                    )}
-                    <View style={styles.itemText}>
-                      <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
-                        {item.item_name}
-                      </Text>
-                      {item.billing_price ? (
-                        <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 2 }]}>
-                          Billing {item.billing_price}
-                        </Text>
+                    <View style={styles.itemHeader}>
+                      <Pressable
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: allocated || pending }}
+                        onPress={() => {
+                          if (allocated) {
+                            toggleAllocated(item);
+                            return;
+                          }
+                          togglePending(item.item_id);
+                        }}
+                        style={styles.itemHeaderPressable}
+                      >
+                        <MaterialCommunityIcons
+                          name={
+                            allocated
+                              ? "check-circle"
+                              : pending
+                                ? "checkbox-marked-circle-outline"
+                                : "checkbox-blank-circle-outline"
+                          }
+                          size={22}
+                          color={allocated || pending ? palette.primary : palette.textMuted}
+                        />
+                        {thumbUri ? (
+                          <ItemThumbnail
+                            uri={thumbUri}
+                            recyclingKey={item.item_id}
+                            size={44}
+                            borderRadius={8}
+                            backgroundColor={palette.surfaceMuted}
+                            icon="food-drumstick-outline"
+                            iconColor={palette.textMuted}
+                            iconSize={20}
+                          />
+                        ) : (
+                          <View style={[styles.itemThumbFallback, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+                            <MaterialCommunityIcons name="food-drumstick-outline" size={20} color={palette.textMuted} />
+                          </View>
+                        )}
+                        <View style={styles.itemText}>
+                          <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
+                            {item.item_name}
+                          </Text>
+                          {item.billing_price ? (
+                            <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 2 }]}>
+                              Billing {item.billing_price}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                      {allocated ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${item.item_name}`}
+                          onPress={() => toggleAllocated(item)}
+                          hitSlop={8}
+                        >
+                          <MaterialCommunityIcons name="close-circle-outline" size={22} color={palette.danger} />
+                        </Pressable>
                       ) : null}
                     </View>
-                  </Pressable>
-                  {allocated ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${item.item_name}`}
-                      onPress={() => toggleAllocated(item)}
-                      hitSlop={8}
-                    >
-                      <MaterialCommunityIcons name="close-circle-outline" size={22} color={palette.danger} />
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                {allocated && draft ? (
-                  <View style={styles.priceRow}>
-                    <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Wholesale price</Text>
-                    <TextInput
-                      value={draft.price_per_unit}
-                      onChangeText={(value) => updatePrice(item.item_id, value)}
-                      keyboardType="decimal-pad"
-                      placeholder="Price per unit"
-                      placeholderTextColor={palette.textMuted}
-                      style={[
-                        styles.priceInput,
-                        {
-                          color: palette.textPrimary,
-                          borderColor: palette.border,
-                          backgroundColor: palette.surfaceMuted,
-                        },
-                      ]}
-                    />
                   </View>
-                ) : null}
-              </View>
-            );
-          }}
-        />
-      )}
-
-      <View
-        style={[
-          styles.footer,
-          {
-            backgroundColor: palette.background,
-            borderTopColor: palette.border,
-            paddingBottom: Math.max(insets.bottom, 12),
-          },
-        ]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Save item allocations"
-          disabled={saving || !selectedRetailerId || !dirty}
-          onPress={() => void save()}
-          style={[
-            styles.saveButton,
-            {
-              backgroundColor: palette.primary,
-              opacity: saving || !dirty ? 0.72 : 1,
-            },
-          ]}
-        >
-          {saving ? (
-            <ActivityIndicator color={palette.onPrimary} />
-          ) : (
-            <Text style={{ color: palette.onPrimary, fontWeight: "800" }}>
-              Save allocations ({allocatedCount})
-            </Text>
+                );
+              }}
+            />
           )}
-        </Pressable>
-      </View>
+
+          <View
+            style={[
+              styles.footer,
+              {
+                backgroundColor: palette.background,
+                borderTopColor: palette.border,
+                paddingBottom: Math.max(insets.bottom, 12),
+              },
+            ]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Save branch items"
+              disabled={
+                saving ||
+                !selectedShopId ||
+                !dirty
+              }
+              onPress={() => void save()}
+              style={[
+                styles.saveButton,
+                {
+                  backgroundColor: palette.primary,
+                  opacity: saving || !dirty ? 0.72 : 1,
+                },
+              ]}
+            >
+              {saving ? (
+                <ActivityIndicator color={palette.onPrimary} />
+              ) : (
+                <Text style={{ color: palette.onPrimary, fontWeight: "800" }}>
+                  Save branch items ({allocatedCount})
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </>
+      ) : null}
     </View>
   );
 });
@@ -627,16 +743,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingTop: 48,
   },
-  retailerSelect: {
+  selector: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
     borderRadius: adminRadii.card,
     paddingHorizontal: adminSpacing.md,
-    paddingVertical: 12,
+    paddingVertical: 8,
     gap: adminSpacing.sm,
   },
-  retailerSelectText: {
+  selectorText: {
     flex: 1,
     minWidth: 0,
     gap: 2,
@@ -722,7 +838,7 @@ const styles = StyleSheet.create({
     borderRadius: adminRadii.card,
     padding: adminSpacing.md,
   },
-  retailerOption: {
+  pickerOption: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

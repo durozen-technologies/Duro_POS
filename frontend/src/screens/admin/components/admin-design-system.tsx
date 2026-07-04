@@ -195,33 +195,56 @@ export const AdminSegmentedTabs = memo(function AdminSegmentedTabs<TValue extend
   activeValue,
   palette,
   onChange,
+  scrollable = false,
 }: {
   items: { value: TValue; label: string; icon?: IconName }[];
   activeValue: TValue;
   palette: ThemePalette;
   onChange: (value: TValue) => void;
+  scrollable?: boolean;
 }) {
+  const content = items.map((item) => {
+    const active = item.value === activeValue;
+    return (
+      <Pressable
+        key={item.value}
+        accessibilityRole="button"
+        accessibilityState={{ selected: active }}
+        onPress={() => onChange(item.value)}
+        style={[
+          styles.segmentedTab,
+          !scrollable && { flex: 1 },
+          scrollable && { paddingHorizontal: adminSpacing.md },
+          active && { backgroundColor: palette.card, borderColor: palette.border }
+        ]}
+      >
+        {item.icon ? (
+          <MaterialCommunityIcons name={item.icon} size={16} color={active ? palette.primary : palette.textMuted} />
+        ) : null}
+        <Text numberOfLines={1} style={[styles.segmentedTabText, { color: active ? palette.primaryStrong : palette.textMuted }]}>
+          {item.label}
+        </Text>
+      </Pressable>
+    );
+  });
+
+  if (scrollable) {
+    return (
+      <View style={[styles.segmentedTabs, { backgroundColor: palette.surfaceMuted, borderColor: palette.border, padding: 0, gap: 0 }]}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ padding: adminSpacing.xs, gap: adminSpacing.xs }}
+        >
+          {content}
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.segmentedTabs, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-      {items.map((item) => {
-        const active = item.value === activeValue;
-        return (
-          <Pressable
-            key={item.value}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            onPress={() => onChange(item.value)}
-            style={[styles.segmentedTab, active && { backgroundColor: palette.card, borderColor: palette.border }]}
-          >
-            {item.icon ? (
-              <MaterialCommunityIcons name={item.icon} size={16} color={active ? palette.primary : palette.textMuted} />
-            ) : null}
-            <Text numberOfLines={1} style={[styles.segmentedTabText, { color: active ? palette.primaryStrong : palette.textMuted }]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+      {content}
     </View>
   );
 });
@@ -460,7 +483,6 @@ const styles = StyleSheet.create({
     gap: adminSpacing.xs,
   },
   segmentedTab: {
-    flex: 1,
     minHeight: 38,
     borderRadius: adminRadii.control,
     borderWidth: 1,

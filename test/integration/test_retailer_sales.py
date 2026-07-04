@@ -31,8 +31,10 @@ from app.services.retailers import (
     bulk_allocate_retailer_items,
     create_retailer,
     list_retailer_item_allocations,
+    list_retailer_item_prices,
     sync_retailer_branch_allocations,
     sync_retailer_item_prices,
+    sync_shop_retailer_item_catalog,
 )
 
 
@@ -53,9 +55,11 @@ class RetailerSalesIntegrationTests(BackendTestCase):
         await allocate_catalogue_item(db, current_shop, chicken.id)
         retailer = await create_retailer(db, RetailerCreate(name="Wholesale Co"))
         await sync_retailer_branch_allocations(db, retailer.id, [current_shop.id])
+        await sync_shop_retailer_item_catalog(db, current_shop.id, [chicken.id])
         await sync_retailer_item_prices(
             db,
             retailer.id,
+            current_shop.id,
             [RetailerItemPriceInput(item_id=chicken.id, price_per_unit=Decimal("100.00"))],
         )
         return db, shop_user, current_shop, retailer, chicken, duck
@@ -73,6 +77,7 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 mapped = await sync_retailer_item_prices(
                     db,
                     retailer.id,
+                    _current_shop.id,
                     [
                         RetailerItemPriceInput(
                             item_id=chicken.id,
@@ -91,10 +96,16 @@ class RetailerSalesIntegrationTests(BackendTestCase):
 
         async def scenario() -> None:
             with self.harness.session_factory() as session:
-                db, _shop_user, _current_shop, retailer, chicken, duck = (
+                db, _shop_user, current_shop, retailer, chicken, duck = (
                     await self._prepare_shop_retailer(session)
                 )
-                listing = await list_retailer_item_allocations(db, retailer.id)
+                await allocate_catalogue_item(db, current_shop, duck.id)
+                await sync_shop_retailer_item_catalog(
+                    db, current_shop.id, [chicken.id, duck.id]
+                )
+                listing = await list_retailer_item_allocations(
+                    db, retailer.id, shop_id=current_shop.id
+                )
                 self.assertGreaterEqual(len(listing.items), 2)
                 chicken_row = next(row for row in listing.items if row.item_id == chicken.id)
                 duck_row = next(row for row in listing.items if row.item_id == duck.id)
@@ -104,6 +115,7 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 bulk = await bulk_allocate_retailer_items(
                     db,
                     retailer.id,
+                    current_shop.id,
                     [
                         RetailerItemPriceInput(
                             item_id=chicken.id,
@@ -120,10 +132,85 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 self.assertEqual(bulk.items[0].item_id, duck.id)
 
                 allocated_only = await list_retailer_item_allocations(
-                    db, retailer.id, allocated="allocated"
+                    db, retailer.id, shop_id=current_shop.id, allocated="allocated"
                 )
                 self.assertEqual(len(allocated_only.items), 2)
                 self.assertTrue(all(row.is_allocated for row in allocated_only.items))
+
+        self.run_async(scenario())
+
+    def test_retailers_at_branch_can_have_different_wholesale_prices(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, _shop_user, current_shop, retailer_a, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                retailer_b = await create_retailer(db, RetailerCreate(name="Second Wholesale"))
+                await sync_retailer_branch_allocations(
+                    db,
+                    retailer_b.id,
+                    [current_shop.id],
+                )
+                await sync_shop_retailer_item_catalog(db, current_shop.id, [chicken.id])
+
+                from app.services.retailers import update_retailer_item_allocation
+                from app.schemas.retailers import RetailerItemAllocationUpdate
+
+                created = await update_retailer_item_allocation(
+                    db,
+                    retailer_b.id,
+                    current_shop.id,
+                    chicken.id,
+                    RetailerItemAllocationUpdate(price_per_unit=Decimal("115.00")),
+                )
+                self.assertEqual(created.price_per_unit, Decimal("115.00"))
+
+                await update_retailer_item_allocation(
+                    db,
+                    retailer_b.id,
+                    current_shop.id,
+                    chicken.id,
+                    RetailerItemAllocationUpdate(price_per_unit=Decimal("115.00")),
+                )
+                prices_b = await list_retailer_item_prices(
+                    db, retailer_b.id, shop_id=current_shop.id
+                )
+                self.assertEqual(prices_b[0].price_per_unit, Decimal("115.00"))
+
+                await sync_retailer_item_prices(
+                    db,
+                    retailer_a.id,
+                    current_shop.id,
+                    [
+                        RetailerItemPriceInput(
+                            item_id=chicken.id,
+                            price_per_unit=Decimal("100.00"),
+                        )
+                    ],
+                )
+                await sync_retailer_item_prices(
+                    db,
+                    retailer_b.id,
+                    current_shop.id,
+                    [
+                        RetailerItemPriceInput(
+                            item_id=chicken.id,
+                            price_per_unit=Decimal("115.00"),
+                        )
+                    ],
+                )
+
+                prices_a = await list_retailer_item_prices(
+                    db, retailer_a.id, shop_id=current_shop.id
+                )
+                prices_b = await list_retailer_item_prices(
+                    db, retailer_b.id, shop_id=current_shop.id
+                )
+                self.assertEqual(prices_a[0].price_per_unit, Decimal("100.00"))
+                self.assertEqual(prices_b[0].price_per_unit, Decimal("115.00"))
 
         self.run_async(scenario())
 
