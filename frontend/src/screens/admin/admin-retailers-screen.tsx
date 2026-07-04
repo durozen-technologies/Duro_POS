@@ -10,15 +10,15 @@ import type { RetailerRead } from "@/types/api";
 import { adminSpacing, adminTypography } from "./admin-dashboard-theme";
 import type { AdminRetailersTab } from "./admin-dashboard-utils";
 import { AdminSegmentedTabs } from "./components/admin-design-system";
+import { AdminRetailersAllocateItemsTab } from "./components/admin-retailers-allocate-items-tab";
 import { AdminRetailersDirectoryTab } from "./components/admin-retailers-directory-tab";
-import { AdminRetailersItemsTab } from "./components/admin-retailers-items-tab";
 import { AdminRetailersSalesTab } from "./components/admin-retailers-sales-tab";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { useAdminTheme } from "./use-admin-theme";
 
-const TAB_ITEMS: { value: AdminRetailersTab; label: string; icon: "account-group-outline" | "tag-multiple-outline" | "receipt-text-outline" }[] = [
+const TAB_ITEMS: { value: AdminRetailersTab; label: string; icon: "account-group-outline" | "playlist-plus" | "receipt-text-outline" }[] = [
   { value: "retailers", label: "Retailers", icon: "account-group-outline" },
-  { value: "items", label: "Item prices", icon: "tag-multiple-outline" },
+  { value: "allocateItems", label: "Allocate items", icon: "playlist-plus" },
   { value: "sales", label: "Open sales", icon: "receipt-text-outline" },
 ];
 
@@ -26,6 +26,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const initialTab = route.params?.tab ?? "retailers";
+  const initialRetailerId = route.params?.retailerId ?? null;
   const [activeTab, setActiveTab] = useState<AdminRetailersTab>(initialTab);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,15 +75,6 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
     [navigation],
   );
 
-  const handleAssignItems = useCallback(
-    (retailer: RetailerRead) =>
-      navigation.navigate("AdminRetailerItems", {
-        retailerId: retailer.id,
-        retailerName: retailer.name,
-      }),
-    [navigation],
-  );
-
   const handleOpenSale = useCallback(
     (saleId: string) => navigation.navigate("AdminRetailerSaleDetail", { saleId }),
     [navigation],
@@ -126,12 +118,12 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
             />
           ) : null}
 
-          {activeTab === "items" ? (
-            <AdminRetailersItemsTab
+          {activeTab === "allocateItems" ? (
+            <AdminRetailersAllocateItemsTab
               palette={palette}
               refreshNonce={refreshNonce}
               onRefreshComplete={handleRefreshComplete}
-              onAssignItems={handleAssignItems}
+              initialRetailerId={initialRetailerId}
             />
           ) : null}
 

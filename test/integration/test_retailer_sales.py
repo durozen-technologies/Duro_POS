@@ -27,7 +27,13 @@ from app.services.retailer_sales import (
     preview_retailer_sale,
     record_retailer_payment,
 )
-from app.services.retailers import create_retailer, sync_retailer_branch_allocations, sync_retailer_item_prices
+from app.services.retailers import (
+    bulk_allocate_retailer_items,
+    create_retailer,
+    list_retailer_item_allocations,
+    sync_retailer_branch_allocations,
+    sync_retailer_item_prices,
+)
 
 
 class RetailerSalesIntegrationTests(BackendTestCase):
@@ -76,6 +82,48 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 )
                 self.assertEqual(len(mapped), 1)
                 self.assertEqual(mapped[0].price_per_unit, Decimal("125.50"))
+
+        self.run_async(scenario())
+
+    def test_list_and_bulk_allocate_items_skips_duplicates(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken", "Duck")))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, _shop_user, _current_shop, retailer, chicken, duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                listing = await list_retailer_item_allocations(db, retailer.id)
+                self.assertGreaterEqual(len(listing.items), 2)
+                chicken_row = next(row for row in listing.items if row.item_id == chicken.id)
+                duck_row = next(row for row in listing.items if row.item_id == duck.id)
+                self.assertTrue(chicken_row.is_allocated)
+                self.assertFalse(duck_row.is_allocated)
+
+                bulk = await bulk_allocate_retailer_items(
+                    db,
+                    retailer.id,
+                    [
+                        RetailerItemPriceInput(
+                            item_id=chicken.id,
+                            price_per_unit=Decimal("100.00"),
+                        ),
+                        RetailerItemPriceInput(
+                            item_id=duck.id,
+                            price_per_unit=Decimal("90.00"),
+                        ),
+                    ],
+                )
+                self.assertEqual(bulk.allocated_count, 1)
+                self.assertEqual(bulk.already_allocated_count, 1)
+                self.assertEqual(bulk.items[0].item_id, duck.id)
+
+                allocated_only = await list_retailer_item_allocations(
+                    db, retailer.id, allocated="allocated"
+                )
+                self.assertEqual(len(allocated_only.items), 2)
+                self.assertTrue(all(row.is_allocated for row in allocated_only.items))
 
         self.run_async(scenario())
 

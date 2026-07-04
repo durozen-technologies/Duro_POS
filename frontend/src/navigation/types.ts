@@ -66,6 +66,7 @@ export type AppStackParamList = {
   AdminRetailers:
     | {
         tab?: import("@/screens/admin/admin-dashboard-utils").AdminRetailersTab;
+        retailerId?: UUID;
       }
     | undefined;
   AdminRetailerEditor:

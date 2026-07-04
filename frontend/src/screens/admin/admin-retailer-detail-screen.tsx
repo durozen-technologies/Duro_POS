@@ -130,6 +130,24 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
           <Pressable
             onPress={() => {
               triggerHaptic();
+              navigation.navigate("AdminRetailers", {
+                tab: "allocateItems",
+                retailerId: retailer.id,
+              });
+            }}
+            style={{
+              borderRadius: adminRadii.card,
+              borderWidth: 1,
+              borderColor: palette.border,
+              backgroundColor: palette.card,
+              padding: 14,
+            }}
+          >
+            <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Allocate items</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              triggerHaptic();
               navigation.navigate("AdminRetailerEditor", { initialRetailer: retailer });
             }}
             style={{
@@ -141,24 +159,6 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
             }}
           >
             <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Edit retailer</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              triggerHaptic();
-              navigation.navigate("AdminRetailerItems", {
-                retailerId: retailer.id,
-                retailerName: retailer.name,
-              });
-            }}
-            style={{
-              borderRadius: adminRadii.card,
-              borderWidth: 1,
-              borderColor: palette.border,
-              backgroundColor: palette.card,
-              padding: 14,
-            }}
-          >
-            <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Manage item prices</Text>
           </Pressable>
           <Text style={{ color: palette.textPrimary, fontWeight: "700", marginTop: 8 }}>Open sales</Text>
           {(balance?.open_sales ?? []).length === 0 ? (

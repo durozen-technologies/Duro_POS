@@ -959,6 +959,38 @@ export interface RetailerItemPriceRead {
   is_active: boolean;
 }
 
+export interface RetailerItemAllocationRead {
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name: string;
+  unit_type: UnitType;
+  base_unit: BaseUnit;
+  image_path?: string | null;
+  image_thumb_path?: string | null;
+  billing_price?: string | null;
+  is_allocated: boolean;
+  retailer_item_price_id?: UUID | null;
+  price_per_unit?: string | null;
+  allocation_is_active?: boolean | null;
+}
+
+export interface RetailerItemAllocationListRead {
+  items: RetailerItemAllocationRead[];
+  total: number;
+  allocated_count: number;
+}
+
+export interface RetailerItemAllocationBulkRead {
+  items: RetailerItemPriceRead[];
+  allocated_count: number;
+  already_allocated_count: number;
+}
+
+export interface RetailerItemAllocationUpdate {
+  price_per_unit?: string | null;
+  is_active?: boolean | null;
+}
+
 export interface RetailerCatalogItemRead {
   item_id: UUID;
   item_name: string;

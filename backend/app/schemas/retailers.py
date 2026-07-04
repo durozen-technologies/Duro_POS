@@ -72,6 +72,42 @@ class RetailerItemPriceSync(BaseModel):
     items: list[RetailerItemPriceInput]
 
 
+class RetailerItemAllocationRead(BaseModel):
+    item_id: UUID
+    item_name: str
+    item_tamil_name: str
+    unit_type: UnitType
+    base_unit: BaseUnit
+    image_path: str | None = None
+    image_thumb_path: str | None = None
+    billing_price: Decimal | None = None
+    is_allocated: bool
+    retailer_item_price_id: UUID | None = None
+    price_per_unit: Decimal | None = None
+    allocation_is_active: bool | None = None
+
+
+class RetailerItemAllocationListRead(BaseModel):
+    items: list[RetailerItemAllocationRead]
+    total: int
+    allocated_count: int
+
+
+class RetailerItemAllocationBulkCreate(BaseModel):
+    items: list[RetailerItemPriceInput]
+
+
+class RetailerItemAllocationBulkRead(BaseModel):
+    items: list[RetailerItemPriceRead]
+    allocated_count: int
+    already_allocated_count: int
+
+
+class RetailerItemAllocationUpdate(BaseModel):
+    price_per_unit: Decimal | None = Field(default=None, gt=0)
+    is_active: bool | None = None
+
+
 class RetailerCatalogItemRead(ORMModel):
     item_id: UUID
     item_name: str

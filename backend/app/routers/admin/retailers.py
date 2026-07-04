@@ -1,8 +1,8 @@
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 
 from app.auth.permission_codes import RETAILERS_MANAGE, RETAILERS_READ
 from app.auth.tenant_context import TenantContext, require_permission
@@ -13,6 +13,10 @@ from app.schemas.retailers import (
     RetailerBranchAllocationRead,
     RetailerBranchAllocationSync,
     RetailerCreate,
+    RetailerItemAllocationBulkCreate,
+    RetailerItemAllocationBulkRead,
+    RetailerItemAllocationListRead,
+    RetailerItemAllocationUpdate,
     RetailerItemPriceRead,
     RetailerItemPriceSync,
     RetailerPage,
@@ -33,14 +37,18 @@ from app.services.retailer_sales import (
     record_retailer_payment,
 )
 from app.services.retailers import (
+    bulk_allocate_retailer_items,
     create_retailer,
+    delete_retailer_item_allocation,
     get_retailer_balance,
     list_retailer_branch_allocations,
+    list_retailer_item_allocations,
     list_retailer_item_prices,
     list_retailers,
     sync_retailer_branch_allocations,
     sync_retailer_item_prices,
     update_retailer,
+    update_retailer_item_allocation,
 )
 
 router = APIRouter()
@@ -115,6 +123,72 @@ async def admin_sync_retailer_items(
     db: DBSession,
 ) -> list[RetailerItemPriceRead]:
     return await sync_retailer_item_prices(db, retailer_id, payload.items)
+
+
+@router.get(
+    "/retailers/{retailer_id}/item-allocations",
+    response_model=RetailerItemAllocationListRead,
+    dependencies=[Depends(require_permission(RETAILERS_READ))],
+    summary="List billing catalogue items with retailer allocation status",
+)
+async def admin_list_retailer_item_allocations(
+    retailer_id: UUID,
+    db: DBSession,
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    allocated: Annotated[Literal["allocated", "available"] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> RetailerItemAllocationListRead:
+    return await list_retailer_item_allocations(
+        db,
+        retailer_id,
+        q=q,
+        allocated=allocated,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/retailers/{retailer_id}/item-allocations",
+    response_model=RetailerItemAllocationBulkRead,
+    status_code=201,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Bulk allocate billing items to retailer",
+)
+async def admin_bulk_allocate_retailer_items(
+    retailer_id: UUID,
+    payload: RetailerItemAllocationBulkCreate,
+    db: DBSession,
+) -> RetailerItemAllocationBulkRead:
+    return await bulk_allocate_retailer_items(db, retailer_id, payload.items)
+
+
+@router.patch(
+    "/retailers/{retailer_id}/item-allocations/{item_id}",
+    response_model=RetailerItemPriceRead,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Update retailer item allocation",
+)
+async def admin_update_retailer_item_allocation(
+    retailer_id: UUID,
+    item_id: UUID,
+    payload: RetailerItemAllocationUpdate,
+    db: DBSession,
+) -> RetailerItemPriceRead:
+    return await update_retailer_item_allocation(db, retailer_id, item_id, payload)
+
+
+@router.delete(
+    "/retailers/{retailer_id}/item-allocations/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Remove retailer item allocation",
+)
+async def admin_delete_retailer_item_allocation(
+    retailer_id: UUID,
+    item_id: UUID,
+    db: DBSession,
+) -> None:
+    await delete_retailer_item_allocation(db, retailer_id, item_id)
 
 
 @router.get(
