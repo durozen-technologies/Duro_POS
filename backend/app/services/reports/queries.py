@@ -1034,8 +1034,8 @@ def _fpdf_draw_day_summary_card(
     expense: Decimal,
     balance: Decimal,
 ) -> None:
-    card_width = 300
-    card_height = 70
+    card_width = 400
+    card_height = 110
     x_start = (pdf.w - card_width) / 2
     y_start = pdf.get_y() + 5
 
@@ -1047,32 +1047,32 @@ def _fpdf_draw_day_summary_card(
     pdf.set_draw_color(200, 205, 212)
     pdf.rect(x_start, y_start, card_width, card_height, style="DF")
 
-    pdf.set_xy(x_start + 10, y_start + 6)
-    pdf.set_font("NotoSans", style="B", size=8)
+    pdf.set_xy(x_start + 10, y_start + 8)
+    pdf.set_font("NotoSans", style="B", size=14)
     pdf.cell(card_width - 20, 10, text=f"Day Summary ({day_label})")
 
-    pdf.set_font("NotoSans", size=7.5)
-
-    pdf.set_xy(x_start + 10, y_start + 20)
-    pdf.cell(150, 8, text="Total Sales")
-    pdf.set_xy(x_start + card_width - 110, y_start + 20)
-    pdf.cell(100, 8, text=_money(sales), align="R")
+    pdf.set_font("NotoSans", size=14)
 
     pdf.set_xy(x_start + 10, y_start + 30)
-    pdf.cell(150, 8, text="Total Purchase")
-    pdf.set_xy(x_start + card_width - 110, y_start + 30)
-    pdf.cell(100, 8, text=_money(purchase), align="R")
+    pdf.cell(200, 12, text="Total Sales")
+    pdf.set_xy(x_start + card_width - 160, y_start + 30)
+    pdf.cell(150, 12, text=_money(sales), align="R")
 
-    pdf.set_xy(x_start + 10, y_start + 40)
-    pdf.cell(150, 8, text="Total Expense Amount")
-    pdf.set_xy(x_start + card_width - 110, y_start + 40)
-    pdf.cell(100, 8, text=_money(expense), align="R")
+    pdf.set_xy(x_start + 10, y_start + 48)
+    pdf.cell(200, 12, text="Total Purchase")
+    pdf.set_xy(x_start + card_width - 160, y_start + 48)
+    pdf.cell(150, 12, text=_money(purchase), align="R")
 
-    pdf.set_xy(x_start + 10, y_start + 52)
-    pdf.set_font("NotoSans", style="B", size=7.5)
-    pdf.cell(150, 8, text="Balance Amount")
-    pdf.set_xy(x_start + card_width - 110, y_start + 52)
-    pdf.cell(100, 8, text=_money(balance), align="R")
+    pdf.set_xy(x_start + 10, y_start + 66)
+    pdf.cell(200, 12, text="Total Expense Amount")
+    pdf.set_xy(x_start + card_width - 160, y_start + 66)
+    pdf.cell(150, 12, text=_money(expense), align="R")
+
+    pdf.set_xy(x_start + 10, y_start + 88)
+    pdf.set_font("NotoSans", style="B", size=14)
+    pdf.cell(200, 12, text="Balance Amount")
+    pdf.set_xy(x_start + card_width - 160, y_start + 88)
+    pdf.cell(150, 12, text=_money(balance), align="R")
 
     pdf.set_draw_color(200, 205, 212)
     pdf.set_xy(x_start, y_start + card_height + 5)
@@ -1086,8 +1086,8 @@ def _fpdf_draw_grand_total_summary(
     total_balance: Decimal,
     table_width: int = 798,
 ) -> None:
-    fin_width = 250
-    fin_height = 54
+    fin_width = 400
+    fin_height = 95
 
     x_start = (pdf.w - table_width) / 2 + table_width - fin_width
     y_start = pdf.get_y() + 8
@@ -1100,27 +1100,27 @@ def _fpdf_draw_grand_total_summary(
     pdf.set_draw_color(200, 205, 212)
     pdf.rect(x_start, y_start, fin_width, fin_height, style="DF")
 
-    pdf.set_xy(x_start + 10, y_start + 5)
-    pdf.set_font("NotoSans", size=8)
-    pdf.cell(120, 8, text="Total Sales")
-    pdf.set_xy(x_start + fin_width - 110, y_start + 5)
-    pdf.cell(100, 8, text=_money(total_sales), align="R")
+    pdf.set_xy(x_start + 10, y_start + 10)
+    pdf.set_font("NotoSans", size=14)
+    pdf.cell(200, 12, text="Total Sales")
+    pdf.set_xy(x_start + fin_width - 160, y_start + 10)
+    pdf.cell(150, 12, text=_money(total_sales), align="R")
 
-    pdf.set_xy(x_start + 10, y_start + 15)
-    pdf.cell(120, 8, text="Total Purchase")
-    pdf.set_xy(x_start + fin_width - 110, y_start + 15)
-    pdf.cell(100, 8, text=_money(total_purchase), align="R")
+    pdf.set_xy(x_start + 10, y_start + 28)
+    pdf.cell(200, 12, text="Total Purchase")
+    pdf.set_xy(x_start + fin_width - 160, y_start + 28)
+    pdf.cell(150, 12, text=_money(total_purchase), align="R")
 
-    pdf.set_xy(x_start + 10, y_start + 25)
-    pdf.cell(120, 8, text="Total Expense Amount")
-    pdf.set_xy(x_start + fin_width - 110, y_start + 25)
-    pdf.cell(100, 8, text=_money(total_expense), align="R")
+    pdf.set_xy(x_start + 10, y_start + 46)
+    pdf.cell(200, 12, text="Total Expense Amount")
+    pdf.set_xy(x_start + fin_width - 160, y_start + 46)
+    pdf.cell(150, 12, text=_money(total_expense), align="R")
 
-    pdf.set_xy(x_start + 10, y_start + 39)
-    pdf.set_font("NotoSans", style="B", size=8)
-    pdf.cell(120, 8, text="Balance Amount")
-    pdf.set_xy(x_start + fin_width - 110, y_start + 39)
-    pdf.cell(100, 8, text=_money(total_balance), align="R")
+    pdf.set_xy(x_start + 10, y_start + 68)
+    pdf.set_font("NotoSans", style="B", size=14)
+    pdf.cell(200, 12, text="Balance Amount")
+    pdf.set_xy(x_start + fin_width - 160, y_start + 68)
+    pdf.cell(150, 12, text=_money(total_balance), align="R")
 
     pdf.set_xy(x_start, y_start + fin_height + 5)
 
@@ -1198,29 +1198,54 @@ async def _generate_over_report_fpdf_pdf(
             for stmt in statements
             for row in _over_report_sheet_rows(stmt.inventory_items, stmt, use_tamil=use_tamil)
         ]
-        widths = _fpdf_over_report_sheet_widths(pdf, headers, sheet_rows)
-        alignments = list(OVER_REPORT_SHEET_ALIGNMENTS)
-        header_alignments = list(OVER_REPORT_SHEET_HEADER_ALIGNMENTS)
 
-        def draw_header_row() -> None:
-            pdf.set_font("NotoSans", style="B", size=6.5)
+        part1_indices = list(range(10))
+        part2_indices = [0, 1] + list(range(10, 17))
+
+        headers1 = [headers[i] for i in part1_indices]
+        headers2 = [headers[i] for i in part2_indices]
+
+        rows1 = [[row[i] for i in part1_indices] for row in sheet_rows]
+        rows2 = [[row[i] for i in part2_indices] for row in sheet_rows]
+
+        min_widths1 = tuple(OVER_REPORT_SHEET_MIN_WIDTHS[i] for i in part1_indices)
+        min_widths2 = tuple(OVER_REPORT_SHEET_MIN_WIDTHS[i] for i in part2_indices)
+
+        widths1 = _fpdf_over_report_sheet_widths(pdf, headers1, rows1, min_widths=min_widths1)
+        widths2 = _fpdf_over_report_sheet_widths(pdf, headers2, rows2, min_widths=min_widths2)
+
+        alignments1 = [OVER_REPORT_SHEET_ALIGNMENTS[i] for i in part1_indices]
+        alignments2 = [OVER_REPORT_SHEET_ALIGNMENTS[i] for i in part2_indices]
+        header_alignments1 = [OVER_REPORT_SHEET_HEADER_ALIGNMENTS[i] for i in part1_indices]
+        header_alignments2 = [OVER_REPORT_SHEET_HEADER_ALIGNMENTS[i] for i in part2_indices]
+
+        def draw_header_row1() -> None:
+            pdf.set_font("NotoSans", style="B", size=11)
             pdf.set_text_color(255, 255, 255)
             pdf.set_draw_color(26, 37, 51)
             _fpdf_draw_row(
-                pdf,
-                widths,
-                header_alignments,
-                headers,
-                line_height=7,
-                padding=4,
-                fill=True,
-                fill_color=(46, 61, 82),
-                is_header=True,
+                pdf, widths1, header_alignments1, headers1,
+                line_height=14, padding=5, fill=True, fill_color=(46, 61, 82), is_header=True,
             )
             pdf.set_text_color(31, 39, 51)
             pdf.set_draw_color(200, 205, 212)
 
-        draw_header_row()
+        def draw_header_row2() -> None:
+            pdf.set_font("NotoSans", style="B", size=11)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_draw_color(26, 37, 51)
+            _fpdf_draw_row(
+                pdf, widths2, header_alignments2, headers2,
+                line_height=14, padding=5, fill=True, fill_color=(46, 61, 82), is_header=True,
+            )
+            pdf.set_text_color(31, 39, 51)
+            pdf.set_draw_color(200, 205, 212)
+
+        # Part 1
+        pdf.set_font("NotoSans", style="B", size=14)
+        pdf.cell(0, 10, text="Part 1: Inventory Details", align="L", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        draw_header_row1()
 
         row_index = 0
         for stmt in statements:
@@ -1230,76 +1255,70 @@ async def _generate_over_report_fpdf_pdf(
             mapped_rows = _over_report_sheet_rows(mapped_items, stmt, use_tamil=use_tamil)
             unmapped_rows = _over_report_sheet_rows(unmapped_items, stmt, use_tamil=use_tamil)
 
-            pdf.set_font("NotoSans", size=6)
+            pdf.set_font("NotoSans", size=12)
             for row in mapped_rows:
                 fill = row_index % 2 == 1
                 _fpdf_draw_row(
-                    pdf,
-                    widths,
-                    alignments,
-                    row,
-                    line_height=7,
-                    padding=3,
-                    fill=fill,
-                    fill_color=(244, 246, 248),
-                    header_drawer=draw_header_row,
+                    pdf, widths1, alignments1, [row[i] for i in part1_indices],
+                    line_height=14, padding=4, fill=fill, fill_color=(244, 246, 248),
+                    header_drawer=draw_header_row1,
                 )
                 row_index += 1
 
             if unmapped_rows:
                 if mapped_rows or row_index > 0:
                     pdf.ln(8)
-
-                pdf.set_font("NotoSans", style="B", size=8)
+                pdf.set_font("NotoSans", style="B", size=11)
                 pdf.set_text_color(31, 39, 51)
-                pdf.cell(
-                    sum(widths[:8]),
-                    10,
-                    text="No mapped billing Items",
-                    align="C",
-                    new_x="LMARGIN",
-                    new_y="NEXT",
-                )
+                pdf.cell(sum(widths1[:8]), 10, text="No mapped billing Items", align="C", new_x="LMARGIN", new_y="NEXT")
 
-                unmapped_widths = widths[:8]
-                unmapped_alignments = alignments[:8]
-                unmapped_header_alignments = header_alignments[:8]
-                unmapped_headers = headers[:8]
+                unmapped_widths = widths1[:8]
+                unmapped_alignments = alignments1[:8]
+                unmapped_header_alignments = header_alignments1[:8]
+                unmapped_headers = headers1[:8]
 
-                def draw_unmapped_header_row() -> None:
-                    pdf.set_font("NotoSans", style="B", size=6.5)
+                def draw_unmapped_header_row1() -> None:
+                    pdf.set_font("NotoSans", style="B", size=11)
                     pdf.set_text_color(255, 255, 255)
                     pdf.set_draw_color(26, 37, 51)
                     _fpdf_draw_row(
-                        pdf,
-                        unmapped_widths,
-                        unmapped_header_alignments,
-                        unmapped_headers,
-                        line_height=7,
-                        padding=4,
-                        fill=True,
-                        fill_color=(46, 61, 82),
-                        is_header=True,
+                        pdf, unmapped_widths, unmapped_header_alignments, unmapped_headers,
+                        line_height=14, padding=5, fill=True, fill_color=(46, 61, 82), is_header=True,
                     )
                     pdf.set_text_color(31, 39, 51)
                     pdf.set_draw_color(200, 205, 212)
 
-                draw_unmapped_header_row()
+                draw_unmapped_header_row1()
                 row_index = 0
                 for row in unmapped_rows:
                     fill = row_index % 2 == 1
                     _fpdf_draw_row(
-                        pdf,
-                        unmapped_widths,
-                        unmapped_alignments,
-                        row[:8],
-                        line_height=7,
-                        padding=3,
-                        fill=fill,
-                        fill_color=(244, 246, 248),
-                        header_drawer=draw_unmapped_header_row,
+                        pdf, unmapped_widths, unmapped_alignments, [row[i] for i in range(8)],
+                        line_height=14, padding=4, fill=fill, fill_color=(244, 246, 248),
+                        header_drawer=draw_unmapped_header_row1,
                     )
                     row_index += 1
+
+        # Part 2
+        pdf.ln(10)
+        pdf.set_font("NotoSans", style="B", size=14)
+        pdf.cell(0, 10, text="Part 2: Billing & Sales Details", align="L", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        draw_header_row2()
+        row_index = 0
+        for stmt in statements:
+            mapped_items = [i for i in stmt.inventory_items if i.billing_items]
+            mapped_rows = _over_report_sheet_rows(mapped_items, stmt, use_tamil=use_tamil)
+
+            pdf.set_font("NotoSans", size=12)
+            for row in mapped_rows:
+                fill = row_index % 2 == 1
+                _fpdf_draw_row(
+                    pdf, widths2, alignments2, [row[i] for i in part2_indices],
+                    line_height=14, padding=4, fill=fill, fill_color=(244, 246, 248),
+                    header_drawer=draw_header_row2,
+                )
+                row_index += 1
 
             if stmt.inventory_items and period_start != period_end:
                 day_label = _statement_table_date(stmt)
@@ -1316,7 +1335,7 @@ async def _generate_over_report_fpdf_pdf(
         total_expense = sum((_decimal(s.expense_amount) for s in statements), Decimal("0"))
         total_balance = _over_report_balance_amount(total_sales, total_purchase, total_expense)
         _fpdf_draw_grand_total_summary(
-            pdf, total_sales, total_purchase, total_expense, total_balance, table_width=sum(widths)
+            pdf, total_sales, total_purchase, total_expense, total_balance, table_width=sum(widths1)
         )
 
     return bytes(pdf.output())

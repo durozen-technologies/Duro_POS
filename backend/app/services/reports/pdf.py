@@ -158,10 +158,10 @@ OVER_REPORT_SHEET_MIN_WIDTHS = (
 )
 OVER_REPORT_SHEET_HEADER_PADDING = 8
 OVER_REPORT_SHEET_DATA_PADDING = 6
-OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF = 6.5
-OVER_REPORT_SHEET_HEADER_FONT_SIZE_REPORTLAB = 5.4
-OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF = 6.0
-OVER_REPORT_SHEET_DATA_FONT_SIZE_REPORTLAB = 5.6
+OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF = 11.0
+OVER_REPORT_SHEET_HEADER_FONT_SIZE_REPORTLAB = 10.0
+OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF = 12.0
+OVER_REPORT_SHEET_DATA_FONT_SIZE_REPORTLAB = 11.0
 OVER_REPORT_SHEET_ALIGNMENTS = [
     "center",
     "left",
@@ -286,6 +286,7 @@ def _fpdf_over_report_sheet_widths(
     pdf: FPDF,
     headers: list[str],
     rows: list[list[str]] | None = None,
+    min_widths: tuple[int, ...] = OVER_REPORT_SHEET_MIN_WIDTHS,
 ) -> list[int]:
     available_width = pdf.w - pdf.l_margin - pdf.r_margin
     return _over_report_sheet_widths(
@@ -294,10 +295,11 @@ def _fpdf_over_report_sheet_widths(
         available_width=available_width,
         rows=rows,
         data_line_width=lambda text: _fpdf_sheet_data_line_width(pdf, text),
+        min_widths=min_widths,
     )
 
 
-_REPORT_APP_DIR = Path(__file__).resolve().parent.parent
+_REPORT_APP_DIR = Path(__file__).resolve().parent.parent.parent
 _REPORT_FONTS_DIR = _REPORT_APP_DIR / "fonts"
 _REPORT_ASSET_FONTS_DIR = _REPORT_APP_DIR / "assets" / "fonts"
 
@@ -1723,10 +1725,10 @@ async def _write_retailers_section(
         .subquery()
     )
 
-    widths = [70, 58, 90, 70, 58, 58, 58, 58, 58]
-    alignments = ["left", "left", "left", "left", "right", "right", "right", "right", "right"]
+    widths = [60, 45, 60, 90, 45, 45, 45, 45, 44, 44]
+    alignments = ["left", "left", "left", "left", "right", "right", "right", "right", "right", "right"]
     writer.table_header(
-        ["Sale No", "Date", "Retailer", "Shop", "Total", "Paid", "Balance", "Cash", "UPI"],
+        ["Bill No", "Date", "Retailer Name", "Items (Qty + Kg/Unit)", "Price", "Amount", "Paid", "Balance", "Cash", "UPI"],
         widths,
         alignments,
     )
@@ -1734,6 +1736,7 @@ async def _write_retailers_section(
     rows = (
         await db.execute(
             select(
+                RetailerSale.id,
                 RetailerSale.sale_no,
                 RetailerSale.created_at,
                 Retailer.name.label("retailer_name"),
@@ -1752,15 +1755,46 @@ async def _write_retailers_section(
         )
     ).all()
 
+    sale_ids = [row.id for row in rows]
+    from app.models.retailer import RetailerSaleItem
+    from collections import defaultdict
+    items_by_sale = defaultdict(list)
+    if sale_ids:
+        sale_items = (
+            await db.execute(
+                select(RetailerSaleItem)
+                .where(RetailerSaleItem.retailer_sale_id.in_(sale_ids))
+            )
+        ).scalars().all()
+        for item in sale_items:
+            items_by_sale[item.retailer_sale_id].append(item)
+
     total_balance = Decimal("0.00")
+    total_paid = Decimal("0.00")
+    total_kg = Decimal("0.000")
+    total_unit = Decimal("0.000")
+    
     for row in rows:
         total_balance += row.balance_due
+        total_paid += row.amount_paid_total
+        
+        row_items = items_by_sale[row.id]
+        for i in row_items:
+            if i.unit.value == "kg":
+                total_kg += i.quantity
+            elif i.unit.value == "unit":
+                total_unit += i.quantity
+                
+        items_str = "\n".join([f"{i.item_name} - {float(i.quantity):g} {i.unit.value}" for i in row_items])
+        prices_str = "\n".join([_money(i.price_per_unit) for i in row_items])
+
         writer.table_row(
             [
                 row.sale_no,
                 row.created_at.strftime("%d/%m/%Y") if row.created_at else "",
                 row.retailer_name,
-                row.shop_name,
+                items_str,
+                prices_str,
                 _money(row.total_amount),
                 _money(row.amount_paid_total),
                 _money(row.balance_due),
@@ -1773,8 +1807,10 @@ async def _write_retailers_section(
 
     writer.financial_summary(
         [
-            ("Sales", str(len(rows))),
-            ("Outstanding Balance", _money(total_balance)),
+            ("Total Kg", f"{float(total_kg):g} Kg"),
+            ("Total Unit", f"{float(total_unit):g} Units"),
+            ("Total Paid", _money(total_paid)),
+            ("Total Balance", _money(total_balance)),
         ]
     )
 

@@ -73,22 +73,22 @@ type SheetRow = {
 };
 
 const SHEET_COLUMNS: SheetColumn[] = [
-  { key: "date",              label: "Date",                            tamilLabel: "\u0ba4\u0bc7\u0ba4\u0bbf",                                               width: 92,  align: "center" },
-  { key: "inventory",         label: "Inventory Item",                  tamilLabel: "\u0b9a\u0bb0\u0b95\u0bcd\u0b95\u0bc1 \u0baa\u0bca\u0bb0\u0bc1\u0bb3\u0bcd",                      width: 132 },
-  { key: "old",               label: "Old Stock",                       tamilLabel: "\u0baa\u0bb4\u0bc8\u0baf \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1",                  width: 118, align: "right", kgUnit: true },
-  { key: "adding",            label: "Adding Stock",                    tamilLabel: "\u0b9a\u0bc7\u0bb0\u0bcd\u0b95\u0bcd\u0b95\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1",      width: 126, align: "right", kgUnit: true },
-  { key: "available",         label: "Total Available Stock",           tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0b95\u0bbf\u0b9f\u0bc8\u0b95\u0bcd\u0b95\u0bc1\u0bae\u0bcd \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1",    width: 136, align: "right", kgUnit: true },
-  { key: "used",              label: "Used Stock",                      tamilLabel: "\u0baa\u0baf\u0ba9\u0bcd\u0baa\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1",  width: 138, kgUnit: true },
-  { key: "transfer",          label: "Transfer Stock",                  tamilLabel: "\u0baa\u0bb0\u0bbf\u0bae\u0bbe\u0bb1\u0bcd\u0bb1 \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1",                 width: 130, align: "right", kgUnit: true },
-  { key: "remaining",         label: "Remaining Stock",                 tamilLabel: "\u0bae\u0bc0\u0ba4\u0bbf \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1",                  width: 126, align: "right", kgUnit: true },
-  { key: "billing",           label: "Billing Items",                   tamilLabel: "\u0baa\u0bbf\u0bb2\u0bcd\u0bb2\u0bbf\u0b99\u0bcd \u0baa\u0bca\u0bb0\u0bc1\u0bb3\u0bcd\u0b95\u0bb3\u0bcd",                  width: 142 },
-  { key: "assumption",        label: "Assumption",                      tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9\u0bae\u0bcd",                    width: 132, align: "right", kgUnit: true },
-  { key: "sales",             label: "Sales",                           tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8",                        width: 112, align: "right", kgUnit: true },
-  { key: "difference",        label: "Difference",                      tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a\u0bae\u0bcd",                  width: 120, align: "right", kgUnit: true },
-  { key: "assumption_amount", label: "Assumption Amount",               tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9 \u0ba4\u0bca\u0b95\u0bc8",                          width: 124, align: "right" },
-  { key: "sales_amount",      label: "Sales Amount",                    tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8 \u0ba4\u0bca\u0b95\u0bc8",                          width: 112, align: "right" },
-  { key: "purchase_rate",     label: "Purchase Rate",                   tamilLabel: "\u0b95\u0bca\u0bb3\u0bcd\u0bae\u0bc1\u0ba4\u0bb2\u0bcd \u0ba4\u0bca\u0b95\u0bc8",                      width: 124, align: "right" },
-  { key: "difference_amount", label: "Difference Amount",               tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a \u0ba4\u0bca\u0b95\u0bc8",                        width: 124, align: "right" },
+  { key: "date", label: "Date", tamilLabel: "\u0ba4\u0bc7\u0ba4\u0bbf", width: 92, align: "center" },
+  { key: "inventory", label: "Inventory Item", tamilLabel: "\u0b9a\u0bb0\u0b95\u0bcd\u0b95\u0bc1 \u0baa\u0bca\u0bb0\u0bc1\u0bb3\u0bcd", width: 132 },
+  { key: "old", label: "Old Stock", tamilLabel: "\u0baa\u0bb4\u0bc8\u0baf \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 118, align: "right", kgUnit: true },
+  { key: "adding", label: "Adding Stock", tamilLabel: "\u0b9a\u0bc7\u0bb0\u0bcd\u0b95\u0bcd\u0b95\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 126, align: "right", kgUnit: true },
+  { key: "available", label: "Total Available Stock", tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0b95\u0bbf\u0b9f\u0bc8\u0b95\u0bcd\u0b95\u0bc1\u0bae\u0bcd \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 136, align: "right", kgUnit: true },
+  { key: "used", label: "Used Stock", tamilLabel: "\u0baa\u0baf\u0ba9\u0bcd\u0baa\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 138, kgUnit: true },
+  { key: "transfer", label: "Transfer Stock", tamilLabel: "\u0baa\u0bb0\u0bbf\u0bae\u0bbe\u0bb1\u0bcd\u0bb1 \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 130, align: "right", kgUnit: true },
+  { key: "remaining", label: "Remaining Stock", tamilLabel: "\u0bae\u0bc0\u0ba4\u0bbf \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 126, align: "right", kgUnit: true },
+  { key: "billing", label: "Billing Items", tamilLabel: "\u0baa\u0bbf\u0bb2\u0bcd\u0bb2\u0bbf\u0b99\u0bcd \u0baa\u0bca\u0bb0\u0bc1\u0bb3\u0bcd\u0b95\u0bb3\u0bcd", width: 142 },
+  { key: "assumption", label: "Assumption", tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9\u0bae\u0bcd", width: 132, align: "right", kgUnit: true },
+  { key: "sales", label: "Sales", tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8", width: 112, align: "right", kgUnit: true },
+  { key: "difference", label: "Difference", tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a\u0bae\u0bcd", width: 120, align: "right", kgUnit: true },
+  { key: "assumption_amount", label: "Assumption Amount", tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9 \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" },
+  { key: "sales_amount", label: "Sales Amount", tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8 \u0ba4\u0bca\u0b95\u0bc8", width: 112, align: "right" },
+  { key: "purchase_rate", label: "Purchase Rate", tamilLabel: "\u0b95\u0bca\u0bb3\u0bcd\u0bae\u0bc1\u0ba4\u0bb2\u0bcd \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" },
+  { key: "difference_amount", label: "Difference Amount", tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" },
 ];
 
 const TAMIL_SCRIPT = /[\u0b80-\u0bff]/;
@@ -414,9 +414,9 @@ export function AdminOverallReportPreviewScreen({
 
     const mappedRows = mappedItems.flatMap((item) => buildInventoryRows(statement, item, language));
     const unmappedRows = unmappedItems.flatMap((item) => buildInventoryRows(statement, item, language));
-    
+
     const isTamil = language === "ta";
-    
+
     const renderTable = (rows: SheetRow[], title?: string, isUnmapped: boolean = false) => {
       const columns = isUnmapped ? SHEET_COLUMNS.slice(0, 8) : SHEET_COLUMNS;
       return (
@@ -488,7 +488,7 @@ export function AdminOverallReportPreviewScreen({
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View style={{ alignItems: "flex-start" }}>
               {mappedRows.length > 0 && renderTable(mappedRows)}
-              
+
               {unmappedRows.length > 0 && (
                 <>
                   {mappedRows.length > 0 && <View style={{ height: 24 }} />}

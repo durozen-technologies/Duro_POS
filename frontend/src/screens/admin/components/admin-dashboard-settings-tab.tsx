@@ -53,12 +53,35 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
   const listHeader = (
     <View style={styles.header}>
       <DashboardErrorBanner dashboardError={dashboardError} hasShops={hasShops} palette={palette} />
-      <TabSectionHeader title="Branch Access & Settings" palette={palette} />
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View style={{ flex: 1 }}>
+          <TabSectionHeader title="Branch Access & Settings" palette={palette} />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onLogout}
+          style={({ pressed }) => [
+            {
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              width: 72,
+              height: 72,
+              borderRadius: 12,
+              backgroundColor: palette.dangerSoft,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <MaterialCommunityIcons name="logout" size={24} color={palette.danger} />
+          <Text style={{ color: palette.danger, fontSize: 13, fontWeight: "600" }}>Logout</Text>
+        </Pressable>
+      </View>
       <SectionHint
         text="Open a branch to update access or delete a shop that has no billing or price history."
         palette={palette}
       />
-      <ShopBackdatingPolicySection palette={palette} />
       <Text style={[styles.quotaText, { color: palette.textMuted }]}>
         Branch quota: {branchQuota.branch_count}/{branchQuota.max_branches} used ·{" "}
         {branchQuota.remaining_branches} remaining
@@ -127,7 +150,11 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
           palette={palette}
         />
       }
-      ListFooterComponent={<AdminLogoutCard palette={palette} onLogout={onLogout} />}
+      ListFooterComponent={
+        <View style={{ gap: 12 }}>
+          <ShopBackdatingPolicySection palette={palette} />
+        </View>
+      }
       contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: bottomPadding, gap: 12 }}
       keyboardShouldPersistTaps="handled"
       refreshControl={
