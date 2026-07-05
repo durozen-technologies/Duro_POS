@@ -74,6 +74,9 @@ diff.txt
 scratch.js
 scratch.*
 fix_db.py
+check_db.py
+check_tables.py
+scratch_tables.py
 *.zip
 test_shop_endpoint.py
 /WhatsApp Image*

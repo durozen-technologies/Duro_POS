@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import get_settings
+from app.auth.tenant_shop import shop_for_user as _shop_for_user
 from app.core.errors import (
     ACCOUNT_DISABLED_BY_SUPER_ADMIN,
     ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
@@ -18,8 +18,7 @@ from app.db.session import get_platform_db
 from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import set_search_path, tenant_router, tenant_schema_scope
 from app.models import Organization, Shop, User, UserRole
-from app.models.enums import is_super_admin, is_tenant_admin, parse_user_role
-from app.auth.tenant_shop import shop_for_user as _shop_for_user
+from app.models.enums import is_tenant_admin, parse_user_role
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -33,14 +32,14 @@ def _role_allowed(current_role: UserRole, allowed: tuple[UserRole, ...]) -> bool
 
 async def _load_platform_user(db: AsyncSession, user_id: UUID) -> User | None:
     return await db.scalar(
-        select(User)
-        .options(selectinload(User.organization))
-        .where(User.id == user_id)
+        select(User).options(selectinload(User.organization)).where(User.id == user_id)
     )
 
 
 async def _load_tenant_user_with_relations(db: AsyncSession, user_id: UUID) -> User | None:
-    return await db.scalar(select(User).options(selectinload(User.organization)).where(User.id == user_id))
+    return await db.scalar(
+        select(User).options(selectinload(User.organization)).where(User.id == user_id)
+    )
 
 
 async def get_current_user(

@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from alembic import op
-
 revision: str = "0039_retailer_role_perms"
 down_revision: str | None = "0038_retailer_sale_status_enum"
 branch_labels: str | Sequence[str] | None = None

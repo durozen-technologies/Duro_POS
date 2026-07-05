@@ -50,6 +50,7 @@ eas-build-local-nodejs/
 *.apk
 *.aab
 *.ipa
+*.hprof
 
 # Generated native projects and native build output
 android/
@@ -94,3 +95,7 @@ scratch.*
 *.zip
 test_shop_endpoint.py
 /WhatsApp Image*
+
+# Local docker overrides
+compose.override.yaml
+docker-compose.override.yml

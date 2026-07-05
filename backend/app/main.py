@@ -66,7 +66,7 @@ app = FastAPI(
 try:
     from redis_fastapi import FastAPIRedis
 
-    FastAPIRedis(app).lifespan().caching()
+    FastAPIRedis(app).lifespan()
 except ImportError as exc:
     logger.warning(
         "fastapi-redis-sdk not available (%s); Redis caching disabled. "

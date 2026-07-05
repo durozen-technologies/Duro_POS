@@ -6,25 +6,21 @@ import logging
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import MetaData, Table, inspect, select, text
+from sqlalchemy import MetaData, Table, inspect, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.schema import CreateSchema
 
+from app.core.ids import uuid7
 from app.db.database import Base
 from app.db.tenant_metadata import (
     PLATFORM_TABLES,
     drop_public_tenant_table_shells,
-    tenant_table_names,
 )
 from app.db.tenant_schema import (
     assert_safe_schema_name,
-    create_tenant_schema,
     derive_schema_name,
     is_postgres_database,
-    run_tenant_migrations_async,
-    set_search_path,
 )
-from app.core.ids import uuid7
 from app.models import Organization
 from app.schemas.auth import normalize_username
 
@@ -235,7 +231,7 @@ def _child_delete_sql(table_name: str, org_id: UUID, *, schema: str = "public") 
     prefix = f"SELECT COUNT(*) FROM {_rel(schema, table_name)} p "
     if not count_sql.startswith(prefix):
         return None
-    return f"DELETE FROM {_rel(schema, table_name)} p {count_sql[len(prefix):]}"
+    return f"DELETE FROM {_rel(schema, table_name)} p {count_sql[len(prefix) :]}"
 
 
 def _fk_exists_clause(table_name: str, shop_alias: str, *, schema: str = "public") -> str:
@@ -305,7 +301,7 @@ def _copy_table(conn: Connection, schema: str, table: Table, org_id: UUID) -> in
     result = conn.execute(
         text(
             f'INSERT INTO "{safe}".{name} ({col_list}) '
-            f"SELECT {col_list} FROM public.{name} p {select_sql[len(prefix):]} "
+            f"SELECT {col_list} FROM public.{name} p {select_sql[len(prefix) :]} "
             "ON CONFLICT DO NOTHING"
         ),
         {"org_id": org_id},
@@ -321,9 +317,7 @@ def _tenant_count(conn: Connection, schema: str, table_name: str) -> int:
 def _build_auth_index(conn: Connection, schema: str, org_id: UUID) -> int:
     safe = assert_safe_schema_name(schema)
     rows = conn.execute(
-        text(
-            f'SELECT id, username FROM "{safe}".users WHERE organization_id = :org_id'
-        ),
+        text(f'SELECT id, username FROM "{safe}".users WHERE organization_id = :org_id'),
         {"org_id": org_id},
     ).all()
     count = 0
@@ -498,9 +492,7 @@ def format_report(report: OrgMigrationReport) -> str:
         f"{'table':<40} {'public':>8} {'copied':>8} {'tenant':>8}",
     ]
     for row in report.tables:
-        lines.append(
-            f"{row.table:<40} {row.public_count:>8} {row.copied:>8} {row.tenant_count:>8}"
-        )
+        lines.append(f"{row.table:<40} {row.public_count:>8} {row.copied:>8} {row.tenant_count:>8}")
     lines.append(f"auth_index_rows: {report.auth_index_rows}")
     if report.public_ddl_dropped:
         lines.append(f"public_ddl_dropped: {report.public_ddl_dropped}")

@@ -2,11 +2,10 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { requireOptionalNativeModule } from "expo-modules-core";
 import { StatusBar } from "expo-status-bar";
 import type { ComponentProps } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -26,7 +25,7 @@ import { isApiRequestCanceled, toApiError } from "@/api/client";
 import type { AdminReportsScreenProps } from "@/navigation/types";
 import { AnalyticsPeriod, type ShopRead, type UUID } from "@/types/api";
 
-import { adminElevation, type ThemePalette } from "./admin-dashboard-theme";
+import { adminElevation, adminRadii, type ThemePalette, adminSpacing, adminTypography } from "./admin-dashboard-theme";
 import {
   buildDateOptions,
   buildMonthOptions,
@@ -197,6 +196,150 @@ function getPeriodAccent(period: AnalyticsPeriod, palette: ThemePalette) {
   return palette.billing;
 }
 
+const BranchOption = memo(function BranchOption({
+  shop,
+  selected,
+  onToggle,
+  palette,
+}: {
+  shop: ShopRead;
+  selected: boolean;
+  onToggle: (id: string) => void;
+  palette: ThemePalette;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      onPress={() => onToggle(shop.id)}
+      style={[
+        styles.branchDropdownOption,
+        {
+          backgroundColor: selected ? palette.primarySoft : palette.card,
+          borderColor: selected ? palette.primary : palette.border,
+        },
+      ]}
+    >
+      <View style={[styles.branchIcon, { backgroundColor: selected ? palette.primary : palette.surfaceMuted }]}>
+        <MaterialCommunityIcons name="storefront-outline" size={18} color={selected ? palette.onPrimary : palette.textMuted} />
+      </View>
+      <View style={styles.branchTextWrap}>
+        <Text numberOfLines={1} style={[styles.branchName, { color: palette.textPrimary }]}>
+          {shop.name}
+        </Text>
+        <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
+          {shop.is_active ? "Active" : "Paused"}
+        </Text>
+      </View>
+      <MaterialCommunityIcons
+        name={selected ? "check-circle" : "checkbox-blank-circle-outline"}
+        size={20}
+        color={selected ? palette.primary : palette.textMuted}
+      />
+    </Pressable>
+  );
+});
+
+const CalendarDayCell = memo(function CalendarDayCell({
+  dayValue,
+  dayNumber,
+  inMonth,
+  selected,
+  isRangeMiddle,
+  isToday,
+  palette,
+  onSelect,
+}: {
+  dayValue: string;
+  dayNumber: number;
+  inMonth: boolean;
+  selected: boolean;
+  isRangeMiddle: boolean;
+  isToday: boolean;
+  palette: ThemePalette;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <View style={styles.calendarDayCell}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        accessibilityLabel={formatCalendarDateLabel(dayValue)}
+        onPress={() => onSelect(dayValue)}
+        style={[
+          styles.calendarDayButton,
+          {
+            backgroundColor: selected
+              ? palette.primary
+              : isRangeMiddle
+                ? palette.primarySoft
+                : "transparent",
+            borderColor: isToday ? palette.primary : "transparent",
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.calendarDayText,
+            {
+              color: selected
+                ? palette.onPrimary
+                : !inMonth
+                  ? palette.textMuted
+                  : isRangeMiddle || isToday
+                    ? palette.primaryStrong
+                    : palette.textPrimary,
+              opacity: inMonth || selected || isRangeMiddle ? 1 : 0.5,
+            },
+          ]}
+        >
+          {dayNumber}
+        </Text>
+      </Pressable>
+    </View>
+  );
+});
+
+const SectionCard = memo(function SectionCard({
+  option,
+  selected,
+  onToggle,
+  palette,
+}: {
+  option: { key: AdminReportSection; label: string; icon: IconName };
+  selected: boolean;
+  onToggle: (key: AdminReportSection) => void;
+  palette: ThemePalette;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      onPress={() => onToggle(option.key)}
+      style={[
+        styles.sectionCard,
+        adminElevation(1),
+        {
+          backgroundColor: selected ? palette.primarySoft : palette.card,
+          borderColor: selected ? palette.primary : palette.border,
+        },
+      ]}
+    >
+      <View style={[styles.sectionIcon, { backgroundColor: selected ? palette.primary : palette.surfaceMuted }]}>
+        <MaterialCommunityIcons name={option.icon} size={18} color={selected ? palette.onPrimary : palette.textSecondary} />
+      </View>
+      <Text style={[styles.sectionCardText, { color: selected ? palette.primaryStrong : palette.textPrimary }]}>
+        {option.label}
+      </Text>
+      <MaterialCommunityIcons
+        name={selected ? "check-circle" : "checkbox-blank-circle-outline"}
+        size={18}
+        color={selected ? palette.primary : palette.textMuted}
+      />
+    </Pressable>
+  );
+});
+
 export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
@@ -216,6 +359,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [selectedSections, setSelectedSections] = useState<AdminReportSection[]>(["sales"]);
   const [language, setLanguage] = useState<"en" | "ta">("en");
+  const [todayIso] = useState(todayValue);
 
   const dateOptions = useMemo(() => buildDateOptions(), []);
   const weekOptions = useMemo(() => buildWeekOptions(), []);
@@ -236,6 +380,13 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const hasOverallReport = selectedSectionSet.has("over_report");
   const canGenerate = selectedSections.length > 0 && (allBranches || selectedShopIds.length > 0) && !generating;
   const periodAccent = getPeriodAccent(period, palette);
+  const referenceOptions = useMemo(() => {
+    if (period === AnalyticsPeriod.DATE) return dateOptions;
+    if (period === AnalyticsPeriod.WEEK) return weekOptions;
+    if (period === AnalyticsPeriod.MONTH) return monthOptions;
+    if (period === AnalyticsPeriod.YEAR) return yearOptions;
+    return [];
+  }, [dateOptions, monthOptions, period, weekOptions, yearOptions]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -454,22 +605,6 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     selectedShopIds,
   ]);
 
-  const getReferenceOptions = () => {
-    if (period === AnalyticsPeriod.DATE) {
-      return dateOptions;
-    }
-    if (period === AnalyticsPeriod.WEEK) {
-      return weekOptions;
-    }
-    if (period === AnalyticsPeriod.MONTH) {
-      return monthOptions;
-    }
-    if (period === AnalyticsPeriod.YEAR) {
-      return yearOptions;
-    }
-    return [];
-  };
-
   const renderCalendarPicker = () => (
     <View
       style={[
@@ -529,46 +664,20 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
             isDateBetween(day.value, rangeStartDate, rangeEndDate) &&
             !isRangeEdge;
           const selected = isDaySelected || isRangeEdge;
-          const isToday = day.value === todayValue();
+          const isToday = day.value === todayIso;
 
           return (
-            <View key={day.value} style={styles.calendarDayCell}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                accessibilityLabel={formatCalendarDateLabel(day.value)}
-                onPress={() => handleSelectCalendarDate(day.value)}
-                style={[
-                  styles.calendarDayButton,
-                  {
-                    backgroundColor: selected
-                      ? palette.primary
-                      : isRangeMiddle
-                        ? palette.primarySoft
-                        : "transparent",
-                    borderColor: isToday ? palette.primary : "transparent",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.calendarDayText,
-                    {
-                      color: selected
-                        ? palette.onPrimary
-                        : !day.inMonth
-                          ? palette.textMuted
-                          : isRangeMiddle || isToday
-                            ? palette.primaryStrong
-                            : palette.textPrimary,
-                      opacity: day.inMonth || selected || isRangeMiddle ? 1 : 0.5,
-                    },
-                  ]}
-                >
-                  {day.day}
-                </Text>
-              </Pressable>
-            </View>
+            <CalendarDayCell
+              key={day.value}
+              dayValue={day.value}
+              dayNumber={day.day}
+              inMonth={day.inMonth}
+              selected={selected}
+              isRangeMiddle={isRangeMiddle}
+              isToday={isToday}
+              palette={palette}
+              onSelect={handleSelectCalendarDate}
+            />
           );
         })}
       </View>
@@ -595,41 +704,6 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     </View>
   );
 
-  const renderBranchOption = (item: ShopRead) => {
-    const selected = !allBranches && selectedShopIdSet.has(item.id);
-    return (
-      <Pressable
-        key={item.id}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: selected }}
-        onPress={() => handleToggleShop(item.id)}
-        style={[
-          styles.branchDropdownOption,
-          {
-            backgroundColor: selected ? palette.primarySoft : palette.card,
-            borderColor: selected ? palette.primary : palette.border,
-          },
-        ]}
-      >
-        <View style={[styles.branchIcon, { backgroundColor: selected ? palette.primary : palette.surfaceMuted }]}>
-          <MaterialCommunityIcons name="storefront-outline" size={18} color={selected ? palette.onPrimary : palette.textMuted} />
-        </View>
-        <View style={styles.branchTextWrap}>
-          <Text numberOfLines={1} style={[styles.branchName, { color: palette.textPrimary }]}>
-            {item.name}
-          </Text>
-          <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
-            {item.is_active ? "Active" : "Paused"}
-          </Text>
-        </View>
-        <MaterialCommunityIcons
-          name={selected ? "check-circle" : "checkbox-blank-circle-outline"}
-          size={20}
-          color={selected ? palette.primary : palette.textMuted}
-        />
-      </Pressable>
-    );
-  };
 
   const renderHeader = () => (
     <View style={styles.contentHeader}>
@@ -671,7 +745,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
           renderCalendarPicker()
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.referenceScroller}>
-            {getReferenceOptions().map((option) => {
+            {referenceOptions.map((option) => {
               const selected = option.value === referenceDate;
               return (
                 <Pressable
@@ -737,36 +811,15 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       <View style={styles.sectionBlock}>
         <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Reports</Text>
         <View style={styles.sectionGrid}>
-          {SECTION_OPTIONS.map((option) => {
-            const selected = selectedSectionSet.has(option.key);
-            return (
-              <Pressable
-                key={option.key}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: selected }}
-                onPress={() => handleToggleSection(option.key)}
-                style={[
-                  styles.sectionCard,
-                  {
-                    backgroundColor: selected ? palette.primarySoft : palette.card,
-                    borderColor: selected ? palette.primary : palette.border,
-                  },
-                ]}
-              >
-                <View style={[styles.sectionIcon, { backgroundColor: selected ? palette.primary : palette.surfaceMuted }]}>
-                  <MaterialCommunityIcons name={option.icon} size={18} color={selected ? palette.onPrimary : palette.textSecondary} />
-                </View>
-                <Text style={[styles.sectionCardText, { color: selected ? palette.primaryStrong : palette.textPrimary }]}>
-                  {option.label}
-                </Text>
-                <MaterialCommunityIcons
-                  name={selected ? "check-circle" : "checkbox-blank-circle-outline"}
-                  size={18}
-                  color={selected ? palette.primary : palette.textMuted}
-                />
-              </Pressable>
-            );
-          })}
+          {SECTION_OPTIONS.map((option) => (
+            <SectionCard
+              key={option.key}
+              option={option}
+              selected={selectedSectionSet.has(option.key)}
+              onToggle={handleToggleSection}
+              palette={palette}
+            />
+          ))}
         </View>
       </View>
 
@@ -877,7 +930,15 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                 style={styles.branchDropdownScroll}
                 contentContainerStyle={styles.branchDropdownContent}
               >
-                {shops.map(renderBranchOption)}
+                {shops.map((shop) => (
+                  <BranchOption
+                    key={shop.id}
+                    shop={shop}
+                    selected={!allBranches && selectedShopIdSet.has(shop.id)}
+                    onToggle={handleToggleShop}
+                    palette={palette}
+                  />
+                ))}
               </ScrollView>
             )}
             {!allBranches ? (
@@ -950,12 +1011,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         <AdminHeaderActions refreshing={refreshing} onRefresh={handleRefresh} />
       </View>
 
-      <FlatList
-        data={[] as ShopRead[]}
-        keyExtractor={(item) => item.id}
-        renderItem={() => null}
-        ListHeaderComponent={renderHeader}
-        ListFooterComponent={renderFooter}
+      <ScrollView
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -966,13 +1022,11 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
             colors={[palette.primary]}
           />
         }
-        initialNumToRender={12}
-        maxToRenderPerBatch={8}
-        updateCellsBatchingPeriod={48}
-        windowSize={7}
-        extraData={`${allBranches}-${selectedShopIds.join(",")}-${selectedSections.join(",")}-${detailLevel}-${period}-${branchDropdownOpen}-${language}`}
         showsVerticalScrollIndicator={false}
-      />
+      >
+        {renderHeader()}
+        {renderFooter()}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -983,12 +1037,12 @@ const styles = StyleSheet.create({
   },
   topBar: {
     minHeight: 64,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: adminSpacing.md,
+    paddingBottom: adminSpacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   backButton: {
     width: 38,
@@ -1001,99 +1055,92 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 20,
-    fontWeight: "800",
+    ...adminTypography.pageTitle,
   },
   subtitle: {
+    ...adminTypography.caption,
     marginTop: 2,
-    fontSize: 12,
-    fontWeight: "700",
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    gap: 12,
+    paddingHorizontal: adminSpacing.md,
+    paddingTop: adminSpacing.md,
+    gap: adminSpacing.sm,
   },
   contentHeader: {
-    gap: 16,
+    gap: adminSpacing.md,
   },
   sectionBlock: {
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: "800",
+    ...adminTypography.sectionTitle,
   },
   errorBanner: {
     minHeight: 44,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderRadius: adminRadii.card,
+    paddingHorizontal: adminSpacing.sm,
+    paddingVertical: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   errorText: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   periodScroller: {
-    gap: 8,
+    gap: adminSpacing.xs,
     paddingRight: 6,
   },
   periodChip: {
     minWidth: 76,
     minHeight: 42,
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: adminSpacing.md,
   },
   periodChipText: {
-    fontSize: 13,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   referenceScroller: {
-    gap: 8,
+    gap: adminSpacing.xs,
     paddingRight: 6,
   },
   referenceChip: {
     minHeight: 38,
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: adminSpacing.sm,
   },
   referenceChipText: {
-    fontSize: 12,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   selectionSummary: {
-    fontSize: 12,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   calendarPanel: {
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: adminSpacing.sm,
     paddingTop: 10,
-    paddingBottom: 12,
-    gap: 12,
+    paddingBottom: adminSpacing.sm,
+    gap: adminSpacing.sm,
   },
   calendarHeader: {
     minHeight: 50,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   calendarIconButton: {
     width: 42,
     height: 42,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1104,15 +1151,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   calendarModeLabel: {
-    fontSize: 10,
-    fontWeight: "800",
+    ...adminTypography.caption,
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
   calendarMonthTitle: {
     marginTop: 3,
-    fontSize: 17,
-    fontWeight: "800",
+    ...adminTypography.metric,
   },
   weekdayRow: {
     flexDirection: "row",
@@ -1134,49 +1179,46 @@ const styles = StyleSheet.create({
   },
   calendarDayButton: {
     height: 38,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   calendarDayText: {
-    fontSize: 14,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   rangeFooter: {
     marginTop: 2,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    padding: 12,
+    padding: adminSpacing.sm,
   },
   rangeDatesRow: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   rangeDateBlock: {
     minWidth: 0,
     flex: 1,
   },
   rangeDateLabel: {
-    fontSize: 10,
-    fontWeight: "800",
+    ...adminTypography.caption,
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
   rangeDateValue: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: "800",
+    marginTop: adminSpacing.xxs,
+    ...adminTypography.bodyStrong,
   },
   rangeDivider: {
     width: 1,
   },
   segmentedControl: {
     minHeight: 48,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    padding: 4,
+    padding: adminSpacing.xxs,
     flexDirection: "row",
     gap: 6,
   },
@@ -1189,83 +1231,80 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   segmentText: {
-    fontSize: 13,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   sectionGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   sectionCard: {
     width: "48%",
     minHeight: 58,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    padding: 12,
+    padding: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   sectionIcon: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: adminRadii.control,
     alignItems: "center",
     justifyContent: "center",
   },
   sectionCardText: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   branchHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   branchCount: {
-    fontSize: 12,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   branchSelectButton: {
     minHeight: 58,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: adminSpacing.sm,
+    paddingVertical: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   branchDropdown: {
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    padding: 8,
-    gap: 8,
+    padding: adminSpacing.xs,
+    gap: adminSpacing.xs,
   },
   branchDropdownScroll: {
     maxHeight: 278,
   },
   branchDropdownContent: {
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   branchDropdownOption: {
     minHeight: 58,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: adminSpacing.sm,
+    paddingVertical: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   branchIcon: {
     width: 34,
     height: 34,
-    borderRadius: 8,
+    borderRadius: adminRadii.control,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1274,13 +1313,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   branchName: {
-    fontSize: 14,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   branchMeta: {
     marginTop: 2,
-    fontSize: 11,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   loadingRow: {
     minHeight: 42,
@@ -1288,20 +1325,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   overallPreviewList: {
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   overallStatement: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 12,
-    gap: 12,
+    padding: adminSpacing.sm,
+    gap: adminSpacing.sm,
   },
   overallStatementHeader: {
     minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   overallStatementTitleWrap: {
     flex: 1,
@@ -1313,13 +1350,11 @@ const styles = StyleSheet.create({
   },
   overallStatementMeta: {
     marginTop: 2,
-    fontSize: 11,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   overallStatementAmount: {
     maxWidth: 116,
-    fontSize: 13,
-    fontWeight: "900",
+    ...adminTypography.bodyStrong,
     textAlign: "right",
   },
   reportMetricList: {
@@ -1331,20 +1366,18 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   reportMetricText: {
     flex: 1,
     minWidth: 0,
   },
   reportMetricLabel: {
-    fontSize: 12,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   reportMetricNote: {
     marginTop: 2,
-    fontSize: 10,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   reportMetricValue: {
     maxWidth: 132,
@@ -1363,24 +1396,22 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   inventoryReportTitleWrap: {
     flex: 1,
     minWidth: 0,
   },
   inventoryReportTitle: {
-    fontSize: 13,
-    fontWeight: "900",
+    ...adminTypography.bodyStrong,
   },
   inventoryReportMeta: {
     marginTop: 2,
-    fontSize: 11,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   inventoryReportBody: {
     paddingBottom: 10,
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   billingReportList: {
     gap: 0,
@@ -1388,13 +1419,13 @@ const styles = StyleSheet.create({
   billingReportRow: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingVertical: 9,
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   billingReportHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   billingReportTitleWrap: {
     flex: 1,
@@ -1406,8 +1437,7 @@ const styles = StyleSheet.create({
   },
   billingReportMeta: {
     marginTop: 2,
-    fontSize: 10,
-    fontWeight: "700",
+    ...adminTypography.caption,
   },
   billingReportPrice: {
     maxWidth: 96,
@@ -1424,13 +1454,12 @@ const styles = StyleSheet.create({
     width: "31.5%",
     minHeight: 44,
     borderRadius: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: adminSpacing.xs,
     paddingVertical: 6,
     justifyContent: "center",
   },
   reportMiniLabel: {
-    fontSize: 9,
-    fontWeight: "900",
+    ...adminTypography.caption,
     textTransform: "uppercase",
   },
   reportMiniValue: {
@@ -1443,40 +1472,37 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: adminSpacing.sm,
   },
   reportEmptyText: {
-    fontSize: 12,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
     textAlign: "center",
   },
   branchDoneButton: {
     minHeight: 42,
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   branchDoneText: {
-    fontSize: 13,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   footer: {
     paddingTop: 14,
-    paddingHorizontal: 16,
-    gap: 12,
+    paddingHorizontal: adminSpacing.md,
+    gap: adminSpacing.sm,
   },
   generateButton: {
     minHeight: 54,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
     paddingHorizontal: 18,
   },
   generateButtonText: {
-    fontSize: 15,
-    fontWeight: "800",
+    ...adminTypography.sectionTitle,
   },
 });

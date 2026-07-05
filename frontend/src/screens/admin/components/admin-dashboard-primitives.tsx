@@ -7,6 +7,7 @@ import {
   Animated,
   Easing,
   Pressable,
+  ScrollView,
   StyleSheet,
   StyleProp,
   Text,
@@ -618,6 +619,8 @@ export function DashboardSkeleton({ palette }: { palette: ThemePalette }) {
   );
 }
 
+const BOTTOM_NAV_ITEM_MIN_WIDTH = 68;
+
 const BottomNavItem = memo(function BottomNavItem({
   item,
   activeKey,
@@ -631,6 +634,8 @@ const BottomNavItem = memo(function BottomNavItem({
 }) {
   const active = item.key === activeKey;
   const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+  const iconColor = active ? palette.primary : palette.onShellMuted;
+  const textColor = active ? palette.primaryStrong : palette.onShellMuted;
 
   return (
     <Pressable
@@ -645,28 +650,40 @@ const BottomNavItem = memo(function BottomNavItem({
       onPressOut={onPressOut}
       style={styles.bottomNavItemBase}
     >
-      <Animated.View
+      <View
         style={[
-          styles.bottomNavItem,
-          active && { backgroundColor: palette.primarySoft },
-          { opacity, transform: [{ scale }] },
+          styles.bottomNavItemSurface,
+          active ? { backgroundColor: palette.primarySoft } : null,
         ]}
       >
-        <MaterialCommunityIcons
-          name={item.icon}
-          size={20}
-          color={active ? palette.primary : palette.onShellMuted}
-        />
-        <Text
-          numberOfLines={1}
+        <Animated.View
           style={[
-            styles.bottomNavLabel,
-            { color: active ? palette.primaryStrong : palette.onShellMuted },
+            styles.bottomNavItemContent,
+            {
+              opacity,
+              transform: [{ scale }],
+            },
           ]}
         >
-          {item.label}
-        </Text>
-      </Animated.View>
+          <View style={styles.bottomNavIndicatorSlot}>
+            {active ? (
+              <View style={[styles.bottomNavIndicator, { backgroundColor: palette.primary }]} />
+            ) : (
+              <View style={styles.bottomNavIndicatorSpacer} />
+            )}
+          </View>
+          <MaterialCommunityIcons name={item.icon} size={active ? 22 : 20} color={iconColor} />
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.bottomNavLabel,
+              { color: textColor, fontWeight: active ? "700" : "600" },
+            ]}
+          >
+            {item.label}
+          </Text>
+        </Animated.View>
+      </View>
     </Pressable>
   );
 });
@@ -680,24 +697,32 @@ export const BottomNav = memo(function BottomNav({
 }: BottomNavProps) {
   return (
     <View
+      accessibilityRole="tablist"
       style={[
-        styles.bottomNavWrap,
-        adminElevation(2),
+        styles.bottomNavDock,
         {
           backgroundColor: palette.shell,
-          bottom: bottomOffset + adminSpacing.xs,
+          borderTopColor: palette.shellBorder,
+          paddingBottom: bottomOffset,
         },
       ]}
     >
-      {items.map((item) => (
-        <BottomNavItem
-          key={item.key}
-          item={item}
-          activeKey={activeKey}
-          onSelect={onSelect}
-          palette={palette}
-        />
-      ))}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.bottomNavTrack}
+        keyboardShouldPersistTaps="handled"
+      >
+        {items.map((item) => (
+          <BottomNavItem
+            key={item.key}
+            item={item}
+            activeKey={activeKey}
+            onSelect={onSelect}
+            palette={palette}
+          />
+        ))}
+      </ScrollView>
     </View>
   );
 });
@@ -1088,36 +1113,60 @@ const styles = StyleSheet.create({
     flex: 1,
     ...adminTypography.bodyStrong,
   },
-  bottomNavWrap: {
+  bottomNavDock: {
     position: "absolute",
-    left: adminSpacing.sm + 2,
-    right: adminSpacing.sm + 2,
-    borderRadius: adminRadii.card,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    zIndex: 40,
+  },
+  bottomNavTrack: {
     paddingHorizontal: adminSpacing.xs,
-    paddingVertical: adminSpacing.xxs + 3,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    paddingTop: adminSpacing.xxs,
+    paddingBottom: adminSpacing.xxs,
+    alignItems: "stretch",
+    minWidth: "100%",
   },
   bottomNavItemBase: {
-    minWidth: 0,
-    flex: 1,
+    minWidth: BOTTOM_NAV_ITEM_MIN_WIDTH,
+    maxWidth: 96,
+    paddingHorizontal: adminSpacing.xxs,
   },
-  bottomNavItem: {
-    flex: 1,
+  bottomNavItemSurface: {
+    minHeight: 52,
+    borderRadius: adminRadii.control,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bottomNavItemContent: {
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     gap: adminSpacing.xxs,
-    minHeight: 48,
     paddingHorizontal: adminSpacing.xxs,
-    borderRadius: adminRadii.control,
+  },
+  bottomNavIndicatorSlot: {
+    width: "100%",
+    height: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bottomNavIndicator: {
+    width: 28,
+    height: 3,
+    borderRadius: 1.5,
+  },
+  bottomNavIndicatorSpacer: {
+    width: 28,
+    height: 3,
   },
   bottomNavLabel: {
-    maxWidth: "100%",
-    fontSize: 9,
+    fontSize: 10,
     lineHeight: 12,
-    fontWeight: "700",
+    letterSpacing: 0.1,
     textAlign: "center",
+    maxWidth: 72,
   },
   topAppBar: {
     flexDirection: "row",

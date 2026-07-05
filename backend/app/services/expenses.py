@@ -8,7 +8,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ExpenseEntry, ExpenseItem, Shop, ShopExpenseAllocation
-from app.services.tenant_query import resolve_organization_id
 from app.schemas.expenses import (
     ExpenseEntryCreate,
     ExpenseEntryPage,
@@ -34,6 +33,7 @@ from app.services.storage import (
 from app.services.storage import (
     delete_expense_item_image as delete_expense_item_image_storage_record,
 )
+from app.services.tenant_query import resolve_organization_id
 
 
 def _normalize_expense_name(raw_name: str) -> str:
@@ -673,9 +673,7 @@ async def allocate_shop_expense_items(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only active expense items can be allocated",
         )
-    existing_ids = await _existing_shop_expense_allocation_item_ids(
-        db, shop.id, requested_ids
-    )
+    existing_ids = await _existing_shop_expense_allocation_item_ids(db, shop.id, requested_ids)
     next_sort_order = await _next_allocation_sort_order(db, shop)
     new_ids = [item_id for item_id in requested_ids if item_id not in existing_ids]
     allocated_count = len(new_ids)

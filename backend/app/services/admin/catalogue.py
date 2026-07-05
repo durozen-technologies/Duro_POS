@@ -1,70 +1,36 @@
-import json
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
-from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import and_, case, cast, distinct, func, null, or_, select, text, union_all
+from fastapi import HTTPException, status
+from sqlalchemy import and_, case, cast, func, null, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
 
-from app.core.security import get_password_hash
 from app.db.storage import (
     build_item_image_path,
     build_item_image_thumb_path,
-    delete_item_image_storage,
-    save_item_image_upload,
 )
 from app.models import (
-    BaseUnit,
     Bill,
     BillItem,
     DailyPrice,
-    InventoryItem,
-    InventoryItemCategory,
     Item,
-    ItemAssumptionStatus,
-    ItemCategory,
-    ItemChangeEvent,
-    Payment,
     Shop,
     ShopItemAllocation,
-    UnitType,
-    User,
-    UserRole,
 )
 from app.schemas.admin import (
-    AdminBillPage,
-    AdminBillShopStat,
-    AdminBillSummary,
-    AdminDashboardBootstrap,
     AdminItemRowsPage,
     AnalyticsPeriod,
-    ItemAssumptionUpdate,
-    ItemCategoryCreate,
-    ItemCategoryRead,
-    ItemCategoryUpdate,
-    ItemCreate,
-    ItemMetadataUpdate,
-    ItemRead,
-    ItemSalesSummary,
     ItemScope,
-    ItemUpdate,
-    PaymentSplitSummary,
     PriceStatus,
-    ShopCreate,
     ShopItemAllocationBulkRead,
     ShopItemAllocationUpdate,
     ShopItemCounts,
     ShopItemPage,
     ShopItemRead,
-    ShopRead,
-    ShopSalesSummary,
     ShopSelectedItemsOrderRead,
-    ShopUpdate,
 )
 from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
-
 from app.services.admin._shared import (
     _coalesce_text,
     _count_query_rows,
@@ -1874,9 +1840,7 @@ def _bill_to_read(bill: Bill) -> BillRead:
         shop_id=bill.shop_id,
         shop_name=bill.shop.name,
         organization_name=(
-            bill.shop.organization.name
-            if bill.shop.organization is not None
-            else ""
+            bill.shop.organization.name if bill.shop.organization is not None else ""
         ),
         total_amount=bill.total_amount,
         status=bill.status.value,

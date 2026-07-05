@@ -979,6 +979,24 @@ class ServiceUnitTests(BackendTestCase):
                 item_storage.settings.rustfs_bucket_name,
             ) = original_values
 
+    def test_item_image_path_appends_cache_buster_for_proxy_urls(self) -> None:
+        item_id = UUID("018f36ba-7c1f-7c2d-9d67-000000000001")
+        object_key = "orgs/org-id/items/item-id/original/018fdeadbeef.jpg"
+        image_path = item_storage.build_item_image_path(item_id, object_key)
+        thumb_path = item_storage.build_item_image_thumb_path(
+            item_id,
+            f"{object_key.rsplit('/', 1)[0]}/thumb/018fdeadbeef-thumb.jpg",
+            original_object_key=object_key,
+        )
+        self.assertEqual(
+            image_path,
+            f"/api/v1/catalog/items/{item_id}/image?v=018fdeadbeef.jpg",
+        )
+        self.assertEqual(
+            thumb_path,
+            f"/api/v1/catalog/items/{item_id}/image?variant=thumb&v=018fdeadbeef-thumb.jpg",
+        )
+
     def test_stored_image_stream_iterator_closes_body(self) -> None:
         class Body:
             def __init__(self) -> None:

@@ -26,11 +26,9 @@ from app.models import (
     BaseUnit,
     Bill,
     BillItem,
-    DailyPrice,
     ExpenseEntry,
     InventoryCategory,
     InventoryItem,
-    InventoryItemBillingMapping,
     InventoryItemCategory,
     InventoryMovement,
     InventoryMovementType,
@@ -49,12 +47,6 @@ from app.schemas.admin import (
     AdminReportDetailLevel,
     AdminReportSection,
     AnalyticsPeriod,
-    OverallReportBillingItem,
-    OverallReportInventoryItem,
-    OverallReportRead,
-    OverallReportStatement,
-    OverallReportUnitSummary,
-    OverallReportUsedStockBreakdown,
 )
 from app.services.admin import _get_period_bounds
 from app.services.tenant_query import list_organization_shops
@@ -1726,9 +1718,31 @@ async def _write_retailers_section(
     )
 
     widths = [60, 45, 60, 90, 45, 45, 45, 45, 44, 44]
-    alignments = ["left", "left", "left", "left", "right", "right", "right", "right", "right", "right"]
+    alignments = [
+        "left",
+        "left",
+        "left",
+        "left",
+        "right",
+        "right",
+        "right",
+        "right",
+        "right",
+        "right",
+    ]
     writer.table_header(
-        ["Bill No", "Date", "Retailer Name", "Items (Qty + Kg/Unit)", "Price", "Amount", "Paid", "Balance", "Cash", "UPI"],
+        [
+            "Bill No",
+            "Date",
+            "Retailer Name",
+            "Items (Qty + Kg/Unit)",
+            "Price",
+            "Amount",
+            "Paid",
+            "Balance",
+            "Cash",
+            "UPI",
+        ],
         widths,
         alignments,
     )
@@ -1756,16 +1770,21 @@ async def _write_retailers_section(
     ).all()
 
     sale_ids = [row.id for row in rows]
-    from app.models.retailer import RetailerSaleItem
     from collections import defaultdict
+
+    from app.models.retailer import RetailerSaleItem
+
     items_by_sale = defaultdict(list)
     if sale_ids:
         sale_items = (
-            await db.execute(
-                select(RetailerSaleItem)
-                .where(RetailerSaleItem.retailer_sale_id.in_(sale_ids))
+            (
+                await db.execute(
+                    select(RetailerSaleItem).where(RetailerSaleItem.retailer_sale_id.in_(sale_ids))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for item in sale_items:
             items_by_sale[item.retailer_sale_id].append(item)
 
@@ -1773,19 +1792,21 @@ async def _write_retailers_section(
     total_paid = Decimal("0.00")
     total_kg = Decimal("0.000")
     total_unit = Decimal("0.000")
-    
+
     for row in rows:
         total_balance += row.balance_due
         total_paid += row.amount_paid_total
-        
+
         row_items = items_by_sale[row.id]
         for i in row_items:
             if i.unit.value == "kg":
                 total_kg += i.quantity
             elif i.unit.value == "unit":
                 total_unit += i.quantity
-                
-        items_str = "\n".join([f"{i.item_name} - {float(i.quantity):g} {i.unit.value}" for i in row_items])
+
+        items_str = "\n".join(
+            [f"{i.item_name} - {float(i.quantity):g} {i.unit.value}" for i in row_items]
+        )
         prices_str = "\n".join([_money(i.price_per_unit) for i in row_items])
 
         writer.table_row(
@@ -1898,19 +1919,3 @@ async def _write_transfers_section(
             ("Total Transfers", str(int(stats.transfer_count or 0))),
         ]
     )
-
-
-async def _write_over_report_section(
-    db: AsyncSession,
-    writer: PdfReportWriter,
-    context: ReportContext,
-) -> None:
-    report = await _build_overall_report_for_context(db, context)
-    if not report.statements:
-        writer.section("Overall Report")
-        writer.note("No branch data available for the selected report scope.")
-        return
-
-    for statement in report.statements:
-        writer.use_landscape_page()
-        _write_over_report_statement(writer, statement)

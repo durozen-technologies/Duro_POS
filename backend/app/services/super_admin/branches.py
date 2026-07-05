@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -24,9 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def _branch_scope(
-    db: AsyncSession, schema_name: str | None
-) -> AsyncIterator[None]:
+async def _branch_scope(db: AsyncSession, schema_name: str | None) -> AsyncIterator[None]:
     if schema_name:
         async with tenant_schema_scope(db, schema_name):
             yield

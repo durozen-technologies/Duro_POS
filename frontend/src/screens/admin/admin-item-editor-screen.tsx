@@ -327,6 +327,39 @@ function valuesFromItem(item: ShopItemRead): EditorValues {
   };
 }
 
+function editorValuesMatchItem(values: EditorValues, item: ShopItemRead) {
+  const baseline = valuesFromItem(item);
+  if (values.name.trim() !== baseline.name.trim()) {
+    return false;
+  }
+  if (values.tamilName.trim() !== baseline.tamilName.trim()) {
+    return false;
+  }
+  if (values.unitType !== baseline.unitType || values.baseUnit !== baseline.baseUnit) {
+    return false;
+  }
+  if (values.isActive !== baseline.isActive) {
+    return false;
+  }
+  if (Number(values.sortOrder || 0) !== Number(baseline.sortOrder || 0)) {
+    return false;
+  }
+  if (values.categoryId.trim() !== baseline.categoryId.trim()) {
+    return false;
+  }
+  if (values.category.trim() !== baseline.category.trim()) {
+    return false;
+  }
+  try {
+    return (
+      JSON.stringify(attributesToObject(values.attributes)) ===
+      JSON.stringify(attributesToObject(baseline.attributes))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function buildFormFields(
   values: EditorValues,
   customAttributes: Record<string, string | number | boolean | null>,
@@ -575,12 +608,6 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   const customizationBlocked = isCustomize && item !== null && !item.allocated;
   const hasImageChange = Boolean(imageDraft || removeImageRequested);
   const hasPendingChanges = isDirty || hasImageChange;
-  const isImageOnlyChange =
-    !isCreate &&
-    !isCustomize &&
-    Boolean(itemId) &&
-    hasImageChange &&
-    !isDirty;
   const saveDisabled = saving || customizationBlocked || (!isCreate && !hasPendingChanges) || (isCreate && !isValid);
   const refreshEditor = useCallback(() => {
     if (!isCustomize) {
@@ -670,40 +697,6 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     ]);
   }, [hasStoredImage, imageDraft, item?.name, itemId, removeImageRequested]);
 
-  const saveImageOnlyChange = useCallback(async () => {
-    if (!itemId || !hasImageChange || savingRef.current) {
-      return;
-    }
-    savingRef.current = true;
-    setSaving(true);
-    setSaveError(null);
-    setImageError(null);
-    setImageStatus(imageDraft ? "Uploading replacement image..." : "Removing stored image...");
-    try {
-      if (imageDraft) {
-        await replaceItemImageFile(itemId, imageDraft);
-      } else {
-        await deleteItemImage(itemId);
-      }
-      void deleteImageDraftFile(imageDraft);
-      setImageDraft(null);
-      setRemoveImageRequested(false);
-      setStoredImageFailed(false);
-      if (workspace === AdminItemWorkspace.Catalogue) {
-        navigation.navigate("AdminItemsCatalogue");
-      } else {
-        navigation.navigate("AdminShopItems", { shopId });
-      }
-    } catch (requestError) {
-      triggerHaptic();
-      setImageError(getRequestErrorMessage(requestError, "Unable to save item image."));
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-      setImageStatus(null);
-    }
-  }, [hasImageChange, imageDraft, itemId, navigation, shopId, workspace]);
-
   const submit = handleSubmit(async (values) => {
     let customAttributes: Record<string, string | number | boolean | null>;
     try {
@@ -754,7 +747,8 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           throw new Error("Item is required for editing.");
         }
         if (workspace === AdminItemWorkspace.Catalogue || !shopId) {
-          if (hasImageChange && !isDirty) {
+          const metadataUnchanged = item ? editorValuesMatchItem(values, item) : false;
+          if (hasImageChange && metadataUnchanged) {
             if (imageDraft) {
               await replaceItemImageFile(itemId, imageDraft);
             } else {
@@ -823,17 +817,13 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     if (saveDisabled || savingRef.current) {
       return;
     }
-    if (isImageOnlyChange) {
-      void saveImageOnlyChange();
-      return;
-    }
     savingRef.current = true;
     setSaving(true);
     setSaveError(null);
     setImageError(null);
     setImageStatus(hasImageChange ? "Saving item image..." : null);
     void submit();
-  }, [hasImageChange, isImageOnlyChange, saveDisabled, saveImageOnlyChange, submit]);
+  }, [hasImageChange, saveDisabled, submit]);
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>

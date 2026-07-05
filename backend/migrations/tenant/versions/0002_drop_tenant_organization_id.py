@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from alembic import op
-
 revision: str = "0002_drop_tenant_organization_id"
 down_revision: str | None = "0001_tenant_baseline"
 branch_labels: str | Sequence[str] | None = None

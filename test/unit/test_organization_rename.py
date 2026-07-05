@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -89,15 +88,12 @@ class OrganizationRenameTests(BackendTestCase):
 
             with self.harness.session_factory() as session:
                 adapter = AsyncSessionAdapter(session)
-                with patch.object(
-                    org_service, "_evict_org_counts_cache", new_callable=AsyncMock
-                ):
-                    updated = await org_service.update_organization(
-                        adapter,
-                        org_id,
-                        OrganizationUpdate(name="New Name"),
-                        super_admin,
-                    )
+                updated = await org_service.update_organization(
+                    adapter,
+                    org_id,
+                    OrganizationUpdate(name="New Name"),
+                    super_admin,
+                )
                 self.assertEqual(updated.name, "New Name")
                 audit = await adapter.scalar(
                     select(AuditLog).where(

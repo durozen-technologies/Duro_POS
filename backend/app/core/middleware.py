@@ -1,11 +1,11 @@
 import gzip
 import logging
 from time import perf_counter
-from app.core.ids import uuid7
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.ids import uuid7
 from app.core.logging import bind_request_id, log_event
 
 GZIP_EXCLUDED_CONTENT_TYPES = ("text/event-stream", "image/")

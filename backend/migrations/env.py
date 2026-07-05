@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app import models as _models  # noqa: F401
 from app.core.config import get_settings
 from app.db.database import Base
+from app.db.postgres_url import (
+    async_postgres_database_url,
+    is_async_postgres_database_url,
+    sync_postgres_database_url,
+)
 
 config = context.config
 
@@ -21,10 +26,6 @@ target_metadata = Base.metadata
 
 def get_database_url() -> str:
     return str(get_settings().database_url)
-
-
-def is_async_database_url(database_url: str) -> bool:
-    return "+asyncpg" in database_url
 
 
 def get_alembic_database_url() -> str:
@@ -60,7 +61,7 @@ def do_run_migrations(connection) -> None:
 
 async def run_async_migrations() -> None:
     section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = get_alembic_database_url()
+    section["sqlalchemy.url"] = async_postgres_database_url(get_alembic_database_url())
 
     connectable = async_engine_from_config(
         section,
@@ -76,12 +77,12 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     database_url = get_alembic_database_url()
-    if is_async_database_url(database_url):
+    if is_async_postgres_database_url(database_url):
         asyncio.run(run_async_migrations())
         return
 
     section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = database_url
+    section["sqlalchemy.url"] = sync_postgres_database_url(database_url)
     connectable = engine_from_config(
         section,
         prefix="sqlalchemy.",

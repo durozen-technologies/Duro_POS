@@ -83,9 +83,7 @@ def upgrade() -> None:
             )
         )
         orphan_count = bind.execute(
-            sa.text(
-                "SELECT COUNT(*) FROM retailer_sale_receipts WHERE retailer_payment_id IS NULL"
-            )
+            sa.text("SELECT COUNT(*) FROM retailer_sale_receipts WHERE retailer_payment_id IS NULL")
         ).scalar_one()
         if orphan_count:
             raise RuntimeError(
@@ -107,8 +105,7 @@ def upgrade() -> None:
         )
 
     unique_constraints = {
-        uc["name"]
-        for uc in inspector.get_unique_constraints("retailer_sale_receipts")
+        uc["name"] for uc in inspector.get_unique_constraints("retailer_sale_receipts")
     }
     for uc in inspector.get_unique_constraints("retailer_sale_receipts"):
         if uc["column_names"] == ["retailer_sale_id"]:

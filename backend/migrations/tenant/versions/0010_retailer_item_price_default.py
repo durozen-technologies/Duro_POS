@@ -34,9 +34,7 @@ def upgrade() -> None:
     _set_search_path(bind, schema)
 
     op.alter_column(
-        "retailer_item_prices",
-        "effective_date",
-        server_default=sa.text("CURRENT_DATE")
+        "retailer_item_prices", "effective_date", server_default=sa.text("CURRENT_DATE")
     )
 
 
@@ -44,9 +42,5 @@ def downgrade() -> None:
     bind = op.get_bind()
     schema = _target_schema()
     _set_search_path(bind, schema)
-    
-    op.alter_column(
-        "retailer_item_prices",
-        "effective_date",
-        server_default=None
-    )
+
+    op.alter_column("retailer_item_prices", "effective_date", server_default=None)

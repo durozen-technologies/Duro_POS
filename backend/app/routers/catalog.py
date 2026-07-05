@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.tenant_session import get_tenant_db
 from app.db.storage import (
     StoredImagePayload,
     close_stored_image_stream,
@@ -15,6 +14,7 @@ from app.db.storage import (
     image_response_headers,
     iter_stored_image_stream,
 )
+from app.db.tenant_session import get_tenant_db
 from app.models import ExpenseItem, InventoryItem, Item
 
 router = APIRouter(prefix="/catalog", tags=["Catalog"])

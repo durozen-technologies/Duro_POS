@@ -1,20 +1,17 @@
-import json
-from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import and_, case, cast, distinct, func, null, or_, select, text, union_all
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy.orm import contains_eager
 
 from app.core.security import get_password_hash
 from app.db.storage import (
-    build_item_image_path,
-    build_item_image_thumb_path,
     delete_item_image_storage,
     save_item_image_upload,
 )
+from app.db.tenant_schema import tenant_router
 from app.models import (
     BaseUnit,
     Bill,
@@ -23,10 +20,6 @@ from app.models import (
     InventoryItem,
     InventoryItemCategory,
     Item,
-    ItemAssumptionStatus,
-    ItemCategory,
-    ItemChangeEvent,
-    Payment,
     Shop,
     ShopItemAllocation,
     UnitType,
@@ -34,41 +27,15 @@ from app.models import (
     UserRole,
 )
 from app.schemas.admin import (
-    AdminBillPage,
-    AdminBillShopStat,
-    AdminBillSummary,
-    AdminDashboardBootstrap,
-    AdminItemRowsPage,
-    AnalyticsPeriod,
     ItemAssumptionUpdate,
-    ItemCategoryCreate,
-    ItemCategoryRead,
-    ItemCategoryUpdate,
     ItemCreate,
     ItemMetadataUpdate,
     ItemRead,
-    ItemSalesSummary,
-    ItemScope,
     ItemUpdate,
-    PaymentSplitSummary,
-    PriceStatus,
     ShopCreate,
-    ShopItemAllocationBulkRead,
-    ShopItemAllocationUpdate,
-    ShopItemCounts,
-    ShopItemPage,
-    ShopItemRead,
     ShopRead,
-    ShopSalesSummary,
-    ShopSelectedItemsOrderRead,
     ShopUpdate,
 )
-from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
-from app.services.super_admin.organizations import assert_organization_can_add_branch
-from app.services.tenant_query import resolve_organization_id
-from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
-from app.db.tenant_schema import tenant_router
-
 from app.services.admin._shared import (
     _ensure_unique_item_name,
     _item_to_read,
@@ -79,6 +46,9 @@ from app.services.admin._shared import (
     _resolve_item_category,
     _shop_to_read,
 )
+from app.services.super_admin.organizations import assert_organization_can_add_branch
+from app.services.tenant_query import resolve_organization_id
+from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 
 
 async def create_shop_account(db: AsyncSession, payload: ShopCreate, actor: User) -> ShopRead:

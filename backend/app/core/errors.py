@@ -27,12 +27,10 @@ _MESSAGE_CODES: dict[str, str] = {
 }
 
 ACCOUNT_DISABLED_BY_SUPER_ADMIN = (
-    "Your account has been disabled by the super admin. "
-    "Please contact Durozen Technologies."
+    "Your account has been disabled by the super admin. Please contact Durozen Technologies."
 )
 ORGANIZATION_DISABLED_BY_SUPER_ADMIN = (
-    "Your organization has been disabled by the super admin. "
-    "Please contact Durozen Technologies."
+    "Your organization has been disabled by the super admin. Please contact Durozen Technologies."
 )
 
 BRANCH_LIMIT_REACHED_DETAIL = (

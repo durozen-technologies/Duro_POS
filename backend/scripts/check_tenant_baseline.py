@@ -20,15 +20,16 @@ def main() -> int:
         print("check_tenant_baseline: no tenant tables registered", file=sys.stderr)
         return 1
     if "alembic_version" in names:
-        print("check_tenant_baseline: alembic_version must not be in tenant_table_names", file=sys.stderr)
+        print(
+            "check_tenant_baseline: alembic_version must not be in tenant_table_names",
+            file=sys.stderr,
+        )
         return 1
     if names & PLATFORM_TABLES:
         overlap = sorted(names & PLATFORM_TABLES)
         print(f"check_tenant_baseline: platform tables in tenant set: {overlap}", file=sys.stderr)
         return 1
-    print(
-        f"check_tenant_baseline: ok ({len(names)} tables, head={TENANT_MIGRATION_HEAD})"
-    )
+    print(f"check_tenant_baseline: ok ({len(names)} tables, head={TENANT_MIGRATION_HEAD})")
     return 0
 
 

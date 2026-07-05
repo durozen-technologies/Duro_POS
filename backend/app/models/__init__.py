@@ -1,7 +1,5 @@
 from ..db.database import Base
 from .audit_log import AuditLog
-from .organization import Organization
-from .rbac import AdminRole, AdminRolePermission, AdminUserRole, Permission
 from .base import BaseModelMixin
 from .bill import Bill, BillItem, MonthlyBillSequence
 from .daily_price import DailyPrice
@@ -28,7 +26,9 @@ from .inventory import (
 from .item import Item
 from .item_category import ItemCategory
 from .item_change_event import ItemChangeEvent
+from .organization import Organization
 from .payment import Payment
+from .rbac import AdminRole, AdminRolePermission, AdminUserRole, Permission
 from .receipt import Receipt
 from .retailer import (
     MonthlyRetailerSaleSequence,

@@ -79,9 +79,7 @@ async def _count_bills_for_window(
 
     return int(
         await db.scalar(
-            select(func.count(Bill.id))
-            .join(Shop, Shop.id == Bill.shop_id)
-            .where(*filters)
+            select(func.count(Bill.id)).join(Shop, Shop.id == Bill.shop_id).where(*filters)
         )
         or 0
     )
@@ -187,7 +185,11 @@ async def get_billing_overview(
 
     summary.total_organizations = len(organization_rows)
     organization_rows.sort(
-        key=lambda row: (-row.total_bills_generated, row.organization_name.lower(), str(row.organization_id))
+        key=lambda row: (
+            -row.total_bills_generated,
+            row.organization_name.lower(),
+            str(row.organization_id),
+        )
     )
     return SuperAdminBillingOverviewRead(
         period=period,

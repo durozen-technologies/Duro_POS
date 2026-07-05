@@ -5,7 +5,11 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.tenant_context_var import get_active_tenant_schema, reset_active_tenant_schema, set_active_tenant_schema
+from app.db.tenant_context_var import (
+    get_active_tenant_schema,
+    reset_active_tenant_schema,
+    set_active_tenant_schema,
+)
 from app.db.tenant_schema import set_search_path
 from app.models import AuditLog, User
 

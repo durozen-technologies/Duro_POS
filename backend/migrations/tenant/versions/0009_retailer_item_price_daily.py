@@ -43,32 +43,34 @@ def upgrade() -> None:
 
     # We must first drop the unique constraints that don't include effective_date
     op.drop_constraint("uq_retailer_item_prices", "retailer_item_prices", type_="unique")
-    
+
     op.add_column(
         "retailer_item_prices",
         sa.Column("effective_date", sa.Date(), nullable=True),
     )
-    
+
     # Set default values for existing rows to CURRENT_DATE
     op.execute(
-        sa.text("UPDATE retailer_item_prices SET effective_date = CURRENT_DATE WHERE effective_date IS NULL")
+        sa.text(
+            "UPDATE retailer_item_prices SET effective_date = CURRENT_DATE WHERE effective_date IS NULL"
+        )
     )
-    
+
     # Make effective_date NOT NULL
     op.alter_column("retailer_item_prices", "effective_date", nullable=False)
-    
+
     # Re-create unique constraint WITH effective_date
     op.create_unique_constraint(
         "uq_retailer_item_prices_daily",
         "retailer_item_prices",
-        ["retailer_id", "shop_id", "item_id", "effective_date"]
+        ["retailer_id", "shop_id", "item_id", "effective_date"],
     )
-    
+
     # Add index for efficient date filtering
     op.create_index(
         "ix_retailer_item_prices_date",
         "retailer_item_prices",
-        ["retailer_id", "shop_id", "effective_date"]
+        ["retailer_id", "shop_id", "effective_date"],
     )
 
 
@@ -76,12 +78,10 @@ def downgrade() -> None:
     bind = op.get_bind()
     schema = _target_schema()
     _set_search_path(bind, schema)
-    
+
     op.drop_index("ix_retailer_item_prices_date", table_name="retailer_item_prices")
     op.drop_constraint("uq_retailer_item_prices_daily", "retailer_item_prices", type_="unique")
     op.drop_column("retailer_item_prices", "effective_date")
     op.create_unique_constraint(
-        "uq_retailer_item_prices",
-        "retailer_item_prices",
-        ["retailer_id", "shop_id", "item_id"]
+        "uq_retailer_item_prices", "retailer_item_prices", ["retailer_id", "shop_id", "item_id"]
     )

@@ -293,6 +293,7 @@ async def _get_or_create_thumbnail_payload(
             content=thumbnail_content,
             content_type=thumbnail_content_type,
             variant="thumb",
+            organization_id=item.organization_id,
         )
         item.image_thumbnail_object_key = uploaded_thumbnail_object_key
         item.image_thumbnail_content_type = thumbnail_content_type
@@ -470,6 +471,7 @@ async def _get_or_create_inventory_thumbnail_payload(
             content_type=thumbnail_content_type,
             variant="thumb",
             prefix="inventory-items",
+            organization_id=item.organization_id,
         )
         item.image_thumbnail_object_key = uploaded_thumbnail_object_key
         item.image_thumbnail_content_type = thumbnail_content_type
@@ -647,6 +649,7 @@ async def _get_or_create_expense_thumbnail_payload(
             content_type=thumbnail_content_type,
             variant="thumb",
             prefix="expense-items",
+            organization_id=item.organization_id,
         )
         item.image_thumbnail_object_key = uploaded_thumbnail_object_key
         item.image_thumbnail_content_type = thumbnail_content_type

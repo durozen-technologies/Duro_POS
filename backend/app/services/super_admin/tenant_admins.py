@@ -24,7 +24,11 @@ from app.schemas.super_admin.tenant_admins import (
 from app.services.super_admin._audit import record_hard_delete_audit, record_super_admin_audit
 from app.services.super_admin._credentials import verify_super_admin_credentials
 from app.services.super_admin.organizations import get_organization_or_404
-from app.services.user_auth_index import delete_auth_index, upsert_auth_index, username_is_globally_taken
+from app.services.user_auth_index import (
+    delete_auth_index,
+    upsert_auth_index,
+    username_is_globally_taken,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +111,7 @@ async def _auth_entry_for_user(
     platform_db: AsyncSession,
     user_id: UUID,
 ) -> UserAuthIndex | None:
-    return await platform_db.scalar(
-        select(UserAuthIndex).where(UserAuthIndex.user_id == user_id)
-    )
+    return await platform_db.scalar(select(UserAuthIndex).where(UserAuthIndex.user_id == user_id))
 
 
 async def _tenant_admin_read(
@@ -142,7 +144,10 @@ async def _list_tenant_admins_in_schema(
 
     rows = (
         await tenant_db.scalars(
-            select(User).where(*filters).order_by(User.created_at.desc(), User.id.desc()).limit(limit)
+            select(User)
+            .where(*filters)
+            .order_by(User.created_at.desc(), User.id.desc())
+            .limit(limit)
         )
     ).all()
     role_ids_by_user = await _role_ids_by_user_id(tenant_db, [user.id for user in rows])
@@ -283,9 +288,7 @@ async def list_tenant_admin_rows(
 
     if cursor_created_at is not None and cursor_id is not None:
         merged = [
-            row
-            for row in merged
-            if (row.created_at, row.id) < (cursor_created_at, cursor_id)
+            row for row in merged if (row.created_at, row.id) < (cursor_created_at, cursor_id)
         ]
 
     page_rows = merged[:limit]
@@ -377,7 +380,9 @@ async def get_tenant_admin(platform_db: AsyncSession, user_id: UUID) -> TenantAd
     async with tenant_schema_scope(platform_db, entry.schema_name):
         user = await platform_db.scalar(select(User).where(User.id == user_id))
         if user is None or user.role != UserRole.TENANT_ADMIN:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found"
+            )
         return await _tenant_admin_read(platform_db, user, org.name)
 
 
@@ -402,7 +407,9 @@ async def hard_delete_tenant_admin(
         )
 
         if entry is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found"
+            )
 
         async with tenant_schema_scope(platform_db, entry.schema_name):
             user = await platform_db.scalar(select(User).where(User.id == user_id))
@@ -489,7 +496,9 @@ async def set_tenant_admin_status(
     async with tenant_schema_scope(platform_db, entry.schema_name):
         user = await platform_db.scalar(select(User).where(User.id == user_id))
         if user is None or user.role != UserRole.TENANT_ADMIN:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found"
+            )
         user.is_active = is_active
         await _bump_permission_version(user)
         await platform_db.flush()
@@ -521,7 +530,9 @@ async def update_tenant_admin_roles(
     async with tenant_schema_scope(platform_db, entry.schema_name):
         user = await platform_db.scalar(select(User).where(User.id == user_id))
         if user is None or user.role != UserRole.TENANT_ADMIN:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found"
+            )
         if user.organization_id is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="User has no org"
@@ -570,7 +581,9 @@ async def reset_tenant_admin_password(
     async with tenant_schema_scope(platform_db, entry.schema_name):
         user = await platform_db.scalar(select(User).where(User.id == user_id))
         if user is None or user.role != UserRole.TENANT_ADMIN:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Tenant admin not found"
+            )
         user.password_hash = get_password_hash(password)
         await _bump_permission_version(user)
         await platform_db.flush()

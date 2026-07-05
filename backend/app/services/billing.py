@@ -31,7 +31,6 @@ from app.models import (
     Shop,
     ShopItemAllocation,
 )
-from app.services.bill_number import bill_no_from_sequence, bill_number_prefix_from_settings
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutPreviewRead,
@@ -41,6 +40,7 @@ from app.schemas.billing import (
     PaymentRead,
     ReceiptRead,
 )
+from app.services.bill_number import bill_no_from_sequence, bill_number_prefix_from_settings
 
 TWOPLACES = Decimal("0.01")
 THREEPLACES = Decimal("0.001")

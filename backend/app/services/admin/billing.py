@@ -1,74 +1,32 @@
-import json
-from datetime import UTC, date, datetime, timedelta
+import asyncio
+from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import and_, case, cast, distinct, func, null, or_, select, text, union_all
-from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException, status
+from sqlalchemy import and_, distinct, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
-from app.core.security import get_password_hash
-from app.db.storage import (
-    build_item_image_path,
-    build_item_image_thumb_path,
-    delete_item_image_storage,
-    save_item_image_upload,
-)
 from app.models import (
-    BaseUnit,
     Bill,
     BillItem,
-    DailyPrice,
-    InventoryItem,
-    InventoryItemCategory,
     Item,
-    ItemAssumptionStatus,
-    ItemCategory,
-    ItemChangeEvent,
     Organization,
     Payment,
     Shop,
-    ShopItemAllocation,
-    UnitType,
-    User,
-    UserRole,
 )
 from app.schemas.admin import (
     AdminBillPage,
     AdminBillShopStat,
     AdminBillSummary,
     AdminDashboardBootstrap,
-    AdminItemRowsPage,
     AnalyticsPeriod,
-    ItemAssumptionUpdate,
-    ItemCategoryCreate,
-    ItemCategoryRead,
-    ItemCategoryUpdate,
-    ItemCreate,
-    ItemMetadataUpdate,
-    ItemRead,
     ItemSalesSummary,
-    ItemScope,
-    ItemUpdate,
     OrganizationBranchQuota,
     PaymentSplitSummary,
-    PriceStatus,
-    ShopCreate,
-    ShopItemAllocationBulkRead,
-    ShopItemAllocationUpdate,
-    ShopItemCounts,
-    ShopItemPage,
-    ShopItemRead,
-    ShopRead,
     ShopSalesSummary,
-    ShopSelectedItemsOrderRead,
-    ShopUpdate,
 )
-from app.schemas.billing import BillLineRead, BillRead, PaymentRead, ReceiptRead
-
-import asyncio
-
+from app.schemas.billing import BillRead
 from app.services.admin.catalogue import _bill_to_read, _get_period_bounds
 from app.services.admin.shops import list_shops
 from app.services.tenant_query import get_shop_for_tenant_or_404
@@ -88,9 +46,7 @@ async def _branch_quota_for_organization(
     )
 
 
-async def get_bill_by_id(
-    db: AsyncSession, bill_id: UUID, organization_id: UUID
-) -> BillRead:
+async def get_bill_by_id(db: AsyncSession, bill_id: UUID, organization_id: UUID) -> BillRead:
     """Fetch a single bill with all related data in one SQL statement.
 
     Uses explicit JOINs with ``contains_eager`` for the to-one relationships

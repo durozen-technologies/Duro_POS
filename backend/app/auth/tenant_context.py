@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_active_user
+from app.core.config import get_settings
 from app.core.errors import ORGANIZATION_DISABLED_BY_SUPER_ADMIN
 from app.core.redis_cache import (
     cache_get_json,
@@ -56,7 +57,11 @@ async def load_user_permissions(db: AsyncSession, user: User) -> frozenset[str]:
         .where(AdminUserRole.user_id == user.id)
     )
     permissions = frozenset(result.all())
-    await cache_set_json(cache_key, sorted(permissions), ttl_seconds=90)
+    await cache_set_json(
+        cache_key,
+        sorted(permissions),
+        ttl_seconds=get_settings().redis_permission_cache_ttl,
+    )
     return permissions
 
 

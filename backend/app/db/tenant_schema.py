@@ -1,20 +1,19 @@
 """Schema-per-tenant provisioning and search_path routing."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 import logging
 import os
 import re
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.redis_cache import cache_get_json, cache_set_json, org_schema_cache_key
 from app.db.tenant_context_var import (
     get_active_tenant_schema,
     reset_active_tenant_schema,
@@ -27,7 +26,6 @@ _SCHEMA_PREFIX = "tenant_"
 _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-ORG_SCHEMA_CACHE_TTL_SECONDS = 300
 TENANT_MIGRATION_HEAD = "0010_retailer_item_price_default"
 RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
 
@@ -43,11 +41,7 @@ def is_postgres_database() -> bool:
     return "postgresql" in url or "+asyncpg" in url
 
 
-def sync_postgres_database_url(url: str) -> str:
-    """Sync SQLAlchemy URL for psycopg3 (migrate CLI, tenant listing)."""
-    if "postgresql+asyncpg:" in url:
-        return url.replace("postgresql+asyncpg:", "postgresql+psycopg:", 1)
-    return url
+from app.db.postgres_url import sync_postgres_database_url
 
 
 def derive_schema_name(slug: str) -> str:
@@ -222,17 +216,11 @@ def run_tenant_migrations(schema_name: str) -> None:
     os.environ["TARGET_SCHEMA"] = safe
     alembic_config = Config(str(backend_root / "migrations" / "tenant" / "alembic.ini"))
     alembic_config.set_main_option("script_location", str(backend_root / "migrations" / "tenant"))
-    # ponytail: force sync driver so Alembic commits tenant DDL/RBAC (asyncpg path rolled back)
-    alembic_config.set_main_option(
-        "sqlalchemy.url",
-        sync_postgres_database_url(str(get_settings().database_url)),
-    )
     logger.info("Running tenant migrations for schema %s", safe)
     command.upgrade(alembic_config, TENANT_MIGRATION_HEAD)
 
 
 def _public_table_exists(connection, table_name: str) -> bool:
-    from sqlalchemy import inspect
 
     return inspect(connection).has_table(table_name, schema="public")
 
@@ -264,10 +252,7 @@ def list_tenant_schema_names_from_db(schema_filter: str | None = None) -> list[s
             if _public_table_exists(conn, "organizations"):
                 names.update(
                     conn.execute(
-                        text(
-                            "SELECT schema_name FROM organizations "
-                            "WHERE schema_name IS NOT NULL"
-                        )
+                        text("SELECT schema_name FROM organizations WHERE schema_name IS NOT NULL")
                     ).scalars()
                 )
             names.update(
@@ -322,26 +307,9 @@ class TenantSchemaRouter:
     async def resolve_schema(self, db: AsyncSession, organization_id: UUID) -> str | None:
         from app.models import Organization
 
-        cache_key = org_schema_cache_key(organization_id)
-        cached = await cache_get_json(cache_key)
-        if isinstance(cached, str) and cached:
-            return cached
-
-        schema_name = await db.scalar(
+        return await db.scalar(
             select(Organization.schema_name).where(Organization.id == organization_id)
         )
-        if schema_name:
-            await cache_set_json(
-                cache_key,
-                schema_name,
-                ttl_seconds=ORG_SCHEMA_CACHE_TTL_SECONDS,
-            )
-        return schema_name
-
-    async def evict_schema_cache(self, organization_id: UUID) -> None:
-        from app.core.redis_cache import cache_delete
-
-        await cache_delete(org_schema_cache_key(organization_id))
 
 
 tenant_router = TenantSchemaRouter()

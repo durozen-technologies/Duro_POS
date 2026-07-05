@@ -59,9 +59,7 @@ def upgrade() -> None:
     for org_id, slug, _ in rows:
         schema_name = _derive_schema_name(slug)
         bind.execute(
-            sa.text(
-                "UPDATE organizations SET schema_name = :schema_name WHERE id = :org_id"
-            ),
+            sa.text("UPDATE organizations SET schema_name = :schema_name WHERE id = :org_id"),
             {"schema_name": schema_name, "org_id": org_id},
         )
 
@@ -69,14 +67,10 @@ def upgrade() -> None:
         op.execute(sa.text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
 
     if "users" in _public_tables(bind):
-        bind.execute(
-            sa.text("DELETE FROM public.users WHERE organization_id IS NOT NULL")
-        )
+        bind.execute(sa.text("DELETE FROM public.users WHERE organization_id IS NOT NULL"))
 
     if "audit_logs" in _public_tables(bind):
-        bind.execute(
-            sa.text("DELETE FROM public.audit_logs WHERE organization_id IS NOT NULL")
-        )
+        bind.execute(sa.text("DELETE FROM public.audit_logs WHERE organization_id IS NOT NULL"))
 
     op.alter_column("organizations", "schema_name", nullable=False)
 

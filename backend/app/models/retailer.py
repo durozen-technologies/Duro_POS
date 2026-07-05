@@ -6,7 +6,6 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
-    Enum as SqlEnum,
     ForeignKey,
     Index,
     Numeric,
@@ -15,6 +14,9 @@ from sqlalchemy import (
     desc,
     func,
     text,
+)
+from sqlalchemy import (
+    Enum as SqlEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -199,12 +201,8 @@ class RetailerSale(Base, BaseModelMixin):
     retailer = relationship("Retailer", back_populates="sales")
     shop = relationship("Shop")
     created_by = relationship("User")
-    items = relationship(
-        "RetailerSaleItem", back_populates="sale", cascade="all, delete-orphan"
-    )
-    payments = relationship(
-        "RetailerPayment", back_populates="sale", cascade="all, delete-orphan"
-    )
+    items = relationship("RetailerSaleItem", back_populates="sale", cascade="all, delete-orphan")
+    payments = relationship("RetailerPayment", back_populates="sale", cascade="all, delete-orphan")
     receipts = relationship(
         "RetailerSaleReceipt",
         back_populates="sale",

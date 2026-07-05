@@ -21,6 +21,7 @@ Desktop.ini
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
+# (skills/, hooks.json, settings.json fall under .cursor/*)
 .cursorrules
 .git.backup/
 # Agent harness (keep .github/workflows/ tracked)
@@ -63,6 +64,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Monorepo root (packages live in frontend/ and mcp/)
+node_modules/
+
+# Local docker overrides
+compose.override.yaml
+docker-compose.override.yml
 
 # Python caches, virtualenvs, and reports
 __pycache__/
@@ -202,6 +210,7 @@ frontend/ios/
 frontend/*.apk
 frontend/*.aab
 frontend/*.ipa
+frontend/*.hprof
 
 # Native build outputs if Android/iOS folders are temporarily unignored
 frontend/android/.gradle/

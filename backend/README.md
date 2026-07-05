@@ -86,14 +86,14 @@ ITEM_IMAGE_THUMBNAIL_SIZE=192
 ITEM_IMAGE_FULL_MAX_SIZE=1024
 REDIS_URL=redis://127.0.0.1:6379/0
 REDIS_PREFIX=brolier360
-REDIS_DEFAULT_TTL=60
+REDIS_PERMISSION_CACHE_TTL=30
 ```
 
-Optional Redis (cache only; app degrades when unset):
+Optional Redis (permission cache only; app degrades when unset):
 
 - `REDIS_URL` — e.g. `redis://127.0.0.1:6379/0` locally, `redis://redis:6379/0` in production compose
-- `REDIS_PREFIX` — key namespace for `fastapi-redis-sdk` (default `brolier360`)
-- Permission, super-admin org counts, and login rate-limit keys use this prefix
+- `REDIS_PREFIX` — key namespace (default `brolier360`)
+- `REDIS_PERMISSION_CACHE_TTL` — tenant admin permission cache TTL in seconds (default `30`)
 
 Important backend defaults from [`app/core/config.py`](app/core/config.py):
 

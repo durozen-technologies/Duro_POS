@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import require_tenant_admin
-from app.models import UserRole
 from app.routers.admin import (
     analytics,
     billing,
@@ -12,9 +11,9 @@ from app.routers.admin import (
     expenses,
     inventory,
     pricing,
+    retailers,
     shops,
     transfers,
-    retailers,
 )
 
 router = APIRouter(tags=["Admin"], dependencies=[Depends(require_tenant_admin())])

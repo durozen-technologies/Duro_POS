@@ -45,8 +45,8 @@ from app.services.retailers import (
     list_retailer_branch_allocations,
     list_retailer_item_allocations,
     list_retailer_item_prices,
-    list_shop_retailer_item_catalog,
     list_retailers,
+    list_shop_retailer_item_catalog,
     sync_retailer_branch_allocations,
     sync_retailer_item_prices,
     sync_shop_retailer_item_catalog,
@@ -188,9 +188,7 @@ async def admin_update_retailer_item_allocation(
     db: DBSession,
     shop_id: Annotated[UUID, Query()],
 ) -> RetailerItemPriceRead:
-    return await update_retailer_item_allocation(
-        db, retailer_id, shop_id, item_id, payload
-    )
+    return await update_retailer_item_allocation(db, retailer_id, shop_id, item_id, payload)
 
 
 @router.delete(

@@ -14,8 +14,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select
+from fastapi import HTTPException
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -396,7 +396,11 @@ async def _sale_to_read(db: AsyncSession, sale: RetailerSale) -> RetailerSaleRea
         _receipt_to_read(receipt, payment_totals=payment_totals) for receipt in receipts
     ]
     invoice_receipt = next(
-        (receipt for receipt in receipt_reads if receipt.receipt_type == RetailerReceiptType.SALE_INVOICE),
+        (
+            receipt
+            for receipt in receipt_reads
+            if receipt.receipt_type == RetailerReceiptType.SALE_INVOICE
+        ),
         None,
     )
     return RetailerSaleRead(
@@ -701,9 +705,7 @@ async def record_retailer_payment(
     admin_override: bool = False,
 ) -> RetailerPaymentRecordResponse:
     sale = await db.scalar(
-        select(RetailerSale)
-        .options(*_sale_load_options())
-        .where(RetailerSale.id == sale_id)
+        select(RetailerSale).options(*_sale_load_options()).where(RetailerSale.id == sale_id)
     )
     if sale is None:
         raise HTTPException(status_code=404, detail="Sale not found")
@@ -797,11 +799,7 @@ async def record_retailer_payment(
     )
     sale_read = await _sale_to_read(db, sale)
     payment_receipt_read = next(
-        (
-            receipt
-            for receipt in sale_read.receipts
-            if receipt.retailer_payment_id == payment.id
-        ),
+        (receipt for receipt in sale_read.receipts if receipt.retailer_payment_id == payment.id),
         None,
     )
     if payment_receipt_read is None:
@@ -816,9 +814,7 @@ async def get_retailer_sale(
     shop_id: UUID | None = None,
 ) -> RetailerSaleRead:
     sale = await db.scalar(
-        select(RetailerSale)
-        .options(*_sale_load_options())
-        .where(RetailerSale.id == sale_id)
+        select(RetailerSale).options(*_sale_load_options()).where(RetailerSale.id == sale_id)
     )
     if sale is None or (shop_id is not None and sale.shop_id != shop_id):
         raise HTTPException(status_code=404, detail="Sale not found")
@@ -892,9 +888,7 @@ async def list_retailer_sale_receipts(
     start = (page - 1) * page_size
     page_items = receipts[start : start + page_size]
     return RetailerSaleReceiptPage(
-        items=[
-            _receipt_to_read(receipt, payment_totals=payment_totals) for receipt in page_items
-        ],
+        items=[_receipt_to_read(receipt, payment_totals=payment_totals) for receipt in page_items],
         total=total,
         page=page,
         page_size=page_size,

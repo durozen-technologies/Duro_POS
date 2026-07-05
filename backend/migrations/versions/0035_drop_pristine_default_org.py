@@ -28,8 +28,7 @@ def upgrade() -> None:
 
     row = bind.execute(
         sa.text(
-            "SELECT id, schema_name FROM organizations "
-            "WHERE id = :org_id AND slug = 'default'"
+            "SELECT id, schema_name FROM organizations WHERE id = :org_id AND slug = 'default'"
         ),
         {"org_id": DEFAULT_ORG_ID},
     ).one_or_none()
@@ -39,9 +38,7 @@ def upgrade() -> None:
     org_id, schema_name = row
 
     has_auth_index = bind.execute(
-        sa.text(
-            "SELECT 1 FROM user_auth_index WHERE organization_id = :org_id LIMIT 1"
-        ),
+        sa.text("SELECT 1 FROM user_auth_index WHERE organization_id = :org_id LIMIT 1"),
         {"org_id": org_id},
     ).scalar_one_or_none()
     if has_auth_index is not None:

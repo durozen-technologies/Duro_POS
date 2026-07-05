@@ -9,6 +9,11 @@ from sqlalchemy import engine_from_config, pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
+from app.db.postgres_url import (
+    async_postgres_database_url,
+    is_async_postgres_database_url,
+    sync_postgres_database_url,
+)
 
 config = context.config
 
@@ -30,15 +35,7 @@ def get_alembic_database_url() -> str:
     database_url = configured or str(get_settings().database_url)
     if database_url.startswith("sqlite+aiosqlite:"):
         return database_url.replace("sqlite+aiosqlite:", "sqlite:", 1)
-    if "+asyncpg" in database_url:
-        from app.db.tenant_schema import sync_postgres_database_url
-
-        return sync_postgres_database_url(database_url)
     return database_url
-
-
-def is_async_database_url(database_url: str) -> bool:
-    return "+asyncpg" in database_url
 
 
 def _configure_context(connection) -> None:
@@ -78,7 +75,7 @@ def do_run_migrations(connection) -> None:
 
 async def run_async_migrations() -> None:
     section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = get_alembic_database_url()
+    section["sqlalchemy.url"] = async_postgres_database_url(get_alembic_database_url())
 
     connectable = async_engine_from_config(
         section,
@@ -86,7 +83,7 @@ async def run_async_migrations() -> None:
         poolclass=pool.NullPool,
     )
 
-    async with connectable.begin() as connection:
+    async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()
@@ -94,13 +91,12 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     database_url = get_alembic_database_url()
-    if is_async_database_url(database_url):
+    if is_async_postgres_database_url(database_url):
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             asyncio.run(run_async_migrations())
             return
-        # Alembic CLI invoked while an event loop is running — isolate asyncio.run.
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -108,7 +104,7 @@ def run_migrations_online() -> None:
         return
 
     section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = database_url
+    section["sqlalchemy.url"] = sync_postgres_database_url(database_url)
     connectable = engine_from_config(
         section,
         prefix="sqlalchemy.",

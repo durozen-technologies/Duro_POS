@@ -1,7 +1,6 @@
+import logging
 from datetime import UTC, date, datetime
 from uuid import UUID
-
-import logging
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
@@ -16,7 +15,6 @@ from app.core.errors import (
     ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
 )
 from app.core.logging import log_event
-from app.core.redis_cache import cache_get_json, cache_set_json, login_rate_cache_key
 from app.core.security import (
     create_access_token_for_user,
     get_password_hash,
@@ -26,12 +24,19 @@ from app.db.tenant_context_var import reset_active_tenant_schema, set_active_ten
 from app.db.tenant_schema import (
     is_postgres_session,
     set_search_path,
-    tenant_router,
     tenant_schema_scope,
 )
-from app.models import DailyPrice, Item, Organization, Shop, ShopItemAllocation, User, UserAuthIndex, UserRole
+from app.models import (
+    DailyPrice,
+    Item,
+    Organization,
+    Shop,
+    ShopItemAllocation,
+    User,
+    UserAuthIndex,
+    UserRole,
+)
 from app.models.enums import is_super_admin, is_tenant_admin
-from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 from app.schemas.auth import (
     LoginResponse,
     PasswordResetRequest,
@@ -40,31 +45,9 @@ from app.schemas.auth import (
     UserSession,
     normalize_username,
 )
+from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 
 logger = logging.getLogger(__name__)
-LOGIN_RATE_LIMIT = 10
-LOGIN_RATE_TTL_SECONDS = 15 * 60
-
-
-async def _check_login_rate_limit(client_ip: str | None, username: str) -> None:
-    if not client_ip:
-        return
-    key = login_rate_cache_key(client_ip, username)
-    attempts = await cache_get_json(key)
-    if isinstance(attempts, int) and attempts >= LOGIN_RATE_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts. Try again later.",
-        )
-
-
-async def _record_login_failure(client_ip: str | None, username: str) -> None:
-    if not client_ip:
-        return
-    key = login_rate_cache_key(client_ip, username)
-    attempts = await cache_get_json(key)
-    next_count = int(attempts or 0) + 1
-    await cache_set_json(key, next_count, ttl_seconds=LOGIN_RATE_TTL_SECONDS)
 
 
 async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
@@ -215,9 +198,7 @@ async def _load_tenant_user(
     user_id: UUID,
 ) -> User | None:
     return await db.scalar(
-        select(User)
-        .options(selectinload(User.organization))
-        .where(User.id == user_id)
+        select(User).options(selectinload(User.organization)).where(User.id == user_id)
     )
 
 
@@ -227,10 +208,8 @@ async def login_user(
     password: str,
     *,
     organization_slug: str | None = None,
-    client_ip: str | None = None,
 ) -> LoginResponse:
     normalized_username = normalize_username(username)
-    await _check_login_rate_limit(client_ip, normalized_username)
 
     user: User | None = None
     tenant_schema_name: str | None = None
@@ -265,7 +244,6 @@ async def login_user(
                     user = candidate
 
     if user is None:
-        await _record_login_failure(client_ip, normalized_username)
         log_event(
             logger,
             logging.WARNING,

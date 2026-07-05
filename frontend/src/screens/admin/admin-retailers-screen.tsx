@@ -29,6 +29,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
   const insets = useSafeAreaInsets();
   const initialTab = route.params?.tab ?? "retailers";
   const initialRetailerId = route.params?.retailerId ?? null;
+  const initialShopId = route.params?.shopId ?? null;
   const [activeTab, setActiveTab] = useState<AdminRetailersTab>(initialTab);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -136,6 +137,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
               refreshNonce={refreshNonce}
               onRefreshComplete={handleRefreshComplete}
               initialRetailerId={initialRetailerId}
+              initialShopId={initialShopId}
             />
           ) : null}
 

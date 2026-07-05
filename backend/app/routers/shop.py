@@ -32,13 +32,6 @@ from app.schemas.inventory import (
 )
 from app.schemas.inventory_policy import InventoryBackdatePolicyRead
 from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse
-from app.schemas.transfer import (
-    InventoryTransferCreate,
-    InventoryTransferPage,
-    InventoryTransferRead,
-    TransferShopRead,
-)
-from app.services.billing import create_bill, preview_bill
 from app.schemas.retailers import (
     RetailerCatalogItemRead,
     RetailerPaymentCreate,
@@ -52,17 +45,13 @@ from app.schemas.retailers import (
     RetailerSaleReceiptPage,
     RetailerSaleReceiptRead,
 )
-from app.services.retailer_sales import (
-    create_retailer_sale,
-    get_retailer_catalog,
-    get_retailer_sale,
-    get_retailer_sale_receipt,
-    list_retailer_sale_receipts,
-    list_retailer_sales,
-    preview_retailer_sale,
-    record_retailer_payment,
+from app.schemas.transfer import (
+    InventoryTransferCreate,
+    InventoryTransferPage,
+    InventoryTransferRead,
+    TransferShopRead,
 )
-from app.services.retailers import list_active_retailers_for_shop
+from app.services.billing import create_bill, preview_bill
 from app.services.expenses import (
     create_shop_expense_entry,
     list_current_shop_expense_items,
@@ -79,6 +68,17 @@ from app.services.inventory import (
 )
 from app.services.inventory_policy import get_inventory_backdate_policy
 from app.services.pricing import create_daily_prices, get_shop_bootstrap, get_today_prices
+from app.services.retailer_sales import (
+    create_retailer_sale,
+    get_retailer_catalog,
+    get_retailer_sale,
+    get_retailer_sale_receipt,
+    list_retailer_sale_receipts,
+    list_retailer_sales,
+    preview_retailer_sale,
+    record_retailer_payment,
+)
+from app.services.retailers import list_active_retailers_for_shop
 from app.services.transfer import create_inventory_transfer, list_transfer_shops
 
 router = APIRouter(tags=["Shop"], dependencies=[Depends(require_roles(UserRole.SHOP_ACCOUNT))])
@@ -575,6 +575,4 @@ async def shop_get_retailer_sale_receipt(
     db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
 ) -> RetailerSaleReceiptRead:
-    return await get_retailer_sale_receipt(
-        db, sale_id, receipt_id, shop_id=shop.id
-    )
+    return await get_retailer_sale_receipt(db, sale_id, receipt_id, shop_id=shop.id)

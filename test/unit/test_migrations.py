@@ -7,6 +7,9 @@ from pathlib import Path
 
 MIGRATION_VERSION_LIMIT = 32
 MIGRATION_VERSIONS_DIR = Path(__file__).resolve().parents[2] / "backend" / "migrations" / "versions"
+TENANT_MIGRATION_VERSIONS_DIR = (
+    Path(__file__).resolve().parents[2] / "backend" / "migrations" / "tenant" / "versions"
+)
 
 
 def _load_migration_module(path: Path):
@@ -38,6 +41,14 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(names & PLATFORM_TABLES)
         self.assertIn("shops", names)
         self.assertIn("users", names)
+
+    def test_0007_drops_legacy_unique_before_branch_copy_insert(self) -> None:
+        source = (TENANT_MIGRATION_VERSIONS_DIR / "0007_retailer_branch_prices.py").read_text()
+        drop_idx = source.index('op.drop_constraint("uq_retailer_item_prices"')
+        insert_idx = source.index("INSERT INTO retailer_item_prices")
+        delete_legacy_idx = source.index("DELETE FROM retailer_item_prices legacy")
+        self.assertLess(drop_idx, insert_idx)
+        self.assertLess(insert_idx, delete_legacy_idx)
 
 
 if __name__ == "__main__":

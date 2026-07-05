@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.permission_codes import TENANT_FULL_ADMIN_PERMISSIONS
 from app.core.errors import BRANCH_LIMIT_REACHED_DETAIL
 from app.core.logging import log_event
-from app.core.redis_cache import cache_delete, super_org_counts_cache_key
 from app.db.database import get_session_local
 from app.db.tenant_schema import (
     assert_safe_schema_name,
@@ -20,7 +19,6 @@ from app.db.tenant_schema import (
     is_postgres_session,
     run_tenant_migrations_async,
     set_search_path,
-    tenant_router,
     tenant_schema_scope,
 )
 from app.models import AdminRole, AdminRolePermission, Organization, Shop, User
@@ -34,14 +32,15 @@ from app.schemas.super_admin.organizations import (
     OrganizationUpdate,
     slugify_name,
 )
-from app.services.super_admin._audit import record_hard_delete_audit, record_super_admin_audit
-from app.services.super_admin._credentials import verify_super_admin_credentials
 from app.services.bill_number import (
     BILL_NUMBER_PREFIX_SETTING,
     bill_number_prefix_from_settings,
     normalize_bill_number_prefix,
 )
+from app.services.super_admin._audit import record_hard_delete_audit, record_super_admin_audit
+from app.services.super_admin._credentials import verify_super_admin_credentials
 from app.services.tenant_data_migration import purge_organization_rows_for_hard_delete
+from app.services.user_auth_index import delete_auth_index
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +75,6 @@ async def _provision_schema_for_org(db: AsyncSession, org: Organization, schema_
         raise
 
 
-async def _evict_org_counts_cache() -> None:
-    await cache_delete(super_org_counts_cache_key())
-
-
 def _org_to_read(org: Organization, *, branch_count: int = 0) -> OrganizationRead:
     remaining = max(0, org.max_branches - branch_count)
     return OrganizationRead(
@@ -110,7 +105,9 @@ async def count_organization_branches(db: AsyncSession, organization_id: UUID) -
     org = await db.get(Organization, organization_id)
     if org is None:
         return 0
-    schema_name = await _require_org_schema(org) if await is_postgres_session(db) else org.schema_name
+    schema_name = (
+        await _require_org_schema(org) if await is_postgres_session(db) else org.schema_name
+    )
     if not schema_name:
         return int(
             await db.scalar(
@@ -143,9 +140,7 @@ async def _branch_counts_for_orgs(
     if not organization_ids:
         return {}
     counts: dict[UUID, int] = {}
-    orgs = list(
-        await db.scalars(select(Organization).where(Organization.id.in_(organization_ids)))
-    )
+    orgs = list(await db.scalars(select(Organization).where(Organization.id.in_(organization_ids))))
     for org in orgs:
         counts[org.id] = await count_organization_branches(db, org.id)
     return counts
@@ -220,7 +215,6 @@ async def create_organization(
     await db.flush()
 
     await _provision_schema_for_org(db, org, org.schema_name)
-    await tenant_router.evict_schema_cache(org.id)
 
     await record_super_admin_audit(
         db,
@@ -232,7 +226,6 @@ async def create_organization(
         details={"name": org.name, "slug": org.slug, "max_branches": org.max_branches},
     )
     await db.commit()
-    await _evict_org_counts_cache()
     await db.refresh(org)
     log_event(
         logger, logging.INFO, "organization_created", "organization created", org_id=str(org.id)
@@ -278,9 +271,7 @@ async def list_organization_rows(
         next_created_at = last.created_at
         next_id = last.id
     return OrganizationRowsPage(
-        items=[
-            _org_to_read(row, branch_count=branch_counts.get(row.id, 0)) for row in page_rows
-        ],
+        items=[_org_to_read(row, branch_count=branch_counts.get(row.id, 0)) for row in page_rows],
         limit=limit,
         has_more=len(rows) > limit,
         next_cursor_created_at=next_created_at,
@@ -289,24 +280,12 @@ async def list_organization_rows(
 
 
 async def count_organizations(db: AsyncSession) -> OrganizationCounts:
-    from app.core.redis_cache import cache_get_json, cache_set_json, super_org_counts_cache_key
-
-    cache_key = super_org_counts_cache_key()
-    cached = await cache_get_json(cache_key)
-    if isinstance(cached, dict):
-        try:
-            return OrganizationCounts.model_validate(cached)
-        except Exception:
-            pass
-
     total = int(await db.scalar(select(func.count(Organization.id))) or 0)
     active = int(
         await db.scalar(select(func.count(Organization.id)).where(Organization.is_active.is_(True)))
         or 0
     )
-    result = OrganizationCounts(all=total, active=active, inactive=total - active)
-    await cache_set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=5)
-    return result
+    return OrganizationCounts(all=total, active=active, inactive=total - active)
 
 
 async def get_organization_or_404(db: AsyncSession, organization_id: UUID) -> Organization:
@@ -322,7 +301,9 @@ async def list_organization_admin_roles(
 ) -> list[AdminRoleRead]:
     org = await get_organization_or_404(db, organization_id)
 
-    schema_name = await _require_org_schema(org) if await is_postgres_session(db) else org.schema_name
+    schema_name = (
+        await _require_org_schema(org) if await is_postgres_session(db) else org.schema_name
+    )
 
     async def _fetch_roles(session: AsyncSession) -> list[AdminRole]:
         return list(
@@ -442,7 +423,6 @@ async def update_organization(
         )
 
     await db.commit()
-    await _evict_org_counts_cache()
     await db.refresh(org)
     branch_count = await count_organization_branches(db, organization_id)
     return _org_to_read(org, branch_count=branch_count)
@@ -467,7 +447,6 @@ async def set_organization_status(
         details={"is_active": is_active},
     )
     await db.commit()
-    await _evict_org_counts_cache()
     await db.refresh(org)
     branch_count = await count_organization_branches(db, organization_id)
     return _org_to_read(org, branch_count=branch_count)
@@ -476,17 +455,13 @@ async def set_organization_status(
 async def _purge_legacy_tenant_data(db: AsyncSession, organization_id: UUID) -> None:
     from app.models import AdminRole
 
-    shops = (
-        await db.scalars(select(Shop).where(Shop.organization_id == organization_id))
-    ).all()
+    shops = (await db.scalars(select(Shop).where(Shop.organization_id == organization_id))).all()
     for shop in shops:
         owner = await db.get(User, shop.owner_user_id)
         await db.delete(shop)
         if owner is not None:
             await db.delete(owner)
-    users = (
-        await db.scalars(select(User).where(User.organization_id == organization_id))
-    ).all()
+    users = (await db.scalars(select(User).where(User.organization_id == organization_id))).all()
     for user in users:
         await db.delete(user)
     roles = (
@@ -575,9 +550,7 @@ async def hard_delete_organization(
         )
         # Core delete — ORM db.delete(org) would SELECT public.shops (tenant-only table).
         await db.execute(delete(Organization).where(Organization.id == org_id))
-        await tenant_router.evict_schema_cache(org_id)
         await db.commit()
-        await _evict_org_counts_cache()
         log_event(
             logger,
             logging.INFO,

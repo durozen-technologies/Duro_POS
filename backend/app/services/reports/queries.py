@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import io
-import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
-from textwrap import shorten, wrap
 from uuid import UUID
 
 from fpdf import FPDF
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from sqlalchemy import and_, case, distinct, func, or_, select, true
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -23,19 +17,14 @@ from app.models import (
     InventoryCategory,
     InventoryItem,
     InventoryItemBillingMapping,
-    InventoryItemCategory,
     InventoryMovement,
     InventoryMovementType,
     InventoryTransfer,
     Item,
-    Payment,
-    Shop,
     ShopInventoryAllocation,
-    TransferShop,
 )
 from app.schemas.admin import (
     AdminReportDetailLevel,
-    AdminReportSection,
     AnalyticsPeriod,
     OverallReportBillingItem,
     OverallReportInventoryItem,
@@ -46,41 +35,24 @@ from app.schemas.admin import (
 )
 from app.services.reports.pdf import *  # noqa: F403
 from app.services.reports.pdf import (
-    FULL_QUERY_BATCH_SIZE,
     OVER_REPORT_SHEET_ALIGNMENTS,
     OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF,
     OVER_REPORT_SHEET_HEADER_ALIGNMENTS,
     OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF,
     ReportContext,
     _build_report_context,
+    _date_text,
+    _decimal,
     _fpdf_over_report_sheet_widths,
-    _fpdf_sheet_data_line_width,
+    _has_tamil_text,
     _inventory_category_labels_by_item_id,
+    _money,
     _over_report_sheet_headers,
+    _quantity_with_unit,
+    _register_fpdf_fonts,
     _report_branch_header,
     _report_org_header,
     _reportlab_over_report_sheet_widths,
-    _reportlab_sheet_data_line_width,
-)
-from app.services.reports.pdf import (
-    _date_text,
-    _datetime_text,
-    _decimal,
-    _format_cell,
-    _has_tamil_text,
-    _money,
-    _normalize_report_text,
-    _pdf_text,
-    _pdf_text_lines,
-    _quantity,
-    _quantity_with_unit,
-    _register_fpdf_fonts,
-    _register_pdf_font,
-    _report_filename,
-    _reportlab_sheet_cell_lines,
-    _resolve_font_file,
-    _resolve_tamil_fonts,
-    _unit_value,
 )
 
 
@@ -1170,7 +1142,12 @@ async def _generate_over_report_fpdf_pdf(
         pdf.cell(0, 18, text=_report_org_header(context), align="C", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("NotoSans", style="B", size=11)
         pdf.cell(
-            0, 15, text=_report_branch_header(context, shop_name), align="C", new_x="LMARGIN", new_y="NEXT"
+            0,
+            15,
+            text=_report_branch_header(context, shop_name),
+            align="C",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
         pdf.set_font("NotoSans", style="B", size=9)
         pdf.cell(0, 13, text="Statement", align="C", new_x="LMARGIN", new_y="NEXT")
@@ -1224,8 +1201,15 @@ async def _generate_over_report_fpdf_pdf(
             pdf.set_text_color(255, 255, 255)
             pdf.set_draw_color(26, 37, 51)
             _fpdf_draw_row(
-                pdf, widths1, header_alignments1, headers1,
-                line_height=14, padding=5, fill=True, fill_color=(46, 61, 82), is_header=True,
+                pdf,
+                widths1,
+                header_alignments1,
+                headers1,
+                line_height=14,
+                padding=5,
+                fill=True,
+                fill_color=(46, 61, 82),
+                is_header=True,
             )
             pdf.set_text_color(31, 39, 51)
             pdf.set_draw_color(200, 205, 212)
@@ -1235,8 +1219,15 @@ async def _generate_over_report_fpdf_pdf(
             pdf.set_text_color(255, 255, 255)
             pdf.set_draw_color(26, 37, 51)
             _fpdf_draw_row(
-                pdf, widths2, header_alignments2, headers2,
-                line_height=14, padding=5, fill=True, fill_color=(46, 61, 82), is_header=True,
+                pdf,
+                widths2,
+                header_alignments2,
+                headers2,
+                line_height=14,
+                padding=5,
+                fill=True,
+                fill_color=(46, 61, 82),
+                is_header=True,
             )
             pdf.set_text_color(31, 39, 51)
             pdf.set_draw_color(200, 205, 212)
@@ -1259,8 +1250,14 @@ async def _generate_over_report_fpdf_pdf(
             for row in mapped_rows:
                 fill = row_index % 2 == 1
                 _fpdf_draw_row(
-                    pdf, widths1, alignments1, [row[i] for i in part1_indices],
-                    line_height=14, padding=4, fill=fill, fill_color=(244, 246, 248),
+                    pdf,
+                    widths1,
+                    alignments1,
+                    [row[i] for i in part1_indices],
+                    line_height=14,
+                    padding=4,
+                    fill=fill,
+                    fill_color=(244, 246, 248),
                     header_drawer=draw_header_row1,
                 )
                 row_index += 1
@@ -1270,7 +1267,14 @@ async def _generate_over_report_fpdf_pdf(
                     pdf.ln(8)
                 pdf.set_font("NotoSans", style="B", size=11)
                 pdf.set_text_color(31, 39, 51)
-                pdf.cell(sum(widths1[:8]), 10, text="No mapped billing Items", align="C", new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(
+                    sum(widths1[:8]),
+                    10,
+                    text="No mapped billing Items",
+                    align="C",
+                    new_x="LMARGIN",
+                    new_y="NEXT",
+                )
 
                 unmapped_widths = widths1[:8]
                 unmapped_alignments = alignments1[:8]
@@ -1282,8 +1286,15 @@ async def _generate_over_report_fpdf_pdf(
                     pdf.set_text_color(255, 255, 255)
                     pdf.set_draw_color(26, 37, 51)
                     _fpdf_draw_row(
-                        pdf, unmapped_widths, unmapped_header_alignments, unmapped_headers,
-                        line_height=14, padding=5, fill=True, fill_color=(46, 61, 82), is_header=True,
+                        pdf,
+                        unmapped_widths,
+                        unmapped_header_alignments,
+                        unmapped_headers,
+                        line_height=14,
+                        padding=5,
+                        fill=True,
+                        fill_color=(46, 61, 82),
+                        is_header=True,
                     )
                     pdf.set_text_color(31, 39, 51)
                     pdf.set_draw_color(200, 205, 212)
@@ -1293,8 +1304,14 @@ async def _generate_over_report_fpdf_pdf(
                 for row in unmapped_rows:
                     fill = row_index % 2 == 1
                     _fpdf_draw_row(
-                        pdf, unmapped_widths, unmapped_alignments, [row[i] for i in range(8)],
-                        line_height=14, padding=4, fill=fill, fill_color=(244, 246, 248),
+                        pdf,
+                        unmapped_widths,
+                        unmapped_alignments,
+                        [row[i] for i in range(8)],
+                        line_height=14,
+                        padding=4,
+                        fill=fill,
+                        fill_color=(244, 246, 248),
                         header_drawer=draw_unmapped_header_row1,
                     )
                     row_index += 1
@@ -1302,7 +1319,9 @@ async def _generate_over_report_fpdf_pdf(
         # Part 2
         pdf.ln(10)
         pdf.set_font("NotoSans", style="B", size=14)
-        pdf.cell(0, 10, text="Part 2: Billing & Sales Details", align="L", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(
+            0, 10, text="Part 2: Billing & Sales Details", align="L", new_x="LMARGIN", new_y="NEXT"
+        )
         pdf.ln(2)
         draw_header_row2()
         row_index = 0
@@ -1314,8 +1333,14 @@ async def _generate_over_report_fpdf_pdf(
             for row in mapped_rows:
                 fill = row_index % 2 == 1
                 _fpdf_draw_row(
-                    pdf, widths2, alignments2, [row[i] for i in part2_indices],
-                    line_height=14, padding=4, fill=fill, fill_color=(244, 246, 248),
+                    pdf,
+                    widths2,
+                    alignments2,
+                    [row[i] for i in part2_indices],
+                    line_height=14,
+                    padding=4,
+                    fill=fill,
+                    fill_color=(244, 246, 248),
                     header_drawer=draw_header_row2,
                 )
                 row_index += 1

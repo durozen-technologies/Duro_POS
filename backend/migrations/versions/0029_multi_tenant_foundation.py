@@ -10,10 +10,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from app.core.ids import uuid7
-
 import sqlalchemy as sa
 from alembic import op
+
+from app.core.ids import uuid7
 
 revision: str = "0029_multi_tenant_foundation"
 down_revision: str | None = "0028b_userrole_enum_values"
@@ -73,8 +73,7 @@ def _legacy_default_org_id(bind) -> UUID | None:
         if bind.dialect.name == "postgresql":
             orphan_admins = bind.execute(
                 sa.text(
-                    "SELECT COUNT(*) FROM users "
-                    "WHERE organization_id IS NULL AND role = 'ADMIN'"
+                    "SELECT COUNT(*) FROM users WHERE organization_id IS NULL AND role = 'ADMIN'"
                 )
             ).scalar_one()
         else:

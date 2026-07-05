@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { requireOptionalNativeModule } from "expo-modules-core";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -32,7 +32,7 @@ import {
 } from "@/types/api";
 import { money, toMoneyString, toQuantityString } from "@/utils/decimal";
 
-import { adminElevation, type ThemePalette } from "./admin-dashboard-theme";
+import { adminElevation, adminRadii, type ThemePalette, adminSpacing, adminTypography } from "./admin-dashboard-theme";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { useAdminTheme } from "./use-admin-theme";
 
@@ -91,38 +91,12 @@ const SHEET_COLUMNS: SheetColumn[] = [
   { key: "difference_amount", label: "Difference Amount", tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" },
 ];
 
-const TAMIL_SCRIPT = /[\u0b80-\u0bff]/;
-const SHEET_CELL_HORIZONTAL_PADDING = 24;
-
-function estimateTextWidth(text: string): number {
-  let width = 0;
-  for (const character of text) {
-    width += TAMIL_SCRIPT.test(character) ? 8.5 : 6.2;
-  }
-  return width;
-}
-
-function estimateColumnWidth(column: SheetColumn, useTamil: boolean, sampleValues: string[] = []): number {
-  const label = useTamil ? column.tamilLabel : column.label;
-  const lines = column.kgUnit ? [label, KG_UNIT_LABEL] : [label];
-  const headerWidth = Math.max(...lines.map(estimateTextWidth));
-  const dataWidth = sampleValues.reduce(
-    (max, value) => Math.max(max, ...value.split("\n").map(estimateTextWidth)),
-    0,
-  );
-  return Math.max(column.width, Math.ceil(Math.max(headerWidth, dataWidth)) + SHEET_CELL_HORIZONTAL_PADDING);
-}
-
-function buildColumnWidths(language: ReportLanguage, rows: SheetRow[] = []): number[] {
-  const useTamil = language === "ta";
-  return SHEET_COLUMNS.map((column, index) =>
-    estimateColumnWidth(
-      column,
-      useTamil,
-      rows.map((row) => row.cells[index] ?? ""),
-    ),
-  );
-}
+const UNMAPPED_SHEET_COLUMNS = SHEET_COLUMNS.slice(0, 8);
+const FULL_COLUMN_WIDTHS = SHEET_COLUMNS.map((column) => column.width);
+const UNMAPPED_COLUMN_WIDTHS = FULL_COLUMN_WIDTHS.slice(0, 8);
+const FULL_TABLE_WIDTH = FULL_COLUMN_WIDTHS.reduce((sum, width) => sum + width, 0);
+const UNMAPPED_TABLE_WIDTH = UNMAPPED_COLUMN_WIDTHS.reduce((sum, width) => sum + width, 0);
+const ROW_BATCH_SIZE = 18;
 
 function unitLabel(unit: BaseUnit) {
   return unit === BaseUnit.KG ? "kg" : "unit";
@@ -156,10 +130,6 @@ function formatStatementDate(statement: OverallReportStatement) {
 function formatUsedBreakdown(row: OverallReportUsedStockBreakdown | undefined, unit: BaseUnit) {
   if (!row) return "";
   return `${row.label}\n${formatReportQuantityWithUnit(row.quantity, unit)}`;
-}
-
-function buildStatementRows(statement: OverallReportStatement, language: ReportLanguage): SheetRow[] {
-  return statement.inventory_items.flatMap((item) => buildInventoryRows(statement, item, language));
 }
 
 function buildInventoryRows(
@@ -213,6 +183,338 @@ function buildInventoryRows(
   return rows;
 }
 
+function splitStatementRows(statement: OverallReportStatement, language: ReportLanguage) {
+  const mappedRows: SheetRow[] = [];
+  const unmappedRows: SheetRow[] = [];
+
+  for (const item of statement.inventory_items) {
+    const rows = buildInventoryRows(statement, item, language);
+    if (item.billing_items.length > 0) {
+      mappedRows.push(...rows);
+    } else {
+      unmappedRows.push(...rows);
+    }
+  }
+
+  return { mappedRows, unmappedRows };
+}
+
+const SheetCell = memo(function SheetCell({
+  column,
+  value,
+  rowId,
+  rowIndex,
+  isTamil,
+  cellWidth,
+  palette,
+}: {
+  column: SheetColumn;
+  value: string;
+  rowId: string;
+  rowIndex: number;
+  isTamil: boolean;
+  cellWidth: number;
+  palette: ThemePalette;
+}) {
+  const isHeader = rowIndex === -1;
+  const textAlign = isHeader ? "center" : column.align ?? "left";
+  const useTamilFont = isTamil && (isHeader || column.key === "inventory" || column.key === "billing");
+  const backgroundColor = isHeader
+    ? palette.surfaceMuted
+    : rowIndex % 2 === 0
+      ? palette.card
+      : palette.background;
+
+  return (
+    <View
+      style={[
+        styles.sheetCell,
+        {
+          width: cellWidth,
+          minHeight: isHeader ? 58 : 48,
+          alignItems: isHeader ? "center" : undefined,
+          backgroundColor,
+          borderColor: palette.border,
+        },
+      ]}
+    >
+      {isHeader && column.kgUnit ? (
+        <View style={styles.sheetHeaderStack}>
+          <Text
+            style={[
+              styles.sheetHeaderText,
+              { color: palette.textPrimary, textAlign },
+              useTamilFont ? { fontFamily: TAMIL_FONT } : undefined,
+            ]}
+          >
+            {isTamil ? column.tamilLabel : column.label}
+          </Text>
+          <Text style={[styles.sheetHeaderText, { color: palette.textPrimary, textAlign }]}>{KG_UNIT_LABEL}</Text>
+        </View>
+      ) : value.includes("\n") ? (
+        <View style={styles.sheetCellStack}>
+          {value.split("\n").map((line, lineIndex) => (
+            <Text
+              key={`${rowId}-${column.key}-${lineIndex}`}
+              style={[
+                isHeader ? styles.sheetHeaderText : styles.sheetCellText,
+                {
+                  color: isHeader ? palette.textPrimary : palette.textSecondary,
+                  textAlign: lineIndex > 0 && column.align === "right" ? "right" : textAlign,
+                },
+              ]}
+            >
+              {line}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        <Text
+          style={[
+            isHeader ? styles.sheetHeaderText : styles.sheetCellText,
+            {
+              color: isHeader ? palette.textPrimary : palette.textSecondary,
+              textAlign,
+            },
+            useTamilFont ? { fontFamily: TAMIL_FONT } : undefined,
+          ]}
+        >
+          {value}
+        </Text>
+      )}
+    </View>
+  );
+});
+
+const SheetDataRow = memo(function SheetDataRow({
+  row,
+  columns,
+  columnWidths,
+  palette,
+  rowIndex,
+  isTamil,
+}: {
+  row: SheetRow;
+  columns: SheetColumn[];
+  columnWidths: number[];
+  palette: ThemePalette;
+  rowIndex: number;
+  isTamil: boolean;
+}) {
+  return (
+    <View style={styles.sheetRow}>
+      {columns.map((column, columnIndex) => (
+        <SheetCell
+          key={`${row.id}-${column.key}`}
+          column={column}
+          value={row.cells[columnIndex] ?? ""}
+          rowId={row.id}
+          rowIndex={rowIndex}
+          isTamil={isTamil}
+          cellWidth={columnWidths[columnIndex] ?? column.width}
+          palette={palette}
+        />
+      ))}
+    </View>
+  );
+});
+
+const SheetHeaderRow = memo(function SheetHeaderRow({
+  columns,
+  columnWidths,
+  palette,
+  isTamil,
+}: {
+  columns: SheetColumn[];
+  columnWidths: number[];
+  palette: ThemePalette;
+  isTamil: boolean;
+}) {
+  return (
+    <View style={styles.sheetRow}>
+      {columns.map((column, columnIndex) => (
+        <SheetCell
+          key={`header-${column.key}`}
+          column={column}
+          value={isTamil ? column.tamilLabel : column.label}
+          rowId="header"
+          rowIndex={-1}
+          isTamil={isTamil}
+          cellWidth={columnWidths[columnIndex] ?? column.width}
+          palette={palette}
+        />
+      ))}
+    </View>
+  );
+});
+
+const StatementTable = memo(function StatementTable({
+  rows,
+  columns,
+  columnWidths,
+  tableWidth,
+  palette,
+  isTamil,
+  title,
+}: {
+  rows: SheetRow[];
+  columns: SheetColumn[];
+  columnWidths: number[];
+  tableWidth: number;
+  palette: ThemePalette;
+  isTamil: boolean;
+  title?: string;
+}) {
+  const renderRow = useCallback(
+    ({ item, index }: { item: SheetRow; index: number }) => (
+      <SheetDataRow
+        row={item}
+        columns={columns}
+        columnWidths={columnWidths}
+        palette={palette}
+        rowIndex={index}
+        isTamil={isTamil}
+      />
+    ),
+    [columnWidths, columns, isTamil, palette],
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.tableBlock}>
+      {title ? (
+        <View style={styles.tableTitleWrap}>
+          <Text style={[styles.tableTitle, { color: palette.textPrimary }]}>{title}</Text>
+        </View>
+      ) : null}
+      <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
+        <View style={{ width: tableWidth }}>
+          <SheetHeaderRow columns={columns} columnWidths={columnWidths} palette={palette} isTamil={isTamil} />
+          <FlatList
+            data={rows}
+            keyExtractor={(item) => item.id}
+            renderItem={renderRow}
+            scrollEnabled={false}
+            initialNumToRender={ROW_BATCH_SIZE}
+            maxToRenderPerBatch={ROW_BATCH_SIZE}
+            windowSize={5}
+            removeClippedSubviews
+          />
+        </View>
+      </ScrollView>
+    </View>
+  );
+});
+
+const StatementCard = memo(function StatementCard({
+  statement,
+  language,
+  palette,
+}: {
+  statement: OverallReportStatement;
+  language: ReportLanguage;
+  palette: ThemePalette;
+}) {
+  const isTamil = language === "ta";
+  const { mappedRows, unmappedRows } = useMemo(
+    () => splitStatementRows(statement, language),
+    [language, statement],
+  );
+  const balanceAmount = useMemo(
+    () =>
+      formatReportMoney(
+        money(statement.sales_amount)
+          .minus(money(statement.purchase_amount))
+          .minus(money(statement.expense_amount))
+          .toString(),
+      ),
+    [statement.expense_amount, statement.purchase_amount, statement.sales_amount],
+  );
+
+  return (
+    <View
+      style={[
+        styles.statementPanel,
+        adminElevation(1),
+        { backgroundColor: palette.card, borderColor: palette.border },
+      ]}
+    >
+      <View style={styles.statementHeader}>
+        <Text style={[styles.companyTitle, { color: palette.textPrimary }]}>
+          {statement.organization_name?.toUpperCase() ?? "DUROZEN"}
+        </Text>
+        <Text style={[styles.branchTitle, { color: palette.textPrimary }]}>
+          {statement.shop_name.toUpperCase()}
+        </Text>
+        <Text style={[styles.statementTitle, { color: palette.textSecondary }]}>Statement</Text>
+        <Text style={[styles.statementDate, { color: palette.textMuted }]}>
+          Date: {formatStatementDate(statement)}
+        </Text>
+      </View>
+
+      {mappedRows.length === 0 && unmappedRows.length === 0 ? (
+        <View style={[styles.reportEmptyRow, { backgroundColor: palette.surfaceMuted }]}>
+          <Text style={[styles.reportEmptyText, { color: palette.textMuted }]}>
+            No allocated inventory items
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.tableStack}>
+          <StatementTable
+            rows={mappedRows}
+            columns={SHEET_COLUMNS}
+            columnWidths={FULL_COLUMN_WIDTHS}
+            tableWidth={FULL_TABLE_WIDTH}
+            palette={palette}
+            isTamil={isTamil}
+          />
+          {unmappedRows.length > 0 ? (
+            <StatementTable
+              rows={unmappedRows}
+              columns={UNMAPPED_SHEET_COLUMNS}
+              columnWidths={UNMAPPED_COLUMN_WIDTHS}
+              tableWidth={UNMAPPED_TABLE_WIDTH}
+              palette={palette}
+              isTamil={isTamil}
+              title={mappedRows.length > 0 ? "No mapped billing Items" : undefined}
+            />
+          ) : null}
+        </View>
+      )}
+
+      {(mappedRows.length > 0 || unmappedRows.length > 0) && (
+        <View style={[styles.summaryPanel, { borderColor: palette.border }]}>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Sales</Text>
+            <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
+              {formatReportMoney(statement.sales_amount)}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Purchase</Text>
+            <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
+              {formatReportMoney(statement.purchase_amount)}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Expense Amount</Text>
+            <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
+              {formatReportMoney(statement.expense_amount)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, styles.summaryRowTotal, { borderTopColor: palette.border }]}>
+            <Text style={[styles.summaryLabelTotal, { color: palette.textPrimary }]}>Balance Amount</Text>
+            <Text style={[styles.summaryValueTotal, { color: palette.primary }]}>{balanceAmount}</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+});
+
 export function AdminOverallReportPreviewScreen({
   navigation,
   route,
@@ -225,12 +527,6 @@ export function AdminOverallReportPreviewScreen({
   const [generating, setGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [language, setLanguage] = useState<ReportLanguage>(route.params.language ?? "en");
-  const sheetRows = useMemo(
-    () =>
-      (report?.statements ?? []).flatMap((statement) => buildStatementRows(statement, language)),
-    [language, report?.statements],
-  );
-  const columnWidths = useMemo(() => buildColumnWidths(language, sheetRows), [language, sheetRows]);
 
   const reportParams = useMemo<FetchOverallReportParams>(
     () => ({
@@ -331,204 +627,19 @@ export function AdminOverallReportPreviewScreen({
     [canGenerate, reportParams, route.params.sections],
   );
 
-  /** Render a single table cell. Uses NotoSansTamil when language is Tamil. */
-  const renderCell = (
-    column: SheetColumn,
-    value: string,
-    rowId: string,
-    rowIndex: number,
-    isTamil: boolean,
-    cellWidth: number,
-  ) => {
-    const isHeader = rowIndex === -1;
-    const textAlign = isHeader ? "center" : (column.align ?? "left");
-    const headerTextStyle = [
-      isHeader ? styles.sheetHeaderText : styles.sheetCellText,
-      {
-        color: isHeader ? palette.textPrimary : palette.textSecondary,
-        textAlign,
-      },
-    ];
-    return (
-      <View
-        key={`${rowId}-${column.key}`}
-        style={[
-          styles.sheetCell,
-          {
-            width: cellWidth,
-            minHeight: isHeader ? 58 : 48,
-            alignItems: isHeader ? "center" : undefined,
-            backgroundColor: isHeader
-              ? palette.surfaceMuted
-              : rowIndex % 2 === 0
-                ? palette.card
-                : palette.background,
-            borderColor: palette.border,
-          },
-        ]}
-      >
-        {isHeader && column.kgUnit ? (
-          <View style={styles.sheetHeaderStack}>
-            <Text
-              style={[
-                ...headerTextStyle,
-                isTamil ? { fontFamily: TAMIL_FONT } : undefined,
-              ]}
-            >
-              {isTamil ? column.tamilLabel : column.label}
-            </Text>
-            <Text style={headerTextStyle}>{KG_UNIT_LABEL}</Text>
-          </View>
-        ) : value.includes("\n") ? (
-          <View style={styles.sheetCellStack}>
-            {value.split("\n").map((line, lineIndex) => (
-              <Text
-                key={`${rowId}-${column.key}-${lineIndex}`}
-                style={[
-                  ...headerTextStyle,
-                  lineIndex > 0 && column.align === "right" ? { textAlign: "right" as const } : undefined,
-                ]}
-              >
-                {line}
-              </Text>
-            ))}
-          </View>
-        ) : (
-          <Text
-            style={[
-              ...headerTextStyle,
-              // Apply NotoSansTamil so Tamil Unicode renders correctly instead of squares
-              isTamil ? { fontFamily: TAMIL_FONT } : undefined,
-            ]}
-          >
-            {value}
-          </Text>
-        )}
-      </View>
-    );
-  };
-
-  const renderStatement = ({ item: statement }: { item: OverallReportStatement }) => {
-    const mappedItems = statement.inventory_items.filter((item) => item.billing_items.length > 0);
-    const unmappedItems = statement.inventory_items.filter((item) => item.billing_items.length === 0);
-
-    const mappedRows = mappedItems.flatMap((item) => buildInventoryRows(statement, item, language));
-    const unmappedRows = unmappedItems.flatMap((item) => buildInventoryRows(statement, item, language));
-
-    const isTamil = language === "ta";
-
-    const renderTable = (rows: SheetRow[], title?: string, isUnmapped: boolean = false) => {
-      const columns = isUnmapped ? SHEET_COLUMNS.slice(0, 8) : SHEET_COLUMNS;
-      return (
-        <View style={{ alignItems: "flex-start" }}>
-          {title && (
-            <View style={{ width: "100%", alignItems: "center", marginBottom: 12, marginTop: 4 }}>
-              <Text style={{ fontSize: 13, fontWeight: "800", color: palette.textPrimary, textAlign: "center" }}>
-                {title}
-              </Text>
-            </View>
-          )}
-          <View style={styles.sheetRow}>
-            {columns.map((column, columnIndex) =>
-              renderCell(
-                column,
-                isTamil ? column.tamilLabel : column.label,
-                "header",
-                -1,
-                isTamil,
-                columnWidths[columnIndex] ?? column.width,
-              ),
-            )}
-          </View>
-          {rows.map((row, index) => (
-            <View key={row.id} style={styles.sheetRow}>
-              {columns.map((column, columnIndex) =>
-                renderCell(
-                  column,
-                  row.cells[columnIndex] ?? "",
-                  row.id,
-                  index,
-                  isTamil && (column.key === "inventory" || column.key === "billing"),
-                  columnWidths[columnIndex] ?? column.width,
-                ),
-              )}
-            </View>
-          ))}
-        </View>
-      );
-    };
-
-    return (
-      <View
-        style={[
-          styles.statementPanel,
-          { backgroundColor: palette.card, borderColor: palette.border },
-        ]}
-      >
-        <View style={styles.statementHeader}>
-          <Text style={[styles.companyTitle, { color: palette.textPrimary }]}>
-            {report?.organization_name.toUpperCase() ?? ""}
-          </Text>
-          <Text style={[styles.branchTitle, { color: palette.textPrimary }]}>
-            {statement.shop_name.toUpperCase()}
-          </Text>
-          <Text style={[styles.statementTitle, { color: palette.textSecondary }]}>Statement</Text>
-          <Text style={[styles.statementDate, { color: palette.textMuted }]}>
-            Date: {formatStatementDate(statement)}
-          </Text>
-        </View>
-
-        {mappedRows.length === 0 && unmappedRows.length === 0 ? (
-          <View style={[styles.reportEmptyRow, { backgroundColor: palette.surfaceMuted }]}>
-            <Text style={[styles.reportEmptyText, { color: palette.textMuted }]}>
-              No allocated inventory items
-            </Text>
-          </View>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator>
-            <View style={{ alignItems: "flex-start" }}>
-              {mappedRows.length > 0 && renderTable(mappedRows)}
-
-              {unmappedRows.length > 0 && (
-                <>
-                  {mappedRows.length > 0 && <View style={{ height: 24 }} />}
-                  {renderTable(unmappedRows, "No mapped billing Items", true)}
-                </>
-              )}
-            </View>
-          </ScrollView>
-        )}
-
-        {(mappedRows.length > 0 || unmappedRows.length > 0) && (
-          <View style={[styles.summaryPanel, { borderColor: palette.border }]}>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Sales</Text>
-              <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>{formatReportMoney(statement.sales_amount)}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Purchase</Text>
-              <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>{formatReportMoney(statement.purchase_amount)}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Expense Amount</Text>
-              <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>{formatReportMoney(statement.expense_amount)}</Text>
-            </View>
-            <View style={[styles.summaryRow, styles.summaryRowTotal, { borderTopColor: palette.border }]}>
-              <Text style={[styles.summaryLabelTotal, { color: palette.textPrimary }]}>Balance Amount</Text>
-              <Text style={[styles.summaryValueTotal, { color: palette.primary }]}>
-                {formatReportMoney(
-                  money(statement.sales_amount)
-                    .minus(money(statement.purchase_amount))
-                    .minus(money(statement.expense_amount))
-                    .toString(),
-                )}
-              </Text>
-            </View>
-          </View>
-        )}
-      </View>
-    );
-  };
+  const renderStatement = useCallback(
+    ({ item: statement }: { item: OverallReportStatement }) => (
+      <StatementCard
+        statement={{
+          ...statement,
+          organization_name: report?.organization_name,
+        }}
+        language={language}
+        palette={palette}
+      />
+    ),
+    [language, palette, report?.organization_name],
+  );
 
   const renderListHeader = () => (
     <View style={styles.headerContent}>
@@ -718,11 +829,12 @@ export function AdminOverallReportPreviewScreen({
             colors={[palette.primary]}
           />
         }
-        initialNumToRender={6}
-        maxToRenderPerBatch={6}
-        updateCellsBatchingPeriod={48}
-        windowSize={7}
-        extraData={`${refreshing}-${loading}-${generating}-${errorMessage ?? ""}-${language}-${columnWidths.join(",")}`}
+        initialNumToRender={2}
+        maxToRenderPerBatch={2}
+        updateCellsBatchingPeriod={64}
+        windowSize={5}
+        removeClippedSubviews
+        extraData={language}
         showsVerticalScrollIndicator={false}
       />
       {renderFooter()}
@@ -734,28 +846,28 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   topBar: {
     minHeight: 64,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: adminSpacing.md,
+    paddingBottom: adminSpacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   summaryPanel: {
-    marginTop: 24,
-    paddingTop: 16,
+    marginTop: adminSpacing.xl,
+    paddingTop: adminSpacing.md,
     borderTopWidth: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: adminSpacing.xs,
   },
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: adminSpacing.xxs,
   },
   summaryRowTotal: {
-    marginTop: 8,
-    paddingTop: 8,
+    marginTop: adminSpacing.xs,
+    paddingTop: adminSpacing.xs,
     borderTopWidth: 1,
   },
   summaryLabel: {
@@ -776,33 +888,43 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
   titleWrap: { flex: 1, minWidth: 0 },
-  title: { fontSize: 20, fontWeight: "800" },
-  subtitle: { marginTop: 2, fontSize: 12, fontWeight: "700" },
-  listContent: { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 18 },
-  headerContent: { gap: 12, marginBottom: 12 },
+  title: { ...adminTypography.pageTitle, },
+  subtitle: { ...adminTypography.caption,
+    marginTop: 2, },
+  listContent: { paddingHorizontal: adminSpacing.sm, paddingTop: adminSpacing.md, paddingBottom: 18 },
+  headerContent: { gap: adminSpacing.sm, marginBottom: adminSpacing.sm },
   errorBanner: {
     minHeight: 44,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderRadius: adminRadii.card,
+    paddingHorizontal: adminSpacing.sm,
+    paddingVertical: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
-  errorText: { flex: 1, fontSize: 12, fontWeight: "700" },
+  errorText: { flex: 1, ...adminTypography.caption, },
   loadingPanel: { minHeight: 54, alignItems: "center", justifyContent: "center" },
-  statementPanel: { borderWidth: 1, borderRadius: 12, overflow: "hidden" },
+  statementPanel: { borderWidth: 1, borderRadius: adminRadii.card, overflow: "hidden" },
+  tableStack: { gap: adminSpacing.md },
+  tableBlock: { width: "100%" },
+  tableTitleWrap: {
+    width: "100%",
+    alignItems: "center",
+    marginBottom: adminSpacing.sm,
+    marginTop: adminSpacing.xxs,
+  },
+  tableTitle: { ...adminTypography.bodyStrong, textAlign: "center" },
   statementHeader: {
     minHeight: 96,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: adminSpacing.sm,
+    paddingVertical: adminSpacing.sm,
   },
   companyTitle: { fontSize: 16, lineHeight: 21, fontWeight: "900", textAlign: "center" },
   branchTitle: { marginTop: 2, fontSize: 14, lineHeight: 19, fontWeight: "900", textAlign: "center" },
-  statementTitle: { marginTop: 4, fontSize: 12, lineHeight: 16, fontWeight: "800", textAlign: "center" },
+  statementTitle: { marginTop: adminSpacing.xxs, fontSize: 12, lineHeight: 16, fontWeight: "800", textAlign: "center" },
   statementDate: { marginTop: 3, fontSize: 11, lineHeight: 15, fontWeight: "800", textAlign: "center" },
   sheetRow: { flexDirection: "row" },
   sheetCell: {
@@ -820,37 +942,37 @@ const styles = StyleSheet.create({
     minHeight: 52,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: adminSpacing.sm,
   },
-  reportEmptyText: { fontSize: 12, fontWeight: "800", textAlign: "center" },
-  footer: { paddingHorizontal: 16, paddingTop: 12, gap: 12 },
+  reportEmptyText: { ...adminTypography.bodyStrong, textAlign: "center" },
+  footer: { paddingHorizontal: adminSpacing.md, paddingTop: adminSpacing.sm, gap: adminSpacing.sm },
   languageToggle: {
     flexDirection: "row",
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     borderWidth: 1,
-    padding: 4,
-    gap: 4,
+    padding: adminSpacing.xxs,
+    gap: adminSpacing.xxs,
   },
   languageChip: {
     flex: 1,
     minHeight: 38,
-    borderRadius: 8,
+    borderRadius: adminRadii.control,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    paddingHorizontal: 12,
+    paddingHorizontal: adminSpacing.sm,
   },
   languageChipText: { fontSize: 13, fontWeight: "700" },
   languageChipTextSub: { fontSize: 11, fontWeight: "600" },
   generateButton: {
     minHeight: 54,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
     paddingHorizontal: 18,
   },
-  generateButtonText: { fontSize: 15, fontWeight: "800" },
+  generateButtonText: { ...adminTypography.sectionTitle, },
 });

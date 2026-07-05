@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_active_user
 from app.db.session import get_platform_db
-from app.db.tenant_session import get_tenant_db
 from app.db.tenant_schema import tenant_router, tenant_schema_scope
 from app.models import User
 from app.models.enums import is_super_admin
@@ -23,16 +22,13 @@ router = APIRouter()
 @router.post("/login", response_model=LoginResponse)
 async def login(
     payload: LoginRequest,
-    request: Request,
     platform_db: AsyncSession = Depends(get_platform_db),
 ) -> LoginResponse:
-    client_ip = request.client.host if request.client else None
     return await login_user(
         platform_db,
         payload.username,
         payload.password,
         organization_slug=payload.organization_slug,
-        client_ip=client_ip,
     )
 
 

@@ -76,9 +76,7 @@ async def list_organization_shop_ids(
     db: AsyncSession,
     organization_id: UUID,
 ) -> list[UUID]:
-    return list(
-        await db.scalars(select(Shop.id).where(Shop.organization_id == organization_id))
-    )
+    return list(await db.scalars(select(Shop.id).where(Shop.organization_id == organization_id)))
 
 
 def org_filter_for_shop(organization_id: UUID):

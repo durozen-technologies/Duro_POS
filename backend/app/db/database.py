@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import MetaData, event, text
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from ..core.config import get_settings
+from .postgres_url import async_postgres_url_object
 from .tenant_context_var import get_active_tenant_schema
 
 settings = get_settings()
@@ -29,11 +30,8 @@ class Base(DeclarativeBase):
 
 
 def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, str]]:
-    url = make_url(database_url)
+    url = async_postgres_url_object(database_url)
     connect_args: dict[str, str] = {}
-
-    if url.drivername in {"postgres", "postgresql"}:
-        url = url.set(drivername="postgresql+asyncpg")
 
     sslmode = url.query.get("sslmode")
     # url.query.get may return a str or a tuple/list of str depending on how URL was parsed.

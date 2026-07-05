@@ -51,9 +51,7 @@ async def upsert_auth_index(
     if schema_name is None:
         schema_name = await tenant_router.resolve_schema(db, user.organization_id)
     if not schema_name:
-        raise UsernameTakenError(
-            f"No tenant schema for organization {user.organization_id}"
-        )
+        raise UsernameTakenError(f"No tenant schema for organization {user.organization_id}")
 
     username_lower = normalize_username(user.username)
     if await username_is_globally_taken(db, user.username, exclude_user_id=user.id):

@@ -30,11 +30,12 @@ import { usePrinterStore } from "@/store/printer-store";
 import { usePriceStore } from "@/store/price-store";
 import { AnalyticsPeriod, type BillRead, type ShopRead, type UUID } from "@/types/api";
 
-import { adminElevation, adminShadow } from "./admin-dashboard-theme";
+import { adminElevation } from "./admin-dashboard-theme";
 import { useAdminTheme } from "./use-admin-theme";
 import {
   AdminBillingTab,
 } from "./components/admin-dashboard-billing-tab";
+import { AdminPriceActionsFab } from "./components/admin-price-actions-fab";
 import {
   AdminDashboardTab,
 } from "./components/admin-dashboard-dashboard-tab";
@@ -47,7 +48,6 @@ import {
   EmptyStateCard,
   ToastBanner,
   TopAppBar,
-  usePressAnimation,
 } from "./components/admin-dashboard-primitives";
 import {
   BillPreviewSheet,
@@ -355,9 +355,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   });
 
   const useCompactMetricCards = windowWidth < 420;
-  const bottomNavOffset = 12 + insets.bottom;
-  const fabOffset = 100 + insets.bottom;
-  const bottomSpacer = 160 + insets.bottom;
+  const bottomNavOffset = insets.bottom;
+  const fabOffset = 88 + insets.bottom;
+  const bottomSpacer = 148 + insets.bottom;
   const inventoryContentPadding = 16 + bottomSpacer;
   const floatingDropdownMaxHeight = Math.min(
     560,
@@ -711,7 +711,15 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     void handleToggleShop(shopId, isActive);
   }, [handleToggleShop]);
 
-  const handleOpenPriceNavigation = useCallback(() => {
+  const handleOpenRetailerPrices = useCallback(() => {
+    const targetShopId = selectedShopId ?? shops[0]?.id ?? null;
+    navigation.navigate("AdminRetailers", {
+      tab: "retailerPrices",
+      shopId: targetShopId ?? undefined,
+    });
+  }, [navigation, selectedShopId, shops]);
+
+  const handleOpenUpdatePrice = useCallback(() => {
     const targetShopId = selectedShopId ?? shops[0]?.id ?? null;
     navigation.navigate("AdminItemPrices", { shopId: targetShopId ?? undefined });
   }, [navigation, selectedShopId, shops]);
@@ -1169,26 +1177,13 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       />
 
       {activeNav === "dashboard" || activeNav === "settings" ? (
-        <>
-          <FabButton
-            label="Purchase Rate"
-            icon="cart-arrow-down"
-            onPress={handleOpenPurchaseRates}
-            palette={palette}
-            bottom={fabOffset + 58}
-            backgroundColor={palette.primary}
-            textColor={palette.onPrimary}
-          />
-          <FabButton
-            label="Update Price"
-            icon="cash-edit"
-            onPress={handleOpenPriceNavigation}
-            palette={palette}
-            bottom={fabOffset}
-            backgroundColor={palette.success}
-            textColor={palette.background}
-          />
-        </>
+        <AdminPriceActionsFab
+          palette={palette}
+          bottom={fabOffset}
+          onPurchaseRate={handleOpenPurchaseRates}
+          onUpdatePrice={handleOpenUpdatePrice}
+          onRetailerPrice={handleOpenRetailerPrices}
+        />
       ) : null}
 
       <BillPreviewSheet
@@ -1233,47 +1228,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       />
       {receiptImagePrintBridge}
     </SafeAreaView>
-  );
-}
-
-function FabButton({
-  label,
-  icon,
-  onPress,
-  palette,
-  bottom,
-  backgroundColor,
-  textColor,
-}: {
-  label: string;
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
-  onPress: () => void;
-  palette: any;
-  bottom: number;
-  backgroundColor: string;
-  textColor: string;
-}) {
-  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Navigate to ${label}`}
-      onPress={onPress}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
-      style={{ position: "absolute", right: 16, bottom }}
-    >
-      <Animated.View
-        style={[
-          styles.fab,
-          adminShadow(palette.shadow, 0.12, 14, 20),
-          { backgroundColor, opacity, transform: [{ scale }], position: "relative", right: 0, bottom: 0 },
-        ]}
-      >
-        <MaterialCommunityIcons name={icon} size={18} color={textColor} />
-        <Text style={[styles.fabLabel, { color: textColor }]}>{label}</Text>
-      </Animated.View>
-    </Pressable>
   );
 }
 
@@ -1473,22 +1427,6 @@ const styles = StyleSheet.create({
   rangeApplyText: {
     fontSize: 13,
     fontWeight: "800",
-  },
-  fab: {
-    position: "absolute",
-    right: 16,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    minHeight: 48,
-    borderWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  fabLabel: {
-    fontSize: 13,
-    fontWeight: "600",
   },
   emptyWrap: {
     flex: 1,

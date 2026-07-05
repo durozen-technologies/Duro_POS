@@ -1,12 +1,10 @@
-"""Optional Redis helpers with graceful degradation."""
+"""Optional Redis helpers for tenant admin permission cache."""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from typing import Any
-
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -42,7 +40,6 @@ def configure_redis_environment() -> None:
         os.environ.setdefault("REDIS_URL", settings.redis_url.strip())
     if settings.redis_prefix:
         os.environ.setdefault("REDIS_PREFIX", settings.redis_prefix.strip())
-    os.environ.setdefault("REDIS_DEFAULT_TTL", str(settings.redis_default_ttl))
     if CacheBackend is not None:
         get_redis_settings.cache_clear()  # type: ignore[attr-defined]
 
@@ -107,21 +104,6 @@ def _redis_key_prefix() -> str:
 def permission_cache_key(user_id: str, perm_version: int) -> str:
     prefix = _redis_key_prefix()
     return f"{prefix}:perm:{user_id}:{perm_version}"
-
-
-def super_org_counts_cache_key() -> str:
-    prefix = _redis_key_prefix()
-    return f"{prefix}:super:orgs:counts:v1"
-
-
-def org_schema_cache_key(organization_id: UUID) -> str:
-    prefix = _redis_key_prefix()
-    return f"{prefix}:org:{organization_id}:schema"
-
-
-def login_rate_cache_key(client_ip: str, username: str) -> str:
-    prefix = _redis_key_prefix()
-    return f"{prefix}:login:{client_ip}:{username.lower()}"
 
 
 async def cache_delete(key: str) -> None:

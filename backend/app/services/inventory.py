@@ -34,7 +34,6 @@ from app.models import (
     ShopInventoryAllocation,
     User,
 )
-from app.services.tenant_query import resolve_organization_id
 from app.schemas.inventory import (
     InventoryAddRequest,
     InventoryBillingItemMappingRead,
@@ -62,6 +61,7 @@ from app.schemas.inventory import (
     InventoryUseSplitRequest,
     ShopInventoryAllocationBulkRead,
 )
+from app.services.tenant_query import resolve_organization_id
 
 from ..schemas.transfer import InventoryTransferPage, InventoryTransferRead
 from .inventory_backdate import prepare_inventory_occurred_at

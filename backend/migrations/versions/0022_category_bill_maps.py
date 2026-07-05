@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from app.core.ids import uuid7
 
 import sqlalchemy as sa
 from alembic import op
+
+from app.core.ids import uuid7
 
 revision: str = "0022_category_bill_maps"
 down_revision: str | None = "0021_inv_bill_map"

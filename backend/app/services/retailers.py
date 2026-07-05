@@ -111,15 +111,11 @@ async def list_retailers(
     balance_sub = (
         select(
             RetailerSale.retailer_id.label("retailer_id"),
-            func.coalesce(
-                func.sum(RetailerSale.balance_due), Decimal("0.00")
-            ).label("outstanding_balance"),
+            func.coalesce(func.sum(RetailerSale.balance_due), Decimal("0.00")).label(
+                "outstanding_balance"
+            ),
         )
-        .where(
-            RetailerSale.status.in_(
-                [RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]
-            )
-        )
+        .where(RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]))
         .group_by(RetailerSale.retailer_id)
         .subquery()
     )
@@ -167,9 +163,7 @@ async def list_retailers(
                 allocated_shop_count=int(alloc_count or 0),
                 outstanding_balance=Decimal(str(balance or "0.00")),
                 branch_names=(
-                    [n.strip() for n in str(bnames).split(",") if n.strip()]
-                    if bnames
-                    else []
+                    [n.strip() for n in str(bnames).split(",") if n.strip()] if bnames else []
                 ),
             )
             for retailer, alloc_count, balance, bnames in rows
@@ -425,12 +419,10 @@ async def list_shop_retailer_item_catalog(
         pattern = f"%{q.strip().lower()}%"
         query = query.where(
             or_(
-                func.lower(func.coalesce(ShopItemAllocation.display_name, Item.name)).like(
+                func.lower(func.coalesce(ShopItemAllocation.display_name, Item.name)).like(pattern),
+                func.lower(func.coalesce(ShopItemAllocation.tamil_name, Item.tamil_name)).like(
                     pattern
                 ),
-                func.lower(
-                    func.coalesce(ShopItemAllocation.tamil_name, Item.tamil_name)
-                ).like(pattern),
             )
         )
 
@@ -478,9 +470,7 @@ async def sync_shop_retailer_item_catalog(
 
     existing_rows = (
         await db.scalars(
-            select(ShopRetailerItemAllocation).where(
-                ShopRetailerItemAllocation.shop_id == shop_id
-            )
+            select(ShopRetailerItemAllocation).where(ShopRetailerItemAllocation.shop_id == shop_id)
         )
     ).all()
     by_item_id = {row.item_id: row for row in existing_rows}
@@ -629,7 +619,7 @@ async def list_retailer_item_allocations(
     limit = min(max(limit, 1), 500)
     latest_prices = _shop_latest_billing_prices_subquery(shop_id)
     is_allocated_expr = RetailerItemPrice.id.is_not(None)
-    
+
     target_date = effective_date if effective_date is not None else func.current_date()
 
     query = (
@@ -674,12 +664,10 @@ async def list_retailer_item_allocations(
         pattern = f"%{q.strip().lower()}%"
         query = query.where(
             or_(
-                func.lower(func.coalesce(ShopItemAllocation.display_name, Item.name)).like(
+                func.lower(func.coalesce(ShopItemAllocation.display_name, Item.name)).like(pattern),
+                func.lower(func.coalesce(ShopItemAllocation.tamil_name, Item.tamil_name)).like(
                     pattern
                 ),
-                func.lower(
-                    func.coalesce(ShopItemAllocation.tamil_name, Item.tamil_name)
-                ).like(pattern),
             )
         )
 
@@ -882,9 +870,7 @@ async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerB
             .join(Shop, Shop.id == RetailerSale.shop_id)
             .where(
                 RetailerSale.retailer_id == retailer_id,
-                RetailerSale.status.in_(
-                    [RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]
-                ),
+                RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
             )
             .order_by(RetailerSale.created_at.desc())
         )
@@ -926,13 +912,17 @@ async def list_active_retailers_for_shop(
         pattern = f"%{q.strip().lower()}%"
         filters.append(func.lower(Retailer.name).like(pattern))
     rows = (
-        await db.execute(
-            select(Retailer)
-            .join(ShopRetailerAllocation, ShopRetailerAllocation.retailer_id == Retailer.id)
-            .where(*filters)
-            .order_by(Retailer.name.asc())
+        (
+            await db.execute(
+                select(Retailer)
+                .join(ShopRetailerAllocation, ShopRetailerAllocation.retailer_id == Retailer.id)
+                .where(*filters)
+                .order_by(Retailer.name.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [_retailer_to_read(retailer, allocated_shop_count=1) for retailer in rows]
 
 
@@ -988,9 +978,7 @@ async def sync_retailer_branch_allocations(
     await get_retailer_or_404(db, retailer_id)
     requested = list(dict.fromkeys(shop_ids))
     if requested:
-        valid_shops = (
-            await db.scalars(select(Shop.id).where(Shop.id.in_(requested)))
-        ).all()
+        valid_shops = (await db.scalars(select(Shop.id).where(Shop.id.in_(requested)))).all()
         valid_set = set(valid_shops)
         missing = [str(shop_id) for shop_id in requested if shop_id not in valid_set]
         if missing:
@@ -998,9 +986,7 @@ async def sync_retailer_branch_allocations(
 
     existing_rows = (
         await db.scalars(
-            select(ShopRetailerAllocation).where(
-                ShopRetailerAllocation.retailer_id == retailer_id
-            )
+            select(ShopRetailerAllocation).where(ShopRetailerAllocation.retailer_id == retailer_id)
         )
     ).all()
     by_shop_id = {row.shop_id: row for row in existing_rows}

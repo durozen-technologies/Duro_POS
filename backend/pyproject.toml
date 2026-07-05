@@ -44,6 +44,23 @@ src = ["app"]
 select = ["E", "F", "I"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Star-import barrel: imports exist for re-export into route modules.
+"app/routers/admin/_common.py" = ["F401"]
+"app/routers/admin/analytics.py" = ["F403", "F405"]
+"app/routers/admin/billing.py" = ["F403", "F405"]
+"app/routers/admin/catalogue.py" = ["F403", "F405"]
+"app/routers/admin/dashboard.py" = ["F403", "F405"]
+"app/routers/admin/expenses.py" = ["F403", "F405"]
+"app/routers/admin/inventory.py" = ["F403", "F405"]
+"app/routers/admin/pricing.py" = ["F403", "F405"]
+"app/routers/admin/shops.py" = ["F403", "F405"]
+"app/routers/admin/transfers.py" = ["F403", "F405"]
+# Star-import barrels in storage (paths -> images -> objects).
+"app/db/storage/paths.py" = ["F401"]
+"app/db/storage/images.py" = ["F403", "F405"]
+"app/db/storage/objects.py" = ["F403", "F405"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 

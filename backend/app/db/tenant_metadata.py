@@ -65,9 +65,7 @@ def verify_public_schema_clean(connection: Connection) -> None:
     actual = list_public_tables(connection)
     extra = sorted(actual - PUBLIC_SCHEMA_TABLES)
     if extra:
-        raise RuntimeError(
-            f"public schema has {len(extra)} non-platform table(s): {extra}"
-        )
+        raise RuntimeError(f"public schema has {len(extra)} non-platform table(s): {extra}")
 
     null_schemas = connection.execute(
         text("SELECT COUNT(*) FROM organizations WHERE schema_name IS NULL")
@@ -150,9 +148,7 @@ def verify_tenant_schema_ddl(connection: Connection, schema_name: str) -> None:
     expected = set(tenant_table_names())
     missing = sorted(expected - actual)
     if missing:
-        raise RuntimeError(
-            f"Tenant schema {safe!r} is missing {len(missing)} table(s): {missing}"
-        )
+        raise RuntimeError(f"Tenant schema {safe!r} is missing {len(missing)} table(s): {missing}")
 
 
 def create_tenant_tables(connection: Connection, schema_name: str) -> None:

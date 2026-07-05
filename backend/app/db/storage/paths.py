@@ -71,6 +71,17 @@ class StoredImageObjectNotFoundError(Exception):
         self.object_key = object_key
 
 
+def _append_image_cache_query(url: str, object_key: str | None) -> str:
+    """ponytail: proxy image URLs are stable per item; bust client cache when object key changes."""
+    if not object_key:
+        return url
+    version = Path(object_key).name
+    if not version:
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}v={quote(version, safe='')}"
+
+
 def build_item_image_path(
     item_id: UUID,
     image_object_key: str | None,
@@ -85,8 +96,10 @@ def build_item_image_path(
         return public_url
 
     if variant == "thumb":
-        return f"{settings.api_v1_prefix}/catalog/items/{item_id}/image?variant=thumb"
-    return f"{settings.api_v1_prefix}/catalog/items/{item_id}/image"
+        path = f"{settings.api_v1_prefix}/catalog/items/{item_id}/image?variant=thumb"
+    else:
+        path = f"{settings.api_v1_prefix}/catalog/items/{item_id}/image"
+    return _append_image_cache_query(path, image_object_key)
 
 
 def build_item_image_thumb_path(
@@ -104,7 +117,10 @@ def build_item_image_thumb_path(
             variant="thumb",
         )
     if original_object_key:
-        return f"{settings.api_v1_prefix}/catalog/items/{item_id}/image?variant=thumb"
+        return _append_image_cache_query(
+            f"{settings.api_v1_prefix}/catalog/items/{item_id}/image?variant=thumb",
+            original_object_key,
+        )
     return None
 
 
@@ -122,8 +138,12 @@ def build_inventory_item_image_path(
         return public_url
 
     if variant == "thumb":
-        return f"{settings.api_v1_prefix}/catalog/inventory-items/{inventory_item_id}/image?variant=thumb"
-    return f"{settings.api_v1_prefix}/catalog/inventory-items/{inventory_item_id}/image"
+        path = (
+            f"{settings.api_v1_prefix}/catalog/inventory-items/{inventory_item_id}/image?variant=thumb"
+        )
+    else:
+        path = f"{settings.api_v1_prefix}/catalog/inventory-items/{inventory_item_id}/image"
+    return _append_image_cache_query(path, image_object_key)
 
 
 def build_inventory_item_image_thumb_path(
@@ -141,7 +161,10 @@ def build_inventory_item_image_thumb_path(
             variant="thumb",
         )
     if original_object_key:
-        return f"{settings.api_v1_prefix}/catalog/inventory-items/{inventory_item_id}/image?variant=thumb"
+        return _append_image_cache_query(
+            f"{settings.api_v1_prefix}/catalog/inventory-items/{inventory_item_id}/image?variant=thumb",
+            original_object_key,
+        )
     return None
 
 
@@ -159,10 +182,12 @@ def build_expense_item_image_path(
         return public_url
 
     if variant == "thumb":
-        return (
+        path = (
             f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image?variant=thumb"
         )
-    return f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image"
+    else:
+        path = f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image"
+    return _append_image_cache_query(path, image_object_key)
 
 
 def build_expense_item_image_thumb_path(
@@ -180,8 +205,9 @@ def build_expense_item_image_thumb_path(
             variant="thumb",
         )
     if original_object_key:
-        return (
-            f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image?variant=thumb"
+        return _append_image_cache_query(
+            f"{settings.api_v1_prefix}/catalog/expense-items/{expense_item_id}/image?variant=thumb",
+            original_object_key,
         )
     return None
 

@@ -15,7 +15,9 @@ from app.services.admin.billing import (
     get_payment_split_summary,
     get_shop_sales_summary,
 )
-from app.services.admin.catalogue import (
+from app.services.admin.catalogue import (  # noqa: F401
+    _get_period_bounds,
+    _selected_shop_items_source,
     allocate_catalogue_item,
     allocate_catalogue_items,
     count_catalogue_items,
@@ -34,7 +36,6 @@ from app.services.admin.catalogue import (
     update_catalogue_item_allocation,
     update_selected_shop_items_order,
 )
-from app.services.admin.catalogue import _get_period_bounds, _selected_shop_items_source  # noqa: F401
 from app.services.admin.shops import (
     create_item,
     create_shop_account,

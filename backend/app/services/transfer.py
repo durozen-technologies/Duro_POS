@@ -13,7 +13,6 @@ from ..models import (
     TransferShop,
     User,
 )
-from ..services.tenant_query import resolve_organization_id
 from ..schemas.transfer import (
     InventoryTransferCreate,
     InventoryTransferPage,
@@ -22,6 +21,7 @@ from ..schemas.transfer import (
     TransferShopRead,
     TransferShopUpdate,
 )
+from ..services.tenant_query import resolve_organization_id
 from .inventory import (
     _available_quantity_at,
     _get_allocated_inventory_item_for_shop,
