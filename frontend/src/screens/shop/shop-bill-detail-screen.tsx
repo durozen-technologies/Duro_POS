@@ -7,7 +7,7 @@ import {
   patchBillReceiptStatus,
   reprintShopBill,
 } from "@/api/billing";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { ShopHeaderActions } from "@/components/shop-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -59,7 +59,7 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
     try {
       setBill(await fetchShopBill(billId));
     } catch (error) {
-      Alert.alert(t("bills.loadFailed"), toApiError(error).message);
+      Alert.alert(t("bills.loadFailed"), formatApiErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -111,7 +111,7 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
       } catch {
         // Best-effort status update.
       }
-      Alert.alert(t("checkout.printFailedAfterSaveTitle"), toApiError(error).message);
+      Alert.alert(t("checkout.printFailedAfterSaveTitle"), formatApiErrorMessage(error));
     } finally {
       setReprinting(false);
     }

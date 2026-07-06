@@ -1,6 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 
-import { apiClient, getApiAuthHeaders, resolveReachableApiUrlCandidates } from "@/api/client";
+import { apiClient, getApiAuthHeaders, resolveReachableApiUrlCandidates, API_CONNECTION_ERROR_MESSAGE } from "@/api/client";
 import {
   AdminItemRowsPage,
   AdminBillPage,
@@ -351,7 +351,7 @@ export async function downloadAdminReportPdf(
   const query = buildAdminReportQuery(params);
   const downloadUrls = await resolveReachableApiUrlCandidates(`/api/v1/admin/reports/pdf?${query}`);
   if (downloadUrls.length === 0) {
-    throw new Error("API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart Expo.");
+    throw new Error(API_CONNECTION_ERROR_MESSAGE);
   }
 
   let lastNetworkError: unknown = null;
@@ -381,11 +381,9 @@ export async function downloadAdminReportPdf(
   }
 
   if (lastNetworkError instanceof Error && lastNetworkError.message) {
-    const attemptedTargets = getUploadAttemptSummary(downloadUrls);
-    const attemptedMessage = attemptedTargets ? ` Tried ${attemptedTargets}.` : "";
-    throw new Error(`Report download could not reach backend API.${attemptedMessage} ${lastNetworkError.message}`);
+    throw new Error(API_CONNECTION_ERROR_MESSAGE);
   }
-  throw new Error("Report download failed before the backend responded.");
+  throw new Error(API_CONNECTION_ERROR_MESSAGE);
 }
 
 export async function fetchAdminOverallReport(
@@ -679,7 +677,7 @@ async function uploadItemMultipartFile<TResponse>(
 ) {
   const uploadUrls = await resolveReachableApiUrlCandidates(path);
   if (uploadUrls.length === 0) {
-    throw new Error("API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart Expo.");
+    throw new Error(API_CONNECTION_ERROR_MESSAGE);
   }
   await assertUploadFileReady(file);
 
@@ -720,13 +718,9 @@ async function uploadItemMultipartFile<TResponse>(
   }
 
   if (lastNetworkError instanceof Error && lastNetworkError.message) {
-    const attemptedTargets = getUploadAttemptSummary(uploadUrls);
-    const attemptedMessage = attemptedTargets ? ` Tried ${attemptedTargets}.` : "";
-    throw new Error(
-      `Image upload could not reach backend API.${attemptedMessage} ${lastNetworkError.message}`,
-    );
+    throw new Error(API_CONNECTION_ERROR_MESSAGE);
   }
-  throw new Error("Image upload failed before the backend responded.");
+  throw new Error(API_CONNECTION_ERROR_MESSAGE);
 }
 
 export async function createItemWithImageFile(payload: ItemMultipartFields, file: ItemImageUploadFile) {

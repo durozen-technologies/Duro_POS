@@ -20,7 +20,7 @@ import {
   fetchAdminOverallReport,
   type FetchOverallReportParams,
 } from "@/api/admin";
-import { isApiRequestCanceled, toApiError } from "@/api/client";
+import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminOverallReportPreviewScreenProps } from "@/navigation/types";
 import {
   AnalyticsPeriod,
@@ -621,7 +621,7 @@ export function AdminOverallReportPreviewScreen({
         const nextReport = await fetchAdminOverallReport(reportParams);
         setReport(nextReport);
       } catch (error) {
-        setErrorMessage(toApiError(error).message || "Overall report preview could not be loaded.");
+        setErrorMessage(formatApiErrorMessage(error, "Overall report preview could not be loaded."));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -639,7 +639,7 @@ export function AdminOverallReportPreviewScreen({
       .catch((error) => {
         if (!isApiRequestCanceled(error)) {
           setErrorMessage(
-            toApiError(error).message || "Overall report preview could not be loaded.",
+            formatApiErrorMessage(error, "Overall report preview could not be loaded."),
           );
         }
       })
@@ -682,7 +682,7 @@ export function AdminOverallReportPreviewScreen({
           Alert.alert("Report downloaded", result.filename);
         }
       } catch (error) {
-        setErrorMessage(toApiError(error).message || "Report could not be generated.");
+        setErrorMessage(formatApiErrorMessage(error, "Report could not be generated."));
       } finally {
         setGenerating(false);
       }

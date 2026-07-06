@@ -5,7 +5,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { branding } from "@/constants/branding";
-import { toApiError, isApiRequestCanceled } from "@/api/client";
+import { toApiError, isApiRequestCanceled, formatApiErrorMessage } from "@/api/client";
 import {
   fetchOrganizationCounts,
   fetchOrganizationRows,
@@ -93,7 +93,7 @@ export function SuperAdminDashboardScreen() {
       if (isApiRequestCanceled(err) || !hasAuthToken()) {
         return;
       }
-      setError(toApiError(err).message || "Failed to load dashboard");
+      setError(formatApiErrorMessage(err, "Failed to load dashboard"));
     } finally {
       setLoading(false);
       setRefreshing(false);

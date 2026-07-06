@@ -4,7 +4,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { commitRetailerSale, previewRetailerSale } from "@/api/retailer-sales";
 import { buildRetailerSaleInvoiceHtml } from "@/api/retailer-receipts";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
@@ -95,7 +95,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
         resetRetailerCart();
         navigation.replace("RetailerSelect");
       } catch (error) {
-        Alert.alert(t("checkout.checkoutFailedTitle"), toApiError(error).message);
+        Alert.alert(t("checkout.checkoutFailedTitle"), formatApiErrorMessage(error));
       } finally {
         setSubmitting(false);
       }

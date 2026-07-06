@@ -25,7 +25,7 @@ import {
   type InventoryItemMetadataPayload,
   type ItemImageUploadFile,
 } from "@/api/admin";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   BaseUnit,
   UnitType,
@@ -145,7 +145,7 @@ function imageDraftFromAsset(asset: ImagePicker.ImagePickerAsset): ImageDraft {
 }
 
 function getRequestMessage(error: unknown, fallback: string) {
-  return toApiError(error).message || fallback;
+  return formatApiErrorMessage(error, fallback);
 }
 
 export function AdminInventoryItemEditorScreen({

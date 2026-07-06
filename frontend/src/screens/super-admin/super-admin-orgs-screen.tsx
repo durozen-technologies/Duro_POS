@@ -18,7 +18,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { SkeletonList } from "@/components/ui/skeleton";
 
-import { toApiError, isApiRequestCanceled } from "@/api/client";
+import { toApiError, isApiRequestCanceled, formatApiErrorMessage } from "@/api/client";
 import {
   createOrganization,
   fetchOrganizationRows, patchOrganizationStatus,
@@ -73,7 +73,7 @@ export function SuperAdminOrgsScreen() {
       if (isApiRequestCanceled(err) || !hasAuthToken()) {
         return;
       }
-      setError(toApiError(err).message || "Failed to load organizations");
+      setError(formatApiErrorMessage(err, "Failed to load organizations"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -105,7 +105,7 @@ export function SuperAdminOrgsScreen() {
       setNewOrgMaxBranches("5");
       await load();
     } catch (err) {
-      setError(toApiError(err).message || "Failed to create organization");
+      setError(formatApiErrorMessage(err, "Failed to create organization"));
     } finally {
       setCreating(false);
     }
@@ -137,7 +137,7 @@ export function SuperAdminOrgsScreen() {
       await patchOrganizationStatus(org.id, !org.is_active);
       await load();
     } catch (err) {
-      setError(toApiError(err).message || "Failed to update organization");
+      setError(formatApiErrorMessage(err, "Failed to update organization"));
     } finally {
       setTogglingId(null);
     }

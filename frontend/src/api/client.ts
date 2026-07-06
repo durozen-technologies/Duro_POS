@@ -1,12 +1,10 @@
 import axios, { CanceledError, type InternalAxiosRequestConfig, isAxiosError } from "axios";
-import { Platform } from "react-native";
 
 import {
   API_BASE_URL,
   API_BASE_URL_FALLBACKS,
   API_BASE_URL_STORAGE_KEY,
   CONFIGURED_API_BASE_URL,
-  EXPO_TUNNEL_DETECTED,
 } from "@/constants/config";
 import { getSessionAbortSignal, logout, useAuthStore } from "@/store/auth-store";
 import { secureStorage } from "@/utils/secure-storage";
@@ -24,6 +22,31 @@ export type ApiError = {
   requestId?: string;
   baseUrl?: string;
 };
+
+const API_CONNECTION_ERROR_MESSAGE = "Unable to connect to the server. Please check your internet connection and try again. Otherwise, contact your administrator.";
+
+export { API_CONNECTION_ERROR_MESSAGE };
+
+const NETWORK_ERROR_PATTERN =
+  /network request failed|network error|failed to fetch|cannot reach backend|unable to connect/i;
+
+export function isNetworkConnectionError(error: unknown) {
+  if (isAxiosError(error) && !error.response) {
+    return true;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+
+  return (
+    NETWORK_ERROR_PATTERN.test(message) ||
+    message === API_CONNECTION_ERROR_MESSAGE
+  );
+}
 
 const HTTP_ERROR_MAP: Partial<Record<number, string>> = {
   401: "Session expired. Please sign in again.",
@@ -71,7 +94,7 @@ let resolvingBaseUrlPromise: Promise<string> | null = null;
 let apiConnectionSnapshot: ApiConnectionSnapshot = {
   status: "degraded",
   baseUrl: API_BASE_URL || CONFIGURED_API_BASE_URL || "",
-  message: "Backend has not been checked yet.",
+  message: "",
   checkedAt: 0,
 };
 const apiConnectionListeners = new Set<() => void>();
@@ -236,30 +259,8 @@ async function hydrateStoredReachableBaseUrl() {
   await storedBaseUrlPromise;
 }
 
-function getNetworkFailureMessage(options: { upload?: boolean; baseUrl?: string } = {}) {
-  const displayedApiBaseUrl = options.baseUrl?.trim() || getDisplayedApiBaseUrl();
-  const connectionMessage =
-    apiConnectionSnapshot.message
-      ? ` Connection status: ${apiConnectionSnapshot.status}. Last check: ${apiConnectionSnapshot.message}`
-      : "";
-
-  if (!displayedApiBaseUrl) {
-    return "API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart Expo.";
-  }
-
-  if (options.upload) {
-    return `Image upload could not reach backend API at ${displayedApiBaseUrl}.${connectionMessage} Check that the backend URL is reachable from this device, then try saving again.`;
-  }
-
-  if (EXPO_TUNNEL_DETECTED) {
-    return `Cannot reach backend API at ${displayedApiBaseUrl}.${connectionMessage} Expo tunnel shares the app bundle only, not your backend on port 8000. Set EXPO_PUBLIC_API_BASE_URL to a public URL for the backend, or switch Expo to LAN and use your computer's Wi-Fi IP.`;
-  }
-
-  if (Platform.OS === "web") {
-    return `Cannot reach backend API at ${displayedApiBaseUrl}.${connectionMessage} If the backend is up, this is usually a browser CORS block. Add your frontend origin to CORS_ORIGINS on the backend and redeploy.`;
-  }
-
-  return `Cannot reach backend API at ${displayedApiBaseUrl}.${connectionMessage} Check that the backend is running and avoid localhost or 127.0.0.1 from Expo Go on Android. Use your computer's LAN IP or let the app rewrite it automatically.`;
+function getNetworkFailureMessage(_options: { upload?: boolean; baseUrl?: string } = {}) {
+  return API_CONNECTION_ERROR_MESSAGE;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -459,7 +460,7 @@ async function resolveReachableBaseUrl(config: RetryableAxiosConfig, forceProbe 
 
   const candidates = getBaseUrlCandidates(config);
   if (candidates.length === 0) {
-    updateApiConnectionStatus("offline", "", "No API base URL is configured.");
+    updateApiConnectionStatus("offline", "", API_CONNECTION_ERROR_MESSAGE);
     return "";
   }
 
@@ -479,9 +480,8 @@ async function resolveReachableBaseUrl(config: RetryableAxiosConfig, forceProbe 
         void persistReachableBaseUrl(result.baseUrl);
         return result.baseUrl;
       })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : "Backend health check failed.";
-        updateApiConnectionStatus("offline", candidates[0], message);
+      .catch(() => {
+        updateApiConnectionStatus("offline", candidates[0], API_CONNECTION_ERROR_MESSAGE);
         throw new Error(getNetworkFailureMessage());
       })
       .finally(() => {
@@ -562,6 +562,14 @@ function getErrorStatus(error: unknown): number | undefined {
   return undefined;
 }
 
+export function formatApiErrorMessage(
+  error: unknown,
+  fallback = "Something went wrong. Please try again.",
+): string {
+  const message = toApiError(error).message.trim();
+  return message || fallback;
+}
+
 export function toApiError(error: unknown): ApiError {
   if (isApiRequestCanceled(error)) {
     return { message: "Request canceled." };
@@ -603,7 +611,7 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use(async (config) => {
   if (!CONFIGURED_API_BASE_URL && !API_BASE_URL) {
-    throw new Error("API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart Expo.");
+    throw new Error(API_CONNECTION_ERROR_MESSAGE);
   }
 
   const retryConfig = config as RetryableAxiosConfig;
@@ -681,7 +689,7 @@ apiClient.interceptors.response.use(
       updateApiConnectionStatus(
         "offline",
         retryConfig.baseURL || getDisplayedApiBaseUrl(),
-        error.message || "Network request failed.",
+        API_CONNECTION_ERROR_MESSAGE,
       );
       if (!isUploadRequest && !retryConfig._retriedAfterProbe) {
         retryConfig._retriedAfterProbe = true;

@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   hardDeleteBranch,
   hardDeleteOrganization,
@@ -58,7 +58,7 @@ export function SuperAdminHardDeleteScreen() {
       }
       navigation.goBack();
     } catch (err) {
-      setError(toApiError(err).message || "Hard delete failed");
+      setError(formatApiErrorMessage(err, "Hard delete failed"));
     } finally {
       setBusy(false);
     }

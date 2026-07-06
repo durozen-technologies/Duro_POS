@@ -19,7 +19,7 @@ import {
   type ApiRequestOptions,
   type FetchShopItemsParams,
 } from "@/api/admin";
-import { isApiRequestCanceled, toApiError } from "@/api/client";
+import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import { ItemScope, type DailyPriceCreate } from "@/types/api";
 import type {
   AdminItemRowsPage,
@@ -251,7 +251,7 @@ function useRowFirstItemPage({
       if (isApiRequestCanceled(requestError)) {
         return null;
       }
-      const message = toApiError(requestError).message;
+      const message = formatApiErrorMessage(requestError);
       if (mountedRef.current && requestId === rowsRequestIdRef.current) {
         setState((current) => ({
           ...current,
@@ -308,7 +308,7 @@ function useRowFirstItemPage({
       if (isApiRequestCanceled(requestError)) {
         return null;
       }
-      const message = toApiError(requestError).message;
+      const message = formatApiErrorMessage(requestError);
       if (mountedRef.current && requestId === rowsRequestIdRef.current) {
         setState((current) => ({ ...current, loadingMore: false, error: message }));
       }
@@ -397,7 +397,7 @@ export function useAdminItemShops(enabled = true) {
       if (isApiRequestCanceled(requestError)) {
         return [];
       }
-      const message = toApiError(requestError).message;
+      const message = formatApiErrorMessage(requestError);
       if (mountedRef.current && requestId === requestIdRef.current) {
         setError(message);
       }
@@ -439,7 +439,7 @@ export function useCatalogueItems(enabled = true) {
       await deleteItem(itemId);
       await page.refresh();
     } catch (requestError) {
-      throw new Error(toApiError(requestError).message);
+      throw new Error(formatApiErrorMessage(requestError));
     }
   }, [page]);
 
@@ -491,7 +491,7 @@ export function useSelectedShopItems(shopId: UUID | null, enabled = true) {
       await deallocateShopItem(shopId, itemId);
       await page.refresh();
     } catch (requestError) {
-      throw new Error(toApiError(requestError).message);
+      throw new Error(formatApiErrorMessage(requestError));
     }
   }, [page, shopId]);
 
@@ -507,7 +507,7 @@ export function useSelectedShopItems(shopId: UUID | null, enabled = true) {
       }
       await page.refresh();
     } catch (requestError) {
-      throw new Error(toApiError(requestError).message);
+      throw new Error(formatApiErrorMessage(requestError));
     }
   }, [page, shopId]);
 
@@ -577,7 +577,7 @@ export function useAvailableCatalogueItems(shopId: UUID | null, enabled = true) 
       await page.refreshCounts();
       return result;
     } catch (requestError) {
-      throw new Error(toApiError(requestError).message);
+      throw new Error(formatApiErrorMessage(requestError));
     } finally {
       setImportingIds((current) => {
         const next = new Set(current);
@@ -643,7 +643,7 @@ export function useShopPrices(shopId: UUID | null, enabled = true) {
       if (isApiRequestCanceled(requestError)) {
         return null;
       }
-      const message = toApiError(requestError).message;
+      const message = formatApiErrorMessage(requestError);
       if (mountedRef.current && requestId === requestIdRef.current) {
         setError(message);
       }
@@ -699,7 +699,7 @@ export function useShopPrices(shopId: UUID | null, enabled = true) {
       clearDraftPrice(itemId);
       return await load(true);
     } catch (requestError) {
-      const message = toApiError(requestError).message;
+      const message = formatApiErrorMessage(requestError);
       setError(message);
       throw new Error(message);
     } finally {
@@ -718,7 +718,7 @@ export function useShopPrices(shopId: UUID | null, enabled = true) {
       setDraftPrices({});
       return await load(true);
     } catch (requestError) {
-      const message = toApiError(requestError).message;
+      const message = formatApiErrorMessage(requestError);
       setError(message);
       throw new Error(message);
     } finally {
@@ -746,7 +746,7 @@ export function useShopPrices(shopId: UUID | null, enabled = true) {
       });
       return await load(true);
     } catch (requestError) {
-      const message = toApiError(requestError).message;
+      const message = formatApiErrorMessage(requestError);
       setError(message);
       throw new Error(message);
     } finally {

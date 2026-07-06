@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchShops } from "@/api/admin";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   fetchRetailerItemAllocations,
   fetchRetailers,
@@ -122,7 +122,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       });
       setError(null);
     } catch (err) {
-      setError(toApiError(err).message);
+      setError(formatApiErrorMessage(err));
     } finally {
       setLoadingBranches(false);
     }
@@ -153,7 +153,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       });
       setError(null);
     } catch (err) {
-      setError(toApiError(err).message);
+      setError(formatApiErrorMessage(err));
     } finally {
       setLoadingRetailers(false);
     }
@@ -193,7 +193,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         setDirty(false);
         setError(null);
       } catch (err) {
-        setError(toApiError(err).message);
+        setError(formatApiErrorMessage(err));
       } finally {
         setLoadingItems(false);
         setRefreshing(false);
@@ -343,7 +343,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       await loadItems();
       Alert.alert("Saved", `${allocations.size} item${allocations.size === 1 ? "" : "s"} allocated to branch.`);
     } catch (err) {
-      Alert.alert("Save failed", toApiError(err).message);
+      Alert.alert("Save failed", formatApiErrorMessage(err));
     } finally {
       setSaving(false);
     }

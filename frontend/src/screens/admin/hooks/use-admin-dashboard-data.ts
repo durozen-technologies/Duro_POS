@@ -11,7 +11,7 @@ import {
   updateShop,
   updateShopStatus,
 } from "@/api/admin";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import type {
   AdminBillSummary,
   AnalyticsPeriod,
@@ -165,7 +165,7 @@ export function useAdminDashboardData({
       }
 
       setIsOfflineSnapshot(true);
-      setDashboardError(toApiError(error).message);
+      setDashboardError(formatApiErrorMessage(error));
     } finally {
       if (!mountedRef.current || requestId !== dashboardRequestIdRef.current) {
         return;
@@ -215,7 +215,7 @@ export function useAdminDashboardData({
         id: nextPage.next_cursor_id ?? null,
       });
     } catch (error) {
-      throw new Error(toApiError(error).message);
+      throw new Error(formatApiErrorMessage(error));
     } finally {
       dailyBillsLoadMoreInFlightRef.current = false;
       setDailyBillsLoadingMore(false);
@@ -294,7 +294,7 @@ export function useAdminDashboardData({
       await createShop(values);
       await loadDashboard(true);
     } catch (error) {
-      throw new Error(toApiError(error).message);
+      throw new Error(formatApiErrorMessage(error));
     }
   }, [loadDashboard]);
 
@@ -303,7 +303,7 @@ export function useAdminDashboardData({
       const updatedShop = await updateShopStatus(shop.id, { is_active: isActive });
       applyShopUpdate(updatedShop);
     } catch (error) {
-      throw new Error(toApiError(error).message);
+      throw new Error(formatApiErrorMessage(error));
     }
   }, [applyShopUpdate]);
 
@@ -313,7 +313,7 @@ export function useAdminDashboardData({
       applyShopUpdate(updatedShop);
       return updatedShop;
     } catch (error) {
-      throw new Error(toApiError(error).message);
+      throw new Error(formatApiErrorMessage(error));
     }
   }, [applyShopUpdate]);
 
@@ -322,7 +322,7 @@ export function useAdminDashboardData({
       await deleteShop(shop.id);
       await loadDashboard(true);
     } catch (error) {
-      throw new Error(toApiError(error).message);
+      throw new Error(formatApiErrorMessage(error));
     }
   }, [loadDashboard]);
 
@@ -343,7 +343,7 @@ export function useAdminDashboardData({
         billDetailCacheRef.current.set(billId, bill);
         return bill;
       } catch (error) {
-        throw new Error(toApiError(error).message);
+        throw new Error(formatApiErrorMessage(error));
       } finally {
         billDetailRequestRef.current.delete(billId);
       }
@@ -354,7 +354,7 @@ export function useAdminDashboardData({
     try {
       return await request;
     } catch (error) {
-      throw new Error(toApiError(error).message);
+      throw new Error(formatApiErrorMessage(error));
     }
   }, []);
 
@@ -402,7 +402,7 @@ export function useAdminDashboardData({
         return bill;
       });
     } catch (error) {
-      throw new Error(toApiError(error).message);
+      throw new Error(formatApiErrorMessage(error));
     }
   }, []);
 

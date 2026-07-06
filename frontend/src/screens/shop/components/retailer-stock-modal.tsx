@@ -17,7 +17,7 @@ import {
 
 import { recordShopRetailerInventoryUsages } from "@/api/inventory";
 import { fetchShopRetailers } from "@/api/retailers";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { RetailerPicker } from "@/screens/shop/components/retailer-picker";
 import {
@@ -137,7 +137,7 @@ export function RetailerStockModal({
       })
       .catch((error) => {
         if (!cancelled) {
-          Alert.alert(t("inventory.loadFailed"), toApiError(error).message);
+          Alert.alert(t("inventory.loadFailed"), formatApiErrorMessage(error));
         }
       })
       .finally(() => {
@@ -309,7 +309,7 @@ export function RetailerStockModal({
         t("inventory.retailerStockSavedMessage", { defaultValue: "Usage recorded for the selected retailer." }),
       );
     } catch (error) {
-      Alert.alert(t("inventory.saveFailedTitle"), toApiError(error).message);
+      Alert.alert(t("inventory.saveFailedTitle"), formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }

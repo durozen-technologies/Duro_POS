@@ -12,7 +12,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchRetailerBalance, fetchRetailerBranchAllocations } from "@/api/retailers";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminRetailerDetailScreenProps } from "@/navigation/types";
 import type { RetailerBalanceRead } from "@/types/api";
 import { formatCurrency, formatDateTime } from "@/utils/format";
@@ -43,7 +43,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
       setAllocatedShopCount(branchRows.filter((row) => row.is_allocated).length);
       setError(null);
     } catch (err) {
-      setError(toApiError(err).message);
+      setError(formatApiErrorMessage(err));
     } finally {
       setLoading(false);
     }

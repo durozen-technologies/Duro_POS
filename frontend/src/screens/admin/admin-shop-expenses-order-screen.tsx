@@ -12,7 +12,7 @@ import {
   updateShopExpenseItemsOrder,
   type ExpenseCursorParams,
 } from "@/api/expenses";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminShopExpensesOrderScreenProps } from "@/navigation/types";
 import type { ShopExpenseItemRead, UUID } from "@/types/api";
 
@@ -139,7 +139,7 @@ export function AdminShopExpensesOrderScreen({
       setItems(loadedItems);
       setDirty(false);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load branch expenses.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load branch expenses."));
     } finally {
       setLoading(false);
     }
@@ -163,7 +163,7 @@ export function AdminShopExpensesOrderScreen({
       setDirty(false);
       navigation.navigate("AdminExpenses", { shopId });
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to save expense order.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to save expense order."));
     } finally {
       setSaving(false);
     }

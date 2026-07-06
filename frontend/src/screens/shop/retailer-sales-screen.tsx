@@ -11,7 +11,7 @@ import {
 } from "react-native";
 
 import { fetchAllShopRetailerSales } from "@/api/retailer-sales";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { ShopHeaderActions } from "@/components/shop-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -399,7 +399,7 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
         ),
       );
     } catch (error) {
-      Alert.alert(t("retailers.loadFailed"), toApiError(error).message);
+      Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
     } finally {
       setLoading(false);
       setRefreshing(false);

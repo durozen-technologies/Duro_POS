@@ -38,7 +38,7 @@ import {
   adminSetShopInventoryStock,
   adminSetRetailerInventoryStock,
 } from "@/api/admin";
-import { isApiRequestCanceled, toApiError } from "@/api/client";
+import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   CalendarDateField,
   CalendarDatePickerModal,
@@ -89,7 +89,7 @@ const EMPTY_INVENTORY_CURSOR: InventoryCursor = {
 };
 
 function getRequestMessage(error: unknown, fallback: string) {
-  return toApiError(error).message || fallback;
+  return formatApiErrorMessage(error, fallback);
 }
 
 function formatInventoryQuantity(value: string | number, unit: BaseUnit) {

@@ -4,7 +4,7 @@ import { Alert, FlatList, Pressable, Text, View } from "react-native";
 
 import { fetchShopRetailers } from "@/api/retailers";
 import { fetchAllShopRetailerSales } from "@/api/retailer-sales";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { ShopHeaderActions } from "@/components/shop-header";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Screen } from "@/components/ui/screen";
@@ -36,7 +36,7 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
         pending.reduce((sum, sale) => sum.plus(money(sale.balance_due)), money(0)).toFixed(2),
       );
     } catch (error) {
-      Alert.alert(t("retailers.loadFailed"), toApiError(error).message);
+      Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
     } finally {
       setLoading(false);
     }

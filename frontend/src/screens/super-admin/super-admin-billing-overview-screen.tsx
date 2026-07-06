@@ -4,7 +4,7 @@ import { Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "re
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   fetchOrganizationBranches,
   fetchOrganizationRows,
@@ -356,7 +356,7 @@ export function SuperAdminBillingOverviewScreen() {
       if (isAuthSessionError(err)) {
         return;
       }
-      setError(toApiError(err).message || "Failed to load billing overview");
+      setError(formatApiErrorMessage(err, "Failed to load billing overview"));
     } finally {
       setLoading(false);
       setRefreshing(false);

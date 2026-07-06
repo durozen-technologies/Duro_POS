@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  getApiConnectionSnapshot,
-  probeApiConnection,
-  subscribeApiConnection,
-  type ApiConnectionSnapshot,
-} from "@/api/client";
+import { getApiConnectionSnapshot, probeApiConnection, subscribeApiConnection, type ApiConnectionSnapshot } from "@/api/client";
 
 export function useApiConnection() {
   const [snapshot, setSnapshot] = useState<ApiConnectionSnapshot>(() => getApiConnectionSnapshot());

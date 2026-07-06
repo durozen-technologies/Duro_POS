@@ -5,7 +5,7 @@ import { Controller, useForm } from "react-hook-form";
 
 import { fetchShopRetailerSale, recordShopRetailerPayment } from "@/api/retailer-sales";
 import { buildRetailerReceiptHtml } from "@/api/retailer-receipts";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -81,7 +81,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
     try {
       setSale(await fetchShopRetailerSale(saleId));
     } catch (error) {
-      Alert.alert(t("retailers.loadFailed"), toApiError(error).message);
+      Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -122,7 +122,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
           language,
         );
       } catch (error) {
-        Alert.alert(t("checkout.checkoutFailedTitle"), toApiError(error).message);
+        Alert.alert(t("checkout.checkoutFailedTitle"), formatApiErrorMessage(error));
       } finally {
         setReprintingId(null);
       }
@@ -161,7 +161,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
       setSale(result.sale);
       form.reset({ cashAmount: "", upiAmount: "" });
     } catch (error) {
-      Alert.alert(t("checkout.checkoutFailedTitle"), toApiError(error).message);
+      Alert.alert(t("checkout.checkoutFailedTitle"), formatApiErrorMessage(error));
     } finally {
       setSubmitting(false);
     }

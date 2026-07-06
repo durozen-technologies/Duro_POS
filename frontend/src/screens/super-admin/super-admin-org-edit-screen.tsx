@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   fetchOrganizationBranches,
   fetchOrganizationRows,
@@ -81,7 +81,7 @@ export function SuperAdminOrgEditScreen() {
       if (isAuthSessionError(branchError)) {
         return;
       }
-      setError(toApiError(branchError).message || "Failed to load branches");
+      setError(formatApiErrorMessage(branchError, "Failed to load branches"));
     } finally {
       setBranchesLoading(false);
     }
@@ -111,7 +111,7 @@ export function SuperAdminOrgEditScreen() {
       if (isAuthSessionError(reloadError)) {
         return;
       }
-      setError(toApiError(reloadError).message || "Failed to refresh organization");
+      setError(formatApiErrorMessage(reloadError, "Failed to refresh organization"));
     } finally {
       setRefreshing(false);
     }
@@ -157,7 +157,7 @@ export function SuperAdminOrgEditScreen() {
       });
       navigation.goBack();
     } catch (saveError) {
-      setError(toApiError(saveError).message || "Failed to update organization");
+      setError(formatApiErrorMessage(saveError, "Failed to update organization"));
       setSaving(false);
     }
   };

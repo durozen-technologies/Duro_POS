@@ -18,7 +18,7 @@ import {
   fetchItemCategories,
   updateItemCategory,
 } from "@/api/admin";
-import { isApiRequestCanceled, toApiError } from "@/api/client";
+import { isApiRequestCanceled, formatApiErrorMessage } from "@/api/client";
 import type { AdminItemCategoriesScreenProps } from "@/navigation/types";
 import type { ItemCategoryRead, UUID } from "@/types/api";
 
@@ -32,8 +32,7 @@ function sortedCategories(categories: ItemCategoryRead[]) {
 }
 
 function getRequestErrorMessage(error: unknown, fallback: string) {
-  const apiError = toApiError(error);
-  return apiError.message || fallback;
+  return formatApiErrorMessage(error, fallback);
 }
 
 export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScreenProps) {

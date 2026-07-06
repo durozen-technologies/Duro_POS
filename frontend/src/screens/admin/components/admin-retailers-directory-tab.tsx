@@ -13,7 +13,7 @@ import {
 } from "react-native";
 
 import { fetchRetailers } from "@/api/retailers";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { RetailerRead } from "@/types/api";
 import { formatCurrency } from "@/utils/format";
@@ -134,7 +134,7 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
       setRetailers(page.items);
       setError(null);
     } catch (err) {
-      setError(toApiError(err).message);
+      setError(formatApiErrorMessage(err));
     } finally {
       setLoading(false);
       setRefreshing(false);

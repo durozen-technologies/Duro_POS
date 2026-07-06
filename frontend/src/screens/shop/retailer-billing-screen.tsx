@@ -4,7 +4,7 @@ import { memo, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { Alert, FlatList, Pressable, Text, TextInput, View } from "react-native";
 
 import { fetchRetailerCatalog } from "@/api/retailer-sales";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CartActionBar } from "@/components/ui/cart-action-bar";
@@ -122,7 +122,7 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
       setCatalog(items);
       prefetchItemThumbnails(items);
     } catch (error) {
-      Alert.alert(t("retailers.loadFailed"), toApiError(error).message);
+      Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
     } finally {
       setLoading(false);
     }

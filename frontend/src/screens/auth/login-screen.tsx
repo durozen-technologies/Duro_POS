@@ -31,7 +31,8 @@ import { Image } from "expo-image";
 
 import { branding } from "@/constants/branding";
 import { login } from "@/api/auth";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useAuthStore } from "@/store/auth-store";
 import { useCartStore } from "@/store/cart-store";
 import { usePriceStore } from "@/store/price-store";
@@ -112,15 +113,12 @@ function validateField(name: FieldName, value: string): string | null {
   return null;
 }
 
-function resolveErrorMessage(
-  error: ReturnType<typeof toApiError>
-): string {
-  if (error.status === 401) return "Invalid username or password.";
-  if (error.status === 403) return "Access denied. Please contact your administrator.";
-  if (error.status === 429) return "Too many login attempts. Please wait a moment before retrying.";
-  const message = error.message.trim();
-  if (message) return message;
-  return FALLBACK_ERROR_MESSAGE;
+function resolveErrorMessage(error: unknown): string {
+  const apiError = toApiError(error);
+  if (apiError.status === 401) return "Invalid username or password.";
+  if (apiError.status === 403) return "Access denied. Please contact your administrator.";
+  if (apiError.status === 429) return "Too many login attempts. Please wait a moment before retrying.";
+  return formatApiErrorMessage(error, FALLBACK_ERROR_MESSAGE);
 }
 
 // ─── Form State Hook ─────────────────────────────────────────────────────────
@@ -462,7 +460,7 @@ export function LoginScreen() {
       reset();
       setSession(response.access_token, response.user);
     } catch (error) {
-      setFormError(resolveErrorMessage(toApiError(error)));
+      setFormError(resolveErrorMessage(error));
     } finally {
       setSubmitting(false);
       setTimeout(() => {
@@ -692,6 +690,8 @@ export function LoginScreen() {
                     trailingElement={passwordTrailing}
                   />
                 </View>
+
+                <ApiConnectionBanner />
 
                 {/* ── Form-level Error ────────────────────────────────── */}
                 {formError ? <ErrorBanner message={formError} /> : null}

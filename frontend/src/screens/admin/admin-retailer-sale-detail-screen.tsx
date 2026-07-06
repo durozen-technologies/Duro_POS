@@ -14,7 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchAdminRetailerSale, recordAdminRetailerPayment } from "@/api/retailers";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminRetailerSaleDetailScreenProps } from "@/navigation/types";
 import { RetailerReceiptType, type RetailerSaleRead } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
@@ -45,7 +45,7 @@ export function AdminRetailerSaleDetailScreen({
       setSale(await fetchAdminRetailerSale(saleId));
       setError(null);
     } catch (err) {
-      setError(toApiError(err).message);
+      setError(formatApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -81,7 +81,7 @@ export function AdminRetailerSaleDetailScreen({
       setCashAmount("");
       setUpiAmount("");
     } catch (err) {
-      Alert.alert("Payment failed", toApiError(err).message);
+      Alert.alert("Payment failed", formatApiErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

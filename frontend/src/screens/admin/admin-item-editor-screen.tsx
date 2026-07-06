@@ -29,7 +29,7 @@ import {
   updateShopItemWithImageFile,
   updateShopItemMetadata,
 } from "@/api/admin";
-import { isApiRequestCanceled, resolveApiUrl, toApiError } from "@/api/client";
+import { isApiRequestCanceled, resolveApiUrl, formatApiErrorMessage } from "@/api/client";
 import { authenticatedImageSource } from "@/utils/item-images";
 import {
   BaseUnit,
@@ -419,8 +419,7 @@ function nextAttributeType(current: AttributeValueType): AttributeValueType {
 }
 
 function getRequestErrorMessage(error: unknown, fallback: string) {
-  const apiError = toApiError(error);
-  return apiError.message || fallback;
+  return formatApiErrorMessage(error, fallback);
 }
 
 export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScreenProps) {

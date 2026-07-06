@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminRoleRead, TenantAdminRead } from "@/api/super-admin";
 
 type TenantAdminManageSheetProps = {
@@ -87,7 +87,7 @@ export function TenantAdminManageSheet({
     try {
       await action();
     } catch (actionError) {
-      setError(toApiError(actionError).message || "Action failed");
+      setError(formatApiErrorMessage(actionError, "Action failed"));
     } finally {
       setBusyAction(null);
     }

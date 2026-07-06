@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   createShopExpenseEntry,
   fetchCurrentShopExpenseItems,
@@ -35,7 +35,7 @@ import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { LoadingState } from "@/components/ui/loading-state";
 import { TextField } from "@/components/ui/text-field";
 import { ShopHeaderActions } from "@/components/shop-header";
-import { useApiConnection } from "@/hooks/use-api-connection";
+import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import {
   getLocalizedItemName,
@@ -404,7 +404,6 @@ function ShopHistoryInput({
 export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<ShopExpensesScreenProps["navigation"]>();
-  const apiConnection = useApiConnection();
   const { language, t } = useShopTranslation();
   const headerMenu = useShopHeaderMenu(navigation);
   const [items, setItems] = useState<ShopExpenseItemRead[]>([]);
@@ -457,7 +456,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
       setCursor(pageCursor(page));
       setHasMore(page.has_more);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load expenses.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load expenses."));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -480,7 +479,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
       setCursor(pageCursor(page));
       setHasMore(page.has_more);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load more expenses.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load more expenses."));
     } finally {
       setLoadingMore(false);
     }
@@ -512,7 +511,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
       });
       setHistoryLoaded(true);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load expense history.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load expense history."));
     } finally {
       setHistoryLoading(false);
     }
@@ -539,7 +538,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
         id: page.next_cursor_id ?? null,
       });
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load more expense history.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load more expense history."));
     } finally {
       setHistoryLoadingMore(false);
     }
@@ -597,7 +596,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
         await loadHistory();
       }
     } catch (error) {
-      Alert.alert("Save failed", toApiError(error).message || "Unable to record expense.");
+      Alert.alert("Save failed", formatApiErrorMessage(error, "Unable to record expense."));
     } finally {
       setSaving(false);
     }
@@ -615,24 +614,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
           <Text className="min-w-0 flex-1 text-sm font-semibold text-[#B42318]">{errorMessage}</Text>
         </View>
       ) : null}
-      {apiConnection.status === "offline" ? (
-        <View className="flex-row items-center gap-2 rounded-card border border-[#B42318] bg-[#FEE4E2] px-4 py-3">
-          <MaterialCommunityIcons name="database-alert-outline" size={18} color="#B42318" />
-          <Text className="min-w-0 flex-1 text-sm font-semibold text-[#B42318]">
-            Backend offline at {apiConnection.baseUrl || "configured API URL"}. {apiConnection.message}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            disabled={apiConnection.checking}
-            onPress={() => void apiConnection.retry()}
-            hitSlop={10}
-          >
-            <Text className="text-xs font-extrabold text-[#B42318]">
-              {apiConnection.checking ? "Checking" : "Retry"}
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
+      <ApiConnectionBanner />
 
 
 

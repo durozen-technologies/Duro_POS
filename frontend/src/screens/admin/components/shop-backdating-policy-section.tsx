@@ -12,13 +12,13 @@ import {
 } from "react-native";
 
 import { fetchAdminInventoryBackdatePolicy, updateAdminInventoryBackdatePolicy } from "@/api/inventory";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import type { InventoryBackdatePolicyRead } from "@/types/api";
 
 import { type ThemePalette } from "../admin-dashboard-theme";
 
 function getRequestMessage(error: unknown, fallback: string) {
-  return toApiError(error).message || fallback;
+  return formatApiErrorMessage(error, fallback);
 }
 
 const BACKDATE_WINDOW_OPTIONS = [

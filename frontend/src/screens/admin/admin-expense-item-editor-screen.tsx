@@ -18,7 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { AdminTextField } from "@/screens/admin/components/admin-text-field";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   createExpenseItem,
   deleteExpenseItem,
@@ -158,7 +158,7 @@ export function AdminExpenseItemEditorScreen() {
       setImageDraft(null);
       navigation.goBack();
     } catch (error) {
-      Alert.alert("Save failed", toApiError(error).message || "Unable to save expense item.");
+      Alert.alert("Save failed", formatApiErrorMessage(error, "Unable to save expense item."));
     } finally {
       setSavingItem(false);
     }

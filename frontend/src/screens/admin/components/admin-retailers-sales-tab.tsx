@@ -11,7 +11,7 @@ import {
 } from "react-native";
 
 import { fetchAllAdminRetailerSales } from "@/api/retailers";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { RetailerSaleStatus, type RetailerSaleRead } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatCurrency, formatDateTime } from "@/utils/format";
@@ -121,7 +121,7 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
       setSales(rows);
       setError(null);
     } catch (err) {
-      setError(toApiError(err).message);
+      setError(formatApiErrorMessage(err));
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -13,7 +13,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { fetchAllOrganizationRows, fetchAuditLogRows, type AuditLogRead } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
 import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
@@ -100,7 +100,7 @@ export function SuperAdminAuditScreen() {
       if (isAuthSessionError(err)) {
         return;
       }
-      setError(toApiError(err).message || "Failed to load audit log");
+      setError(formatApiErrorMessage(err, "Failed to load audit log"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -134,7 +134,7 @@ export function SuperAdminAuditScreen() {
       if (isAuthSessionError(err)) {
         return;
       }
-      setError(toApiError(err).message || "Failed to load more");
+      setError(formatApiErrorMessage(err, "Failed to load more"));
     } finally {
       setLoadingMore(false);
     }

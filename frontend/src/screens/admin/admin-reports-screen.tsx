@@ -21,7 +21,7 @@ import {
   type AdminReportDetailLevel,
   type AdminReportSection,
 } from "@/api/admin";
-import { isApiRequestCanceled, toApiError } from "@/api/client";
+import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminReportsScreenProps } from "@/navigation/types";
 import { AnalyticsPeriod, type ShopRead, type UUID } from "@/types/api";
 
@@ -396,7 +396,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       .then(setShops)
       .catch((error) => {
         if (!isApiRequestCanceled(error)) {
-          setErrorMessage(toApiError(error).message || "Branches could not be loaded.");
+          setErrorMessage(formatApiErrorMessage(error, "Branches could not be loaded."));
         }
       })
       .finally(() => setLoadingShops(false));
@@ -409,7 +409,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       await fetchShops().then(setShops);
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Branches could not be refreshed.");
+      setErrorMessage(formatApiErrorMessage(error, "Branches could not be refreshed."));
     } finally {
       setRefreshing(false);
     }
@@ -553,7 +553,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         Alert.alert("Report downloaded", result.filename);
       }
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Report could not be generated.");
+      setErrorMessage(formatApiErrorMessage(error, "Report could not be generated."));
     } finally {
       setGenerating(false);
     }

@@ -31,7 +31,7 @@ import {
   getActiveTransferShops,
   transferInventoryStock,
 } from "@/api/inventory";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import {
   CalendarDateField,
@@ -336,7 +336,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       if (controller.signal.aborted) {
         return;
       }
-      setErrorMessage(toApiError(error).message || t("inventory.loadFailed"));
+      setErrorMessage(formatApiErrorMessage(error, t("inventory.loadFailed")));
     } finally {
       if (inventoryAbortRef.current === controller) {
         inventoryAbortRef.current = null;
@@ -382,7 +382,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       inventoryHasMoreRef.current = page.has_more;
       setInventoryCursor(nextCursor);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || t("inventory.loadFailed"));
+      setErrorMessage(formatApiErrorMessage(error, t("inventory.loadFailed")));
     } finally {
       inventoryLoadingMoreRef.current = false;
       setInventoryLoadingMore(false);
@@ -454,7 +454,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       setMovementsLoadedKey(historyKey);
     } catch (error) {
       if (requestId === movementsRequestIdRef.current && movementHistoryKeyRef.current === historyKey) {
-        setErrorMessage(toApiError(error).message || t("inventory.loadFailed"));
+        setErrorMessage(formatApiErrorMessage(error, t("inventory.loadFailed")));
       }
     } finally {
       if (requestId === movementsRequestIdRef.current) {

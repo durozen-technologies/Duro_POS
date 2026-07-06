@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   createTenantAdmin,
   hardDeleteTenantAdmin,
@@ -109,7 +109,7 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
       if (isAuthSessionError(loadError)) {
         return;
       }
-      setError(toApiError(loadError).message || "Failed to load tenant admins");
+      setError(formatApiErrorMessage(loadError, "Failed to load tenant admins"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -134,7 +134,7 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
           : null;
     } catch (loadError) {
       setError(
-        toApiError(loadError).message || "Failed to load more tenant admins",
+        formatApiErrorMessage(loadError, "Failed to load more tenant admins"),
       );
     } finally {
       setLoadingMore(false);
@@ -154,7 +154,7 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
         await loadFirstPage();
       } catch (createError) {
         const message =
-          toApiError(createError).message || "Failed to create tenant admin";
+          formatApiErrorMessage(createError, "Failed to create tenant admin");
         setError(message);
         throw new Error(message);
       } finally {

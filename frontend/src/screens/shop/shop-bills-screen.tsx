@@ -16,7 +16,7 @@ import {
 } from "react-native";
 
 import { fetchShopBills } from "@/api/billing";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { ShopDateRangeFilter } from "@/components/shop/date-range-filter";
 import { ShopHeaderActions } from "@/components/shop-header";
 import { Button } from "@/components/ui/button";
@@ -378,7 +378,7 @@ export function ShopBillsScreen({ navigation }: ShopBillsScreenProps) {
       setTotalPages(Math.max(result.total_pages, 1));
       setTotalCount(result.total_count);
     } catch (error) {
-      Alert.alert(t("bills.loadFailed"), toApiError(error).message);
+      Alert.alert(t("bills.loadFailed"), formatApiErrorMessage(error));
     } finally {
       setLoading(false);
       setRefreshing(false);

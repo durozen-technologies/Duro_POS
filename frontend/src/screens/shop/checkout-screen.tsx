@@ -3,7 +3,7 @@ import { Alert, Text, View } from "react-native";
 import { Controller, Control, useForm, useWatch } from "react-hook-form";
 
 import { checkoutBill, patchBillReceiptStatus, previewBill } from "@/api/billing";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
@@ -247,7 +247,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
 
       navigation.replace("Billing");
     } catch (error) {
-      Alert.alert(t("checkout.checkoutFailedTitle"), toApiError(error).message);
+      Alert.alert(t("checkout.checkoutFailedTitle"), formatApiErrorMessage(error));
     } finally {
       setSubmitting(false);
     }

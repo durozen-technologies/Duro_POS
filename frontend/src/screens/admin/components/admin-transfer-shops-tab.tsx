@@ -21,7 +21,7 @@ import {
   fetchTransferShops,
   updateTransferShop,
 } from "@/api/admin";
-import { isApiRequestCanceled, toApiError } from "@/api/client";
+import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import { type InventoryTransferRead, type TransferShopRead } from "@/types/api";
 import { formatDateTime } from "@/utils/format";
 import { adminElevation } from "../admin-dashboard-theme";
@@ -31,7 +31,7 @@ import { ActionButton, EmptyStateCard, SearchField } from "./admin-dashboard-pri
 import { AdminTextField } from "./admin-text-field";
 
 function getRequestMessage(error: unknown, fallback: string) {
-  return toApiError(error).message || fallback;
+  return formatApiErrorMessage(error, fallback);
 }
 
 export function AdminTransferShopsTab() {

@@ -11,7 +11,7 @@ import {
   updateSelectedShopItemsOrder,
   type FetchShopItemsParams,
 } from "@/api/admin";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import type { AdminShopItemsOrderScreenProps } from "@/navigation/types";
 import { UnitType, type ShopItemRead, type UUID } from "@/types/api";
@@ -263,7 +263,7 @@ export function AdminShopItemsOrderScreen({
       setActiveGroupKey(nextGroups[0]?.key ?? null);
       setDirty(false);
     } catch (requestError) {
-      setError(toApiError(requestError).message || "Unable to load shop items.");
+      setError(formatApiErrorMessage(requestError, "Unable to load shop items."));
     } finally {
       setLoading(false);
     }
@@ -296,7 +296,7 @@ export function AdminShopItemsOrderScreen({
       })
       .catch((requestError) => {
         triggerHaptic();
-        setError(toApiError(requestError).message || "Unable to save item order.");
+        setError(formatApiErrorMessage(requestError, "Unable to save item order."));
       })
       .finally(() => setSaving(false));
   }, [groups, navigation, shopId]);

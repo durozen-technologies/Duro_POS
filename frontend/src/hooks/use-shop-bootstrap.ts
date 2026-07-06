@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { fetchShopBootstrap } from "@/api/prices";
 import { useAuthStore } from "@/store/auth-store";
 import { usePriceStore } from "@/store/price-store";
@@ -91,7 +91,7 @@ export function useShopBootstrap() {
       setTodayPrices(bundle.todayPrices);
       return bundle.bootstrap;
     } catch (err) {
-      const message = toApiError(err).message;
+      const message = formatApiErrorMessage(err);
 
       if (mountedRef.current && requestId === requestIdRef.current) {
         setError(message);

@@ -21,6 +21,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
 
+import { formatApiErrorMessage } from "@/api/client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import type { AdminDashboardScreenProps } from "@/navigation/types";
@@ -529,7 +530,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       setCreateShopOpen(false);
       showToast("success", "New branch created successfully.");
     } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Unable to create branch.");
+      showToast("error", formatApiErrorMessage(error, "Unable to create branch."));
     } finally {
       setCreating(false);
     }
@@ -550,7 +551,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       closeManageShopSheet();
       showToast("success", `${values.name.trim()} updated successfully.`);
     } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Unable to update branch.");
+      showToast("error", formatApiErrorMessage(error, "Unable to update branch."));
     } finally {
       setUpdatingShop(false);
     }
@@ -577,7 +578,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                   closeManageShopSheet();
                   showToast("success", `${shop.name} deleted successfully.`);
                 } catch (error) {
-                  showToast("error", error instanceof Error ? error.message : "Unable to delete branch.");
+                  showToast("error", formatApiErrorMessage(error, "Unable to delete branch."));
                 } finally {
                   setDeletingShopId(null);
                 }
@@ -613,7 +614,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         );
         showToast("success", `${shop.name} ${isActive ? "activated" : "paused"}.`);
       } catch (error) {
-        showToast("error", error instanceof Error ? error.message : "Unable to update branch.");
+        showToast("error", formatApiErrorMessage(error, "Unable to update branch."));
       } finally {
         setStatusUpdatingShopId(null);
       }
@@ -631,7 +632,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       setSelectedBillPreview(bill);
     } catch (error) {
       setBillPreviewOpen(false);
-      showToast("error", error instanceof Error ? error.message : "Unable to load bill preview.");
+      showToast("error", formatApiErrorMessage(error, "Unable to load bill preview."));
     } finally {
       setBillPreviewLoading(false);
     }
@@ -681,7 +682,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
 
   const handleLoadMoreBills = useCallback(() => {
     void loadMoreBills().catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to load more bills.");
+      showToast("error", formatApiErrorMessage(error, "Unable to load more bills."));
     });
   }, [loadMoreBills, showToast]);
 

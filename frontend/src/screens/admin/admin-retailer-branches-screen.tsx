@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   fetchRetailerBranchAllocations,
   syncRetailerBranchAllocations,
@@ -55,7 +55,7 @@ export function AdminRetailerBranchesScreen({
       );
       setError(null);
     } catch (err) {
-      setError(toApiError(err).message);
+      setError(formatApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -107,7 +107,7 @@ export function AdminRetailerBranchesScreen({
       triggerHaptic();
       navigation.goBack();
     } catch (err) {
-      Alert.alert("Save failed", toApiError(err).message);
+      Alert.alert("Save failed", formatApiErrorMessage(err));
     } finally {
       setSaving(false);
     }

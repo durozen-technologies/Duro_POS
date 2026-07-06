@@ -15,7 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createRetailer, updateRetailer } from "@/api/retailers";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { AdminTextField } from "@/screens/admin/components/admin-text-field";
 import type { AdminRetailerEditorScreenProps } from "@/navigation/types";
 
@@ -65,7 +65,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
         });
       }
     } catch (error) {
-      Alert.alert("Save failed", toApiError(error).message);
+      Alert.alert("Save failed", formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }

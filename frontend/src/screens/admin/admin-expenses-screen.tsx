@@ -23,7 +23,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchShops } from "@/api/admin";
-import { toApiError } from "@/api/client";
+import { toApiError, formatApiErrorMessage } from "@/api/client";
 import {
   allocateShopExpenseItems,
   createExpenseItem,
@@ -42,7 +42,7 @@ import {
   type ExpenseItemImageUploadFile,
 } from "@/api/expenses";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
-import { useApiConnection } from "@/hooks/use-api-connection";
+import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { AdminExpensesScreenProps } from "@/navigation/types";
 import { useFocusEffect } from "@react-navigation/native";
@@ -1336,7 +1336,6 @@ function HistoryRow({
 export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenProps) {
   const insets = useSafeAreaInsets();
   const { colorScheme, palette } = useAdminTheme();
-  const apiConnection = useApiConnection();
   const [activeTab, setActiveTab] = useState<ExpenseTab>("items");
   const [shops, setShops] = useState<ShopRead[]>([]);
   const [selectedShopId, setSelectedShopId] = useState<UUID | null>(route.params?.shopId ?? null);
@@ -1417,7 +1416,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       setItemCursor(pageCursor(page));
       setItemHasMore(page.has_more);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load expense items.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load expense items."));
     } finally {
       setItemsLoading(false);
     }
@@ -1440,7 +1439,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       setItemCursor(pageCursor(page));
       setItemHasMore(page.has_more);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load more expense items.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load more expense items."));
     } finally {
       setItemsLoadingMore(false);
     }
@@ -1469,7 +1468,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       setCandidateRows(candidatePage.items);
       setSelectedCandidateIds(new Set());
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load branch expenses.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load branch expenses."));
     } finally {
       setAllocationLoading(false);
     }
@@ -1491,7 +1490,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       setAllocationCursor(pageCursor(page));
       setAllocationHasMore(page.has_more);
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load more branch expenses.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load more branch expenses."));
     } finally {
       setAllocationLoadingMore(false);
     }
@@ -1522,7 +1521,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
         id: page.next_cursor_id ?? null,
       });
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load expense history.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load expense history."));
     } finally {
       setHistoryLoading(false);
     }
@@ -1550,7 +1549,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
         id: page.next_cursor_id ?? null,
       });
     } catch (error) {
-      setErrorMessage(toApiError(error).message || "Unable to load more expense history.");
+      setErrorMessage(formatApiErrorMessage(error, "Unable to load more expense history."));
     } finally {
       setHistoryLoadingMore(false);
     }
@@ -1664,7 +1663,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       setEditingHistoryEntry(null);
       await loadHistory();
     } catch (error) {
-      Alert.alert("Save failed", toApiError(error).message || "Unable to save expense history entry.");
+      Alert.alert("Save failed", formatApiErrorMessage(error, "Unable to save expense history entry."));
     } finally {
       setSavingHistoryEntry(false);
       setHistoryBusyId(null);
@@ -1785,7 +1784,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
         await loadAllocation();
       }
     } catch (error) {
-      Alert.alert("Save failed", toApiError(error).message || "Unable to save expense item.");
+      Alert.alert("Save failed", formatApiErrorMessage(error, "Unable to save expense item."));
     } finally {
       setSavingItem(false);
     }
@@ -1814,7 +1813,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
           onPress: () => {
             void deleteExpenseItem(item.id)
               .then(loadItems)
-              .catch((error) => Alert.alert("Delete failed", toApiError(error).message));
+              .catch((error) => Alert.alert("Delete failed", formatApiErrorMessage(error)));
           },
         },
       ],
@@ -1843,7 +1842,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       await loadAllocation();
       await loadItems();
     } catch (error) {
-      Alert.alert("Import failed", toApiError(error).message || "Unable to import expense items.");
+      Alert.alert("Import failed", formatApiErrorMessage(error, "Unable to import expense items."));
     } finally {
       setImportingCandidates(false);
     }
@@ -1860,7 +1859,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       });
       setAllocationRows((current) => current.map((row) => (row.id === updated.id ? updated : row)));
     } catch (error) {
-      Alert.alert("Update failed", toApiError(error).message || "Unable to update allocation.");
+      Alert.alert("Update failed", formatApiErrorMessage(error, "Unable to update allocation."));
     } finally {
       setAllocationBusyId(null);
     }
@@ -1882,7 +1881,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
               await loadAllocation();
               await loadItems();
             })
-            .catch((error) => Alert.alert("Remove failed", toApiError(error).message))
+            .catch((error) => Alert.alert("Remove failed", formatApiErrorMessage(error)))
             .finally(() => setAllocationBusyId(null));
         },
       },
@@ -1891,24 +1890,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 
   const renderHeader = () => (
     <>
-      {apiConnection.status === "offline" ? (
-        <View style={[styles.errorBanner, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
-          <MaterialCommunityIcons name="database-alert-outline" size={18} color={palette.danger} />
-          <Text style={[styles.errorText, { color: palette.danger }]}>
-            Backend offline at {apiConnection.baseUrl || "configured API URL"}. {apiConnection.message}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void apiConnection.retry()}
-            disabled={apiConnection.checking}
-            hitSlop={10}
-          >
-            <Text style={[styles.errorAction, { color: palette.danger }]}>
-              {apiConnection.checking ? "Checking" : "Retry"}
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
+      <ApiConnectionBanner variant="styled" palette={palette} />
       {errorMessage ? (
         <View style={[styles.errorBanner, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
           <MaterialCommunityIcons name="alert-circle-outline" size={18} color={palette.danger} />

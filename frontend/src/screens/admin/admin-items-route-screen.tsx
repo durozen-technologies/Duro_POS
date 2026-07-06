@@ -12,8 +12,8 @@ import {
   updateItemAssumption,
   type FetchShopItemsParams,
 } from "@/api/admin";
-import { isApiRequestCanceled, toApiError } from "@/api/client";
-import { useApiConnection } from "@/hooks/use-api-connection";
+import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
+import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAdminItemsStore } from "@/store/admin-items-store";
 import type {
@@ -161,7 +161,6 @@ function AdminItemsRoute({
   const [priceHistoryBootstrap, setPriceHistoryBootstrap] = useState<ShopBootstrapResponse | null>(null);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
   const [priceHistoryError, setPriceHistoryError] = useState<string | null>(null);
-  const apiConnection = useApiConnection();
 
   const selectedShop = useMemo(
     () => shopsState.shops.find((shop) => shop.id === selectedShopId) ?? null,
@@ -208,7 +207,7 @@ function AdminItemsRoute({
       const nextBootstrap = await fetchShopPriceHistory(selectedShopId, dateValue);
       setPriceHistoryBootstrap(nextBootstrap);
     } catch (error) {
-      const message = toApiError(error).message || "Unable to load price history.";
+      const message = formatApiErrorMessage(error, "Unable to load price history.");
       setPriceHistoryError(message);
       showToast("error", message);
     } finally {
@@ -242,7 +241,7 @@ function AdminItemsRoute({
       })
       .catch((error) => {
         if (!isApiRequestCanceled(error)) {
-          showToast("error", toApiError(error).message || "Unable to load categories.");
+          showToast("error", formatApiErrorMessage(error, "Unable to load categories."));
         }
       })
       .finally(() => {
@@ -304,7 +303,7 @@ function AdminItemsRoute({
   useEffect(() => {
     if (isFocused && isCatalogueLikeWorkspace) {
       void catalogueState.load(buildCatalogueItemQuery(debouncedSearch)).catch((error) => {
-        showToast("error", error instanceof Error ? error.message : "Unable to load catalogue.");
+        showToast("error", formatApiErrorMessage(error, "Unable to load catalogue."));
       });
     }
   }, [catalogueState.load, debouncedSearch, isCatalogueLikeWorkspace, isFocused, showToast]);
@@ -320,7 +319,7 @@ function AdminItemsRoute({
       return;
     }
     void shopItemsState.load(selectedShopItemQuery).catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to load shop items.");
+      showToast("error", formatApiErrorMessage(error, "Unable to load shop items."));
     });
   }, [isFocused, selectedShopId, selectedShopItemQuery, shopItemsState.load, showToast, workspace]);
 
@@ -332,7 +331,7 @@ function AdminItemsRoute({
       q: debouncedImportSearch || undefined,
       limit: 50,
     }).catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to load catalogue items.");
+      showToast("error", formatApiErrorMessage(error, "Unable to load catalogue items."));
     });
   }, [
     availableCatalogueState.load,
@@ -449,7 +448,7 @@ function AdminItemsRoute({
                 }
                 showToast("success", `${item.name} deleted.`);
               } catch (error) {
-                showToast("error", error instanceof Error ? error.message : "Unable to delete item.");
+                showToast("error", formatApiErrorMessage(error, "Unable to delete item."));
               }
             })();
           },
@@ -512,7 +511,7 @@ function AdminItemsRoute({
           `${importedTotal} item${importedTotal === 1 ? "" : "s"} imported${shopSuffix}.`,
         );
       })
-      .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to import items."));
+      .catch((error) => showToast("error", formatApiErrorMessage(error, "Unable to import items.")));
   }, [availableCatalogueState, selectedShop?.name, selectedShopId, shopItemsState, showToast]);
 
   const importCatalogueItem = useCallback((item: ShopItemRead) => {
@@ -541,7 +540,7 @@ function AdminItemsRoute({
           onPress: () => {
             void shopItemsState.deallocate(item.id)
               .then(() => showToast("success", `${item.name} removed from shop.`))
-              .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to remove item."));
+              .catch((error) => showToast("error", formatApiErrorMessage(error, "Unable to remove item.")));
           },
         }
         : {
@@ -557,25 +556,25 @@ function AdminItemsRoute({
 
   const refreshCatalogue = useCallback(() => {
     void catalogueState.refresh().catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to refresh catalogue.");
+      showToast("error", formatApiErrorMessage(error, "Unable to refresh catalogue."));
     });
   }, [catalogueState, showToast]);
 
   const refreshShopItems = useCallback(() => {
     void shopItemsState.refresh().catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to refresh shop items.");
+      showToast("error", formatApiErrorMessage(error, "Unable to refresh shop items."));
     });
   }, [shopItemsState, showToast]);
 
   const refreshPrices = useCallback(() => {
     void priceState.load(true).catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to refresh prices.");
+      showToast("error", formatApiErrorMessage(error, "Unable to refresh prices."));
     });
   }, [priceState, showToast]);
 
   const refreshImportItems = useCallback(() => {
     void availableCatalogueState.refresh().catch((error) => {
-      showToast("error", error instanceof Error ? error.message : "Unable to refresh catalogue items.");
+      showToast("error", formatApiErrorMessage(error, "Unable to refresh catalogue items."));
     });
   }, [availableCatalogueState, showToast]);
 
@@ -658,7 +657,7 @@ function AdminItemsRoute({
         void catalogueState.refresh().catch(() => undefined);
       })
       .catch((error) => {
-        showToast("error", error instanceof Error ? error.message : "Unable to save assumption.");
+        showToast("error", formatApiErrorMessage(error, "Unable to save assumption."));
       })
       .finally(() => {
         setSavingAssumptionId(null);
@@ -682,7 +681,7 @@ function AdminItemsRoute({
         void catalogueState.refresh().catch(() => undefined);
       })
       .catch((error) => {
-        showToast("error", error instanceof Error ? error.message : "Unable to clear assumption.");
+        showToast("error", formatApiErrorMessage(error, "Unable to clear assumption."));
       })
       .finally(() => {
         setSavingAssumptionId(null);
@@ -700,7 +699,7 @@ function AdminItemsRoute({
         showToast("success", `${item.item_name} price saved.`);
         void shopItemsState.refresh().catch(() => undefined);
       })
-      .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to save price."));
+      .catch((error) => showToast("error", formatApiErrorMessage(error, "Unable to save price.")));
   }, [priceState, shopItemsState, showToast]);
 
   const saveEditedPrices = useCallback((entries: DailyPriceCreate["entries"]) => {
@@ -718,7 +717,7 @@ function AdminItemsRoute({
         showToast("success", `${entries.length} price${entries.length === 1 ? "" : "s"} saved.`);
         void shopItemsState.refresh().catch(() => undefined);
       })
-      .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to save edited prices."));
+      .catch((error) => showToast("error", formatApiErrorMessage(error, "Unable to save edited prices.")));
   }, [priceState, shopItemsState, showToast]);
 
   const completeTodayPrices = useCallback((entries: DailyPriceCreate["entries"], _staleCarryCount: number) => {
@@ -737,7 +736,7 @@ function AdminItemsRoute({
         showToast("success", "Today's prices published for shop billing.");
         void shopItemsState.refresh().catch(() => undefined);
       })
-      .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to save prices."));
+      .catch((error) => showToast("error", formatApiErrorMessage(error, "Unable to save prices.")));
   }, [priceState, shopItemsState, showToast]);
 
   const togglePriceHistory = useCallback(() => {
@@ -761,15 +760,7 @@ function AdminItemsRoute({
 
   const commonHeader = (
     <YStack gap={10}>
-      <ErrorState
-        message={
-          apiConnection.status === "offline"
-            ? `Backend offline at ${apiConnection.baseUrl || "configured API URL"}. ${apiConnection.message}`
-            : null
-        }
-        palette={palette}
-        onRetry={() => void apiConnection.retry()}
-      />
+      <ApiConnectionBanner variant="styled" palette={palette} />
       {workspaceNeedsShop ? (
         <ErrorState message={shopsState.error} palette={palette} onRetry={() => void shopsState.reload().catch(() => undefined)} />
       ) : null}
@@ -805,7 +796,7 @@ function AdminItemsRoute({
       onRefresh={refreshCatalogue}
       onLoadMore={() => {
         void catalogueState.loadMore().catch((error) => {
-          showToast("error", error instanceof Error ? error.message : "Unable to load more items.");
+          showToast("error", formatApiErrorMessage(error, "Unable to load more items."));
         });
       }}
       emptyTitle={search.trim() ? "No catalogue matches" : "No catalogue items yet"}
@@ -926,7 +917,7 @@ function AdminItemsRoute({
             onRefresh={refreshImportItems}
             onLoadMore={() => {
               void availableCatalogueState.loadMore().catch((error) => {
-                showToast("error", error instanceof Error ? error.message : "Unable to load more catalogue items.");
+                showToast("error", formatApiErrorMessage(error, "Unable to load more catalogue items."));
               });
             }}
             emptyTitle={importSearch.trim() ? "No available matches" : "No catalogue items available"}
@@ -984,7 +975,7 @@ function AdminItemsRoute({
         onRefresh={refreshShopItems}
         onLoadMore={() => {
           void shopItemsState.loadMore().catch((error) => {
-            showToast("error", error instanceof Error ? error.message : "Unable to load more items.");
+            showToast("error", formatApiErrorMessage(error, "Unable to load more items."));
           });
         }}
         emptyTitle={search.trim() ? "No selected items match" : "No items selected"}

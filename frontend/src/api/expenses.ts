@@ -1,6 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 
-import { apiClient, getApiAuthHeaders, resolveReachableApiUrlCandidates } from "@/api/client";
+import { apiClient, getApiAuthHeaders, resolveReachableApiUrlCandidates, API_CONNECTION_ERROR_MESSAGE } from "@/api/client";
 import type {
   ExpenseEntryCreate,
   ExpenseEntryPage,
@@ -97,7 +97,7 @@ async function assertUploadFileReady(file: ExpenseItemImageUploadFile) {
 async function uploadExpenseItemImageFile(path: string, file: ExpenseItemImageUploadFile) {
   const uploadUrls = await resolveReachableApiUrlCandidates(path);
   if (uploadUrls.length === 0) {
-    throw new Error("API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL and restart Expo.");
+    throw new Error(API_CONNECTION_ERROR_MESSAGE);
   }
   await assertUploadFileReady(file);
 
