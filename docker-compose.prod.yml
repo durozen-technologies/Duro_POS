@@ -153,7 +153,12 @@ services:
 
   rustfs:
     profiles: ["infra"]
-    image: rustfs/rustfs:${RUSTFS_VERSION:-1.0.0-beta.8}
+    build:
+      context: ./rustfs
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        RUSTFS_VERSION: ${RUSTFS_VERSION:-1.0.0-beta.8}
     <<: [*default-security, *rustfs-user]
     restart: unless-stopped
     logging: *default-logging
@@ -166,6 +171,8 @@ services:
       RUSTFS_SERVER_DOMAINS: ${RUSTFS_SERVER_DOMAINS:?Set RUSTFS_SERVER_DOMAINS}
     volumes:
       - ${RUSTFS_DATA_DIR:-/home/ubuntu/rustfs/data}:/data
+    tmpfs:
+      - /logs:size=64M,uid=10001,gid=10001,mode=1777
     command:
       - --address
       - :9000

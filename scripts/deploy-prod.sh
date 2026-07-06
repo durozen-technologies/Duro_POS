@@ -70,7 +70,7 @@ expand_rustfs_server_domains() {
 
 apply_rustfs_config() {
   log "Applying RustFS server-domain configuration"
-  run_compose up -d --pull never --force-recreate rustfs
+  run_compose up -d --pull never --build --force-recreate rustfs
 
   local i status
   for ((i = 1; i <= HEALTH_RETRIES; i++)); do
@@ -437,7 +437,7 @@ bootstrap_infra() {
     exit 1
   fi
 
-  if ! bootstrap_infra_service rustfs false; then
+  if ! bootstrap_infra_service rustfs true; then
     log_infra_diagnostics
     exit 1
   fi

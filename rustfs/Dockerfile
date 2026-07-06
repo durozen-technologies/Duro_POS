@@ -39,16 +39,16 @@ RUN set -eux; \
     if ! grep -Eq "^[^:]+:[^:]*:${RUSTFS_DATA_UID}:" /etc/passwd; then \
         echo "${RUSTFS_USER}:x:${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}:RustFS runtime user:/data:/sbin/nologin" >> /etc/passwd; \
     fi; \
-    mkdir -p /data; \
+    mkdir -p /data /logs; \
     chmod 0755 /usr/local/bin/docker-entrypoint.sh; \
-    chown -R "${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}" /data /usr/local/bin/docker-entrypoint.sh
+    chown -R "${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}" /data /logs /usr/local/bin/docker-entrypoint.sh
 
 USER ${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}
 
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-    CMD-SHELL "curl -fsS -o /dev/null http://127.0.0.1:9000/ || wget -qO- http://127.0.0.1:9000/ >/dev/null"
+    CMD curl -fsS -o /dev/null http://127.0.0.1:9000/ || wget -qO- http://127.0.0.1:9000/ >/dev/null
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["/data"]

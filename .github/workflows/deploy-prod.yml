@@ -8,6 +8,7 @@ on:
       - "backend/**"
       - "caddy/**"
       - "docker-compose.prod.yml"
+      - "rustfs/**"
       - "pgbouncer/**"
       - "scripts/**"
       - ".github/workflows/deploy-prod.yml"
@@ -61,6 +62,7 @@ jobs:
               - 'caddy/**'
             deploy:
               - 'docker-compose.prod.yml'
+              - 'rustfs/**'
               - 'pgbouncer/**'
               - 'scripts/**'
               - '.github/workflows/deploy-prod.yml'
@@ -338,7 +340,7 @@ jobs:
           host: ${{ env.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh,pgbouncer"
+          source: "docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh,pgbouncer,rustfs"
           target: ${{ env.DEPLOY_PATH }}
           strip_components: 0
 

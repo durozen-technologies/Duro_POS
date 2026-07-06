@@ -15,6 +15,12 @@ if [ ! -w /data ]; then
   exit 1
 fi
 
+mkdir -p /logs 2>/dev/null || true
+if [ ! -w /logs ]; then
+  echo "RustFS log directory /logs is not writable by UID:GID ${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}." >&2
+  exit 1
+fi
+
 if [ "$#" -eq 0 ]; then
   exec /entrypoint.sh rustfs /data
 fi
