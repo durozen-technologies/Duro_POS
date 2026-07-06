@@ -99,7 +99,6 @@ Important backend defaults from [`app/core/config.py`](app/core/config.py):
 
 - `APP_NAME=Brolier 360 API`
 - `API_V1_PREFIX=/api/v1`
-- `SHOP_DEFAULT_PASSWORD=ml123`
 - `DB_POOL_SIZE=5`
 - `DB_MAX_OVERFLOW=10`
 - `DB_POOL_TIMEOUT=30`

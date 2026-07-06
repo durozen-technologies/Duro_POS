@@ -287,7 +287,7 @@ class DatabaseHarness:
     async def create_shop_user(
         self,
         username: str = "ml1",
-        password: str = "ml123",
+        password: str = "test-shop-password",
         shop_name: str = "Main Shop",
         is_active: bool = True,
     ) -> tuple[User, Shop]:

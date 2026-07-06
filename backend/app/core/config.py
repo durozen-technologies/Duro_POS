@@ -43,7 +43,6 @@ class Settings(BaseSettings):
     secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 90
-    shop_default_password: str = "ml123"
     allowed_hosts_raw: str = Field(default="*", validation_alias="ALLOWED_HOSTS")
     cors_origins_raw: str = Field(default="*", validation_alias="CORS_ORIGINS")
     cors_allow_credentials: bool = False
@@ -166,8 +165,6 @@ class Settings(BaseSettings):
             raise ValueError(
                 "RustFS must be configured in production because item images are RustFS-only"
             )
-        if self.shop_default_password == "ml123":
-            raise ValueError("SHOP_DEFAULT_PASSWORD must be changed from the default in production")
 
         return self
 
