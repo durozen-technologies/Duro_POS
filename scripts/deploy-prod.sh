@@ -12,6 +12,10 @@ LOG_DIR="${DEPLOY_ROOT}/logs"
 DEPLOY_LOG="${LOG_DIR}/deploy.log"
 HEALTH_RETRIES="${HEALTH_RETRIES:-30}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"
+APP_HEALTH_RETRIES="${APP_HEALTH_RETRIES:-15}"
+APP_HEALTH_INTERVAL="${APP_HEALTH_INTERVAL:-1}"
+PULL_RETRIES="${PULL_RETRIES:-5}"
+PULL_RETRY_INTERVAL="${PULL_RETRY_INTERVAL:-10}"
 INFRA_HEALTH_RETRIES="${INFRA_HEALTH_RETRIES:-72}"
 export COMPOSE_PROFILES="${COMPOSE_PROFILES:-infra}"
 COMPOSE_BIN=()
@@ -150,6 +154,22 @@ run_compose() {
     log "compose failed: ${COMPOSE_BIN[*]} ${args[*]} $*"
     return 1
   fi
+}
+
+compose_pull_with_retry() {
+  local attempt=1
+  while (( attempt <= PULL_RETRIES )); do
+    if run_compose pull "$@"; then
+      return 0
+    fi
+    if (( attempt >= PULL_RETRIES )); then
+      log "compose pull failed after ${PULL_RETRIES} attempts: $*"
+      return 1
+    fi
+    log "compose pull failed (attempt ${attempt}/${PULL_RETRIES}), retrying in ${PULL_RETRY_INTERVAL}s"
+    sleep "${PULL_RETRY_INTERVAL}"
+    ((attempt++))
+  done
 }
 
 validate_compose_config() {
@@ -515,13 +535,21 @@ log_backend_health_diagnostics() {
 
 wait_backend_health() {
   local service="${1:?backend service name required}"
-  local i status restart_count
-  log "Waiting for ${service} health (up to $((HEALTH_RETRIES * HEALTH_INTERVAL))s)"
-  for ((i = 1; i <= HEALTH_RETRIES; i++)); do
+  local i status restart_count probe_out
+  log "Waiting for ${service} health (up to $((APP_HEALTH_RETRIES * APP_HEALTH_INTERVAL))s)"
+  for ((i = 1; i <= APP_HEALTH_RETRIES; i++)); do
     status="$(service_health "${service}")"
     if [[ "${status}" == "healthy" ]]; then
       log "${service} healthy"
       debug_log "H2" "deploy-prod.sh:wait_backend_health" "backend healthy" \
+        "{\"service\":\"${service}\",\"attempt\":${i},\"status\":\"${status}\"}"
+      return 0
+    fi
+    # ponytail: HTTP probe succeeds before Docker health flips (20s start_period)
+    probe_out="$(backend_health_http_probe "${service}")"
+    if [[ -n "${probe_out}" ]]; then
+      log "${service} ready (HTTP /health ok, docker status=${status})"
+      debug_log "H2" "deploy-prod.sh:wait_backend_health" "backend ready via probe" \
         "{\"service\":\"${service}\",\"attempt\":${i},\"status\":\"${status}\"}"
       return 0
     fi
@@ -538,12 +566,12 @@ wait_backend_health() {
         return 1
       fi
     fi
-    if (( i == 1 || i % 6 == 0 )); then
-      log "${service} not ready yet: status=${status} (attempt ${i}/${HEALTH_RETRIES})"
+    if (( i == 1 || i % 5 == 0 )); then
+      log "${service} not ready yet: status=${status} (attempt ${i}/${APP_HEALTH_RETRIES})"
       debug_log "H2" "deploy-prod.sh:wait_backend_health" "still waiting" \
         "{\"service\":\"${service}\",\"attempt\":${i},\"status\":\"${status}\"}"
     fi
-    sleep "${HEALTH_INTERVAL}"
+    sleep "${APP_HEALTH_INTERVAL}"
   done
   status="$(service_health "${service}")"
   log_backend_health_diagnostics "${service}" "${status}"
@@ -554,7 +582,7 @@ deploy_backend_instance() {
   local service="$1"
   local image_tag="$2"
   log "Pulling ${service} image (tag=${image_tag})"
-  BACKEND_IMAGE_TAG="${image_tag}" run_compose pull "${service}"
+  BACKEND_IMAGE_TAG="${image_tag}" compose_pull_with_retry "${service}"
   log "Deploying ${service}"
   BACKEND_IMAGE_TAG="${image_tag}" run_compose up -d --no-deps "${service}"
   wait_backend_health "${service}"
@@ -642,17 +670,17 @@ rollback() {
 
 wait_caddy_health() {
   local i status
-  log "Waiting for caddy health"
-  for ((i = 1; i <= HEALTH_RETRIES; i++)); do
+  log "Waiting for caddy health (up to $((APP_HEALTH_RETRIES * APP_HEALTH_INTERVAL))s)"
+  for ((i = 1; i <= APP_HEALTH_RETRIES; i++)); do
     status="$(service_health caddy)"
     if [[ "${status}" == "healthy" ]]; then
       log "Caddy healthy"
       return 0
     fi
-    if (( i == 1 || i % 6 == 0 )); then
-      log "Caddy not ready yet: status=${status} (attempt ${i}/${HEALTH_RETRIES})"
+    if (( i == 1 || i % 5 == 0 )); then
+      log "Caddy not ready yet: status=${status} (attempt ${i}/${APP_HEALTH_RETRIES})"
     fi
-    sleep "${HEALTH_INTERVAL}"
+    sleep "${APP_HEALTH_INTERVAL}"
   done
   log "Caddy health check failed (last status=${status})"
   compose_quiet logs --tail 60 caddy || true
@@ -699,7 +727,7 @@ deploy_app() {
   sync_compose_project
 
   if [[ "${deploy_backend}" == "true" ]]; then
-    BACKEND_IMAGE_TAG="${new_backend_tag}" run_compose pull backend-1 backend-2
+    BACKEND_IMAGE_TAG="${new_backend_tag}" compose_pull_with_retry backend-1 backend-2
 
     if ! run_migrations "${new_backend_tag}"; then
       log "Database migration failed"
@@ -719,7 +747,7 @@ deploy_app() {
 
   if [[ "${deploy_caddy}" == "true" ]]; then
     log "Pulling caddy image (tag=${new_caddy_tag})"
-    CADDY_IMAGE_TAG="${new_caddy_tag}" run_compose pull caddy
+    CADDY_IMAGE_TAG="${new_caddy_tag}" compose_pull_with_retry caddy
 
     log "Deploying caddy"
     CADDY_IMAGE_TAG="${new_caddy_tag}" run_compose up -d --no-deps caddy
