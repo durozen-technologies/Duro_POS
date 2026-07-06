@@ -1,13 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NGINX_VERSION=1.27.5
-ARG NGINX_IMAGE=nginx:${NGINX_VERSION}-alpine3.21
 ARG NGINX_UID=10101
 ARG NGINX_GID=10101
 ARG BUILD_VERSION=dev
 ARG BUILD_REVISION=unknown
 
-FROM ${NGINX_IMAGE} AS config-check
+FROM nginx:1.27.5-alpine3.21 AS config-check
 
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY default.conf /etc/nginx/conf.d/default.conf
@@ -15,7 +13,7 @@ COPY default.conf /etc/nginx/conf.d/default.conf
 RUN nginx -t
 
 
-FROM ${NGINX_IMAGE} AS runtime
+FROM nginx:1.27.5-alpine3.21 AS runtime
 
 ARG NGINX_UID
 ARG NGINX_GID
