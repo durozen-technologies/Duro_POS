@@ -353,12 +353,23 @@ jobs:
           echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
           echo "Deploy target: ${{ secrets.DEPLOY_USER }}@${DEPLOY_HOST}:${DEPLOY_PATH}"
 
+      - name: Resolve SCP payload
+        id: scp
+        env:
+          CHANGED_DEPLOY: ${{ needs.changes.outputs.deploy }}
+        run: |
+          sources="docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh,pgbouncer"
+          if [ "$CHANGED_DEPLOY" = "true" ]; then
+            sources="${sources},rustfs"
+          fi
+          echo "sources=${sources}" >> "$GITHUB_OUTPUT"
+
       - uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ env.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh,pgbouncer,rustfs"
+          source: ${{ steps.scp.outputs.sources }}
           target: ${{ env.DEPLOY_PATH }}
           strip_components: 0
 

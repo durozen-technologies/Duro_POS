@@ -17,6 +17,7 @@ APP_HEALTH_INTERVAL="${APP_HEALTH_INTERVAL:-1}"
 PULL_RETRIES="${PULL_RETRIES:-5}"
 PULL_RETRY_INTERVAL="${PULL_RETRY_INTERVAL:-10}"
 INFRA_HEALTH_RETRIES="${INFRA_HEALTH_RETRIES:-72}"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-brolier360-pos}"
 export COMPOSE_PROFILES="${COMPOSE_PROFILES:-infra}"
 COMPOSE_BIN=()
 COMPOSE_V2=false
@@ -72,15 +73,58 @@ expand_rustfs_server_domains() {
   log "Expanded RUSTFS_SERVER_DOMAINS=${RUSTFS_SERVER_DOMAINS}"
 }
 
-apply_rustfs_config() {
-  log "Applying RustFS server-domain configuration"
-  run_compose up -d --pull never --build --force-recreate rustfs
+RUSTFS_DOMAINS_STATE="${STATE_DIR}/rustfs-domains"
 
-  local i status
+rustfs_domains_changed() {
+  local previous=""
+  [[ -f "${RUSTFS_DOMAINS_STATE}" ]] && previous="$(<"${RUSTFS_DOMAINS_STATE}")"
+  [[ "${RUSTFS_SERVER_DOMAINS:-}" != "${previous}" ]]
+}
+
+rustfs_image_exists() {
+  docker image inspect "${COMPOSE_PROJECT_NAME}-rustfs:latest" &>/dev/null
+}
+
+apply_rustfs_config() {
+  local status need_recreate=false need_build=false i
+
+  if [[ ! -f "${RUSTFS_DOMAINS_STATE}" ]] && [[ "$(service_health rustfs)" == "healthy" ]]; then
+    printf '%s' "${RUSTFS_SERVER_DOMAINS}" > "${RUSTFS_DOMAINS_STATE}"
+    log "Seeded RustFS domains state from running container"
+  fi
+
+  status="$(service_health rustfs)"
+  if [[ "${status}" == "healthy" ]] && ! rustfs_domains_changed; then
+    log "RustFS healthy with current server domains — skipping recreate"
+    return 0
+  fi
+
+  if rustfs_domains_changed; then
+    log "RustFS server domains changed — recreating container (no image rebuild)"
+    need_recreate=true
+  elif [[ "${status}" != "healthy" ]]; then
+    log "RustFS not healthy (status=${status}) — recreating container"
+    need_recreate=true
+    if ! rustfs_image_exists; then
+      need_build=true
+    fi
+  fi
+
+  if [[ "${need_recreate}" == "false" ]]; then
+    return 0
+  fi
+
+  if [[ "${need_build}" == "true" ]]; then
+    run_compose up -d --pull never --build --force-recreate rustfs
+  else
+    run_compose up -d --pull never --no-build --force-recreate rustfs
+  fi
+
   for ((i = 1; i <= HEALTH_RETRIES; i++)); do
     status="$(service_health rustfs)"
     if [[ "${status}" == "healthy" ]]; then
       log "RustFS healthy after config apply"
+      printf '%s' "${RUSTFS_SERVER_DOMAINS}" > "${RUSTFS_DOMAINS_STATE}"
       return 0
     fi
     sleep "${HEALTH_INTERVAL}"
@@ -183,15 +227,19 @@ validate_compose_config() {
 
 service_container_id() {
   local service="$1"
-  compose_quiet ps -q --status running "${service}" | head -n1
+  local status_filter="${2:-running}"
+  docker ps -q \
+    --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+    --filter "label=com.docker.compose.service=${service}" \
+    --filter "status=${status_filter}" 2>/dev/null | head -n1
 }
 
 service_health() {
   local service="$1"
   local cid
-  cid="$(service_container_id "${service}")"
+  cid="$(service_container_id "${service}" running)"
   if [[ -z "${cid}" ]]; then
-    cid="$(compose_quiet ps -q --status exited "${service}" | head -n1)"
+    cid="$(service_container_id "${service}" exited)"
     if [[ -n "${cid}" ]]; then
       echo "exited"
       return 0
