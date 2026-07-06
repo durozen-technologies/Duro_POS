@@ -79,7 +79,7 @@ DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/brolie
 - Do not store item image bytes in Postgres.
 - Use migrations for schema changes.
 - Back up data before risky migrations or major deploys.
-- If the production Postgres container is unhealthy, `scripts/deploy-prod.sh` refuses to restart it automatically.
+- If the production Postgres container is unhealthy, deploy tries **data-dir permission repair** (`chown 70:70`) and one container recreate. WAL/checkpoint corruption still needs `scripts/postgres-recover.sh` (manual).
 - Recovery helpers live in `scripts/postgres-recover.sh`.
 
 ## Schema-per-tenant (ADR-003)

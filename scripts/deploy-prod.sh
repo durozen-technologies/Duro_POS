@@ -219,31 +219,130 @@ docker_login() {
   fi
 }
 
+POSTGRES_RUNTIME_UID=70
+POSTGRES_RUNTIME_GID=70
+
+postgres_data_dir() {
+  echo "${POSTGRES_DATA_DIR:-/home/ubuntu/pos-postgress/data}"
+}
+
+log_postgres_diagnostics() {
+  log "Postgres logs (last 80 lines):"
+  compose_quiet logs --tail 80 postgres || true
+}
+
+postgres_logs_text() {
+  compose_quiet logs --tail 120 postgres 2>/dev/null || true
+}
+
+postgres_logs_indicate_wal_corruption() {
+  local logs
+  logs="$(postgres_logs_text)"
+  grep -Eiq 'invalid checkpoint record|could not locate a valid checkpoint|could not open file .*pg_wal|PANIC:  database system is shut down|could not read block' <<< "${logs}"
+}
+
+ensure_postgres_data_dir() {
+  local data_dir="$1"
+  if [[ ! -d "${data_dir}" ]]; then
+    log "Creating postgres data directory ${data_dir}"
+    sudo mkdir -p "${data_dir}"
+  fi
+  repair_postgres_data_permissions "${data_dir}"
+}
+
+repair_postgres_data_permissions() {
+  local data_dir="$1"
+  log "Ensuring ${data_dir} is owned by ${POSTGRES_RUNTIME_UID}:${POSTGRES_RUNTIME_GID}"
+  sudo mkdir -p "${data_dir}"
+  sudo chown -R "${POSTGRES_RUNTIME_UID}:${POSTGRES_RUNTIME_GID}" "${data_dir}"
+  sudo chmod 700 "${data_dir}"
+}
+
+wait_postgres_health() {
+  local i status
+  for ((i = 1; i <= HEALTH_RETRIES; i++)); do
+    status="$(service_health postgres)"
+    if [[ "${status}" == "healthy" ]]; then
+      log "Postgres healthy"
+      return 0
+    fi
+    if [[ "${status}" == "exited" || "${status}" == "dead" ]]; then
+      log "Postgres container stopped (status=${status})"
+      log_postgres_diagnostics
+      return 1
+    fi
+    if (( i == 1 || i % 6 == 0 )); then
+      log "Postgres not ready yet: status=${status} (attempt ${i}/${HEALTH_RETRIES})"
+    fi
+    sleep "${HEALTH_INTERVAL}"
+  done
+  log "Postgres health timeout (last status=${status})"
+  log_postgres_diagnostics
+  return 1
+}
+
+repair_unhealthy_postgres() {
+  local data_dir
+  data_dir="$(postgres_data_dir)"
+  log "Postgres unhealthy — attempting safe repair"
+  log_postgres_diagnostics
+
+  if postgres_logs_indicate_wal_corruption; then
+    log "Postgres data/WAL corruption detected — run scripts/postgres-recover.sh on the VM"
+    return 1
+  fi
+
+  log "Recreating postgres after fixing data directory permissions"
+  run_compose stop postgres 2>/dev/null || true
+  repair_postgres_data_permissions "${data_dir}"
+  run_compose up -d --force-recreate postgres
+  wait_postgres_health
+}
+
+bootstrap_postgres() {
+  local pg_cid pg_health data_dir
+  data_dir="$(postgres_data_dir)"
+  ensure_postgres_data_dir "${data_dir}"
+
+  pg_cid="$(service_container_id postgres)"
+  pg_health="$(service_health postgres)"
+
+  if [[ -z "${pg_cid}" ]]; then
+    log "Starting postgres for first-time bootstrap"
+    run_compose up -d postgres
+    wait_postgres_health
+    return $?
+  fi
+
+  if [[ "${pg_health}" == "healthy" ]]; then
+    return 0
+  fi
+
+  if [[ "${pg_health}" == "starting" ]]; then
+    log "Postgres still starting — waiting for health"
+    wait_postgres_health
+    return $?
+  fi
+
+  repair_unhealthy_postgres
+}
+
 bootstrap_infra() {
   if infra_healthy; then
     log "Postgres, pgBouncer, RustFS, and Redis healthy — skipping infra restart"
     return 0
   fi
 
-  local pg_cid pb_cid rf_cid rd_cid pg_health pb_health rf_health rd_health
-  pg_cid="$(service_container_id postgres)"
+  local pb_cid rf_cid rd_cid pb_health rf_health rd_health
   pb_cid="$(service_container_id pgbouncer)"
   rf_cid="$(service_container_id rustfs)"
   rd_cid="$(service_container_id redis)"
-  pg_health="$(service_health postgres)"
   pb_health="$(service_health pgbouncer)"
   rf_health="$(service_health rustfs)"
   rd_health="$(service_health redis)"
 
-  if [[ -n "${pg_cid}" && "${pg_health}" != "healthy" ]]; then
-    log "Postgres container exists but is not healthy (status=${pg_health})"
-    log "Not restarting Postgres automatically — fix data/WAL or run scripts/postgres-recover.sh"
+  if ! bootstrap_postgres; then
     exit 1
-  fi
-
-  if [[ -z "${pg_cid}" ]]; then
-    log "Starting postgres for first-time bootstrap"
-    run_compose up -d postgres
   fi
 
   if [[ -z "${pb_cid}" ]]; then
@@ -280,7 +379,7 @@ bootstrap_infra() {
     sleep "${HEALTH_INTERVAL}"
   done
 
-  log "Infra failed to become healthy (postgres=${pg_health}, pgbouncer=${pb_health}, rustfs=${rf_health}, redis=${rd_health})"
+  log "Infra failed to become healthy (postgres=$(service_health postgres), pgbouncer=${pb_health}, rustfs=${rf_health}, redis=${rd_health})"
   exit 1
 }
 
