@@ -51,6 +51,11 @@ logger = logging.getLogger(__name__)
 
 
 async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
+    shop = await db.get(Shop, shop_id)
+    if shop is None:
+        return True
+    if shop.daily_prices_published_on != date.today():
+        return True
     has_missing_today_price = await db.scalar(
         select(
             select(Item.id)
@@ -64,6 +69,7 @@ async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
                         .where(
                             ShopItemAllocation.shop_id == shop_id,
                             ShopItemAllocation.item_id == Item.id,
+                            ShopItemAllocation.is_active.is_(True),
                         )
                         .exists(),
                     ),

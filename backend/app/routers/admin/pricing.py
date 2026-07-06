@@ -50,9 +50,9 @@ async def shop_daily_prices(
     """Create or update today's prices for every allocated active item in the shop.
 
     All allocated active items must have a price entry in the payload — partial
-    submissions are rejected with 422.
+    submissions are rejected with 422. Publishes the price book for shop billing.
     """
-    return await create_daily_prices(db, shop, payload)
+    return await create_daily_prices(db, shop, payload, publish=True)
 
 
 @router.patch(

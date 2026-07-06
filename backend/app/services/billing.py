@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
@@ -13,13 +13,17 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.ids import uuid7
+from app.db.tenant_context_var import get_active_tenant_schema, set_active_tenant_schema
+from app.db.tenant_schema import set_search_path, tenant_router
 from app.models import (
     Bill,
     BillItem,
     BillStatus,
+    CheckoutSnapshot,
     DailyPrice,
     InventoryMovement,
     InventoryMovementType,
@@ -28,23 +32,30 @@ from app.models import (
     Organization,
     Payment,
     Receipt,
+    ReceiptStatus,
     Shop,
     ShopItemAllocation,
+    User,
 )
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutPreviewRead,
     BillCheckoutRequest,
+    BillCreateResult,
     BillLineRead,
     BillRead,
+    BillReceiptStatusUpdate,
     PaymentRead,
     ReceiptRead,
 )
+from app.services.admin.catalogue import _bill_to_read
 from app.services.bill_number import bill_no_from_sequence, bill_number_prefix_from_settings
+from app.services.inventory import _available_quantity_at
 
 TWOPLACES = Decimal("0.01")
 THREEPLACES = Decimal("0.001")
-CHECKOUT_TOKEN_MAX_AGE_SECONDS = 15 * 60
+CHECKOUT_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60
+CHECKOUT_SNAPSHOT_TTL = timedelta(hours=24)
 
 
 @dataclass(frozen=True)
@@ -79,6 +90,25 @@ def _round_money(value: Decimal) -> Decimal:
 async def _shop_organization_name(db: AsyncSession, shop: Shop) -> str:
     org = await db.get(Organization, shop.organization_id)
     return org.name if org is not None else ""
+
+
+async def _ensure_shop_tenant_session(db: AsyncSession, shop: Shop) -> None:
+    """Re-bind tenant search_path after commits on pooled PostgreSQL connections."""
+    from app.db.tenant_schema import is_postgres_session
+
+    if not await is_postgres_session(db):
+        return
+
+    schema_name = get_active_tenant_schema()
+    if schema_name is None:
+        schema_name = await tenant_router.resolve_schema(db, shop.organization_id)
+        if schema_name is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Tenant schema is not configured for this shop",
+            )
+        set_active_tenant_schema(schema_name)
+    await set_search_path(db, schema_name)
 
 
 def _decimal_token(value: Decimal) -> str:
@@ -148,7 +178,7 @@ def _decode_checkout_token(token: str) -> dict[str, Any]:
     if datetime.now(UTC).timestamp() - issued_at_dt.timestamp() > CHECKOUT_TOKEN_MAX_AGE_SECONDS:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Checkout token expired. Please print the receipt again.",
+            detail="Checkout token expired. Please preview checkout again.",
         )
 
     return decoded
@@ -172,35 +202,105 @@ def _payload_fingerprint(payload: BillCheckoutRequest) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def _line_to_dict(line: PreparedBillLine) -> dict[str, Any]:
+    return {
+        "item_id": str(line.item_id),
+        "item_name": line.item_name,
+        "item_tamil_name": line.item_tamil_name,
+        "item_unit_type": line.item_unit_type.value if line.item_unit_type is not None else None,
+        "item_base_unit": line.item_base_unit.value if line.item_base_unit is not None else None,
+        "quantity": _decimal_token(line.quantity),
+        "unit": line.unit.value if line.unit is not None else None,
+        "price_per_unit": _decimal_token(line.price_per_unit),
+        "line_total": _decimal_token(line.line_total),
+        "assumption_percent": (
+            _decimal_token(line.assumption_percent) if line.assumption_percent is not None else None
+        ),
+        "assumption_inventory_item_id": (
+            str(line.assumption_inventory_item_id)
+            if line.assumption_inventory_item_id is not None
+            else None
+        ),
+        "assumption_inventory_category_id": (
+            str(line.assumption_inventory_category_id)
+            if line.assumption_inventory_category_id is not None
+            else None
+        ),
+    }
+
+
+def _snapshot_from_prepared(prepared: PreparedCheckout, payload_hash: str) -> dict[str, Any]:
+    return {
+        "payload_hash": payload_hash,
+        "total_amount": _decimal_token(prepared.total_amount),
+        "cash_amount": _decimal_token(prepared.cash_amount),
+        "upi_amount": _decimal_token(prepared.upi_amount),
+        "total_paid": _decimal_token(prepared.total_paid),
+        "lines": [_line_to_dict(line) for line in prepared.lines],
+    }
+
+
+def _prepared_from_snapshot(snapshot_json: dict[str, Any]) -> PreparedCheckout:
+    from app.models.enums import BaseUnit, UnitType
+
+    lines: list[PreparedBillLine] = []
+    for raw in snapshot_json.get("lines", []):
+        assumption_percent = raw.get("assumption_percent")
+        lines.append(
+            PreparedBillLine(
+                item_id=UUID(raw["item_id"]),
+                item_name=raw["item_name"],
+                item_tamil_name=raw.get("item_tamil_name"),
+                item_unit_type=UnitType(raw["item_unit_type"]) if raw.get("item_unit_type") else None,
+                item_base_unit=BaseUnit(raw["item_base_unit"]) if raw.get("item_base_unit") else None,
+                quantity=Decimal(raw["quantity"]),
+                unit=BaseUnit(raw["unit"]),
+                price_per_unit=Decimal(raw["price_per_unit"]),
+                line_total=Decimal(raw["line_total"]),
+                assumption_percent=Decimal(assumption_percent) if assumption_percent else None,
+                assumption_inventory_item_id=(
+                    UUID(raw["assumption_inventory_item_id"])
+                    if raw.get("assumption_inventory_item_id")
+                    else None
+                ),
+                assumption_inventory_category_id=(
+                    UUID(raw["assumption_inventory_category_id"])
+                    if raw.get("assumption_inventory_category_id")
+                    else None
+                ),
+            )
+        )
+    return PreparedCheckout(
+        lines=lines,
+        total_amount=Decimal(snapshot_json["total_amount"]),
+        cash_amount=Decimal(snapshot_json["cash_amount"]),
+        upi_amount=Decimal(snapshot_json["upi_amount"]),
+        total_paid=Decimal(snapshot_json["total_paid"]),
+    )
+
+
 async def _org_bill_number_prefix(db: AsyncSession, shop: Shop) -> str:
     org = await db.get(Organization, shop.organization_id)
     return bill_number_prefix_from_settings(org.settings if org is not None else None)
 
 
-async def _peek_next_bill_sequence(db: AsyncSession, now: datetime) -> int:
+async def _allocate_bill_number(db: AsyncSession, shop: Shop, now: datetime) -> str:
     month_str = f"{now.year:04d}-{now.month:02d}"
-    current_value = await db.scalar(
-        select(MonthlyBillSequence.current_value).where(MonthlyBillSequence.month_year == month_str)
-    )
-    return int(current_value or 0) + 1
-
-
-async def _sync_printed_bill_sequence(
-    db: AsyncSession,
-    month_str: str,
-    sequence: int,
-) -> None:
-    sequence_row = await db.get(
-        MonthlyBillSequence,
-        month_str,
-        with_for_update=True,
-    )
+    sequence_row = await db.get(MonthlyBillSequence, month_str, with_for_update=True)
     if sequence_row is None:
+        sequence = 1
         db.add(MonthlyBillSequence(month_year=month_str, current_value=sequence))
-        return
-
-    if sequence_row.current_value < sequence:
+    else:
+        sequence = sequence_row.current_value + 1
         sequence_row.current_value = sequence
+    prefix = await _org_bill_number_prefix(db, shop)
+    try:
+        return bill_no_from_sequence(now, sequence, prefix)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Monthly bill sequence limit reached for this bill format",
+        ) from None
 
 
 def _line_to_read(line: PreparedBillLine) -> BillLineRead:
@@ -218,7 +318,7 @@ def _line_to_read(line: PreparedBillLine) -> BillLineRead:
 
 
 def _inventory_movement_for_assumption(
-    shop: Shop, line: PreparedBillLine
+    shop: Shop, line: PreparedBillLine, *, occurred_at: datetime
 ) -> InventoryMovement | None:
     if (
         line.unit.value != "kg"
@@ -240,8 +340,92 @@ def _inventory_movement_for_assumption(
         category_id=line.assumption_inventory_category_id,
         movement_type=InventoryMovementType.USE,
         quantity=quantity,
-        occurred_at=datetime.now(UTC),
+        occurred_at=occurred_at,
     )
+
+
+async def _validate_assumption_stock(
+    db: AsyncSession,
+    shop: Shop,
+    lines: list[PreparedBillLine],
+    *,
+    occurred_at: datetime,
+) -> None:
+    required: dict[tuple[UUID, UUID | None], Decimal] = {}
+    for line in lines:
+        movement = _inventory_movement_for_assumption(shop, line, occurred_at=occurred_at)
+        if movement is None:
+            continue
+        key = (movement.inventory_item_id, movement.category_id)
+        required[key] = required.get(key, Decimal("0")) + movement.quantity
+
+    for (inventory_item_id, _), quantity in required.items():
+        available = await _available_quantity_at(
+            db, shop.id, inventory_item_id, as_of=occurred_at
+        )
+        if quantity > available:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Insufficient inventory for billed item assumptions",
+            )
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+async def _load_snapshot_for_token(
+    db: AsyncSession,
+    shop: Shop,
+    checkout_token: str,
+) -> CheckoutSnapshot:
+    snapshot = await db.scalar(
+        select(CheckoutSnapshot).where(CheckoutSnapshot.checkout_token == checkout_token)
+    )
+    if snapshot is None or snapshot.shop_id != shop.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid checkout token",
+        )
+    if _as_utc(snapshot.expires_at) < datetime.now(UTC):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Checkout token expired. Please preview checkout again.",
+        )
+    return snapshot
+
+
+async def _load_bill_for_shop(db: AsyncSession, shop: Shop, bill_id: UUID) -> Bill:
+    bill = await db.scalar(
+        select(Bill)
+        .where(Bill.id == bill_id, Bill.shop_id == shop.id)
+        .options(
+            selectinload(Bill.items),
+            selectinload(Bill.payment),
+            selectinload(Bill.receipt),
+            selectinload(Bill.shop).selectinload(Shop.organization),
+        )
+    )
+    if bill is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bill not found")
+    return bill
+
+
+async def _bill_read_for_shop(
+    db: AsyncSession,
+    shop: Shop,
+    bill_id: UUID,
+    *,
+    created_by_name: str | None = None,
+) -> BillRead:
+    bill = await _load_bill_for_shop(db, shop, bill_id)
+    read = _bill_to_read(bill)
+    if created_by_name is None and bill.created_by_user_id is not None:
+        user = await db.get(User, bill.created_by_user_id)
+        created_by_name = user.username if user is not None else None
+    return read.model_copy(update={"created_by_name": created_by_name})
 
 
 async def _prepare_checkout(
@@ -387,39 +571,38 @@ async def preview_bill(
     shop: Shop,
     payload: BillCheckoutRequest,
 ) -> BillCheckoutPreviewRead:
-    """Build a printable bill without saving any billing data."""
+    """Validate cart, freeze prices in a snapshot, return printable preview without bill_no."""
+    await _ensure_shop_tenant_session(db, shop)
     prepared = await _prepare_checkout(db, shop, payload)
     now = datetime.now(UTC)
-    prefix = await _org_bill_number_prefix(db, shop)
-    sequence = await _peek_next_bill_sequence(db, now)
-    try:
-        bill_no = bill_no_from_sequence(now, sequence, prefix)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Monthly bill sequence limit reached for this bill format",
-        ) from None
-
-    organization_name = await _shop_organization_name(db, shop)
+    payload_hash = _payload_fingerprint(payload)
+    snapshot_id = uuid7()
     token_payload = {
-        "bill_no": bill_no,
-        "bill_prefix": prefix,
-        "created_at": now.isoformat(),
+        "snapshot_id": str(snapshot_id),
         "issued_at": now.isoformat(),
-        "month_year": f"{now.year:04d}-{now.month:02d}",
-        "payload_hash": _payload_fingerprint(payload),
-        "sequence": sequence,
+        "payload_hash": payload_hash,
         "shop_id": str(shop.id),
     }
+    checkout_token = _encode_checkout_token(token_payload)
+    snapshot = CheckoutSnapshot(
+        id=snapshot_id,
+        checkout_token=checkout_token,
+        shop_id=shop.id,
+        snapshot_json=_snapshot_from_prepared(prepared, payload_hash),
+        expires_at=now + CHECKOUT_SNAPSHOT_TTL,
+    )
+    db.add(snapshot)
+    await db.commit()
 
+    organization_name = await _shop_organization_name(db, shop)
     return BillCheckoutPreviewRead(
-        id=uuid7(),
-        bill_no=bill_no,
+        id=snapshot_id,
+        bill_no=None,
         shop_id=shop.id,
         shop_name=shop.name,
         organization_name=organization_name,
         total_amount=prepared.total_amount,
-        status=BillStatus.PAID.value,
+        status=BillStatus.PAID,
         created_at=now,
         items=[_line_to_read(line) for line in prepared.lines],
         payment=PaymentRead(
@@ -432,10 +615,12 @@ async def preview_bill(
         ),
         receipt=ReceiptRead(
             id=uuid7(),
-            receipt_number=f"RCT-{bill_no}",
-            printed_at=now,
+            receipt_number="PENDING",
+            receipt_status=ReceiptStatus.PENDING,
+            print_attempts=0,
+            printed_at=None,
         ),
-        checkout_token=_encode_checkout_token(token_payload),
+        checkout_token=checkout_token,
     )
 
 
@@ -443,75 +628,88 @@ async def create_bill(
     db: AsyncSession,
     shop: Shop,
     payload: BillCheckoutCommitRequest,
-) -> BillRead:
-    """Persist a paid bill only after the receipt has been printed."""
-    prepared = await _prepare_checkout(db, shop, payload)
-    organization_name = await _shop_organization_name(db, shop)
+    *,
+    actor: User | None = None,
+) -> BillCreateResult:
+    """Persist bill in one transaction; idempotent on checkout_token."""
+    await _ensure_shop_tenant_session(db, shop)
     token_payload = _decode_checkout_token(payload.checkout_token)
-
     if token_payload.get("shop_id") != str(shop.id) or token_payload.get(
         "payload_hash"
     ) != _payload_fingerprint(payload):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Checkout token does not match this printed receipt",
+            detail="Checkout token does not match this checkout request",
         )
 
-    bill_no = token_payload.get("bill_no")
-    bill_prefix = token_payload.get("bill_prefix")
-    month_str = token_payload.get("month_year")
-    sequence = token_payload.get("sequence")
-    created_at_raw = token_payload.get("created_at")
-    expected_prefix = await _org_bill_number_prefix(db, shop)
-    if (
-        not isinstance(bill_no, str)
-        or not isinstance(bill_prefix, str)
-        or bill_prefix != expected_prefix
-        or not isinstance(month_str, str)
-        or not isinstance(sequence, int)
-        or not isinstance(created_at_raw, str)
-    ):
+    snapshot_id_raw = token_payload.get("snapshot_id")
+    if not isinstance(snapshot_id_raw, str):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid checkout token",
         )
 
-    try:
-        created_at = datetime.fromisoformat(created_at_raw)
-    except ValueError:
+    snapshot = await _load_snapshot_for_token(db, shop, payload.checkout_token)
+    if str(snapshot.id) != snapshot_id_raw:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid checkout token",
         )
 
-    await _sync_printed_bill_sequence(db, month_str, sequence)
+    if snapshot.snapshot_json.get("payload_hash") != _payload_fingerprint(payload):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Checkout snapshot does not match this checkout request",
+        )
 
-    bill = Bill(
-        bill_no=bill_no,
-        shop_id=shop.id,
-        total_amount=prepared.total_amount,
-        status=BillStatus.PAID,
-        created_at=created_at,
-        items=[
-            BillItem(
-                item_id=line.item_id,
-                item_name=line.item_name,
-                item_tamil_name=line.item_tamil_name,
-                item_unit_type=line.item_unit_type,
-                item_base_unit=line.item_base_unit,
-                quantity=line.quantity,
-                unit=line.unit,
-                price_per_unit=line.price_per_unit,
-                line_total=line.line_total,
-            )
-            for line in prepared.lines
-        ],
+    if snapshot.bill_id is not None:
+        bill_read = await _bill_read_for_shop(db, shop, snapshot.bill_id)
+        return BillCreateResult(bill=bill_read, created=False)
+
+    existing_bill_id = await db.scalar(
+        select(Bill.id).where(Bill.checkout_token == payload.checkout_token)
     )
-    db.add(bill)
+    if existing_bill_id is not None:
+        snapshot.bill_id = existing_bill_id
+        await db.commit()
+        bill_read = await _bill_read_for_shop(db, shop, existing_bill_id)
+        return BillCreateResult(bill=bill_read, created=False)
 
-    # First flush claims the printed bill number; second flush creates receipt rows.
+    prepared = _prepared_from_snapshot(snapshot.snapshot_json)
+    now = datetime.now(UTC)
+    await _validate_assumption_stock(db, shop, prepared.lines, occurred_at=now)
+
     try:
+        bill_no = await _allocate_bill_number(db, shop, now)
+        total_quantity = sum((line.quantity for line in prepared.lines), Decimal("0"))
+        bill = Bill(
+            bill_no=bill_no,
+            shop_id=shop.id,
+            checkout_token=payload.checkout_token,
+            created_by_user_id=actor.id if actor is not None else None,
+            item_count=len(prepared.lines),
+            total_quantity=total_quantity,
+            total_amount=prepared.total_amount,
+            status=BillStatus.PAID,
+            created_at=now,
+            items=[
+                BillItem(
+                    item_id=line.item_id,
+                    item_name=line.item_name,
+                    item_tamil_name=line.item_tamil_name,
+                    item_unit_type=line.item_unit_type,
+                    item_base_unit=line.item_base_unit,
+                    quantity=line.quantity,
+                    unit=line.unit,
+                    price_per_unit=line.price_per_unit,
+                    line_total=line.line_total,
+                )
+                for line in prepared.lines
+            ],
+        )
+        db.add(bill)
         await db.flush()
+
         payment = Payment(
             bill_id=bill.id,
             cash_amount=prepared.cash_amount,
@@ -523,34 +721,72 @@ async def create_bill(
         receipt = Receipt(
             bill_id=bill.id,
             receipt_number=f"RCT-{bill.bill_no}",
-            printed_at=datetime.now(UTC),
+            receipt_status=ReceiptStatus.PENDING,
+            print_attempts=0,
+            printed_at=None,
         )
         assumption_movements = [
             movement
             for line in prepared.lines
-            if (movement := _inventory_movement_for_assumption(shop, line)) is not None
+            if (movement := _inventory_movement_for_assumption(shop, line, occurred_at=now))
+            is not None
         ]
+        snapshot.bill_id = bill.id
         db.add_all([payment, receipt, *assumption_movements])
         await db.flush()
         await db.commit()
     except IntegrityError:
-        if hasattr(db, "rollback"):
-            await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Printed receipt number was already saved. Please print a new receipt.",
+        await db.rollback()
+        existing_id = await db.scalar(
+            select(Bill.id).where(Bill.checkout_token == payload.checkout_token)
         )
+        if existing_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bill could not be saved. Please retry checkout.",
+            ) from None
+        bill_read = await _bill_read_for_shop(db, shop, existing_id)
+        return BillCreateResult(bill=bill_read, created=False)
 
-    return BillRead(
-        id=bill.id,
-        bill_no=bill.bill_no,
-        shop_id=shop.id,
-        shop_name=shop.name,
-        organization_name=organization_name,
-        total_amount=bill.total_amount,
-        status=bill.status.value,
-        created_at=bill.created_at,
-        items=[_line_to_read(line) for line in prepared.lines],
-        payment=payment,
-        receipt=receipt,
+    bill_read = await _bill_read_for_shop(
+        db,
+        shop,
+        bill.id,
+        created_by_name=actor.username if actor is not None else None,
     )
+    return BillCreateResult(bill=bill_read, created=True)
+
+
+async def update_bill_receipt_status(
+    db: AsyncSession,
+    shop: Shop,
+    bill_id: UUID,
+    payload: BillReceiptStatusUpdate,
+) -> BillRead:
+    bill = await _load_bill_for_shop(db, shop, bill_id)
+    receipt = bill.receipt
+    if receipt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt not found")
+
+    receipt.print_attempts += 1
+    if payload.status == ReceiptStatus.PRINTED:
+        receipt.receipt_status = ReceiptStatus.PRINTED
+        receipt.printed_at = datetime.now(UTC)
+        receipt.last_print_error = None
+    elif payload.status == ReceiptStatus.FAILED:
+        receipt.receipt_status = ReceiptStatus.FAILED
+        receipt.last_print_error = (payload.error or "Printing failed")[:2000]
+    else:
+        receipt.receipt_status = ReceiptStatus.PENDING
+
+    await db.commit()
+    return await _bill_read_for_shop(db, shop, bill_id)
+
+
+async def begin_bill_reprint(db: AsyncSession, shop: Shop, bill_id: UUID) -> BillRead:
+    bill = await _load_bill_for_shop(db, shop, bill_id)
+    if bill.receipt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt not found")
+    bill.receipt.print_attempts += 1
+    await db.commit()
+    return await _bill_read_for_shop(db, shop, bill_id)

@@ -52,6 +52,22 @@ def _price_status_for(price_date: date | None) -> PriceStatus:
     return PriceStatus.CURRENT if price_date == date.today() else PriceStatus.STALE
 
 
+def _shop_prices_published_today(shop: Shop, today: date | None = None) -> bool:
+    target_day = today or date.today()
+    return shop.daily_prices_published_on == target_day
+
+
+async def _invalidate_daily_prices_publication(db: AsyncSession, shop: Shop) -> None:
+    if shop.daily_prices_published_on == date.today():
+        shop.daily_prices_published_on = None
+        await db.commit()
+
+
+async def _publish_daily_prices(db: AsyncSession, shop: Shop, target_date: date) -> None:
+    shop.daily_prices_published_on = target_date
+    await db.commit()
+
+
 def _validate_daily_price_entries(
     entries: list[DailyPriceEntry], active_item_ids: set[UUID]
 ) -> None:
@@ -288,13 +304,15 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
         )
     ).all()
     has_today_prices = bool(rows) and all(row.price_date == today for row in rows)
+    prices_published = _shop_prices_published_today(shop, today)
+    prices_set = has_today_prices and prices_published
 
     return ShopBootstrapResponse(
         shop_id=shop.id,
         shop_name=shop.name,
         price_date=today,
-        prices_set=has_today_prices,
-        next_screen="billing" if has_today_prices else "daily_price_setup",
+        prices_set=prices_set,
+        next_screen="billing" if prices_set else "daily_price_setup",
         items=[
             ItemPriceRead(
                 item_id=row.id,
@@ -446,6 +464,8 @@ async def create_daily_prices(
     db: AsyncSession,
     shop: Shop,
     payload: DailyPriceCreate,
+    *,
+    publish: bool = False,
 ) -> list[DailyPriceRead]:
     """Create or update daily prices for every active item allocated to the shop.
 
@@ -462,7 +482,10 @@ async def create_daily_prices(
     active_item_ids = set(items_by_id)
     _validate_daily_price_entries(entries, active_item_ids)
 
-    return await _upsert_daily_price_entries(db, shop.id, target_date, entries, items_by_id)
+    saved = await _upsert_daily_price_entries(db, shop.id, target_date, entries, items_by_id)
+    if publish:
+        await _publish_daily_prices(db, shop, target_date)
+    return saved
 
 
 def _validate_partial_daily_price_entries(
@@ -490,7 +513,9 @@ async def create_partial_daily_prices(
     items_by_id = await _load_billable_item_units(db, shop.id, submitted_item_ids)
     _validate_partial_daily_price_entries(set(submitted_item_ids), set(items_by_id))
 
-    return await _upsert_daily_price_entries(db, shop.id, target_date, entries, items_by_id)
+    saved = await _upsert_daily_price_entries(db, shop.id, target_date, entries, items_by_id)
+    await _invalidate_daily_prices_publication(db, shop)
+    return saved
 
 
 async def upsert_shop_daily_price(
@@ -539,6 +564,7 @@ async def upsert_shop_daily_price(
         ],
         {item_id: item.base_unit},
     )
+    await _invalidate_daily_prices_publication(db, shop)
     return saved_prices[0]
 
 

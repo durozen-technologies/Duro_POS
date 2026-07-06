@@ -15,7 +15,7 @@ from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from PIL import Image
 from pydantic import ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from app.db import storage as item_storage
 from app.db.storage import images as storage_images
@@ -31,6 +31,7 @@ from app.models import (
     InventoryTransfer,
     Item,
     ItemAssumptionStatus,
+    ReceiptStatus,
     Shop,
     TransferShop,
     UnitType,
@@ -49,6 +50,7 @@ from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutRequest,
     BillItemInput,
+    BillReceiptStatusUpdate,
     CheckoutPaymentInput,
 )
 from app.schemas.inventory import (
@@ -61,11 +63,21 @@ from app.schemas.inventory import (
     InventoryUseSplitLine,
     InventoryUseSplitRequest,
 )
-from app.schemas.pricing import DailyPriceCreate, DailyPriceEntry
+from app.schemas.retailer_inventory import (
+    RetailerInventoryUsageBulkCreate,
+    RetailerInventoryUsageLine,
+    RetailerStockAdjustRequest,
+)
+from app.schemas.retailers import RetailerCreate
 from app.services.admin import allocate_catalogue_item, create_shop_account, update_item_assumption
 from app.services.admin.shops import create_item
-from app.services.auth import register_admin
-from app.services.billing import create_bill, preview_bill
+from app.services.retailer_inventory import (
+    admin_set_retailer_inventory_stock,
+    list_retailer_inventory_usages,
+    record_retailer_inventory_usages_bulk,
+)
+from app.services.retailers import create_retailer, sync_retailer_branch_allocations
+from app.services.billing import create_bill, preview_bill, update_bill_receipt_status
 from app.services.inventory import (
     add_shop_inventory_stock,
     allocate_shop_inventory_items,
@@ -84,10 +96,12 @@ from app.services.inventory import (
     use_shop_inventory_stock,
     use_shop_inventory_stock_split,
 )
+from app.schemas.pricing import DailyPriceCreate, DailyPriceEntry
 from app.services.pricing import (
     create_daily_prices,
     create_global_daily_prices,
     get_global_bootstrap,
+    get_shop_bootstrap,
     get_shop_price_history,
 )
 from app.services.reports import (
@@ -708,6 +722,7 @@ class ServiceUnitTests(BackendTestCase):
                             ),
                         ]
                     ),
+                    publish=True,
                 )
                 payload = BillCheckoutRequest(
                     items=[
@@ -2483,6 +2498,47 @@ class ServiceUnitTests(BackendTestCase):
 
         self.run_async(scenario())
 
+    def test_shop_bootstrap_requires_admin_publish_for_billing(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(
+            self.harness.create_prices_for_shop(
+                shop.id,
+                date.today(),
+                {"Chicken": "100.00"},
+            )
+        )
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.get(Shop, shop.id)
+                current_shop.daily_prices_published_on = None
+                session.commit()
+
+                unpublished = await get_shop_bootstrap(db, current_shop)
+                self.assertFalse(unpublished.prices_set)
+
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
+                )
+                await create_daily_prices(
+                    db,
+                    current_shop,
+                    DailyPriceCreate(
+                        entries=[
+                            DailyPriceEntry(
+                                item_id=chicken.id,
+                                price_per_unit=Decimal("100.00"),
+                            )
+                        ]
+                    ),
+                    publish=True,
+                )
+                published = await get_shop_bootstrap(db, current_shop)
+                self.assertTrue(published.prices_set)
+
+        self.run_async(scenario())
+
     def test_global_bootstrap_requires_every_item_priced_today(self) -> None:
         _actor, shop = self.run_async(self.harness.create_shop_user())
         self.run_async(self.harness.create_catalogue_items(("Chicken", "Duck")))
@@ -2709,7 +2765,9 @@ class ServiceUnitTests(BackendTestCase):
                 )
                 preview = await preview_bill(db, shop, payload)
                 self.assertIsNone(session.scalar(select(Bill).limit(1)))
+                self.assertIsNone(preview.bill_no)
 
+                stored_actor = session.get(User, actor.id)
                 created = await create_bill(
                     db,
                     shop,
@@ -2718,13 +2776,16 @@ class ServiceUnitTests(BackendTestCase):
                         payment=payload.payment,
                         checkout_token=preview.checkout_token,
                     ),
+                    actor=stored_actor,
                 )
-                self.assertEqual(created.status, "paid")
-                self.assertEqual(created.total_amount, Decimal("200.00"))
-                self.assertEqual(created.payment.total_paid, Decimal("200.00"))
+                bill = created.bill
+                self.assertTrue(created.created)
+                self.assertEqual(bill.status, "paid")
+                self.assertEqual(bill.total_amount, Decimal("200.00"))
+                self.assertEqual(bill.payment.total_paid, Decimal("200.00"))
+                self.assertIsNotNone(bill.bill_no)
 
                 stored_shop = session.get(Shop, shop.id)
-                stored_actor = session.get(User, actor.id)
                 self.assertIsNotNone(stored_shop)
                 self.assertIsNotNone(stored_actor)
 
@@ -2781,6 +2842,7 @@ class ServiceUnitTests(BackendTestCase):
                             )
                         ]
                     ),
+                    publish=True,
                 )
 
                 payload = BillCheckoutRequest(
@@ -2812,7 +2874,7 @@ class ServiceUnitTests(BackendTestCase):
                         checkout_token=preview.checkout_token,
                     ),
                 )
-                self.assertEqual(created.items[0].quantity, Decimal("10"))
+                self.assertEqual(created.bill.items[0].quantity, Decimal("10"))
                 movements_after_commit = await list_inventory_movements(
                     db,
                     shop_id=current_shop.id,
@@ -2827,6 +2889,206 @@ class ServiceUnitTests(BackendTestCase):
                 self.assertEqual(use_movements[0].quantity, Decimal("7.800"))
                 self.assertEqual(use_movements[0].inventory_item_id, inventory_item.id)
                 self.assertEqual(use_movements[0].category_id, category.id)
+
+        self.run_async(scenario())
+
+    def test_preview_bill_has_no_bill_no_and_pending_receipt_on_commit(self) -> None:
+        actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(
+            self.harness.create_prices_for_shop(
+                shop.id,
+                date.today(),
+                {"Chicken": "100.00"},
+            )
+        )
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
+                )
+                db = AsyncSessionAdapter(session)
+                stored_actor = session.get(User, actor.id)
+                payload = BillCheckoutRequest(
+                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    payment=CheckoutPaymentInput(
+                        cash_amount=Decimal("100.00"), upi_amount=Decimal("0.00")
+                    ),
+                )
+                preview = await preview_bill(db, shop, payload)
+                self.assertIsNone(preview.bill_no)
+
+                first = await create_bill(
+                    db,
+                    shop,
+                    BillCheckoutCommitRequest(
+                        items=payload.items,
+                        payment=payload.payment,
+                        checkout_token=preview.checkout_token,
+                    ),
+                    actor=stored_actor,
+                )
+                self.assertTrue(first.created)
+                self.assertEqual(first.bill.receipt.receipt_status, ReceiptStatus.PENDING)
+                self.assertIsNone(first.bill.receipt.printed_at)
+
+                second = await create_bill(
+                    db,
+                    shop,
+                    BillCheckoutCommitRequest(
+                        items=payload.items,
+                        payment=payload.payment,
+                        checkout_token=preview.checkout_token,
+                    ),
+                    actor=stored_actor,
+                )
+                self.assertFalse(second.created)
+                self.assertEqual(second.bill.id, first.bill.id)
+
+                updated = await update_bill_receipt_status(
+                    db,
+                    shop,
+                    first.bill.id,
+                    BillReceiptStatusUpdate(status=ReceiptStatus.PRINTED),
+                )
+                self.assertEqual(updated.receipt.receipt_status, ReceiptStatus.PRINTED)
+                self.assertIsNotNone(updated.receipt.printed_at)
+
+        self.run_async(scenario())
+
+    def test_list_shop_bills_pagination_and_receipt_filter(self) -> None:
+        actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(
+            self.harness.create_prices_for_shop(
+                shop.id,
+                date.today(),
+                {"Chicken": "50.00"},
+            )
+        )
+
+        async def scenario() -> None:
+            from app.services.shop_billing import list_shop_bills
+
+            with self.harness.session_factory() as session:
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
+                )
+                db = AsyncSessionAdapter(session)
+                stored_actor = session.get(User, actor.id)
+                current_shop = session.get(Shop, shop.id)
+                payload = BillCheckoutRequest(
+                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    payment=CheckoutPaymentInput(
+                        cash_amount=Decimal("50.00"), upi_amount=Decimal("0.00")
+                    ),
+                )
+                preview = await preview_bill(db, current_shop, payload)
+                await create_bill(
+                    db,
+                    current_shop,
+                    BillCheckoutCommitRequest(
+                        items=payload.items,
+                        payment=payload.payment,
+                        checkout_token=preview.checkout_token,
+                    ),
+                    actor=stored_actor,
+                )
+
+                page = await list_shop_bills(db, current_shop, page=1, page_size=10)
+                self.assertEqual(page.total_count, 1)
+                self.assertEqual(len(page.items), 1)
+                self.assertEqual(page.items[0].receipt_status, ReceiptStatus.PENDING)
+
+                pending_only = await list_shop_bills(
+                    db,
+                    current_shop,
+                    receipt_status=ReceiptStatus.PENDING,
+                )
+                self.assertEqual(pending_only.total_count, 1)
+
+        self.run_async(scenario())
+
+    def test_repeated_commit_with_same_token_does_not_duplicate_bill_rows(self) -> None:
+        actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(
+            self.harness.create_prices_for_shop(
+                shop.id,
+                date.today(),
+                {"Chicken": "80.00"},
+            )
+        )
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
+                )
+                db = AsyncSessionAdapter(session)
+                stored_actor = session.get(User, actor.id)
+                current_shop = session.get(Shop, shop.id)
+                payload = BillCheckoutRequest(
+                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    payment=CheckoutPaymentInput(
+                        cash_amount=Decimal("80.00"), upi_amount=Decimal("0.00")
+                    ),
+                )
+                preview = await preview_bill(db, current_shop, payload)
+                commit_request = BillCheckoutCommitRequest(
+                    items=payload.items,
+                    payment=payload.payment,
+                    checkout_token=preview.checkout_token,
+                )
+                for _ in range(5):
+                    await create_bill(
+                        db,
+                        current_shop,
+                        commit_request,
+                        actor=stored_actor,
+                    )
+                bill_count = session.scalar(select(func.count()).select_from(Bill))
+                self.assertEqual(bill_count, 1)
+
+        self.run_async(scenario())
+
+    def test_sequential_checkouts_allocate_unique_bill_numbers(self) -> None:
+        actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(
+            self.harness.create_prices_for_shop(
+                shop.id,
+                date.today(),
+                {"Chicken": "60.00"},
+            )
+        )
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
+                )
+                db = AsyncSessionAdapter(session)
+                stored_actor = session.get(User, actor.id)
+                current_shop = session.get(Shop, shop.id)
+                bill_numbers: list[str] = []
+                for _ in range(3):
+                    payload = BillCheckoutRequest(
+                        items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                        payment=CheckoutPaymentInput(
+                            cash_amount=Decimal("60.00"), upi_amount=Decimal("0.00")
+                        ),
+                    )
+                    preview = await preview_bill(db, current_shop, payload)
+                    created = await create_bill(
+                        db,
+                        current_shop,
+                        BillCheckoutCommitRequest(
+                            items=payload.items,
+                            payment=payload.payment,
+                            checkout_token=preview.checkout_token,
+                        ),
+                        actor=stored_actor,
+                    )
+                    bill_numbers.append(created.bill.bill_no)
+                self.assertEqual(len(set(bill_numbers)), 3)
 
         self.run_async(scenario())
 
@@ -2936,5 +3198,146 @@ class ServiceUnitTests(BackendTestCase):
                     await _available_quantity_at(db, current_shop.id, item.id, as_of=datetime.now(UTC)),
                     Decimal("20.000"),
                 )
+
+        self.run_async(scenario())
+
+    def test_retailer_inventory_usage_reduces_available_not_use(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                category = await create_inventory_category(db, InventoryCategoryCreate(name="R1"))
+                item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Retailer Stock Item",
+                        tamil_name="சரக்கு",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        category_ids=[category.id],
+                    ),
+                )
+                await allocate_shop_inventory_items(db, current_shop, [item.id])
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("20"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
+                )
+                retailer = await create_retailer(db, RetailerCreate(name="Corner Shop"))
+                await sync_retailer_branch_allocations(db, retailer.id, [current_shop.id])
+
+                result = await record_retailer_inventory_usages_bulk(
+                    db,
+                    current_shop,
+                    RetailerInventoryUsageBulkCreate(
+                        retailer_id=retailer.id,
+                        lines=[
+                            RetailerInventoryUsageLine(
+                                inventory_item_id=item.id,
+                                category_id=category.id,
+                                quantity=Decimal("4"),
+                            )
+                        ],
+                    ),
+                    actor=_actor,
+                )
+                stock_item = next(row for row in result.summary.items if row.id == item.id)
+                self.assertEqual(stock_item.available_quantity, Decimal("16.000"))
+                self.assertEqual(stock_item.used_quantity, Decimal("0"))
+                self.assertEqual(stock_item.retailer_used_quantity, Decimal("4.000"))
+
+                with self.assertRaises(HTTPException) as over_ctx:
+                    await record_retailer_inventory_usages_bulk(
+                        db,
+                        current_shop,
+                        RetailerInventoryUsageBulkCreate(
+                            retailer_id=retailer.id,
+                            lines=[
+                                RetailerInventoryUsageLine(
+                                    inventory_item_id=item.id,
+                                    category_id=category.id,
+                                    quantity=Decimal("20"),
+                                )
+                            ],
+                        ),
+                        actor=_actor,
+                    )
+                self.assertEqual(over_ctx.exception.status_code, 409)
+
+                adjusted = await admin_set_retailer_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    RetailerStockAdjustRequest(
+                        retailer_used_quantity=Decimal("6"),
+                        category_id=category.id,
+                        adjustment_reason="Correction",
+                    ),
+                    actor=_actor,
+                )
+                self.assertEqual(adjusted.retailer_used_quantity, Decimal("6.000"))
+                self.assertEqual(adjusted.available_quantity, Decimal("14.000"))
+
+                history = await list_retailer_inventory_usages(
+                    db,
+                    shop_id=current_shop.id,
+                    limit=10,
+                )
+                self.assertGreaterEqual(len(history.items), 2)
+
+        self.run_async(scenario())
+
+    def test_retailer_inventory_requires_branch_allocation(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Guard Item",
+                        tamil_name="காவல்",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                    ),
+                )
+                await allocate_shop_inventory_items(db, current_shop, [item.id])
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("5"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
+                )
+                retailer = await create_retailer(db, RetailerCreate(name="Unassigned"))
+
+                with self.assertRaises(HTTPException) as denied:
+                    await record_retailer_inventory_usages_bulk(
+                        db,
+                        current_shop,
+                        RetailerInventoryUsageBulkCreate(
+                            retailer_id=retailer.id,
+                            lines=[
+                                RetailerInventoryUsageLine(
+                                    inventory_item_id=item.id,
+                                    quantity=Decimal("1"),
+                                )
+                            ],
+                        ),
+                        actor=_actor,
+                    )
+                self.assertEqual(denied.exception.status_code, 422)
 
         self.run_async(scenario())

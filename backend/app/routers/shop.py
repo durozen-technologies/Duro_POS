@@ -1,18 +1,24 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Sequence
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_shop, get_current_user, require_roles
 from app.db.tenant_session import get_tenant_db
 from app.models import Shop, User, UserRole
+from app.models.enums import ReceiptStatus
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutPreviewRead,
     BillCheckoutRequest,
     BillRead,
+    BillReceiptStatusUpdate,
+    ShopBillPage,
+    ShopBillPaymentMethodFilter,
+    ShopBillSortField,
 )
 from app.schemas.expenses import (
     ExpenseEntryCreate,
@@ -32,6 +38,11 @@ from app.schemas.inventory import (
 )
 from app.schemas.inventory_policy import InventoryBackdatePolicyRead
 from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse
+from app.schemas.retailer_inventory import (
+    RetailerInventoryUsageBulkCreate,
+    RetailerInventoryUsageBulkResult,
+    RetailerInventoryUsagePage,
+)
 from app.schemas.retailers import (
     RetailerCatalogItemRead,
     RetailerPaymentCreate,
@@ -51,7 +62,13 @@ from app.schemas.transfer import (
     InventoryTransferRead,
     TransferShopRead,
 )
-from app.services.billing import create_bill, preview_bill
+from app.services.billing import (
+    begin_bill_reprint,
+    create_bill,
+    preview_bill,
+    update_bill_receipt_status,
+)
+from app.services.shop_billing import get_shop_bill, list_shop_bills
 from app.services.expenses import (
     create_shop_expense_entry,
     list_current_shop_expense_items,
@@ -68,6 +85,10 @@ from app.services.inventory import (
 )
 from app.services.inventory_policy import get_inventory_backdate_policy
 from app.services.pricing import create_daily_prices, get_shop_bootstrap, get_today_prices
+from app.services.retailer_inventory import (
+    list_retailer_inventory_usages,
+    record_retailer_inventory_usages_bulk,
+)
 from app.services.retailer_sales import (
     create_retailer_sale,
     get_retailer_catalog,
@@ -150,7 +171,7 @@ async def shop_inventory(
 )
 async def shop_inventory_rows(
     q: str | None = Query(None, min_length=1, max_length=120),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=200),
     cursor_sort_order: int | None = Query(None),
     cursor_name: str | None = Query(None, max_length=120),
     cursor_id: UUID | None = Query(None),
@@ -217,6 +238,50 @@ async def shop_inventory_transfers(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         limit=limit,
+    )
+
+
+@router.get(
+    "/inventory/retailer-usages",
+    response_model=RetailerInventoryUsagePage,
+    response_model_exclude_unset=True,
+    summary="List Shop Retailer Inventory Usages",
+)
+async def shop_retailer_inventory_usages(
+    reference_date: date | None = Query(None),
+    range_start_date: date | None = Query(None),
+    range_end_date: date | None = Query(None),
+    limit: int = Query(30, ge=1, le=100),
+    shop: Shop = Depends(get_current_shop),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> RetailerInventoryUsagePage:
+    """Return retailer-attributed inventory usage for the signed-in shop."""
+    return await list_retailer_inventory_usages(
+        db,
+        shop_id=shop.id,
+        reference_date=reference_date,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/inventory/retailer-usages",
+    response_model=RetailerInventoryUsageBulkResult,
+    response_model_exclude_unset=True,
+    status_code=201,
+    summary="Record Retailer Inventory Usages",
+)
+async def record_shop_retailer_inventory_usages(
+    payload: RetailerInventoryUsageBulkCreate,
+    shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> RetailerInventoryUsageBulkResult:
+    """Record retailer-attributed stock usage in bulk."""
+    return await record_retailer_inventory_usages_bulk(
+        db, shop, payload, actor=actor, include_summary=True
     )
 
 
@@ -433,17 +498,109 @@ async def preview_checkout(
 @router.post(
     "/bills",
     response_model=BillRead,
-    status_code=201,
     response_model_exclude_unset=True,
     summary="Checkout Bill",
+    responses={
+        200: {"description": "Existing bill returned for idempotent retry"},
+        201: {"description": "Bill created"},
+    },
 )
 async def checkout(
     payload: BillCheckoutCommitRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
+) -> BillRead:
+    """Save a paid bill atomically; printing happens after commit on the client."""
+    result = await create_bill(db, shop, payload, actor=actor)
+    response.status_code = status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
+    return result.bill
+
+
+@router.get(
+    "/bills",
+    response_model=ShopBillPage,
+    response_model_exclude_unset=True,
+    summary="List Shop Bills",
+)
+async def shop_list_bills(
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    bill_no: str | None = Query(None, max_length=50),
+    range_start_date: date | None = Query(None),
+    range_end_date: date | None = Query(None),
+    payment_method: ShopBillPaymentMethodFilter | None = Query(None),
+    payment_settled: bool | None = Query(None),
+    receipt_status: ReceiptStatus | None = Query(None),
+    created_by_user_id: UUID | None = Query(None),
+    amount_min: Decimal | None = Query(None, ge=0),
+    amount_max: Decimal | None = Query(None, ge=0),
+    sort_by: ShopBillSortField = Query(ShopBillSortField.CREATED_AT),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+) -> ShopBillPage:
+    return await list_shop_bills(
+        db,
+        shop,
+        page=page,
+        page_size=page_size,
+        bill_no=bill_no,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        payment_method=payment_method,
+        payment_settled=payment_settled,
+        receipt_status=receipt_status,
+        created_by_user_id=created_by_user_id,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+@router.get(
+    "/bills/{bill_id}",
+    response_model=BillRead,
+    response_model_exclude_unset=True,
+    summary="Get Shop Bill",
+)
+async def shop_get_bill(
+    bill_id: UUID,
     db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
 ) -> BillRead:
-    """Save a paid bill after the signed-in shop has printed its receipt."""
-    return await create_bill(db, shop, payload)
+    return await get_shop_bill(db, shop, bill_id)
+
+
+@router.patch(
+    "/bills/{bill_id}/receipt",
+    response_model=BillRead,
+    response_model_exclude_unset=True,
+    summary="Update Bill Receipt Status",
+)
+async def shop_update_bill_receipt(
+    bill_id: UUID,
+    payload: BillReceiptStatusUpdate,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> BillRead:
+    return await update_bill_receipt_status(db, shop, bill_id, payload)
+
+
+@router.post(
+    "/bills/{bill_id}/reprint",
+    response_model=BillRead,
+    response_model_exclude_unset=True,
+    summary="Prepare Bill Reprint",
+)
+async def shop_reprint_bill(
+    bill_id: UUID,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> BillRead:
+    return await begin_bill_reprint(db, shop, bill_id)
 
 
 @router.get(

@@ -21,7 +21,13 @@ from app.models import (
     InventoryMovementType,
     InventoryTransfer,
     Item,
+    Retailer,
+    RetailerInventoryUsage,
+    RetailerItemPrice,
+    RetailerSale,
+    RetailerSaleItem,
     ShopInventoryAllocation,
+    ShopRetailerAllocation,
 )
 from app.schemas.admin import (
     AdminReportDetailLevel,
@@ -30,14 +36,16 @@ from app.schemas.admin import (
     OverallReportInventoryItem,
     OverallReportRead,
     OverallReportStatement,
+    OverallReportStatement,
     OverallReportUnitSummary,
     OverallReportUsedStockBreakdown,
+    OverallReportRetailer,
+    OverallReportInventoryRetailerData,
+    OverallReportBillingRetailerData,
 )
 from app.services.reports.pdf import *  # noqa: F403
 from app.services.reports.pdf import (
-    OVER_REPORT_SHEET_ALIGNMENTS,
     OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF,
-    OVER_REPORT_SHEET_HEADER_ALIGNMENTS,
     OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF,
     ReportContext,
     _build_report_context,
@@ -47,7 +55,6 @@ from app.services.reports.pdf import (
     _has_tamil_text,
     _inventory_category_labels_by_item_id,
     _money,
-    _over_report_sheet_headers,
     _quantity_with_unit,
     _register_fpdf_fonts,
     _report_branch_header,
@@ -114,23 +121,52 @@ async def _build_overall_report_statement(
     shop_id: UUID,
     shop_name: str,
 ) -> OverallReportStatement:
-    inventory_items = await _overall_report_inventory_items(db, context, shop_id)
+    active_retailers_query = (
+        select(Retailer.id, Retailer.name)
+        .join(ShopRetailerAllocation)
+        .where(
+            ShopRetailerAllocation.shop_id == shop_id,
+            ShopRetailerAllocation.is_active == True,
+            Retailer.is_active == True,
+        )
+        .order_by(Retailer.name)
+    )
+    retailers = [
+        OverallReportRetailer(id=row.id, name=row.name)
+        for row in (await db.execute(active_retailers_query)).all()
+    ]
+
+    inventory_items = await _overall_report_inventory_items(db, context, shop_id, retailers)
     await _populate_overall_report_used_stock_breakdown(db, context, shop_id, inventory_items)
-    await _populate_overall_report_billing_items(db, context, shop_id, inventory_items)
+    await _populate_overall_report_billing_items(db, context, shop_id, inventory_items, retailers)
     unit_summaries = _overall_report_unit_summaries(inventory_items.values())
     expense_amount = await _over_report_expense_amount(db, context, shop_id)
+    
+    # Calculate regular sales totals
     sales_amount = sum(
         (_decimal(item.sales_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
+    
+    # Calculate retailer sales total
+    retailer_sales_amount = Decimal("0")
+    for item in inventory_items.values():
+        for b_item in item.billing_items:
+            for r_data in b_item.retailer_data:
+                retailer_sales_amount += r_data.sales_amount
+
+    total_sales_amount = sales_amount + retailer_sales_amount
+
     assumption_amount = sum(
         (_decimal(item.assumption_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
+    
     purchase_amount = sum(
         (_decimal(item.purchase_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
+    
     difference_amount = sum(
         (_decimal(item.difference_amount) for item in inventory_items.values()),
         Decimal("0"),
@@ -144,13 +180,14 @@ async def _build_overall_report_statement(
         period_label=context.period_label,
         unit_summaries=unit_summaries,
         expense_amount=expense_amount,
-        sales_amount=sales_amount,
+        sales_amount=total_sales_amount,
         assumption_amount=assumption_amount,
         purchase_amount=purchase_amount,
         difference_amount=difference_amount,
-        sales_minus_expense_amount=sales_amount - expense_amount,
-        sales_minus_assumption_amount=sales_amount - assumption_amount,
+        sales_minus_expense_amount=total_sales_amount - expense_amount,
+        sales_minus_assumption_amount=total_sales_amount - assumption_amount,
         inventory_items=list(inventory_items.values()),
+        retailers=retailers,
     )
 
 
@@ -158,6 +195,7 @@ async def _overall_report_inventory_items(
     db: AsyncSession,
     context: ReportContext,
     shop_id: UUID,
+    retailers: list[OverallReportRetailer],
 ) -> dict[UUID, OverallReportInventoryItem]:
     before_start = InventoryMovement.occurred_at < context.start
     in_period = and_(
@@ -333,6 +371,36 @@ async def _overall_report_inventory_items(
             purchase_rate=purchase_rate,
             purchase_amount=purchase_amount,
         )
+
+    if retailers and items:
+        retailer_used_stock_query = (
+            select(
+                RetailerInventoryUsage.inventory_item_id,
+                RetailerInventoryUsage.retailer_id,
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("used_stock")
+            )
+            .where(
+                RetailerInventoryUsage.shop_id == shop_id,
+                RetailerInventoryUsage.occurred_at >= context.start,
+                RetailerInventoryUsage.occurred_at < context.end,
+                RetailerInventoryUsage.inventory_item_id.in_(list(items.keys()))
+            )
+            .group_by(RetailerInventoryUsage.inventory_item_id, RetailerInventoryUsage.retailer_id)
+        )
+        ru_rows = (await db.execute(retailer_used_stock_query)).all()
+        ru_dict: dict[UUID, dict[UUID, Decimal]] = {}
+        for ru in ru_rows:
+            ru_dict.setdefault(ru.inventory_item_id, {})[ru.retailer_id] = _decimal(ru.used_stock)
+        
+        for item_id, item in items.items():
+            r_data_list = []
+            for r in retailers:
+                used = ru_dict.get(item_id, {}).get(r.id, Decimal("0"))
+                r_data_list.append(
+                    OverallReportInventoryRetailerData(retailer_id=r.id, used_stock=used)
+                )
+            item.retailer_data = r_data_list
+
     return items
 
 
@@ -393,9 +461,78 @@ async def _populate_overall_report_billing_items(
     context: ReportContext,
     shop_id: UUID,
     inventory_items: dict[UUID, OverallReportInventoryItem],
+    retailers: list[OverallReportRetailer],
 ) -> None:
     if not inventory_items:
         return
+
+    rs_dict: dict[UUID, dict[UUID, tuple[Decimal, Decimal]]] = {}
+    rp_dict: dict[UUID, dict[UUID, Decimal]] = {}
+    mru_dict: dict[tuple[UUID, UUID], dict[UUID, Decimal]] = {}
+
+    if retailers:
+        # 1. Retailer Sales
+        rs_totals = (
+            select(
+                RetailerSale.retailer_id,
+                RetailerSaleItem.item_id.label("billing_item_id"),
+                func.coalesce(func.sum(RetailerSaleItem.quantity), 0).label("sales_quantity"),
+                func.coalesce(func.sum(RetailerSaleItem.line_total), 0).label("sales_amount"),
+            )
+            .join(RetailerSale, RetailerSale.id == RetailerSaleItem.retailer_sale_id)
+            .where(
+                RetailerSale.shop_id == shop_id,
+                RetailerSale.created_at >= context.start,
+                RetailerSale.created_at < context.end,
+            )
+            .group_by(RetailerSale.retailer_id, RetailerSaleItem.item_id)
+        )
+        for rs in (await db.execute(rs_totals)).all():
+            rs_dict.setdefault(rs.billing_item_id, {})[rs.retailer_id] = (
+                _decimal(rs.sales_quantity), _decimal(rs.sales_amount)
+            )
+
+        # 2. Retailer Prices
+        rp_latest = (
+            select(
+                RetailerItemPrice.retailer_id,
+                RetailerItemPrice.item_id.label("billing_item_id"),
+                RetailerItemPrice.price_per_unit.label("today_price"),
+                func.row_number()
+                .over(
+                    partition_by=(RetailerItemPrice.retailer_id, RetailerItemPrice.item_id),
+                    order_by=(
+                        RetailerItemPrice.effective_date.desc(),
+                        RetailerItemPrice.id.desc(),
+                    ),
+                )
+                .label("rn"),
+            )
+            .where(RetailerItemPrice.shop_id == shop_id)
+            .subquery()
+        )
+        for rp in (await db.execute(select(rp_latest).where(rp_latest.c.rn == 1))).all():
+            rp_dict.setdefault(rp.billing_item_id, {})[rp.retailer_id] = _decimal(rp.today_price)
+
+        # 3. Retailer Mapped Used Stock
+        mru_query = (
+            select(
+                RetailerInventoryUsage.inventory_item_id,
+                RetailerInventoryUsage.category_id,
+                RetailerInventoryUsage.retailer_id,
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("used_stock"),
+            )
+            .where(
+                RetailerInventoryUsage.shop_id == shop_id,
+                RetailerInventoryUsage.occurred_at >= context.start,
+                RetailerInventoryUsage.occurred_at < context.end,
+                RetailerInventoryUsage.category_id.is_not(None),
+            )
+            .group_by(RetailerInventoryUsage.inventory_item_id, RetailerInventoryUsage.category_id, RetailerInventoryUsage.retailer_id)
+        )
+        for mru in (await db.execute(mru_query)).all():
+            mru_dict.setdefault((mru.inventory_item_id, mru.category_id), {})[mru.retailer_id] = _decimal(mru.used_stock)
+
 
     sales_totals = (
         select(
@@ -528,6 +665,29 @@ async def _populate_overall_report_billing_items(
         difference_amount = (
             difference_quantity * today_price if today_price is not None else Decimal("0")
         )
+
+        r_data_list = []
+        for r in retailers:
+            r_sales_qty, r_sales_amt = rs_dict.get(row.billing_item_id, {}).get(r.id, (Decimal("0"), Decimal("0")))
+            r_price = rp_dict.get(row.billing_item_id, {}).get(r.id)
+
+            if row.inventory_category_id is not None:
+                r_used_source = mru_dict.get((row.inventory_item_id, row.inventory_category_id), {}).get(r.id, Decimal("0"))
+            else:
+                r_inv_data = next((d for d in inventory_item.retailer_data if d.retailer_id == r.id), None)
+                r_used_source = r_inv_data.used_stock if r_inv_data else Decimal("0")
+            
+            r_assumption_qty = r_used_source * _decimal(assumption_percent) / Decimal("100") if assumption_percent is not None else Decimal("0")
+            r_assumption_amt = r_assumption_qty * r_price if r_price is not None else Decimal("0")
+            
+            r_data_list.append(OverallReportBillingRetailerData(
+                retailer_id=r.id,
+                assumption_quantity=r_assumption_qty,
+                sales_quantity=r_sales_qty,
+                assumption_amount=r_assumption_amt,
+                sales_amount=r_sales_amt
+            ))
+
         inventory_item.billing_items.append(
             OverallReportBillingItem(
                 billing_item_id=row.billing_item_id,
@@ -543,6 +703,7 @@ async def _populate_overall_report_billing_items(
                 sales_amount=sales_amount,
                 assumption_amount=assumption_amount,
                 difference_amount=difference_amount,
+                retailer_data=r_data_list,
             )
         )
         inventory_item.sales_quantity += sales_quantity
@@ -637,7 +798,9 @@ def _write_over_report_statement(
         writer.note("No allocated inventory items found for this branch and period.")
         return
 
-    sheet_headers = _over_report_sheet_headers(use_tamil=use_tamil)
+    from app.services.reports.pdf import get_over_report_sheet_config
+    headers, min_widths, aligns, h_aligns, p1_idx, p2_idx = get_over_report_sheet_config(use_tamil, statement.retailers)
+    sheet_headers = headers
 
     mapped_items = [i for i in statement.inventory_items if i.billing_items]
     unmapped_items = [i for i in statement.inventory_items if not i.billing_items]
@@ -649,6 +812,7 @@ def _write_over_report_statement(
     sheet_widths = _reportlab_over_report_sheet_widths(
         sheet_headers,
         writer._available_width,
+        min_widths,
         all_rows,
     )
 
@@ -657,7 +821,7 @@ def _write_over_report_statement(
             sheet_headers,
             mapped_rows,
             sheet_widths,
-            OVER_REPORT_SHEET_ALIGNMENTS,
+            aligns,
         )
 
     if unmapped_rows:
@@ -678,7 +842,7 @@ def _write_over_report_statement(
             sheet_headers[:8],
             [row[:8] for row in unmapped_rows],
             sheet_widths[:8],
-            OVER_REPORT_SHEET_ALIGNMENTS[:8],
+            aligns[:8],
         )
 
     if statement.inventory_items:
@@ -739,60 +903,107 @@ def _over_report_sheet_rows(
                 printed_date = table_date
                 has_printed_date = True
 
-            rows.append(
-                [
-                    printed_date,
-                    inv_display_name if is_first else "",
-                    _quantity_with_unit(item.old_stock, item.unit) if is_first else "",
-                    _quantity_with_unit(item.adding_stock, item.unit) if is_first else "",
-                    _quantity_with_unit(item.total_available_stock, item.unit) if is_first else "",
-                    _used_stock_breakdown_text(used_row, item.unit),
-                    _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
-                    _quantity_with_unit(item.remaining_stock, item.unit),
-                    _money(item.purchase_rate)
-                    if is_first and item.purchase_rate is not None
-                    else "",
-                    _money(item.purchase_amount) if is_first else "",
-                    billing_display_name
-                    if billing_row is not None
-                    else ("No mapped billing sales" if is_first and not billing_rows else ""),
-                    _quantity_with_unit(billing_row.assumption_quantity, billing_row.unit)
-                    if billing_row is not None
-                    else "",
-                    _quantity_with_unit(billing_row.sales_quantity, billing_row.unit)
-                    if billing_row is not None
-                    else "",
-                    _quantity_with_unit(billing_row.difference_quantity, billing_row.unit)
-                    if billing_row is not None
-                    else "",
-                    _money(billing_row.assumption_amount) if billing_row is not None else "",
-                    _money(billing_row.sales_amount) if billing_row is not None else "",
-                    _money(billing_row.difference_amount) if billing_row is not None else "",
-                ]
-            )
+            row_data = [
+                printed_date,
+                inv_display_name if is_first else "",
+                _quantity_with_unit(item.old_stock, item.unit) if is_first else "",
+                _quantity_with_unit(item.adding_stock, item.unit) if is_first else "",
+                _quantity_with_unit(item.total_available_stock, item.unit) if is_first else "",
+                _used_stock_breakdown_text(used_row, item.unit),
+            ]
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_inv_data = next((d for d in item.retailer_data if d.retailer_id == r.id), None)
+                    row_data.append(_quantity_with_unit(r_inv_data.used_stock, item.unit) if (is_first and r_inv_data) else "")
+            
+            row_data.extend([
+                _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
+                _quantity_with_unit(item.remaining_stock, item.unit),
+                _money(item.purchase_rate) if is_first and item.purchase_rate is not None else "",
+                _money(item.purchase_amount) if is_first else "",
+                billing_display_name if billing_row is not None else ("No mapped billing sales" if is_first and not billing_rows else ""),
+                _quantity_with_unit(billing_row.assumption_quantity, billing_row.unit) if billing_row is not None else "",
+            ])
+            
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
+                    row_data.append(_quantity_with_unit(r_bill_data.assumption_quantity, billing_row.unit) if r_bill_data else "")
+
+            row_data.append(_quantity_with_unit(billing_row.sales_quantity, billing_row.unit) if billing_row is not None else "")
+            
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
+                    row_data.append(_quantity_with_unit(r_bill_data.sales_quantity, billing_row.unit) if r_bill_data else "")
+            
+            row_data.extend([
+                _quantity_with_unit(billing_row.difference_quantity, billing_row.unit) if billing_row is not None else "",
+                _money(billing_row.assumption_amount) if billing_row is not None else "",
+            ])
+
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
+                    row_data.append(_money(r_bill_data.assumption_amount) if r_bill_data else "")
+
+            row_data.append(_money(billing_row.sales_amount) if billing_row is not None else "")
+
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
+                    row_data.append(_money(r_bill_data.sales_amount) if r_bill_data else "")
+            
+            row_data.append(_money(billing_row.difference_amount) if billing_row is not None else "")
+            
+            rows.append(row_data)
 
         if is_single_date:
-            rows.append(
-                [
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    f"Total Used\n{_quantity_with_unit(item.used_stock, item.unit)}",
-                    "",
-                    "",
-                    "",  # purchase_rate
-                    "",  # purchase_amount
-                    "Subtotal",
-                    _quantity_with_unit(item.assumption_quantity, item.unit),
-                    _quantity_with_unit(item.sales_quantity, item.unit),
-                    _quantity_with_unit(item.difference_quantity, item.unit),
-                    _money(item.assumption_amount),
-                    _money(item.sales_amount),
-                    _money(item.difference_amount),
-                ]
-            )
+            row_data = [
+                "", "", "", "", "",
+                f"Total Used\n{_quantity_with_unit(item.used_stock, item.unit)}",
+            ]
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_inv_data = next((d for d in item.retailer_data if d.retailer_id == r.id), None)
+                    row_data.append(f"Total Used\n{_quantity_with_unit(r_inv_data.used_stock, item.unit)}" if r_inv_data else "")
+            
+            row_data.extend([
+                "", "", "", "", "Subtotal",
+                _quantity_with_unit(item.assumption_quantity, item.unit),
+            ])
+            
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_assump_qty = sum((next((d.assumption_quantity for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
+                    row_data.append(_quantity_with_unit(r_assump_qty, item.unit) if r_assump_qty else "")
+            
+            row_data.append(_quantity_with_unit(item.sales_quantity, item.unit))
+
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_sales_qty = sum((next((d.sales_quantity for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
+                    row_data.append(_quantity_with_unit(r_sales_qty, item.unit) if r_sales_qty else "")
+            
+            row_data.extend([
+                _quantity_with_unit(item.difference_quantity, item.unit),
+                _money(item.assumption_amount),
+            ])
+
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_assump_amt = sum((next((d.assumption_amount for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
+                    row_data.append(_money(r_assump_amt) if r_assump_amt else "")
+            
+            row_data.append(_money(item.sales_amount))
+            
+            if statement.retailers:
+                for r in statement.retailers:
+                    r_sales_amt = sum((next((d.sales_amount for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
+                    row_data.append(_money(r_sales_amt) if r_sales_amt else "")
+            
+            row_data.append(_money(item.difference_amount))
+            rows.append(row_data)
 
     return rows
 
@@ -1169,15 +1380,15 @@ async def _generate_over_report_fpdf_pdf(
             )
             continue
 
-        headers = _over_report_sheet_headers(use_tamil=use_tamil)
+        from app.services.reports.pdf import get_over_report_sheet_config
+        retailers = statements[0].retailers if statements else []
+        headers, min_widths, aligns, h_aligns, part1_indices, part2_indices = get_over_report_sheet_config(use_tamil, retailers)
+        
         sheet_rows = [
             row
             for stmt in statements
             for row in _over_report_sheet_rows(stmt.inventory_items, stmt, use_tamil=use_tamil)
         ]
-
-        part1_indices = list(range(10))
-        part2_indices = [0, 1] + list(range(10, 17))
 
         headers1 = [headers[i] for i in part1_indices]
         headers2 = [headers[i] for i in part2_indices]
@@ -1185,16 +1396,16 @@ async def _generate_over_report_fpdf_pdf(
         rows1 = [[row[i] for i in part1_indices] for row in sheet_rows]
         rows2 = [[row[i] for i in part2_indices] for row in sheet_rows]
 
-        min_widths1 = tuple(OVER_REPORT_SHEET_MIN_WIDTHS[i] for i in part1_indices)
-        min_widths2 = tuple(OVER_REPORT_SHEET_MIN_WIDTHS[i] for i in part2_indices)
+        min_widths1 = tuple(min_widths[i] for i in part1_indices)
+        min_widths2 = tuple(min_widths[i] for i in part2_indices)
 
-        widths1 = _fpdf_over_report_sheet_widths(pdf, headers1, rows1, min_widths=min_widths1)
-        widths2 = _fpdf_over_report_sheet_widths(pdf, headers2, rows2, min_widths=min_widths2)
+        widths1 = _fpdf_over_report_sheet_widths(pdf, headers1, min_widths1, rows=rows1)
+        widths2 = _fpdf_over_report_sheet_widths(pdf, headers2, min_widths2, rows=rows2)
 
-        alignments1 = [OVER_REPORT_SHEET_ALIGNMENTS[i] for i in part1_indices]
-        alignments2 = [OVER_REPORT_SHEET_ALIGNMENTS[i] for i in part2_indices]
-        header_alignments1 = [OVER_REPORT_SHEET_HEADER_ALIGNMENTS[i] for i in part1_indices]
-        header_alignments2 = [OVER_REPORT_SHEET_HEADER_ALIGNMENTS[i] for i in part2_indices]
+        alignments1 = [aligns[i] for i in part1_indices]
+        alignments2 = [aligns[i] for i in part2_indices]
+        header_alignments1 = [h_aligns[i] for i in part1_indices]
+        header_alignments2 = [h_aligns[i] for i in part2_indices]
 
         def draw_header_row1() -> None:
             pdf.set_font("NotoSans", style="B", size=11)

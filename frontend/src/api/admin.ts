@@ -24,6 +24,7 @@ import {
   InventoryMovementPage,
   InventoryStockRowsPage,
   InventorySummaryRead,
+  RetailerInventoryUsagePage,
   ItemAssumptionUpdate,
   ItemCategoryCreate,
   ItemCategoryRead,
@@ -954,6 +955,54 @@ export async function adminSetShopInventoryStock(
   const { data } = await apiClient.patch<InventoryItemStockRead>(
     `/api/v1/admin/shops/${shopId}/inventory-allocations/${itemId}/stock`,
     payload,
+  );
+  return data;
+}
+
+export type RetailerStockAdjustRequest = {
+  retailer_used_quantity: string;
+  category_id?: string | null;
+  retailer_id?: string | null;
+  occurred_at?: string | null;
+  adjustment_reason?: string | null;
+};
+
+export async function adminSetRetailerInventoryStock(
+  shopId: UUID,
+  itemId: UUID,
+  payload: RetailerStockAdjustRequest,
+) {
+  const { data } = await apiClient.patch<InventoryItemStockRead>(
+    `/api/v1/admin/shops/${shopId}/inventory-allocations/${itemId}/retailer-stock`,
+    payload,
+  );
+  return data;
+}
+
+export async function fetchAdminRetailerInventoryUsages(
+  params?: {
+    shop_id?: UUID | null;
+    item_id?: UUID | null;
+    reference_date?: string | null;
+    range_start_date?: string | null;
+    range_end_date?: string | null;
+    limit?: number;
+  },
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<RetailerInventoryUsagePage>(
+    "/api/v1/admin/inventory/retailer-usages",
+    {
+      params: {
+        shop_id: params?.shop_id ?? undefined,
+        item_id: params?.item_id ?? undefined,
+        reference_date: params?.reference_date ?? undefined,
+        range_start_date: params?.range_start_date ?? undefined,
+        range_end_date: params?.range_end_date ?? undefined,
+        limit: params?.limit ?? 100,
+      },
+      signal: options.signal,
+    },
   );
   return data;
 }

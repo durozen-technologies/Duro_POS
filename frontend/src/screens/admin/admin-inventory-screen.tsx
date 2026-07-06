@@ -24,6 +24,7 @@ import {
   deleteInventoryCategory,
   deleteInventoryItem,
   fetchAdminInventoryMovements,
+  fetchAdminRetailerInventoryUsages,
   fetchInventoryCategories,
   fetchInventoryItemCounts,
   fetchInventoryItemRows,
@@ -35,6 +36,7 @@ import {
   updateInventoryItemPurchaseRate,
   updateShopInventoryAllocation,
   adminSetShopInventoryStock,
+  adminSetRetailerInventoryStock,
 } from "@/api/admin";
 import { isApiRequestCanceled, toApiError } from "@/api/client";
 import {
@@ -51,6 +53,7 @@ import {
   type InventoryItemRead,
   type InventoryItemStockRead,
   type InventoryMovementRead,
+  type RetailerInventoryUsageRead,
   type ShopRead,
   type UUID,
 } from "@/types/api";
@@ -164,6 +167,8 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const [stockCursor, setStockCursor] = useState<InventoryCursor>(EMPTY_INVENTORY_CURSOR);
   const [stockLoadedShopId, setStockLoadedShopId] = useState<UUID | null>(null);
   const [movements, setMovements] = useState<InventoryMovementRead[]>([]);
+  const [retailerUsages, setRetailerUsages] = useState<RetailerInventoryUsageRead[]>([]);
+  const [adminHistoryTab, setAdminHistoryTab] = useState<"movements" | "retailer">("movements");
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsLoadedKey, setMovementsLoadedKey] = useState<string | null>(null);
   const [movementHistoryOpen, setMovementHistoryOpen] = useState(false);
@@ -575,14 +580,24 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     setMovementsLoading(true);
     setErrorMessage(null);
     try {
-      const nextMovements = await fetchAdminInventoryMovements({
-        shop_id: shopId,
-        reference_date: historyParams.reference_date,
-        range_start_date: historyParams.range_start_date,
-        range_end_date: historyParams.range_end_date,
-        limit: 100,
-      });
+      const [nextMovements, nextRetailerUsages] = await Promise.all([
+        fetchAdminInventoryMovements({
+          shop_id: shopId,
+          reference_date: historyParams.reference_date,
+          range_start_date: historyParams.range_start_date,
+          range_end_date: historyParams.range_end_date,
+          limit: 100,
+        }),
+        fetchAdminRetailerInventoryUsages({
+          shop_id: shopId,
+          reference_date: historyParams.reference_date,
+          range_start_date: historyParams.range_start_date,
+          range_end_date: historyParams.range_end_date,
+          limit: 100,
+        }),
+      ]);
       setMovements(nextMovements.items);
+      setRetailerUsages(nextRetailerUsages.items);
       movementsLoadedKeyRef.current = historyKey;
       setMovementsLoadedKey(historyKey);
     } catch (error) {
@@ -810,7 +825,10 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
 
   const handleSaveStockValue = useCallback(async () => {
     if (!editingStockKey || !selectedShopId) return;
-    const [itemId, type] = editingStockKey.split(":");
+    const parts = editingStockKey.split(":");
+    const itemId = parts[0];
+    const type = parts[1];
+    const categoryId = parts[2];
     const numValue = parseFloat(editingStockValue) || 0;
     const strValue = numValue.toString();
 
@@ -818,7 +836,16 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     setErrorMessage(null);
 
     try {
-      const payload: Record<string, any> = {};
+      if (type === "retailer") {
+        const updatedItem = await adminSetRetailerInventoryStock(selectedShopId, itemId, {
+          retailer_used_quantity: strValue,
+          category_id: categoryId ?? null,
+        });
+        setStockItems((currentItems) => currentItems.map((item) => (item.id === itemId ? updatedItem : item)));
+        return;
+      }
+
+      const payload: Record<string, string | null> = {};
       if (type === "available") {
         payload.available_quantity = strValue;
       } else if (type === "used") {
@@ -1359,6 +1386,12 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                 )}
               </View>
               <View style={styles.itemQuantityGroup}>
+                <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Transfer</Text>
+                <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
+                  {formatInventoryQuantity(item.transfer_stock ?? "0", item.base_unit)}
+                </Text>
+              </View>
+              <View style={styles.itemQuantityGroup}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Used</Text>
                   {categoryUsage.length === 0 && (
@@ -1379,6 +1412,30 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                 ) : (
                   <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
                     {formatInventoryQuantity(item.used_quantity, item.base_unit)}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.itemQuantityGroup}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Retailer</Text>
+                  {categoryUsage.length === 0 && (
+                    <Pressable onPress={() => toggleStockEdit(`${item.id}:retailer`, item.retailer_used_quantity ?? "0")} hitSlop={10}>
+                      <MaterialCommunityIcons name={editingStockKey === `${item.id}:retailer` ? "check" : "pencil-outline"} size={14} color={palette.textMuted} />
+                    </Pressable>
+                  )}
+                </View>
+                {editingStockKey === `${item.id}:retailer` ? (
+                  <TextInput
+                    value={editingStockValue}
+                    onChangeText={setEditingStockValue}
+                    keyboardType="numeric"
+                    style={[styles.quantityValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.border, minWidth: 60, padding: 0 }]}
+                    onSubmitEditing={handleSaveStockValue}
+                    autoFocus
+                  />
+                ) : (
+                  <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
+                    {formatInventoryQuantity(item.retailer_used_quantity ?? "0", item.base_unit)}
                   </Text>
                 )}
               </View>
@@ -1450,6 +1507,28 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                     ) : (
                       <Text style={[styles.categoryUsageValue, { color: palette.textPrimary }]}>
                         {formatInventoryQuantity(category.used_quantity, item.base_unit)}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.categoryUsageTotal}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text style={[styles.categoryUsageLabel, { color: palette.textMuted }]}>Retailer</Text>
+                      <Pressable onPress={() => toggleStockEdit(`${item.id}:retailer:${category.category_id}`, category.retailer_used_quantity ?? "0")} hitSlop={10}>
+                        <MaterialCommunityIcons name={editingStockKey === `${item.id}:retailer:${category.category_id}` ? "check" : "pencil-outline"} size={14} color={palette.textMuted} />
+                      </Pressable>
+                    </View>
+                    {editingStockKey === `${item.id}:retailer:${category.category_id}` ? (
+                      <TextInput
+                        value={editingStockValue}
+                        onChangeText={setEditingStockValue}
+                        keyboardType="numeric"
+                        style={[styles.categoryUsageValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.border, minWidth: 60, padding: 0 }]}
+                        onSubmitEditing={handleSaveStockValue}
+                        autoFocus
+                      />
+                    ) : (
+                      <Text style={[styles.categoryUsageValue, { color: palette.textPrimary }]}>
+                        {formatInventoryQuantity(category.retailer_used_quantity ?? "0", item.base_unit)}
                       </Text>
                     )}
                   </View>
@@ -1557,12 +1636,66 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
               </View>
             )}
           </View>
-          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Movement history</Text>
+          <View style={styles.historyModeRow}>
+            {[
+              { key: "movements" as const, label: "Stock Add/Use" },
+              { key: "retailer" as const, label: "Retailer Stock" },
+            ].map((option) => {
+              const active = adminHistoryTab === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setAdminHistoryTab(option.key)}
+                  style={[
+                    styles.historyModeButton,
+                    {
+                      borderColor: active ? palette.inventory : palette.border,
+                      backgroundColor: active ? palette.inventory : palette.surfaceMuted,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.historyModeText, { color: active ? palette.onPrimary : palette.textPrimary }]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>
+            {adminHistoryTab === "retailer" ? "Retailer stock history" : "Movement history"}
+          </Text>
           {movementsLoading ? (
             <View style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
               <ActivityIndicator color={palette.inventory} />
               <Text style={[styles.itemMeta, { color: palette.textMuted }]}>Loading movement history...</Text>
             </View>
+          ) : adminHistoryTab === "retailer" ? (
+            retailerUsages.length === 0 ? (
+              <View style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+                <MaterialCommunityIcons name="store-outline" size={20} color={palette.textMuted} />
+                <Text style={[styles.itemMeta, { color: palette.textMuted }]}>No retailer stock usage found.</Text>
+              </View>
+            ) : (
+              retailerUsages.map((usage) => (
+                <View key={usage.id} style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+                  <MaterialCommunityIcons name="store-outline" size={20} color="#B45309" />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[styles.itemName, { color: palette.textPrimary }]}>
+                      {usage.inventory_item_name} · {usage.quantity} {usage.unit}
+                    </Text>
+                    <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
+                      {usage.retailer_name ?? "—"} · {usage.category_name ?? "No category"}
+                    </Text>
+                    <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
+                      {usage.created_by_name ? `By ${usage.created_by_name} · ` : ""}
+                      {new Date(usage.occurred_at).toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )
           ) : movements.length === 0 ? (
             <View style={[styles.movementRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
               <MaterialCommunityIcons name="history" size={20} color={palette.textMuted} />

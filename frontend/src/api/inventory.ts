@@ -13,6 +13,9 @@ import {
   InventoryTransferCreate,
   InventoryTransferPage,
   InventoryTransferRead,
+  RetailerInventoryUsageBulkCreate,
+  RetailerInventoryUsageBulkResult,
+  RetailerInventoryUsagePage,
   TransferShopRead,
   UUID,
 } from "@/types/api";
@@ -129,6 +132,29 @@ export async function fetchAdminInventoryBackdatePolicy() {
 export async function updateAdminInventoryBackdatePolicy(payload: InventoryBackdatePolicyUpdate) {
   const { data } = await apiClient.put<InventoryBackdatePolicyRead>(
     "/api/v1/admin/inventory/backdate-policy",
+    payload,
+  );
+  return data;
+}
+
+export async function fetchShopRetailerInventoryUsages(params?: FetchShopInventoryMovementParams) {
+  const { data } = await apiClient.get<RetailerInventoryUsagePage>(
+    "/api/v1/shop/inventory/retailer-usages",
+    {
+      params: {
+        reference_date: params?.reference_date ?? undefined,
+        range_start_date: params?.range_start_date ?? undefined,
+        range_end_date: params?.range_end_date ?? undefined,
+        limit: params?.limit ?? 30,
+      },
+    },
+  );
+  return data;
+}
+
+export async function recordShopRetailerInventoryUsages(payload: RetailerInventoryUsageBulkCreate) {
+  const { data } = await apiClient.post<RetailerInventoryUsageBulkResult>(
+    "/api/v1/shop/inventory/retailer-usages",
     payload,
   );
   return data;

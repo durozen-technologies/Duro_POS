@@ -36,6 +36,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { TextField } from "@/components/ui/text-field";
 import { ShopHeaderActions } from "@/components/shop-header";
 import { useApiConnection } from "@/hooks/use-api-connection";
+import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import {
   getLocalizedItemName,
   useShopTranslation,
@@ -51,9 +52,6 @@ import {
 } from "@/utils/expense-history-filters";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
-import { useAuthStore } from "@/store/auth-store";
-import { useCartStore } from "@/store/cart-store";
-import { usePriceStore } from "@/store/price-store";
 
 type CursorState = {
   sortOrder: number | null;
@@ -408,9 +406,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
   const navigation = useNavigation<ShopExpensesScreenProps["navigation"]>();
   const apiConnection = useApiConnection();
   const { language, t } = useShopTranslation();
-  const clearSession = useAuthStore((state) => state.clearSession);
-  const resetCart = useCartStore((state) => state.resetCart);
-  const clearPrices = usePriceStore((state) => state.clear);
+  const headerMenu = useShopHeaderMenu(navigation);
   const [items, setItems] = useState<ShopExpenseItemRead[]>([]);
   const [cursor, setCursor] = useState<CursorState>(EMPTY_CURSOR);
   const [hasMore, setHasMore] = useState(false);
@@ -442,31 +438,11 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
     [items],
   );
 
-  const handleLogout = useCallback(() => {
-    clearSession();
-    resetCart();
-    clearPrices();
-  }, [clearPrices, clearSession, resetCart]);
-
-  const handleOpenInventory = useCallback(() => {
-    navigation.navigate("InventoryManagement");
-  }, [navigation]);
-
-  const handleOpenPrinter = useCallback(() => {
-    navigation.navigate("PrinterSetup");
-  }, [navigation]);
-
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <ShopHeaderActions
-          onLogout={handleLogout}
-          onInventory={handleOpenInventory}
-          onPrinter={handleOpenPrinter}
-        />
-      ),
+      headerRight: () => <ShopHeaderActions {...headerMenu} />,
     });
-  }, [handleLogout, handleOpenInventory, handleOpenPrinter, navigation]);
+  }, [headerMenu, navigation]);
 
   const loadItems = useCallback(async (refresh = false) => {
     setErrorMessage(null);

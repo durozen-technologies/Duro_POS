@@ -18,6 +18,7 @@ from app.core.middleware import (
     SelectiveGZipMiddleware,
 )
 from app.core.redis_cache import configure_redis_environment
+from app.db.tenant_schema import is_postgres_database, run_all_tenant_migrations
 from app.db.startup import run_database_startup_tasks
 from app.routers import api_router
 
@@ -38,6 +39,9 @@ async def lifespan(app: FastAPI):
 
     try:
         await run_database_startup_tasks()
+
+        if is_postgres_database():
+            run_all_tenant_migrations()
         app.state.database_ready = True
     except Exception as exc:
         app.state.database_error = str(exc)

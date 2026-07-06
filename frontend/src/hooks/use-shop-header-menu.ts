@@ -39,6 +39,10 @@ export function useShopHeaderMenu(navigation: ShopStackNav, options?: ShopHeader
     navigation.navigate("RetailerSelect");
   }, [navigation]);
 
+  const onBills = useCallback(() => {
+    navigation.navigate("ShopBills");
+  }, [navigation]);
+
   return useMemo(
     () => ({
       onLogout,
@@ -46,6 +50,7 @@ export function useShopHeaderMenu(navigation: ShopStackNav, options?: ShopHeader
       onExpenses,
       onPrinter,
       onRetailers,
+      onBills,
       onRefresh: options?.onRefresh,
       refreshing: options?.refreshing ?? false,
     }),
@@ -55,6 +60,7 @@ export function useShopHeaderMenu(navigation: ShopStackNav, options?: ShopHeader
       onExpenses,
       onPrinter,
       onRetailers,
+      onBills,
       options?.onRefresh,
       options?.refreshing,
     ],

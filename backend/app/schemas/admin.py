@@ -331,6 +331,24 @@ class OverallReportUnitSummary(BaseModel):
     difference_quantity: Decimal = Decimal("0")
 
 
+class OverallReportRetailer(BaseModel):
+    id: UUID
+    name: str
+
+
+class OverallReportInventoryRetailerData(BaseModel):
+    retailer_id: UUID
+    used_stock: Decimal = Decimal("0")
+
+
+class OverallReportBillingRetailerData(BaseModel):
+    retailer_id: UUID
+    assumption_quantity: Decimal = Decimal("0")
+    sales_quantity: Decimal = Decimal("0")
+    assumption_amount: Decimal = Decimal("0")
+    sales_amount: Decimal = Decimal("0")
+
+
 class OverallReportBillingItem(BaseModel):
     billing_item_id: UUID
     item_name: str
@@ -345,6 +363,7 @@ class OverallReportBillingItem(BaseModel):
     sales_amount: Decimal = Decimal("0")
     assumption_amount: Decimal = Decimal("0")
     difference_amount: Decimal = Decimal("0")
+    retailer_data: list[OverallReportBillingRetailerData] = Field(default_factory=list)
 
 
 class OverallReportUsedStockBreakdown(BaseModel):
@@ -378,6 +397,7 @@ class OverallReportInventoryItem(BaseModel):
     purchase_amount: Decimal = Decimal("0")
     used_stock_breakdown: list[OverallReportUsedStockBreakdown] = Field(default_factory=list)
     billing_items: list[OverallReportBillingItem] = Field(default_factory=list)
+    retailer_data: list[OverallReportInventoryRetailerData] = Field(default_factory=list)
 
 
 class OverallReportStatement(BaseModel):
@@ -396,6 +416,7 @@ class OverallReportStatement(BaseModel):
     sales_minus_assumption_amount: Decimal = Decimal("0")
     purchase_amount: Decimal = Decimal("0")
     inventory_items: list[OverallReportInventoryItem] = Field(default_factory=list)
+    retailers: list[OverallReportRetailer] = Field(default_factory=list)
 
 
 class OverallReportRead(BaseModel):

@@ -25,6 +25,7 @@ import {
   fetchShopInventoryRows,
   fetchShopInventoryMovements,
   fetchShopInventoryTransfers,
+  fetchShopRetailerInventoryUsages,
   useShopInventoryStock as postShopInventoryUse,
   useShopInventoryStockSplit as postShopInventoryUseSplit,
   getActiveTransferShops,
@@ -46,6 +47,8 @@ import { TextField } from "@/components/ui/text-field";
 import { TransferShopPicker } from "./components/transfer-shop-picker";
 import { InventoryMovementHistoryCard } from "./components/inventory-movement-history-card";
 import { InventoryTransferHistoryCard } from "./components/inventory-transfer-history-card";
+import { InventoryRetailerUsageHistoryCard } from "./components/inventory-retailer-usage-history-card";
+import { RetailerStockModal } from "./components/retailer-stock-modal";
 import {
   getLocalizedItemName,
   useShopTranslation,
@@ -57,6 +60,8 @@ import {
   type InventoryItemStockRead,
   type InventoryMovementRead,
   type InventoryTransferRead,
+  type RetailerInventoryUsageRead,
+  type RetailerInventoryUsageBulkResult,
   type UUID,
   type TransferShopRead,
 } from "@/types/api";
@@ -69,7 +74,7 @@ import type { InventoryManagementScreenProps } from "@/navigation/types";
 type MovementMode = InventoryMovementType.ADD | InventoryMovementType.USE | "TRANSFER";
 type MovementHistoryMode = "date" | "range";
 type MovementHistoryCalendarTarget = "date" | "start" | "end";
-type MovementHistoryTab = "movements" | "transfers";
+type MovementHistoryTab = "movements" | "transfers" | "retailer";
 type MovementHistoryParams = {
   reference_date: string | null;
   range_start_date: string | null;
@@ -173,6 +178,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const [inventoryLoadingMore, setInventoryLoadingMore] = useState(false);
   const [movements, setMovements] = useState<InventoryMovementRead[]>([]);
   const [transfers, setTransfers] = useState<InventoryTransferRead[]>([]);
+  const [retailerUsages, setRetailerUsages] = useState<RetailerInventoryUsageRead[]>([]);
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsLoadedKey, setMovementsLoadedKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -187,6 +193,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryItemStockRead | null>(null);
+  const [retailerStockItem, setRetailerStockItem] = useState<InventoryItemStockRead | null>(null);
   const [mode, setMode] = useState<MovementMode>(InventoryMovementType.ADD);
   const [transferShopId, setTransferShopId] = useState<UUID | null>(null);
   const [quantity, setQuantity] = useState("");
@@ -235,6 +242,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       [
         { key: "movements" as const, label: t("inventory.historyTabMovements") },
         { key: "transfers" as const, label: t("inventory.historyTabTransfers") },
+        { key: "retailer" as const, label: t("inventory.historyTabRetailer", { defaultValue: "Retailer Stock" }) },
       ],
     [t],
   );
@@ -279,6 +287,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       vehicle: t("inventory.vehicleNumber"),
       recordedAt: (dateTime: string) => t("inventory.recordedAt", { dateTime }),
       transferredTo: t("inventory.transferredTo"),
+      retailer: t("inventory.retailerLabel", { defaultValue: "Retailer" }),
+      recordedBy: (name: string) =>
+        t("inventory.recordedBy", { defaultValue: "By {{name}}", name }),
+      adjustment: t("inventory.adjustmentReason", { defaultValue: "Reason" }),
     }),
     [t],
   );
@@ -412,7 +424,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     movementsLoadingKeyRef.current = historyKey;
     setMovementsLoading(true);
     try {
-      const [nextMovements, nextTransfers] = await Promise.all([
+      const [nextMovements, nextTransfers, nextRetailerUsages] = await Promise.all([
         fetchShopInventoryMovements({
           reference_date: historyParams.reference_date,
           range_start_date: historyParams.range_start_date,
@@ -425,12 +437,19 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           range_end_date: historyParams.range_end_date,
           limit: 100,
         }),
+        fetchShopRetailerInventoryUsages({
+          reference_date: historyParams.reference_date,
+          range_start_date: historyParams.range_start_date,
+          range_end_date: historyParams.range_end_date,
+          limit: 100,
+        }),
       ]);
       if (requestId !== movementsRequestIdRef.current || movementHistoryKeyRef.current !== historyKey) {
         return;
       }
       setMovements(nextMovements.items);
       setTransfers(nextTransfers.items);
+      setRetailerUsages(nextRetailerUsages.items);
       movementsLoadedKeyRef.current = historyKey;
       setMovementsLoadedKey(historyKey);
     } catch (error) {
@@ -453,6 +472,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   useEffect(() => {
     movementHistoryKeyRef.current = movementHistoryKey;
     setMovements([]);
+    setRetailerUsages([]);
     movementsLoadedKeyRef.current = null;
     setMovementsLoadedKey(null);
   }, [movementHistoryKey]);
@@ -498,6 +518,35 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     setMovementDate(toDateInputValue(new Date()));
     setMovementTime(currentTimeDraft());
   }, [loadInventory]);
+
+  const openRetailerStock = useCallback((item: InventoryItemStockRead) => {
+    if (!item.is_active || !item.allocation_active) {
+      void loadInventory(true);
+      return;
+    }
+    setRetailerStockItem(item);
+  }, [loadInventory]);
+
+  const closeRetailerStock = useCallback(() => {
+    setRetailerStockItem(null);
+  }, []);
+
+  const handleRetailerStockSaved = useCallback((result: RetailerInventoryUsageBulkResult) => {
+    if (result.summary) {
+      setItems(visibleStockRows(result.summary.items));
+    } else {
+      void loadInventory(true);
+    }
+    if (historyOpen) {
+      void loadMovements(true);
+    } else {
+      setMovements([]);
+      setTransfers([]);
+      setRetailerUsages([]);
+      movementsLoadedKeyRef.current = null;
+      setMovementsLoadedKey(null);
+    }
+  }, [historyOpen, loadInventory, loadMovements]);
 
   const movementDateBounds = useMemo(() => {
     const today = new Date();
@@ -784,6 +833,16 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
             <Text className="mt-1 text-xs font-semibold text-muted">
               {t("inventory.used")} {formatQuantity(item.used_quantity, item.base_unit)}
             </Text>
+            {transferShops.length > 0 ? (
+              <Text className="mt-0.5 text-xs font-semibold text-muted">
+                {t("inventory.transferStock", { defaultValue: "Transfer stock" })}{" "}
+                {formatQuantity(item.transfer_stock ?? "0", item.base_unit)}
+              </Text>
+            ) : null}
+            <Text className="mt-0.5 text-xs font-semibold text-muted">
+              {t("inventory.retailerUsed", { defaultValue: "Retailer used" })}{" "}
+              {formatQuantity(item.retailer_used_quantity ?? "0", item.base_unit)}
+            </Text>
           </View>
         </View>
         <View className="flex-col gap-2">
@@ -801,15 +860,24 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
               className="flex-1"
             />
           </View>
-          {transferShops.length > 0 && (
+          <View className="flex-row gap-2">
+            {transferShops.length > 0 ? (
+              <Button
+                label={t("inventory.transferStock", { defaultValue: "Transfer Stock" })}
+                onPress={() => openMovement(item, "TRANSFER")}
+                variant="secondary"
+                disabled={money(item.available_quantity).lessThanOrEqualTo(0)}
+                className="flex-1 border-dashed"
+              />
+            ) : null}
             <Button
-              label="Transfer Stock"
-              onPress={() => openMovement(item, "TRANSFER")}
+              label={t("inventory.retailerStock", { defaultValue: "Retailer Stock" })}
+              onPress={() => openRetailerStock(item)}
               variant="secondary"
               disabled={money(item.available_quantity).lessThanOrEqualTo(0)}
-              className="w-full border-dashed"
+              className="flex-1"
             />
-          )}
+          </View>
         </View>
         <View className="gap-2 border-t border-border/70 pt-3">
           {item.category_usage.map((category) => (
@@ -817,9 +885,15 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
               <Text className="min-w-0 flex-1 text-sm font-semibold text-ink" numberOfLines={1}>
                 {category.category_name}
               </Text>
-              <Text className="text-xs font-semibold text-muted">
-                {t("inventory.used")} {formatQuantity(category.used_quantity, item.base_unit)}
-              </Text>
+              <View className="items-end gap-0.5">
+                <Text className="text-xs font-semibold text-muted">
+                  {t("inventory.used")} {formatQuantity(category.used_quantity, item.base_unit)}
+                </Text>
+                <Text className="text-xs font-semibold text-muted">
+                  {t("inventory.retailerUsed", { defaultValue: "Retailer used" })}{" "}
+                  {formatQuantity(category.retailer_used_quantity ?? "0", item.base_unit)}
+                </Text>
+              </View>
             </View>
           ))}
         </View>
@@ -967,6 +1041,29 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                       language,
                       transfer.inventory_item_name ?? "",
                       transfer.inventory_item_tamil_name ?? "",
+                    )}
+                    formatQuantity={formatQuantity}
+                    labels={historyCardLabels}
+                  />
+                ))}
+              </View>
+            )
+          ) : historyTab === "retailer" ? (
+            retailerUsages.length === 0 ? (
+              <EmptyState
+                title={t("inventory.noRetailerStock", { defaultValue: "No retailer stock usage found." })}
+                description={t("inventory.noRecentMovement")}
+              />
+            ) : (
+              <View className="gap-2.5">
+                {retailerUsages.map((entry) => (
+                  <InventoryRetailerUsageHistoryCard
+                    key={entry.id}
+                    entry={entry}
+                    itemName={getLocalizedItemName(
+                      language,
+                      entry.inventory_item_name ?? "",
+                      entry.inventory_item_tamil_name ?? "",
                     )}
                     formatQuantity={formatQuantity}
                     labels={historyCardLabels}
@@ -1276,6 +1373,14 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <RetailerStockModal
+        visible={Boolean(retailerStockItem)}
+        item={retailerStockItem}
+        backdatePolicy={backdatePolicy}
+        onClose={closeRetailerStock}
+        onSaved={handleRetailerStockSaved}
+      />
 
       <CalendarDatePickerModal
         visible={historyCalendarTarget !== null}

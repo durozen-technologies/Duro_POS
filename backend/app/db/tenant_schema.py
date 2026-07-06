@@ -26,7 +26,7 @@ _SCHEMA_PREFIX = "tenant_"
 _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-TENANT_MIGRATION_HEAD = "0010_retailer_item_price_default"
+TENANT_MIGRATION_HEAD = "0013_daily_prices_published"
 RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
 
 
@@ -127,7 +127,8 @@ def _ensure_tenant_retailer_permissions(connection, schema_name: str) -> None:
         )
 
 
-def _stamp_tenant_alembic_version(connection, schema_name: str) -> None:
+def _stamp_tenant_alembic_head(connection, schema_name: str) -> None:
+    """Record tenant head revision after idempotent drift repair."""
     safe = assert_safe_schema_name(schema_name)
     connection.execute(
         text(
@@ -136,14 +137,11 @@ def _stamp_tenant_alembic_version(connection, schema_name: str) -> None:
             "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
         )
     )
-    existing = connection.execute(
-        text(f'SELECT version_num FROM "{safe}".alembic_version LIMIT 1')
-    ).scalar_one_or_none()
-    if existing is None:
-        connection.execute(
-            text(f'INSERT INTO "{safe}".alembic_version (version_num) VALUES (:version)'),
-            {"version": TENANT_MIGRATION_HEAD},
-        )
+    connection.execute(text(f'DELETE FROM "{safe}".alembic_version'))
+    connection.execute(
+        text(f'INSERT INTO "{safe}".alembic_version (version_num) VALUES (:version)'),
+        {"version": TENANT_MIGRATION_HEAD},
+    )
 
 
 async def run_tenant_migrations_async(session: AsyncSession, schema_name: str) -> None:
@@ -151,28 +149,38 @@ async def run_tenant_migrations_async(session: AsyncSession, schema_name: str) -
     if not is_postgres_database():
         return
 
-    from app.db.tenant_metadata import create_tenant_tables
+    from app.db.tenant_metadata import create_tenant_tables, ensure_tenant_schema_drift_patches
 
     safe = assert_safe_schema_name(schema_name)
     logger.info("Running tenant migrations for schema %s", safe)
     await session.execute(text(f'SET search_path TO "{safe}", public'))
 
-    def _upgrade(sync_session) -> None:
-        connection = sync_session.connection()
-        create_tenant_tables(connection, safe)
-        _stamp_tenant_alembic_version(connection, safe)
+    def _bootstrap(sync_session) -> None:
+        create_tenant_tables(sync_session.connection(), safe)
 
-    await session.run_sync(_upgrade)
+    await session.run_sync(_bootstrap)
+    run_tenant_migrations(safe)
+
+    def _finalize(sync_session) -> None:
+        connection = sync_session.connection()
+        ensure_tenant_schema_drift_patches(connection, safe)
+        _ensure_tenant_retailer_permissions(connection, safe)
+
+    await session.run_sync(_finalize)
 
 
 def repair_tenant_schema_ddl(schema_name: str) -> None:
-    """Idempotently create missing tenant tables and stamp alembic_version."""
+    """Idempotently create missing tenant tables and apply tenant Alembic upgrades."""
     if not is_postgres_database():
         return
 
     from sqlalchemy import create_engine
 
-    from app.db.tenant_metadata import create_tenant_tables, verify_tenant_schema_ddl
+    from app.db.tenant_metadata import (
+        create_tenant_tables,
+        ensure_tenant_schema_drift_patches,
+        verify_tenant_schema_ddl,
+    )
 
     safe = assert_safe_schema_name(schema_name)
     url = sync_postgres_database_url(str(get_settings().database_url))
@@ -181,8 +189,11 @@ def repair_tenant_schema_ddl(schema_name: str) -> None:
         with engine.begin() as conn:
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{safe}"'))
             create_tenant_tables(conn, safe)
+        run_tenant_migrations(safe)
+        with engine.begin() as conn:
+            ensure_tenant_schema_drift_patches(conn, safe)
             verify_tenant_schema_ddl(conn, safe)
-            _stamp_tenant_alembic_version(conn, safe)
+            _stamp_tenant_alembic_head(conn, safe)
             _ensure_tenant_retailer_permissions(conn, safe)
         logger.info("Repaired tenant DDL for schema %s", safe)
     finally:
@@ -298,7 +309,6 @@ def run_all_tenant_migrations(schema_filter: str | None = None) -> None:
         return
 
     for schema_name in schemas:
-        run_tenant_migrations(schema_name)
         repair_tenant_schema_ddl(schema_name)
     logger.info("Tenant migrations completed for %s schema(s)", len(schemas))
 

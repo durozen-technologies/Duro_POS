@@ -5,7 +5,12 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.db.tenant_metadata import verify_tenant_schema_ddl, _reuse_public_pg_enums
+from app.db.tenant_metadata import (
+    ensure_tenant_schema_column_patches,
+    ensure_tenant_schema_drift_patches,
+    verify_tenant_schema_ddl,
+    _reuse_public_pg_enums,
+)
 
 
 class VerifyTenantSchemaDdlTests(unittest.TestCase):
@@ -33,6 +38,65 @@ class VerifyTenantSchemaDdlTests(unittest.TestCase):
 
         with patch("app.db.tenant_metadata.inspect", return_value=inspector):
             verify_tenant_schema_ddl(connection, "tenant_test")
+
+
+class EnsureTenantSchemaColumnPatchesTests(unittest.TestCase):
+    def test_adds_missing_daily_prices_published_on_column(self) -> None:
+        connection = MagicMock()
+        connection.dialect.name = "postgresql"
+        inspector = MagicMock()
+        inspector.get_table_names.return_value = ["shops", "bills", "receipts", "checkout_snapshots"]
+        inspector.get_columns.side_effect = lambda table, schema=None: {
+            "shops": [{"name": "id"}, {"name": "name"}],
+            "bills": [{"name": "id"}],
+            "receipts": [{"name": "id"}, {"name": "printed_at", "nullable": True}],
+        }[table]
+        inspector.get_foreign_keys.return_value = []
+
+        with patch("app.db.tenant_metadata.inspect", return_value=inspector):
+            ensure_tenant_schema_drift_patches(connection, "tenant_test")
+
+        executed_sql = " ".join(
+            getattr(call.args[0], "text", str(call.args[0]))
+            for call in connection.execute.call_args_list
+        )
+        self.assertIn("daily_prices_published_on", executed_sql)
+        self.assertIn("checkout_token", executed_sql)
+        self.assertIn("receipt_status", executed_sql)
+
+    def test_skips_when_column_already_present(self) -> None:
+        connection = MagicMock()
+        connection.dialect.name = "postgresql"
+        inspector = MagicMock()
+        inspector.get_table_names.return_value = ["shops", "bills", "receipts", "checkout_snapshots"]
+        inspector.get_columns.side_effect = lambda table, schema=None: {
+            "shops": [{"name": "id"}, {"name": "daily_prices_published_on"}],
+            "bills": [
+                {"name": "id"},
+                {"name": "checkout_token"},
+                {"name": "created_by_user_id"},
+                {"name": "item_count"},
+                {"name": "total_quantity"},
+            ],
+            "receipts": [
+                {"name": "id"},
+                {"name": "receipt_status"},
+                {"name": "print_attempts"},
+                {"name": "last_print_error"},
+                {"name": "printed_at", "nullable": True},
+            ],
+        }[table]
+        inspector.get_foreign_keys.return_value = []
+
+        with patch("app.db.tenant_metadata.inspect", return_value=inspector):
+            ensure_tenant_schema_column_patches(connection, "tenant_test")
+
+        alter_calls = [
+            call
+            for call in connection.execute.call_args_list
+            if "ALTER TABLE" in getattr(call.args[0], "text", "")
+        ]
+        self.assertEqual(alter_calls, [])
 
 
 class ReusePublicPgEnumsTests(unittest.TestCase):

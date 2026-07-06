@@ -4,7 +4,6 @@ from collections.abc import AsyncIterable
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
-from app.core.ids import uuid7
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -12,6 +11,8 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
+
+from app.core.ids import uuid7
 
 from app.db.storage import StoredImagePayload, StoredImageStreamPayload
 from app.models import (
@@ -25,6 +26,7 @@ from app.models import (
     Item,
     ItemChangeEvent,
     Payment,
+    ReceiptStatus,
     Shop,
     TransferShop,
     UnitType,
@@ -115,6 +117,12 @@ from app.routers.shop import (
     transfer_inventory_stock,
     use_inventory_stock,
 )
+from starlette.responses import Response
+
+
+async def commit_shop_checkout(payload, db, shop, actor):
+    response = Response()
+    return await checkout(payload, response, db, shop, actor)
 from app.schemas.admin import (
     ItemCategoryCreate,
     ItemCategoryUpdate,
@@ -133,6 +141,7 @@ from app.schemas.billing import (
     BillCheckoutRequest,
     BillDetailBatchRequest,
     BillItemInput,
+    BillReceiptStatusUpdate,
     CheckoutPaymentInput,
 )
 from app.schemas.expenses import (
@@ -2018,7 +2027,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         self.run_async(scenario())
 
     def test_bill_detail_uses_item_snapshots_after_item_rename(self) -> None:
-        _actor, shop = self.run_async(self.harness.create_shop_user())
+        actor, shop = self.run_async(self.harness.create_shop_user())
 
         async def scenario() -> None:
             await self.harness.create_items_for_shop(shop.id, ("Chicken",))
@@ -2026,6 +2035,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 db = AsyncSessionAdapter(session)
                 admin_user = await self.harness.create_admin_user()
                 current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                shop_user = session.get(User, actor.id)
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id))
 
                 await shop_daily_prices(
@@ -2048,7 +2058,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     ),
                 )
                 bill_preview = await preview_checkout(checkout_payload, db, current_shop)
-                created_bill = await checkout(
+                created_bill = await commit_shop_checkout(
                     BillCheckoutCommitRequest(
                         items=checkout_payload.items,
                         payment=checkout_payload.payment,
@@ -2056,9 +2066,10 @@ class BackendApiIntegrationTests(BackendTestCase):
                     ),
                     db,
                     current_shop,
+                    shop_user,
                 )
                 second_preview = await preview_checkout(checkout_payload, db, current_shop)
-                second_bill = await checkout(
+                second_bill = await commit_shop_checkout(
                     BillCheckoutCommitRequest(
                         items=checkout_payload.items,
                         payment=checkout_payload.payment,
@@ -2066,13 +2077,14 @@ class BackendApiIntegrationTests(BackendTestCase):
                     ),
                     db,
                     current_shop,
+                    shop_user,
                 )
 
                 chicken.name = "Renamed Chicken"
                 chicken.tamil_name = "மாற்றிய பெயர்"
                 session.commit()
 
-                historical_bill = await bill_detail(created_bill.id, db)
+                historical_bill = await bill_detail(created_bill.id, db, admin_user)
                 self.assertEqual(historical_bill.items[0].item_name, "Chicken")
                 self.assertEqual(historical_bill.items[0].item_tamil_name, "தோலுடன்")
                 self.assertEqual(historical_bill.items[0].item_unit_type, UnitType.WEIGHT)
@@ -2081,6 +2093,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                 batch = await bill_details(
                     BillDetailBatchRequest(bill_ids=[second_bill.id, created_bill.id]),
                     db,
+                    admin_user,
                 )
                 self.assertEqual([bill.id for bill in batch], [second_bill.id, created_bill.id])
                 self.assertEqual(batch[1].items[0].item_name, "Chicken")
@@ -2089,11 +2102,81 @@ class BackendApiIntegrationTests(BackendTestCase):
                     await bill_details(
                         BillDetailBatchRequest(bill_ids=[created_bill.id, uuid7()]),
                         db,
+                        admin_user,
                     )
                 self.assertEqual(missing_ctx.exception.status_code, 404)
 
                 with self.assertRaises(ValidationError):
                     BillDetailBatchRequest(bill_ids=[uuid7() for _ in range(51)])
+
+        self.run_async(scenario())
+
+    def test_shop_bills_preview_commit_list_detail_receipt_flow(self) -> None:
+        actor, shop = self.run_async(self.harness.create_shop_user())
+
+        async def scenario() -> None:
+            from app.services.billing import begin_bill_reprint, update_bill_receipt_status
+            from app.services.shop_billing import get_shop_bill, list_shop_bills
+
+            await self.harness.create_items_for_shop(shop.id, ("Chicken",))
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                shop_user = session.get(User, actor.id)
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id)
+                )
+                await shop_daily_prices(
+                    DailyPriceCreate(
+                        entries=[
+                            DailyPriceEntry(
+                                item_id=chicken.id,
+                                price_per_unit=Decimal("90.00"),
+                            )
+                        ]
+                    ),
+                    current_shop,
+                    db,
+                )
+                payload = BillCheckoutRequest(
+                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("2"))],
+                    payment=CheckoutPaymentInput(
+                        cash_amount=Decimal("180.00"),
+                        upi_amount=Decimal("0.00"),
+                    ),
+                )
+                preview = await preview_checkout(payload, db, current_shop)
+                self.assertIsNone(preview.bill_no)
+
+                bill = await commit_shop_checkout(
+                    BillCheckoutCommitRequest(
+                        items=payload.items,
+                        payment=payload.payment,
+                        checkout_token=preview.checkout_token,
+                    ),
+                    db,
+                    current_shop,
+                    shop_user,
+                )
+                self.assertEqual(bill.receipt.receipt_status, ReceiptStatus.PENDING)
+
+                listed = await list_shop_bills(db, current_shop, page=1, page_size=20)
+                self.assertEqual(listed.total_count, 1)
+                self.assertEqual(listed.items[0].bill_id, bill.id)
+
+                detail = await get_shop_bill(db, current_shop, bill.id)
+                self.assertEqual(detail.id, bill.id)
+
+                reprint = await begin_bill_reprint(db, current_shop, bill.id)
+                self.assertEqual(reprint.id, bill.id)
+
+                updated = await update_bill_receipt_status(
+                    db,
+                    current_shop,
+                    bill.id,
+                    BillReceiptStatusUpdate(status=ReceiptStatus.PRINTED),
+                )
+                self.assertEqual(updated.receipt.receipt_status, ReceiptStatus.PRINTED)
 
         self.run_async(scenario())
 
@@ -2231,7 +2314,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     db,
                     current_shop,
                 )
-                created_bill = await checkout(
+                created_bill = await commit_shop_checkout(
                     BillCheckoutCommitRequest(
                         items=checkout_payload.items,
                         payment=checkout_payload.payment,
@@ -2239,6 +2322,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     ),
                     db,
                     current_shop,
+                    shop_user,
                 )
                 self.assertEqual(created_bill.status, "paid")
                 self.assertTrue(created_bill.payment.is_settled)

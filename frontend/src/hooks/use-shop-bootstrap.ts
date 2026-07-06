@@ -11,6 +11,11 @@ type ShopBootstrapBundle = {
   todayPrices: DailyPriceRead[];
 };
 
+type RefreshOptions = {
+  forceRefresh?: boolean;
+  showLoading?: boolean;
+};
+
 const inFlightBootstrapRequests = new Map<UUID, Promise<ShopBootstrapBundle>>();
 
 async function loadBootstrapBundle(userId: UUID, forceRefresh = false) {
@@ -57,7 +62,7 @@ export function useShopBootstrap() {
     };
   }, []);
 
-  const refresh = useCallback(async (options?: { forceRefresh?: boolean; showLoading?: boolean }) => {
+  const refresh = useCallback(async (options?: RefreshOptions) => {
     if (user?.role !== UserRole.SHOP_ACCOUNT) {
       if (mountedRef.current) {
         setLoading(false);
@@ -113,12 +118,10 @@ export function useShopBootstrap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  const forceRefresh = useCallback(() => refresh({ forceRefresh: true, showLoading: true }), [refresh]);
-
   return {
     bootstrap: bootstrap as ShopBootstrapResponse | null,
     loading,
     error,
-    refresh: forceRefresh,
+    refresh,
   };
 }

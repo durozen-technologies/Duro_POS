@@ -1,10 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..models.enums import BaseUnit, BillStatus, UnitType
+from ..models.enums import BaseUnit, BillStatus, ReceiptStatus, UnitType
 from .common import ORMModel
 
 
@@ -61,7 +62,10 @@ class PaymentRead(ORMModel):
 class ReceiptRead(ORMModel):
     id: UUID
     receipt_number: str
-    printed_at: datetime
+    receipt_status: ReceiptStatus
+    print_attempts: int = 0
+    last_print_error: str | None = None
+    printed_at: datetime | None = None
 
 
 class BillRead(ORMModel):
@@ -76,7 +80,54 @@ class BillRead(ORMModel):
     items: list[BillLineRead]
     payment: PaymentRead
     receipt: ReceiptRead
+    created_by_name: str | None = None
 
 
 class BillCheckoutPreviewRead(BillRead):
     checkout_token: str
+    bill_no: str | None = None
+
+
+class ShopBillSortField(str, Enum):
+    BILL_NO = "bill_no"
+    CREATED_AT = "created_at"
+    TOTAL_AMOUNT = "total_amount"
+    CREATED_BY = "created_by"
+
+
+class ShopBillPaymentMethodFilter(str, Enum):
+    CASH = "cash"
+    UPI = "upi"
+    MIXED = "mixed"
+
+
+class ShopBillSummaryRead(BaseModel):
+    bill_id: UUID
+    bill_no: str
+    created_at: datetime
+    total_items: int
+    total_quantity: Decimal
+    grand_total: Decimal
+    paid_amount: Decimal
+    balance_amount: Decimal
+    payment_method: str
+    receipt_status: ReceiptStatus
+    created_by_name: str | None = None
+
+
+class ShopBillPage(BaseModel):
+    items: list[ShopBillSummaryRead]
+    page: int
+    page_size: int
+    total_count: int
+    total_pages: int
+
+
+class BillReceiptStatusUpdate(BaseModel):
+    status: ReceiptStatus
+    error: str | None = Field(default=None, max_length=2000)
+
+
+class BillCreateResult(BaseModel):
+    bill: BillRead
+    created: bool

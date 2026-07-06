@@ -2,10 +2,12 @@ from ..db.database import Base
 from .audit_log import AuditLog
 from .base import BaseModelMixin
 from .bill import Bill, BillItem, MonthlyBillSequence
+from .checkout_snapshot import CheckoutSnapshot
 from .daily_price import DailyPrice
 from .enums import (
     BaseUnit,
     BillStatus,
+    ReceiptStatus,
     InventoryMovementType,
     ItemAssumptionStatus,
     RetailerReceiptType,
@@ -41,6 +43,7 @@ from .retailer import (
     ShopRetailerAllocation,
     ShopRetailerItemAllocation,
 )
+from .retailer_inventory import RetailerInventoryUsage
 from .shop import Shop
 from .shop_item_allocation import ShopItemAllocation
 from .transfer import InventoryTransfer, TransferShop
@@ -54,6 +57,8 @@ __all__ = [
     "Bill",
     "BillItem",
     "BillStatus",
+    "CheckoutSnapshot",
+    "ReceiptStatus",
     "DailyPrice",
     "ExpenseEntry",
     "ExpenseItem",
@@ -82,6 +87,7 @@ __all__ = [
     "MonthlyRetailerSaleSequence",
     "ShopRetailerAllocation",
     "ShopRetailerItemAllocation",
+    "RetailerInventoryUsage",
     "Shop",
     "ShopExpenseAllocation",
     "ShopInventoryAllocation",

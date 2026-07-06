@@ -104,6 +104,10 @@ from app.schemas.inventory import (
     ShopInventoryAllocationUpdate,
 )
 from app.schemas.inventory_policy import InventoryBackdatePolicyRead, InventoryBackdatePolicyUpdate
+from app.schemas.retailer_inventory import (
+    RetailerInventoryUsagePage,
+    RetailerStockAdjustRequest,
+)
 from app.schemas.pricing import (
     DailyPriceCreate,
     DailyPriceRead,
@@ -218,6 +222,10 @@ from app.services.inventory import (
 from app.services.inventory_policy import (
     get_inventory_backdate_policy,
     update_inventory_backdate_policy,
+)
+from app.services.retailer_inventory import (
+    admin_set_retailer_inventory_stock,
+    list_retailer_inventory_usages,
 )
 from app.services.pricing import (
     create_daily_prices,

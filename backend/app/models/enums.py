@@ -49,6 +49,12 @@ class BillStatus(str, Enum):
     PAID = "paid"
 
 
+class ReceiptStatus(str, Enum):
+    PENDING = "pending"
+    PRINTED = "printed"
+    FAILED = "failed"
+
+
 class InventoryMovementType(str, Enum):
     ADD = "add"
     USE = "use"

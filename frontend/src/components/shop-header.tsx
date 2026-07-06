@@ -12,6 +12,7 @@ type ShopHeaderActionsProps = {
   onInventory?: () => void;
   onExpenses?: () => void;
   onRetailers?: () => void;
+  onBills?: () => void;
   onPrinter?: () => void;
 };
 
@@ -22,6 +23,7 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
   onInventory,
   onExpenses,
   onRetailers,
+  onBills,
   onPrinter,
 }: ShopHeaderActionsProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -91,6 +93,11 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
                   icon="store-outline"
                   label={t("retailers.title")}
                   onPress={() => handleMenuAction(onRetailers)}
+                />
+                <MenuItem
+                  icon="receipt-text-outline"
+                  label={t("bills.title")}
+                  onPress={() => handleMenuAction(onBills)}
                 />
                 <MenuItem
                   icon="cash-minus"

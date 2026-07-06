@@ -24,6 +24,16 @@ class Bill(Base, BaseModelMixin):
     shop_id: Mapped[UUID] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("shops.id"), index=True, nullable=False
     )
+    checkout_token: Mapped[str | None] = mapped_column(
+        String(512), unique=True, index=True, nullable=True
+    )
+    created_by_user_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("users.id"), index=True, nullable=True
+    )
+    item_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    total_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(10, 3), nullable=False, default=Decimal("0"), server_default="0"
+    )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     status: Mapped[BillStatus] = mapped_column(SqlEnum(BillStatus), nullable=False)
 

@@ -920,13 +920,18 @@ export function buildReceiptHtmlMarkup(
     </html>`;
 }
 
+function formatBillNoDisplay(billNo: string | null | undefined) {
+  const trimmed = billNo?.trim();
+  return trimmed ? trimmed : "—";
+}
+
 export function buildReceiptText(bill: BillRead, language?: ShopLanguage) {
   const copy = getReceiptCopy("en");
   const lines = [
     formatReceiptOrganizationName(bill.organization_name, "en"),
     formatReceiptShopName(bill.shop_name, "en"),
     `${copy.receipt}: ${bill.receipt.receipt_number}`,
-    `${copy.bill}: ${bill.bill_no}`,
+    `${copy.bill}: ${formatBillNoDisplay(bill.bill_no)}`,
     `${copy.date}: ${formatDateTime(bill.created_at)}`,
     `----------------------------------------`,
     copy.items,
@@ -995,7 +1000,7 @@ function buildReceiptHtmlBody(bill: BillRead, language?: ShopLanguage) {
       </div>
 
       <div class="bill-meta">
-        <span><strong>${copy.bill}:</strong> ${escapeHtml(bill.bill_no)}</span>
+        <span><strong>${copy.bill}:</strong> ${escapeHtml(formatBillNoDisplay(bill.bill_no))}</span>
         <span><strong>${copy.date}:</strong> ${escapeHtml(formatDateTime(bill.created_at))}</span>
       </div>
 
@@ -1068,7 +1073,7 @@ function buildReceiptExportPayload(bill: BillRead, language?: ShopLanguage): Rec
   return {
     companyName: formatReceiptOrganizationName(bill.organization_name, resolvedLanguage),
     shopName: formatReceiptShopName(bill.shop_name, resolvedLanguage),
-    billText: `${copy.bill}: ${bill.bill_no}`,
+    billText: `${copy.bill}: ${formatBillNoDisplay(bill.bill_no)}`,
     dateText: `${copy.date}: ${formatDateTime(bill.created_at)}`,
     itemHeader: copy.item,
     quantityHeader: copy.quantityUnit,

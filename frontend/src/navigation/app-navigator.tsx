@@ -137,6 +137,10 @@ const getInventoryManagementScreen = () =>
     .InventoryManagementScreen;
 const getShopExpensesScreen = () =>
   require("@/screens/shop/expenses-screen").ShopExpensesScreen;
+const getShopBillsScreen = () =>
+  require("@/screens/shop/shop-bills-screen").ShopBillsScreen;
+const getShopBillDetailScreen = () =>
+  require("@/screens/shop/shop-bill-detail-screen").ShopBillDetailScreen;
 const getRetailerSelectScreen = () =>
   require("@/screens/shop/retailer-select-screen").RetailerSelectScreen;
 const getRetailerSalesScreen = () =>
@@ -453,6 +457,12 @@ function ShopStack() {
     ),
     [shopName],
   );
+  const renderShopBillsHeaderTitle = useCallback(
+    () => (
+      <AnimatedHeaderTitle titleKey="header.showBills" shopName={shopName} />
+    ),
+    [shopName],
+  );
   const renderHeaderActions = useCallback(
     () => <AnimatedHeaderActions onLogout={logout} />,
     [logout],
@@ -506,6 +516,20 @@ function ShopStack() {
         options={{
           headerTitle: renderExpensesHeaderTitle,
           headerRight: renderHeaderActions,
+        }}
+      />
+      <Stack.Screen
+        name="ShopBills"
+        getComponent={getShopBillsScreen}
+        options={{
+          headerTitle: renderShopBillsHeaderTitle,
+        }}
+      />
+      <Stack.Screen
+        name="ShopBillDetail"
+        getComponent={getShopBillDetailScreen}
+        options={{
+          headerTitle: renderShopBillsHeaderTitle,
         }}
       />
       <Stack.Screen

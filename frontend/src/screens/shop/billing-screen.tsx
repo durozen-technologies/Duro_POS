@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import { TextField } from "@/components/ui/text-field";
 import { ShopHeaderActions } from "@/components/shop-header";
 
 import { useShopBootstrap } from "@/hooks/use-shop-bootstrap";
+import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import {
   getLocalizedItemName,
   useShopTranslation,
@@ -34,8 +36,6 @@ import {
   getCartTotal,
   useCartStore,
 } from "@/store/cart-store";
-import { useAuthStore } from "@/store/auth-store";
-import { usePriceStore } from "@/store/price-store";
 import { BaseUnit, ItemPriceRead, UUID } from "@/types/api";
 
 import { money, toQuantityString } from "@/utils/decimal";
@@ -347,10 +347,7 @@ export function BillingScreen({
 
   const { language, t } = useShopTranslation();
 
-  const clearSession = useAuthStore((state) => state.clearSession);
   const cartItems = useCartStore((state) => state.items);
-  const resetCart = useCartStore((state) => state.resetCart);
-  const clearPrices = usePriceStore((state) => state.clear);
 
   const addItem = useCartStore((state) => state.addItem);
 
@@ -362,9 +359,7 @@ export function BillingScreen({
   const [selectedCatalogueKey, setSelectedCatalogueKey] =
     useState<string | null>(null);
   const [catalogueOpen, setCatalogueOpen] = useState(false);
-  const isBillingLocked = Boolean(
-    bootstrap && !bootstrap.prices_set,
-  );
+  const billingLocked = Boolean(bootstrap && !bootstrap.prices_set);
 
   const orderedItems = useMemo(() => {
     const items = bootstrap?.items;
@@ -542,52 +537,22 @@ export function BillingScreen({
     void refresh();
   }, [refresh]);
 
-  const handleLogout = useCallback(() => {
-    clearSession();
-    resetCart();
-    clearPrices();
-  }, [clearPrices, clearSession, resetCart]);
+  useFocusEffect(
+    useCallback(() => {
+      void refresh({ forceRefresh: true, showLoading: false });
+    }, [refresh]),
+  );
 
-  const handleOpenInventory = useCallback(() => {
-    navigation.navigate("InventoryManagement");
-  }, [navigation]);
-
-  const handleOpenExpenses = useCallback(() => {
-    navigation.navigate("ShopExpenses");
-  }, [navigation]);
-
-  const handleOpenPrinter = useCallback(() => {
-    navigation.navigate("PrinterSetup");
-  }, [navigation]);
-
-  const handleOpenRetailers = useCallback(() => {
-    navigation.navigate("RetailerSelect");
-  }, [navigation]);
+  const headerMenu = useShopHeaderMenu(navigation, {
+    onRefresh: handleRefreshBilling,
+    refreshing: loading,
+  });
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <ShopHeaderActions
-          onLogout={handleLogout}
-          onRefresh={handleRefreshBilling}
-          refreshing={loading}
-          onInventory={handleOpenInventory}
-          onExpenses={handleOpenExpenses}
-          onRetailers={handleOpenRetailers}
-          onPrinter={handleOpenPrinter}
-        />
-      ),
+      headerRight: () => <ShopHeaderActions {...headerMenu} />,
     });
-  }, [
-    handleLogout,
-    handleRefreshBilling,
-    handleOpenExpenses,
-    handleOpenInventory,
-    handleOpenRetailers,
-    handleOpenPrinter,
-    loading,
-    navigation,
-  ]);
+  }, [headerMenu, navigation]);
 
   const handleToggleCatalogue = useCallback(() => {
     setCatalogueOpen((current) => !current);
@@ -743,17 +708,14 @@ export function BillingScreen({
     );
   }
 
-  if (bootstrap && isBillingLocked) {
+  if (bootstrap && billingLocked) {
     return (
       <Screen>
         <EmptyState
-          title={t("billing.waitingAdminPriceSetup")}
-          description={`${t(
-            "billing.waitingAdminPriceSetupDescription",
-            {
-              shopName: bootstrap.shop_name,
-            },
-          )}\n\n${t("billing.lockedDescription")}`}
+          title={t("billing.contactAdminTitle")}
+          description={t("billing.contactAdminDescription", {
+            shopName: bootstrap.shop_name,
+          })}
           actionLabel={t("action.tryAgain")}
           onAction={() => void refresh()}
         />

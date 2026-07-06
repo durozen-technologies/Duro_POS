@@ -198,6 +198,7 @@ export interface InventoryCategoryUsageRead {
   category_name: string;
   available_quantity: string;
   used_quantity: string;
+  retailer_used_quantity?: string;
 }
 
 export interface InventoryItemStockRead extends InventoryItemRead {
@@ -207,6 +208,8 @@ export interface InventoryItemStockRead extends InventoryItemRead {
   available_quantity: string;
   added_quantity: string;
   used_quantity: string;
+  transfer_stock?: string;
+  retailer_used_quantity?: string;
   category_usage: InventoryCategoryUsageRead[];
 }
 
@@ -215,6 +218,9 @@ export interface InventorySummaryRead {
   shop_name: string;
   items: InventoryItemStockRead[];
   categories: InventoryCategoryUsageRead[];
+  total_transfer_stock?: string;
+  total_used_stock?: string;
+  total_retailer_used_stock?: string;
 }
 
 export interface InventoryStockRowsPage {
@@ -226,6 +232,9 @@ export interface InventoryStockRowsPage {
   next_cursor_sort_order?: number | null;
   next_cursor_name?: string | null;
   next_cursor_id?: UUID | null;
+  total_transfer_stock?: string;
+  total_used_stock?: string;
+  total_retailer_used_stock?: string;
 }
 
 export interface InventoryMovementRead {
@@ -307,6 +316,57 @@ export interface InventoryMovementSplitCreateResult {
   movements: InventoryMovementRead[];
   item: InventoryItemStockRead;
   summary?: InventorySummaryRead | null;
+}
+
+export interface RetailerInventoryUsageLine {
+  inventory_item_id: UUID;
+  category_id?: UUID | null;
+  quantity: string;
+}
+
+export interface RetailerInventoryUsageBulkCreate {
+  retailer_id: UUID;
+  lines: RetailerInventoryUsageLine[];
+  occurred_at?: string | null;
+}
+
+export interface RetailerInventoryUsageRead {
+  id: UUID;
+  shop_id: UUID;
+  shop_name?: string | null;
+  retailer_id?: UUID | null;
+  retailer_name?: string | null;
+  inventory_item_id: UUID;
+  inventory_item_name: string;
+  inventory_item_tamil_name?: string | null;
+  category_id?: UUID | null;
+  category_name?: string | null;
+  quantity: string;
+  unit: BaseUnit;
+  occurred_at: string;
+  created_at: string;
+  created_by_user_id?: UUID | null;
+  created_by_name?: string | null;
+  adjustment_reason?: string | null;
+}
+
+export interface RetailerInventoryUsagePage {
+  items: RetailerInventoryUsageRead[];
+  limit: number;
+  has_more: boolean;
+}
+
+export interface RetailerInventoryUsageBulkResult {
+  usages: RetailerInventoryUsageRead[];
+  summary?: InventorySummaryRead | null;
+}
+
+export interface RetailerStockAdjustRequest {
+  retailer_used_quantity: string;
+  category_id?: UUID | null;
+  retailer_id?: UUID | null;
+  occurred_at?: string | null;
+  adjustment_reason?: string | null;
 }
 
 export interface ExpenseItemCreate {
@@ -648,8 +708,13 @@ export interface PaymentRead {
 export interface ReceiptRead {
   id: UUID;
   receipt_number: string;
-  printed_at: string;
+  receipt_status: ReceiptStatus;
+  print_attempts: number;
+  last_print_error?: string | null;
+  printed_at?: string | null;
 }
+
+export type ReceiptStatus = "pending" | "printed" | "failed";
 
 export interface BillRead {
   id: UUID;
@@ -663,10 +728,59 @@ export interface BillRead {
   items: BillLineRead[];
   payment: PaymentRead;
   receipt: ReceiptRead;
+  created_by_name?: string | null;
 }
 
-export interface BillCheckoutPreviewRead extends BillRead {
+export interface BillCheckoutPreviewRead extends Omit<BillRead, "bill_no"> {
   checkout_token: string;
+  bill_no?: string | null;
+}
+
+export interface ShopBillSummaryRead {
+  bill_id: UUID;
+  bill_no: string;
+  created_at: string;
+  total_items: number;
+  total_quantity: string;
+  grand_total: string;
+  paid_amount: string;
+  balance_amount: string;
+  payment_method: string;
+  receipt_status: ReceiptStatus;
+  created_by_name?: string | null;
+}
+
+export interface ShopBillPage {
+  items: ShopBillSummaryRead[];
+  page: number;
+  page_size: number;
+  total_count: number;
+  total_pages: number;
+}
+
+export type ShopBillSortField = "bill_no" | "created_at" | "total_amount" | "created_by";
+
+export type ShopBillPaymentMethodFilter = "cash" | "upi" | "mixed";
+
+export interface ShopBillListParams {
+  page?: number;
+  page_size?: number;
+  bill_no?: string;
+  range_start_date?: string;
+  range_end_date?: string;
+  payment_method?: ShopBillPaymentMethodFilter;
+  payment_settled?: boolean;
+  receipt_status?: ReceiptStatus;
+  created_by_user_id?: UUID;
+  amount_min?: string;
+  amount_max?: string;
+  sort_by?: ShopBillSortField;
+  sort_dir?: "asc" | "desc";
+}
+
+export interface BillReceiptStatusUpdate {
+  status: ReceiptStatus;
+  error?: string | null;
 }
 
 export interface ShopCreate {
@@ -730,6 +844,24 @@ export interface OverallReportUnitSummary {
   difference_quantity: string;
 }
 
+export interface OverallReportRetailer {
+  id: UUID;
+  name: string;
+}
+
+export interface OverallReportInventoryRetailerData {
+  retailer_id: UUID;
+  used_stock: string;
+}
+
+export interface OverallReportBillingRetailerData {
+  retailer_id: UUID;
+  assumption_quantity: string;
+  sales_quantity: string;
+  assumption_amount: string;
+  sales_amount: string;
+}
+
 export interface OverallReportBillingItem {
   billing_item_id: UUID;
   item_name: string;
@@ -744,6 +876,7 @@ export interface OverallReportBillingItem {
   sales_amount: string;
   assumption_amount: string;
   difference_amount: string;
+  retailer_data: OverallReportBillingRetailerData[];
 }
 
 export interface OverallReportUsedStockBreakdown {
@@ -775,6 +908,7 @@ export interface OverallReportInventoryItem {
   difference_amount: string;
   used_stock_breakdown: OverallReportUsedStockBreakdown[];
   billing_items: OverallReportBillingItem[];
+  retailer_data: OverallReportInventoryRetailerData[];
 }
 
 export interface OverallReportStatement {
@@ -792,6 +926,7 @@ export interface OverallReportStatement {
   sales_minus_expense_amount: string;
   sales_minus_assumption_amount: string;
   inventory_items: OverallReportInventoryItem[];
+  retailers: OverallReportRetailer[];
 }
 
 export interface OverallReportRead {

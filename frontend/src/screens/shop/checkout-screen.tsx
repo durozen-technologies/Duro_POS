@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Alert, Text, View } from "react-native";
 import { Controller, Control, useForm, useWatch } from "react-hook-form";
 
-import { checkoutBill, previewBill } from "@/api/billing";
+import { checkoutBill, patchBillReceiptStatus, previewBill } from "@/api/billing";
 import { toApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { TextField } from "@/components/ui/text-field";
 import { ShopHeaderActions } from "@/components/shop-header";
 import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
+import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import { useShopTranslation } from "@/hooks/use-shop-translation";
 import { CheckoutScreenProps } from "@/navigation/types";
 import {
@@ -19,9 +20,7 @@ import {
   getSavedPrinterLabel,
 } from "@/services/printer-service";
 import { getCartTotal, useCartStore } from "@/store/cart-store";
-import { useAuthStore } from "@/store/auth-store";
 import { usePrinterStore } from "@/store/printer-store";
-import { usePriceStore } from "@/store/price-store";
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
@@ -143,7 +142,7 @@ const CheckoutPaymentStatus = memo(function CheckoutPaymentStatus({
       </View>
 
       <Button
-        label={paymentSummary.isExact ? t("action.printReceipt") : t("action.receiptLocked")}
+        label={paymentSummary.isExact ? t("action.completeCheckout") : t("action.receiptLocked")}
         onPress={onSubmit}
         disabled={!paymentSummary.isExact}
         loading={submitting}
@@ -156,8 +155,6 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
   const { language, t } = useShopTranslation();
   const cartItems = useCartStore((state) => state.items);
   const resetCart = useCartStore((state) => state.resetCart);
-  const clearSession = useAuthStore((state) => state.clearSession);
-  const clearPrices = usePriceStore((state) => state.clear);
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const [submitting, setSubmitting] = useState(false);
   const checkoutCompletedRef = useRef(false);
@@ -180,26 +177,13 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
   const printerDetail = preferredPrinter ? getPrinterDeviceDetail(preferredPrinter) : null;
   const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
-  const handleLogout = useCallback(() => {
-    clearSession();
-    resetCart();
-    clearPrices();
-  }, [clearPrices, clearSession, resetCart]);
-
-  const handleOpenPrinterSetup = useCallback(() => {
-    navigation.navigate("PrinterSetup");
-  }, [navigation]);
+  const headerMenu = useShopHeaderMenu(navigation);
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <ShopHeaderActions
-          onLogout={handleLogout}
-          onPrinter={handleOpenPrinterSetup}
-        />
-      ),
+      headerRight: () => <ShopHeaderActions {...headerMenu} />,
     });
-  }, [handleLogout, handleOpenPrinterSetup, navigation]);
+  }, [headerMenu, navigation]);
 
   async function handleCheckout(values: CheckoutFormValues) {
     const total = money(totalAmount);
@@ -207,24 +191,6 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
     const isExact = paidAmount.equals(total) && total.greaterThan(0);
 
     if (!isExact) {
-      return;
-    }
-
-    if (!preferredPrinter) {
-      Alert.alert(
-        t("printer.selectPrinterFirstTitle"),
-        t("printer.selectPrinterFirstMessage"),
-        [
-          {
-            text: t("action.cancel"),
-            style: "cancel",
-          },
-          {
-            text: t("action.setUpPrinter"),
-            onPress: () => navigation.navigate("PrinterSetup"),
-          },
-        ],
-      );
       return;
     }
 
@@ -241,18 +207,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
         },
       };
       const billPreview = await previewBill(checkoutPayload);
-
-      try {
-        await startReceiptImagePrintJob([billPreview], preferredPrinter, language);
-      } catch (error) {
-        Alert.alert(
-          t("printer.connectionFailedTitle"),
-          error instanceof Error ? error.message : t("checkout.unableToOpenPrinterMessage"),
-        );
-        return;
-      }
-
-      await checkoutBill({
+      const { bill: savedBill } = await checkoutBill({
         ...checkoutPayload,
         checkout_token: billPreview.checkout_token,
       });
@@ -263,6 +218,33 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
         cashAmount: "0",
         upiAmount: "0",
       });
+
+      if (!preferredPrinter) {
+        Alert.alert(
+          t("checkout.billSavedTitle"),
+          t("checkout.billSavedNoPrinterMessage"),
+        );
+        navigation.replace("Billing");
+        return;
+      }
+
+      try {
+        await startReceiptImagePrintJob([savedBill], preferredPrinter, language);
+        await patchBillReceiptStatus(savedBill.id, { status: "printed" });
+      } catch (error) {
+        const printError =
+          error instanceof Error ? error.message : t("checkout.unableToOpenPrinterMessage");
+        try {
+          await patchBillReceiptStatus(savedBill.id, {
+            status: "failed",
+            error: printError,
+          });
+        } catch {
+          // Bill is saved; receipt status patch is best-effort.
+        }
+        Alert.alert(t("checkout.printFailedAfterSaveTitle"), t("checkout.printFailedAfterSaveMessage"));
+      }
+
       navigation.replace("Billing");
     } catch (error) {
       Alert.alert(t("checkout.checkoutFailedTitle"), toApiError(error).message);

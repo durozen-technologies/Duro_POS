@@ -1,6 +1,7 @@
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Index, String
+from sqlalchemy import Boolean, Date, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.ids import UUID_SQL_TYPE, uuid7
@@ -27,6 +28,7 @@ class Shop(Base, BaseModelMixin):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    daily_prices_published_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     organization = relationship("Organization", back_populates="shops")
     owner = relationship("User", back_populates="shop")

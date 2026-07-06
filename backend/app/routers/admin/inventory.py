@@ -380,6 +380,22 @@ async def adjust_shop_inventory_stock(
     return await admin_set_shop_inventory_stock(db, shop, item_id, payload, actor=actor)
 
 
+@router.patch(
+    "/shops/{shop_id}/inventory-allocations/{item_id}/retailer-stock",
+    response_model=InventoryItemStockRead,
+    response_model_exclude_unset=True,
+    summary="Adjust Shop Retailer Used Stock",
+)
+async def adjust_shop_retailer_inventory_stock(
+    item_id: UUID,
+    payload: RetailerStockAdjustRequest,
+    shop: ShopDep,
+    actor: Annotated[User, Depends(get_current_user)],
+    db: DBSession,
+) -> InventoryItemStockRead:
+    return await admin_set_retailer_inventory_stock(db, shop, item_id, payload, actor=actor)
+
+
 @router.get(
     "/inventory/summary",
     response_model=InventorySummaryRead,
@@ -414,6 +430,32 @@ async def get_admin_inventory_movements(
         shop_id=shop_id,
         item_id=item_id,
         category_id=category_id,
+        reference_date=reference_date,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/inventory/retailer-usages",
+    response_model=RetailerInventoryUsagePage,
+    response_model_exclude_unset=True,
+    summary="List Retailer Inventory Usages",
+)
+async def get_admin_retailer_inventory_usages(
+    db: DBSession,
+    shop_id: ShopIdParam = None,
+    item_id: ItemCursorIdParam = None,
+    reference_date: ReferenceDateParam = None,
+    range_start_date: RangeStartDateParam = None,
+    range_end_date: RangeEndDateParam = None,
+    limit: ItemsLimitParam = 100,
+) -> RetailerInventoryUsagePage:
+    return await list_retailer_inventory_usages(
+        db,
+        shop_id=shop_id,
+        item_id=item_id,
         reference_date=reference_date,
         range_start_date=range_start_date,
         range_end_date=range_end_date,

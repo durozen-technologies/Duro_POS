@@ -30,6 +30,7 @@ from app.models import (
     InventoryMovementType,
     InventoryTransfer,
     Item,
+    RetailerInventoryUsage,
     Shop,
     ShopInventoryAllocation,
     User,
@@ -1234,7 +1235,7 @@ async def _movement_totals(
     """Return (added, used, category_used) totals for the given items.
 
     ``added`` is always the all-time total so that available stock is correct.
-    ``used`` / ``category_used`` are filtered to movements on or after
+    ``used`` / ``category_used`` / ``transferred_out`` are filtered to movements on or after
     ``used_since`` when that parameter is supplied (e.g. today's date), which
     lets the shop screen display a daily-resetting used counter without losing
     any data in the database or history view.
@@ -1305,11 +1306,15 @@ async def _movement_totals(
         (row.inventory_item_id, row.category_id): row.quantity or ZERO for row in category_rows
     }
 
-    # TRANSFERRED_OUT — all-time unless point-in-time ``as_of`` is set
+    # TRANSFERRED_OUT — all-time unless scoped to a start date or point-in-time ``as_of``
     transfer_filter = [
         InventoryTransfer.source_shop_id == shop_id,
         InventoryTransfer.inventory_item_id.in_(item_ids),
     ]
+    if used_since is not None:
+        transfer_filter.append(
+            InventoryTransfer.occurred_at >= datetime.combine(used_since, time.min, tzinfo=UTC)
+        )
     if as_of is not None:
         transfer_filter.append(InventoryTransfer.occurred_at <= as_of)
     transfer_rows = (
@@ -1327,6 +1332,58 @@ async def _movement_totals(
     return added, used, category_used, transferred_out
 
 
+async def _retailer_usage_totals(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+    *,
+    used_since: date | None = None,
+    as_of: datetime | None = None,
+) -> tuple[dict[UUID, Decimal], dict[tuple[UUID, UUID], Decimal]]:
+    if not item_ids:
+        return {}, {}
+
+    usage_filter = [
+        RetailerInventoryUsage.shop_id == shop_id,
+        RetailerInventoryUsage.inventory_item_id.in_(item_ids),
+    ]
+    if used_since is not None:
+        usage_filter.append(
+            RetailerInventoryUsage.occurred_at
+            >= datetime.combine(used_since, time.min, tzinfo=UTC)
+        )
+    if as_of is not None:
+        usage_filter.append(RetailerInventoryUsage.occurred_at <= as_of)
+
+    item_rows = (
+        await db.execute(
+            select(
+                RetailerInventoryUsage.inventory_item_id,
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("quantity"),
+            )
+            .where(*usage_filter)
+            .group_by(RetailerInventoryUsage.inventory_item_id)
+        )
+    ).all()
+    item_totals = {row.inventory_item_id: row.quantity or ZERO for row in item_rows}
+
+    category_rows = (
+        await db.execute(
+            select(
+                RetailerInventoryUsage.inventory_item_id,
+                RetailerInventoryUsage.category_id,
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("quantity"),
+            )
+            .where(*usage_filter, RetailerInventoryUsage.category_id.is_not(None))
+            .group_by(RetailerInventoryUsage.inventory_item_id, RetailerInventoryUsage.category_id)
+        )
+    ).all()
+    category_totals = {
+        (row.inventory_item_id, row.category_id): row.quantity or ZERO for row in category_rows
+    }
+    return item_totals, category_totals
+
+
 def _stock_item_from_inventory_item(
     item: InventoryItem,
     *,
@@ -1334,7 +1391,10 @@ def _stock_item_from_inventory_item(
     added_quantity: Decimal,
     used_quantity: Decimal,
     available_quantity: Decimal | None = None,
+    transfer_stock: Decimal = ZERO,
+    retailer_used_quantity: Decimal = ZERO,
     category_used: dict[tuple[UUID, UUID], Decimal],
+    category_retailer_used: dict[tuple[UUID, UUID], Decimal] | None = None,
 ) -> InventoryItemStockRead:
     """Build a stock read object.
 
@@ -1346,12 +1406,14 @@ def _stock_item_from_inventory_item(
     if available_quantity is None:
         available_quantity = added_quantity - used_quantity
 
+    category_retailer_used = category_retailer_used or {}
     category_usage = [
         InventoryCategoryUsageRead(
             category_id=category.id,
             category_name=category.name,
             available_quantity=available_quantity,
             used_quantity=category_used.get((item.id, category.id), ZERO),
+            retailer_used_quantity=category_retailer_used.get((item.id, category.id), ZERO),
         )
         for category in base.categories
     ]
@@ -1359,6 +1421,7 @@ def _stock_item_from_inventory_item(
     # ponytail: if an item has categories, its total used quantity is strictly the sum of category usage.
     if category_usage:
         used_quantity = sum((cat.used_quantity for cat in category_usage), ZERO)
+        retailer_used_quantity = sum((cat.retailer_used_quantity for cat in category_usage), ZERO)
 
     return InventoryItemStockRead(
         **base.model_dump(),
@@ -1368,6 +1431,8 @@ def _stock_item_from_inventory_item(
         available_quantity=available_quantity,
         added_quantity=added_quantity,
         used_quantity=used_quantity,
+        transfer_stock=transfer_stock,
+        retailer_used_quantity=retailer_used_quantity,
         category_usage=category_usage,
     )
 
@@ -1399,6 +1464,9 @@ async def get_inventory_summary(
             shop_name=shop.name,
             items=[],
             categories=[],
+            total_transfer_stock=ZERO,
+            total_used_stock=ZERO,
+            total_retailer_used_stock=ZERO,
         )
 
     item_query = select(InventoryItem).options(
@@ -1420,17 +1488,30 @@ async def get_inventory_summary(
         )
     ).all()
     item_ids = [item.id for item in items]
-    added, used, category_used, transferred_out = await _movement_totals(db, shop.id, item_ids)
+    added, used_alltime, _, transferred_alltime = await _movement_totals(db, shop.id, item_ids)
+    _, used_today, category_used_today, transferred_today = await _movement_totals(
+        db, shop.id, item_ids, used_since=date.today()
+    )
+    retailer_used_alltime, category_retailer_used_alltime = await _retailer_usage_totals(
+        db, shop.id, item_ids
+    )
+    retailer_used_today, category_retailer_used_today = await _retailer_usage_totals(
+        db, shop.id, item_ids, used_since=date.today()
+    )
     stock_items = [
         _stock_item_from_inventory_item(
             item,
             allocation=allocations_by_item_id.get(item.id),
             added_quantity=added.get(item.id, ZERO),
-            used_quantity=used.get(item.id, ZERO),
+            used_quantity=used_today.get(item.id, ZERO),
             available_quantity=added.get(item.id, ZERO)
-            - used.get(item.id, ZERO)
-            - transferred_out.get(item.id, ZERO),
-            category_used=category_used,
+            - used_alltime.get(item.id, ZERO)
+            - transferred_alltime.get(item.id, ZERO)
+            - retailer_used_alltime.get(item.id, ZERO),
+            transfer_stock=transferred_today.get(item.id, ZERO),
+            retailer_used_quantity=retailer_used_today.get(item.id, ZERO),
+            category_used=category_used_today,
+            category_retailer_used=category_retailer_used_today,
         )
         for item in items
     ]
@@ -1457,10 +1538,24 @@ async def get_inventory_summary(
                     category_name=category.category_name,
                     available_quantity=category.available_quantity,
                     used_quantity=category.used_quantity,
+                    retailer_used_quantity=category.retailer_used_quantity,
                 )
             else:
                 existing.available_quantity += category.available_quantity
                 existing.used_quantity += category.used_quantity
+                existing.retailer_used_quantity += category.retailer_used_quantity
+
+    total_transfer_stock = ZERO
+    total_used_stock = ZERO
+    total_retailer_used_stock = ZERO
+    for stock_item in stock_items:
+        if active_allocations_only and not stock_item.allocation_active:
+            continue
+        if not include_unallocated and not stock_item.allocated:
+            continue
+        total_transfer_stock += stock_item.transfer_stock
+        total_used_stock += stock_item.used_quantity
+        total_retailer_used_stock += stock_item.retailer_used_quantity
 
     return InventorySummaryRead(
         shop_id=shop.id,
@@ -1470,6 +1565,9 @@ async def get_inventory_summary(
             category_totals.values(),
             key=lambda category: (category.category_name.lower(), str(category.category_id)),
         ),
+        total_transfer_stock=total_transfer_stock,
+        total_used_stock=total_used_stock,
+        total_retailer_used_stock=total_retailer_used_stock,
     )
 
 
@@ -1546,7 +1644,13 @@ async def list_inventory_stock_rows(
     # Fetch all-time totals for correct available_quantity, and today-only
     # totals for the displayed used_quantity (which resets each day).
     added, used_alltime, _, transferred_alltime = await _movement_totals(db, shop.id, item_ids)
-    _, used_today, category_used_today, _ = await _movement_totals(
+    _, used_today, category_used_today, transferred_today = await _movement_totals(
+        db, shop.id, item_ids, used_since=date.today()
+    )
+    retailer_used_alltime, category_retailer_used_alltime = await _retailer_usage_totals(
+        db, shop.id, item_ids
+    )
+    retailer_used_today, category_retailer_used_today = await _retailer_usage_totals(
         db, shop.id, item_ids, used_since=date.today()
     )
 
@@ -1557,11 +1661,15 @@ async def list_inventory_stock_rows(
             added_quantity=added.get(item.id, ZERO),
             # Display: today's usage (resets daily)
             used_quantity=used_today.get(item.id, ZERO),
-            # Availability: reduced by used_alltime stock
+            # Availability: reduced by all-time outflows
             available_quantity=added.get(item.id, ZERO)
             - used_alltime.get(item.id, ZERO)
-            - transferred_alltime.get(item.id, ZERO),
+            - transferred_alltime.get(item.id, ZERO)
+            - retailer_used_alltime.get(item.id, ZERO),
+            transfer_stock=transferred_today.get(item.id, ZERO),
+            retailer_used_quantity=retailer_used_today.get(item.id, ZERO),
             category_used=category_used_today,
+            category_retailer_used=category_retailer_used_today,
         )
         for item, allocation in page_rows
     ]
@@ -1575,6 +1683,17 @@ async def list_inventory_stock_rows(
         next_cursor_name = last_item.name.lower()
         next_cursor_id = last_item.id
 
+    total_transfer_stock = ZERO
+    total_used_stock = ZERO
+    total_retailer_used_stock = ZERO
+    if cursor_id is None:
+        summary = await get_inventory_summary(
+            db, shop, include_unallocated=False, active_allocations_only=active_allocations_only
+        )
+        total_transfer_stock = summary.total_transfer_stock
+        total_used_stock = summary.total_used_stock
+        total_retailer_used_stock = summary.total_retailer_used_stock
+
     return InventoryStockRowsPage(
         shop_id=shop.id,
         shop_name=shop.name,
@@ -1584,6 +1703,9 @@ async def list_inventory_stock_rows(
         next_cursor_sort_order=next_cursor_sort_order,
         next_cursor_name=next_cursor_name,
         next_cursor_id=next_cursor_id,
+        total_transfer_stock=total_transfer_stock,
+        total_used_stock=total_used_stock,
+        total_retailer_used_stock=total_retailer_used_stock,
     )
 
 
@@ -1730,7 +1852,13 @@ async def _available_quantity_at(
     as_of: datetime,
 ) -> Decimal:
     added, used, _, transferred = await _movement_totals(db, shop_id, [item_id], as_of=as_of)
-    return added.get(item_id, ZERO) - used.get(item_id, ZERO) - transferred.get(item_id, ZERO)
+    retailer_used, _ = await _retailer_usage_totals(db, shop_id, [item_id], as_of=as_of)
+    return (
+        added.get(item_id, ZERO)
+        - used.get(item_id, ZERO)
+        - transferred.get(item_id, ZERO)
+        - retailer_used.get(item_id, ZERO)
+    )
 
 
 async def _available_quantity_for_item(db: AsyncSession, shop_id: UUID, item_id: UUID) -> Decimal:
@@ -1754,13 +1882,22 @@ async def _stock_item_for_shop_inventory_item(
     added, used_alltime, category_used_alltime, transferred_alltime = await _movement_totals(
         db, shop.id, [item.id]
     )
+    retailer_used_alltime, category_retailer_used_alltime = await _retailer_usage_totals(
+        db, shop.id, [item.id]
+    )
     if used_since is not None:
-        _, used_display, category_used_display, _ = await _movement_totals(
+        _, used_display, category_used_display, transferred_display = await _movement_totals(
+            db, shop.id, [item.id], used_since=used_since
+        )
+        retailer_used_display, category_retailer_used_display = await _retailer_usage_totals(
             db, shop.id, [item.id], used_since=used_since
         )
     else:
         used_display = used_alltime
         category_used_display = category_used_alltime
+        transferred_display = transferred_alltime
+        retailer_used_display = retailer_used_alltime
+        category_retailer_used_display = category_retailer_used_alltime
     return _stock_item_from_inventory_item(
         item,
         allocation=allocation,
@@ -1768,8 +1905,12 @@ async def _stock_item_for_shop_inventory_item(
         used_quantity=used_display.get(item.id, ZERO),
         available_quantity=added.get(item.id, ZERO)
         - used_alltime.get(item.id, ZERO)
-        - transferred_alltime.get(item.id, ZERO),
+        - transferred_alltime.get(item.id, ZERO)
+        - retailer_used_alltime.get(item.id, ZERO),
+        transfer_stock=transferred_display.get(item.id, ZERO),
+        retailer_used_quantity=retailer_used_display.get(item.id, ZERO),
         category_used=category_used_display,
+        category_retailer_used=category_retailer_used_display,
     )
 
 
@@ -2157,12 +2298,14 @@ async def admin_set_shop_inventory_stock(
         )
 
     added, used_alltime, _, transferred_alltime = await _movement_totals(db, shop.id, [item_id])
+    retailer_used_alltime, _ = await _retailer_usage_totals(db, shop.id, [item_id])
     _, used_today, _, _ = await _movement_totals(db, shop.id, [item_id], used_since=date.today())
 
     current_available = (
         added.get(item_id, ZERO)
         - used_alltime.get(item.id, ZERO)
         - transferred_alltime.get(item.id, ZERO)
+        - retailer_used_alltime.get(item.id, ZERO)
     )
     current_used_today = used_today.get(item_id, ZERO)
 

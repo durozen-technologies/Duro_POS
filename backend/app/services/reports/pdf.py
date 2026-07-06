@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from textwrap import shorten, wrap
-from typing import BinaryIO, Callable, Iterable, Iterator
+from typing import BinaryIO, Callable, Iterable, Iterator, Sequence
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -117,63 +117,78 @@ _OVER_REPORT_HEADER_LABELS_TA = (
 _KG_UNIT_HEADER_INDICES = frozenset({2, 3, 4, 5, 6, 7, 10, 11, 12})
 
 
-def _over_report_sheet_headers(*, use_tamil: bool) -> list[str]:
-    labels = _OVER_REPORT_HEADER_LABELS_TA if use_tamil else _OVER_REPORT_HEADER_LABELS_EN
+from app.schemas.admin import OverallReportRetailer
+
+def get_over_report_sheet_config(
+    use_tamil: bool, retailers: list[OverallReportRetailer] | None = None
+) -> tuple[list[str], list[int], list[str], list[str], list[int], list[int]]:
+    retailers = retailers or []
+    raw_labels = _OVER_REPORT_HEADER_LABELS_TA if use_tamil else _OVER_REPORT_HEADER_LABELS_EN
+    
     headers: list[str] = []
-    for index, label in enumerate(labels):
-        if index in _KG_UNIT_HEADER_INDICES:
+    min_widths: list[int] = []
+    aligns: list[str] = []
+    h_aligns: list[str] = []
+    
+    base_min_widths = [46, 58, 50, 50, 50, 68, 56, 52, 48, 52, 58, 50, 48, 48, 58, 52, 58]
+    base_aligns = [
+        "center", "left", "right", "right", "right", "left", "right", "right",
+        "right", "right", "left", "right", "right", "right", "right", "right", "right"
+    ]
+    
+    part1_indices = []
+    part2_indices = []
+    
+    def _add_col(label: str, min_width: int, align: str, h_align: str, is_part2: bool = False, force_kg: bool = False):
+        idx = len(headers)
+        if force_kg:
             headers.append(f"{label}\n{KG_UNIT_SUFFIX}")
         else:
             headers.append(label)
-    return headers
+        min_widths.append(min_width)
+        aligns.append(align)
+        h_aligns.append(h_align)
+        
+        if idx in (0, 1):
+            part1_indices.append(idx)
+            part2_indices.append(idx)
+        else:
+            if is_part2:
+                part2_indices.append(idx)
+            else:
+                part1_indices.append(idx)
+
+    for i in range(17):
+        is_part2 = i >= 10
+        force_kg = i in _KG_UNIT_HEADER_INDICES
+        _add_col(raw_labels[i], base_min_widths[i], base_aligns[i], "center", is_part2, force_kg)
+        
+        if retailers:
+            if i == 5:
+                for r in retailers:
+                    _add_col(f"{r.name}\nUsed", 50, "right", "center", is_part2=False, force_kg=True)
+            elif i == 11:
+                for r in retailers:
+                    _add_col(f"{r.name}\nAssump.", 50, "right", "center", is_part2=True, force_kg=True)
+            elif i == 12:
+                for r in retailers:
+                    _add_col(f"{r.name}\nSales", 50, "right", "center", is_part2=True, force_kg=True)
+            elif i == 14:
+                for r in retailers:
+                    _add_col(f"{r.name}\nAssump. Amt", 54, "right", "center", is_part2=True, force_kg=False)
+            elif i == 15:
+                for r in retailers:
+                    _add_col(f"{r.name}\nSales Amt", 54, "right", "center", is_part2=True, force_kg=False)
+
+    return headers, min_widths, aligns, h_aligns, part1_indices, part2_indices
 
 
-OVER_REPORT_SHEET_HEADER_ALIGNMENTS = ("center",) * 17
-OVER_REPORT_SHEET_MIN_WIDTHS = (
-    46,
-    58,
-    50,
-    50,
-    50,
-    68,
-    56,
-    52,
-    48,
-    52,
-    58,
-    50,
-    48,
-    48,
-    58,
-    52,
-    58,
-)
 OVER_REPORT_SHEET_HEADER_PADDING = 8
 OVER_REPORT_SHEET_DATA_PADDING = 6
 OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF = 11.0
 OVER_REPORT_SHEET_HEADER_FONT_SIZE_REPORTLAB = 10.0
 OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF = 12.0
 OVER_REPORT_SHEET_DATA_FONT_SIZE_REPORTLAB = 11.0
-OVER_REPORT_SHEET_ALIGNMENTS = [
-    "center",
-    "left",
-    "right",
-    "right",
-    "right",
-    "left",
-    "right",
-    "right",
-    "right",
-    "right",
-    "left",
-    "right",
-    "right",
-    "right",
-    "right",
-    "right",
-    "right",
-]
-
 
 def _over_report_sheet_widths(
     headers: list[str],
@@ -181,7 +196,7 @@ def _over_report_sheet_widths(
     line_width: Callable[[str], float],
     available_width: float,
     padding: float = OVER_REPORT_SHEET_HEADER_PADDING,
-    min_widths: tuple[int, ...] = OVER_REPORT_SHEET_MIN_WIDTHS,
+    min_widths: Sequence[int],
     rows: list[list[str]] | None = None,
     data_line_width: Callable[[str], float] | None = None,
     data_padding: float = OVER_REPORT_SHEET_DATA_PADDING,
@@ -263,12 +278,14 @@ def _fpdf_sheet_data_line_width(pdf: FPDF, text: str) -> float:
 def _reportlab_over_report_sheet_widths(
     headers: list[str],
     available_width: float,
+    min_widths: Sequence[int],
     rows: list[list[str]] | None = None,
 ) -> list[int]:
     return _over_report_sheet_widths(
         headers,
         line_width=_reportlab_sheet_header_line_width,
         available_width=available_width,
+        min_widths=min_widths,
         rows=rows,
         data_line_width=_reportlab_sheet_data_line_width,
     )
@@ -277,8 +294,8 @@ def _reportlab_over_report_sheet_widths(
 def _fpdf_over_report_sheet_widths(
     pdf: FPDF,
     headers: list[str],
+    min_widths: Sequence[int],
     rows: list[list[str]] | None = None,
-    min_widths: tuple[int, ...] = OVER_REPORT_SHEET_MIN_WIDTHS,
 ) -> list[int]:
     available_width = pdf.w - pdf.l_margin - pdf.r_margin
     return _over_report_sheet_widths(

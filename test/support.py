@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -341,6 +342,11 @@ class DatabaseHarness:
             session.commit()
             for price in prices:
                 session.refresh(price)
+            if price_date == date.today():
+                shop = session.get(Shop, shop_id)
+                if shop is not None:
+                    shop.daily_prices_published_on = price_date
+                    session.commit()
             return prices
 
 

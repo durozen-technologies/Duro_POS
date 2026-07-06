@@ -1601,8 +1601,16 @@ export function PriceGrid({
     if (priceState.incompleteCount > 0) {
       return;
     }
+    if (priceState.completeEntries.length !== items.length) {
+      return;
+    }
     onCompleteToday(priceState.completeEntries, 0);
-  }, [onCompleteToday, priceState.completeEntries, priceState.incompleteCount]);
+  }, [
+    items.length,
+    onCompleteToday,
+    priceState.completeEntries,
+    priceState.incompleteCount,
+  ]);
   const priceSummaryText = `${selectedShop?.name ?? "Select a shop"} · ${items.length} items · ${priceState.dirtyCount} unsaved${
     priceState.incompleteCount > 0 ? ` · ${priceState.incompleteCount} need price` : ""
   }`;
@@ -1717,11 +1725,17 @@ export function PriceGrid({
                   onPress={() => onSaveEdited(priceState.dirtyEntries)}
                 />
                 <ActionButton 
-                  label="Save"
+                  label={savingAll ? "Publishing..." : "Save"}
                   icon="calendar-check-outline"
                   palette={palette}
                   tone="success"
-                  disabled={items.length === 0 || priceState.incompleteCount > 0 || savingAll}
+                  loading={savingAll}
+                  disabled={
+                    items.length === 0
+                    || priceState.incompleteCount > 0
+                    || priceState.completeEntries.length !== items.length
+                    || savingAll
+                  }
                   onPress={completeToday}
                 />
               </XStack>

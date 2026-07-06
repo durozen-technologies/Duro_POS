@@ -40,12 +40,12 @@ export type AppStackParamList = {
   AdminItemPrices: { shopId?: UUID } | undefined;
   AdminItemCategories: undefined;
   AdminInventory:
-    | {
-        shopId?: UUID;
-        tab?:
-          "items" | "categories" | "purchaseRates" | "shops" | "transferShops";
-      }
-    | undefined;
+  | {
+    shopId?: UUID;
+    tab?:
+    "items" | "categories" | "purchaseRates" | "shops" | "transferShops";
+  }
+  | undefined;
   AdminReports: undefined;
   AdminOverallReportPreview: {
     sections: AdminReportSection[];
@@ -59,22 +59,22 @@ export type AppStackParamList = {
   AdminExpenses: { shopId?: UUID } | undefined;
   AdminShopExpensesOrder: { shopId: UUID; shopName?: string };
   AdminExpenseItemEditor:
-    | {
-        initialItem?: import("@/types/api").ExpenseItemRead;
-      }
-    | undefined;
+  | {
+    initialItem?: import("@/types/api").ExpenseItemRead;
+  }
+  | undefined;
   AdminRetailers:
-    | {
-        tab?: import("@/screens/admin/admin-dashboard-utils").AdminRetailersTab;
-        retailerId?: UUID;
-        shopId?: UUID;
-      }
-    | undefined;
+  | {
+    tab?: import("@/screens/admin/admin-dashboard-utils").AdminRetailersTab;
+    retailerId?: UUID;
+    shopId?: UUID;
+  }
+  | undefined;
   AdminRetailerEditor:
-    | {
-        initialRetailer?: import("@/types/api").RetailerRead;
-      }
-    | undefined;
+  | {
+    initialRetailer?: import("@/types/api").RetailerRead;
+  }
+  | undefined;
   AdminRetailerDetail: { retailer: import("@/types/api").RetailerRead };
   AdminRetailerBranches: {
     retailerId: UUID;
@@ -84,11 +84,11 @@ export type AppStackParamList = {
   AdminRetailerItems: { retailerId: UUID; retailerName: string };
   AdminRetailerSaleDetail: { saleId: UUID };
   AdminInventoryItemEditor:
-    | {
-        itemId?: UUID;
-        initialItem?: InventoryItemRead;
-      }
-    | undefined;
+  | {
+    itemId?: UUID;
+    initialItem?: InventoryItemRead;
+  }
+  | undefined;
   AdminItemEditor: {
     mode: AdminItemEditorMode;
     workspace: AdminItemWorkspace;
@@ -105,6 +105,8 @@ export type AppStackParamList = {
   RetailerSaleDetail: { saleId: UUID };
   InventoryManagement: undefined;
   ShopExpenses: undefined;
+  ShopBills: undefined;
+  ShopBillDetail: { billId: UUID };
   PrinterSetup: undefined;
 };
 
@@ -259,6 +261,14 @@ export type InventoryManagementScreenProps = NativeStackScreenProps<
 export type ShopExpensesScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "ShopExpenses"
+>;
+export type ShopBillsScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "ShopBills"
+>;
+export type ShopBillDetailScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "ShopBillDetail"
 >;
 export type PrinterSetupScreenProps = NativeStackScreenProps<
   AppStackParamList,

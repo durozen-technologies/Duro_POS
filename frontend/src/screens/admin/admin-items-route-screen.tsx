@@ -722,6 +722,11 @@ function AdminItemsRoute({
   }, [priceState, shopItemsState, showToast]);
 
   const completeTodayPrices = useCallback((entries: DailyPriceCreate["entries"], _staleCarryCount: number) => {
+    if (entries.length === 0) {
+      triggerHaptic();
+      showToast("error", "Add today's prices for every item before saving.");
+      return;
+    }
     if (entries.some((entry) => !isPositiveNumber(entry.price_per_unit))) {
       triggerHaptic();
       showToast("error", "Add prices greater than 0 before completing today.");
@@ -729,7 +734,7 @@ function AdminItemsRoute({
     }
     void priceState.saveAll(entries)
       .then(() => {
-        showToast("success", "Today's prices completed.");
+        showToast("success", "Today's prices published for shop billing.");
         void shopItemsState.refresh().catch(() => undefined);
       })
       .catch((error) => showToast("error", error instanceof Error ? error.message : "Unable to save prices."));

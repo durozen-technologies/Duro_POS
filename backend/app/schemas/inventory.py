@@ -141,6 +141,7 @@ class InventoryCategoryUsageRead(BaseModel):
     category_name: str
     available_quantity: Decimal = Decimal("0")
     used_quantity: Decimal = Decimal("0")
+    retailer_used_quantity: Decimal = Decimal("0")
 
 
 class InventoryItemStockRead(InventoryItemRead):
@@ -150,6 +151,8 @@ class InventoryItemStockRead(InventoryItemRead):
     available_quantity: Decimal = Decimal("0")
     added_quantity: Decimal = Decimal("0")
     used_quantity: Decimal = Decimal("0")
+    transfer_stock: Decimal = Decimal("0")
+    retailer_used_quantity: Decimal = Decimal("0")
     category_usage: list[InventoryCategoryUsageRead] = Field(default_factory=list)
 
 
@@ -158,6 +161,9 @@ class InventorySummaryRead(BaseModel):
     shop_name: str
     items: list[InventoryItemStockRead]
     categories: list[InventoryCategoryUsageRead]
+    total_transfer_stock: Decimal = Decimal("0")
+    total_used_stock: Decimal = Decimal("0")
+    total_retailer_used_stock: Decimal = Decimal("0")
 
 
 class InventoryStockRowsPage(BaseModel):
@@ -169,6 +175,9 @@ class InventoryStockRowsPage(BaseModel):
     next_cursor_sort_order: int | None = None
     next_cursor_name: str | None = None
     next_cursor_id: UUID | None = None
+    total_transfer_stock: Decimal = Decimal("0")
+    total_used_stock: Decimal = Decimal("0")
+    total_retailer_used_stock: Decimal = Decimal("0")
 
 
 class InventoryMovementRead(BaseModel):

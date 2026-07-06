@@ -6,7 +6,8 @@ from .database import Base
 
 UUID_IDENTIFIER_COLUMNS = {
     "bill_items": {"id", "bill_id", "item_id"},
-    "bills": {"id", "shop_id"},
+    "checkout_snapshots": {"id", "shop_id", "bill_id"},
+    "bills": {"id", "shop_id", "created_by_user_id"},
     "daily_prices": {"id", "shop_id", "item_id"},
     "expense_entries": {"id", "shop_id", "expense_item_id"},
     "expense_items": {"id"},
