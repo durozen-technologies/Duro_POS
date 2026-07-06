@@ -320,7 +320,9 @@ run_migrations() {
 
 backend_health_http_probe() {
   local service="${1:?backend service name required}"
-  compose_quiet exec -T "${service}" curl -fsS http://127.0.0.1:8000/health || true
+  compose_quiet exec -T "${service}" \
+    python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read().decode())" \
+    2>/dev/null || true
 }
 
 log_backend_health_diagnostics() {

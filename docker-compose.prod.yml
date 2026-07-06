@@ -96,7 +96,11 @@ x-backend-app: &backend-app
   expose:
     - "8000"
   healthcheck: &backend-healthcheck
-    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+    test:
+      [
+        "CMD-SHELL",
+        "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)\"",
+      ]
     interval: 10s
     timeout: 3s
     retries: 3
@@ -243,7 +247,7 @@ services:
     expose:
       - "6432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-postgres} || exit 1"]
+      test: ["CMD-SHELL", "/usr/local/bin/pgbouncer-healthcheck.sh"]
       interval: 10s
       timeout: 3s
       retries: 5

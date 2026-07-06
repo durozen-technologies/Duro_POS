@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+: "${POSTGRES_USER:?Set POSTGRES_USER}"
+: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
+
+export PGPASSWORD="${POSTGRES_PASSWORD}"
+exec pg_isready -h 127.0.0.1 -p 6432 -U "${POSTGRES_USER}"
