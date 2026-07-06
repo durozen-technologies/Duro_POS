@@ -81,7 +81,14 @@ def main(argv: list[str] | None = None) -> None:
 
     if not args.tenants_only:
         logger.info("Running database migration workflow...")
-        asyncio.run(run_async_migration_phase(migrate_legacy_item_images_before_schema_changes))
+        if platform_schema_ready():
+            asyncio.run(
+                run_async_migration_phase(migrate_legacy_item_images_before_schema_changes)
+            )
+        else:
+            logger.info(
+                "Skipping legacy item-image migration; platform schema not present yet."
+            )
         run_schema_migrations()
         asyncio.run(run_async_migration_phase(run_database_startup_tasks))
 
