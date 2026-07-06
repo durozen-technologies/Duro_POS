@@ -353,25 +353,40 @@ jobs:
           echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
           echo "Deploy target: ${{ secrets.DEPLOY_USER }}@${DEPLOY_HOST}:${DEPLOY_PATH}"
 
-      - name: Resolve SCP payload
-        id: scp
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ env.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Upload deploy bundle
         env:
           CHANGED_DEPLOY: ${{ needs.changes.outputs.deploy }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          sources="docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh,pgbouncer"
+          set -euo pipefail
+          paths=(
+            docker-compose.prod.yml
+            .env.deploy
+            scripts/deploy-prod.sh
+            scripts/pos-logs.sh
+            scripts/postgres-recover.sh
+            pgbouncer
+          )
           if [ "$CHANGED_DEPLOY" = "true" ]; then
-            sources="${sources},rustfs"
+            paths+=(rustfs)
           fi
-          echo "sources=${sources}" >> "$GITHUB_OUTPUT"
-
-      - uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: ${{ steps.scp.outputs.sources }}
-          target: ${{ env.DEPLOY_PATH }}
-          strip_components: 0
+          echo "Uploading deploy bundle (${#paths[@]} paths): ${paths[*]}"
+          tar czf - "${paths[@]}" | ssh \
+            -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=3 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "mkdir -p '${DEPLOY_PATH}' && tar xzf - -C '${DEPLOY_PATH}'"
 
       - uses: appleboy/ssh-action@v1.2.0
         env:
@@ -382,6 +397,8 @@ jobs:
           host: ${{ env.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 120s
+          command_timeout: 30m
           envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,DEPLOY_PATH
           script: |
             set -euo pipefail
