@@ -70,9 +70,29 @@ def configure_logging(*, production: bool, level: int = logging.INFO) -> None:
     if production:
         handler.setFormatter(JsonLogFormatter())
     else:
-        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
+        handler.setFormatter(
+            logging.Formatter("%(levelname)s:     %(message)s"),
+        )
+        _configure_dev_access_logging()
     root.addHandler(handler)
     root.setLevel(level)
+
+
+def _configure_dev_access_logging() -> None:
+    """Terminal access lines matching uvicorn's default dev output."""
+    from uvicorn.logging import AccessFormatter
+
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.handlers.clear()
+    access_logger.propagate = False
+    access_logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(
+        AccessFormatter(
+            fmt='%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+        ),
+    )
+    access_logger.addHandler(handler)
 
 
 def bind_request_id(request_id: str | None) -> None:

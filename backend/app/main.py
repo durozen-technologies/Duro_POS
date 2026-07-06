@@ -126,11 +126,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware, enable_hsts=settings.production)
-app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     RequestTimingMiddleware,
     threshold_seconds=settings.slow_request_threshold_seconds,
 )
+app.add_middleware(RequestIdMiddleware)
 app.add_middleware(SelectiveGZipMiddleware, minimum_size=1024)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 

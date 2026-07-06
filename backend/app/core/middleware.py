@@ -10,6 +10,33 @@ from app.core.logging import bind_request_id, log_event
 
 GZIP_EXCLUDED_CONTENT_TYPES = ("text/event-stream", "image/")
 logger = logging.getLogger(__name__)
+access_logger = logging.getLogger("uvicorn.access")
+
+
+def _log_http_access(scope: Scope, *, client_addr: str, method: str, path: str, status: int) -> None:
+    from app.core.config import get_settings
+
+    http_version = str(scope.get("http_version") or "1.1")
+    if not get_settings().production:
+        access_logger.info(
+            '%s - "%s %s HTTP/%s" %s',
+            client_addr,
+            method,
+            path,
+            http_version,
+            status,
+        )
+        return
+
+    log_event(
+        logger,
+        logging.INFO,
+        "http_request_completed",
+        f'{client_addr} - "{method} {path} HTTP/{http_version}" {status}',
+        method=method,
+        path=path,
+        status=status,
+    )
 
 
 class RequestIdMiddleware:
@@ -37,7 +64,7 @@ class RequestIdMiddleware:
 
 
 class RequestTimingMiddleware:
-    """Log request lifecycle for all /api/v1 routes with structured fields."""
+    """Log every HTTP request with a uvicorn-style terminal line in dev."""
 
     def __init__(self, app: ASGIApp, *, threshold_seconds: float = 0.75) -> None:
         self.app = app
@@ -49,12 +76,10 @@ class RequestTimingMiddleware:
             return
 
         path = str(scope.get("path", ""))
-        if not path.startswith("/api/v1"):
-            await self.app(scope, receive, send)
-            return
-
         method = str(scope.get("method", ""))
         request_id = str(scope.get("request_id", ""))
+        client = scope.get("client")
+        client_addr = f"{client[0]}:{client[1]}" if client else "-"
         started_at = perf_counter()
         status_code: int | None = None
 
@@ -62,7 +87,7 @@ class RequestTimingMiddleware:
             logger,
             logging.DEBUG,
             "http_request_started",
-            "request started",
+            f"{method} {path}",
             method=method,
             path=path,
             request_id=request_id,
@@ -89,17 +114,25 @@ class RequestTimingMiddleware:
             else:
                 level = logging.INFO
 
-            log_event(
-                logger,
-                level,
-                "http_request_completed",
-                "request completed",
+            _log_http_access(
+                scope,
+                client_addr=client_addr,
                 method=method,
                 path=path,
                 status=status,
-                elapsed_ms=round(elapsed_ms, 1),
-                request_id=request_id,
             )
+            if level != logging.INFO:
+                log_event(
+                    logger,
+                    level,
+                    "http_request_completed",
+                    f'{client_addr} - "{method} {path} HTTP/1.1" {status}',
+                    method=method,
+                    path=path,
+                    status=status,
+                    elapsed_ms=round(elapsed_ms, 1),
+                    request_id=request_id,
+                )
             if elapsed_ms >= self.threshold_seconds * 1000:
                 log_event(
                     logger,

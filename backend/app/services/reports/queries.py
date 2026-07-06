@@ -71,6 +71,32 @@ def _over_report_balance_amount(
     return _decimal(sales) - _decimal(purchase) - _decimal(expense)
 
 
+def _total_retailer_inventory_used(item: OverallReportInventoryItem) -> Decimal:
+    return sum((_decimal(entry.used_stock) for entry in item.retailer_data), Decimal("0"))
+
+
+def _total_retailer_billing_value(
+    billing_row: OverallReportBillingItem | None,
+    field: str,
+) -> Decimal:
+    if billing_row is None:
+        return Decimal("0")
+    return sum(
+        (_decimal(getattr(entry, field)) for entry in billing_row.retailer_data),
+        Decimal("0"),
+    )
+
+
+def _item_total_retailer_billing_value(
+    item: OverallReportInventoryItem,
+    field: str,
+) -> Decimal:
+    return sum(
+        (_total_retailer_billing_value(billing_row, field) for billing_row in item.billing_items),
+        Decimal("0"),
+    )
+
+
 async def build_overall_report(
     db: AsyncSession,
     *,
@@ -801,6 +827,9 @@ def _write_over_report_statement(
     from app.services.reports.pdf import get_over_report_sheet_config
     headers, min_widths, aligns, h_aligns, p1_idx, p2_idx = get_over_report_sheet_config(use_tamil, statement.retailers)
     sheet_headers = headers
+    inventory_headers = [headers[i] for i in p1_idx]
+    inventory_aligns = [aligns[i] for i in p1_idx]
+    inventory_min_widths = [min_widths[i] for i in p1_idx]
 
     mapped_items = [i for i in statement.inventory_items if i.billing_items]
     unmapped_items = [i for i in statement.inventory_items if not i.billing_items]
@@ -834,15 +863,21 @@ def _write_over_report_statement(
         writer._set_text_font(title, 8, bold=True)
         writer._set_fill(writer._text)
         writer._canvas.drawCentredString(
-            writer._margin + sum(sheet_widths[:8]) / 2, writer._y - 12, title
+            writer._margin + sum(sheet_widths[i] for i in p1_idx) / 2, writer._y - 12, title
         )
         writer._y -= 20
 
+        inventory_widths = _reportlab_over_report_sheet_widths(
+            inventory_headers,
+            writer._available_width,
+            inventory_min_widths,
+            [[row[i] for i in p1_idx] for row in unmapped_rows],
+        )
         writer.sheet_table(
-            sheet_headers[:8],
-            [row[:8] for row in unmapped_rows],
-            sheet_widths[:8],
-            aligns[:8],
+            inventory_headers,
+            [[row[i] for i in p1_idx] for row in unmapped_rows],
+            inventory_widths,
+            inventory_aligns,
         )
 
     if statement.inventory_items:
@@ -910,99 +945,81 @@ def _over_report_sheet_rows(
                 _quantity_with_unit(item.adding_stock, item.unit) if is_first else "",
                 _quantity_with_unit(item.total_available_stock, item.unit) if is_first else "",
                 _used_stock_breakdown_text(used_row, item.unit),
-            ]
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_inv_data = next((d for d in item.retailer_data if d.retailer_id == r.id), None)
-                    row_data.append(_quantity_with_unit(r_inv_data.used_stock, item.unit) if (is_first and r_inv_data) else "")
-            
-            row_data.extend([
+                _quantity_with_unit(_total_retailer_inventory_used(item), item.unit)
+                if is_first
+                else "",
                 _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
                 _quantity_with_unit(item.remaining_stock, item.unit),
                 _money(item.purchase_rate) if is_first and item.purchase_rate is not None else "",
                 _money(item.purchase_amount) if is_first else "",
-                billing_display_name if billing_row is not None else ("No mapped billing sales" if is_first and not billing_rows else ""),
-                _quantity_with_unit(billing_row.assumption_quantity, billing_row.unit) if billing_row is not None else "",
-            ])
-            
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
-                    row_data.append(_quantity_with_unit(r_bill_data.assumption_quantity, billing_row.unit) if r_bill_data else "")
-
-            row_data.append(_quantity_with_unit(billing_row.sales_quantity, billing_row.unit) if billing_row is not None else "")
-            
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
-                    row_data.append(_quantity_with_unit(r_bill_data.sales_quantity, billing_row.unit) if r_bill_data else "")
-            
-            row_data.extend([
-                _quantity_with_unit(billing_row.difference_quantity, billing_row.unit) if billing_row is not None else "",
+                billing_display_name
+                if billing_row is not None
+                else ("No mapped billing sales" if is_first and not billing_rows else ""),
+                _quantity_with_unit(billing_row.assumption_quantity, billing_row.unit)
+                if billing_row is not None
+                else "",
+                _quantity_with_unit(
+                    _total_retailer_billing_value(billing_row, "assumption_quantity"),
+                    billing_row.unit,
+                )
+                if billing_row is not None
+                else "",
+                _quantity_with_unit(billing_row.sales_quantity, billing_row.unit)
+                if billing_row is not None
+                else "",
+                _quantity_with_unit(
+                    _total_retailer_billing_value(billing_row, "sales_quantity"),
+                    billing_row.unit,
+                )
+                if billing_row is not None
+                else "",
+                _quantity_with_unit(billing_row.difference_quantity, billing_row.unit)
+                if billing_row is not None
+                else "",
                 _money(billing_row.assumption_amount) if billing_row is not None else "",
-            ])
+                _money(_total_retailer_billing_value(billing_row, "assumption_amount"))
+                if billing_row is not None
+                else "",
+                _money(billing_row.sales_amount) if billing_row is not None else "",
+                _money(_total_retailer_billing_value(billing_row, "sales_amount"))
+                if billing_row is not None
+                else "",
+                _money(billing_row.difference_amount) if billing_row is not None else "",
+            ]
 
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
-                    row_data.append(_money(r_bill_data.assumption_amount) if r_bill_data else "")
-
-            row_data.append(_money(billing_row.sales_amount) if billing_row is not None else "")
-
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_bill_data = next((d for d in billing_row.retailer_data if d.retailer_id == r.id), None) if billing_row else None
-                    row_data.append(_money(r_bill_data.sales_amount) if r_bill_data else "")
-            
-            row_data.append(_money(billing_row.difference_amount) if billing_row is not None else "")
-            
             rows.append(row_data)
 
         if is_single_date:
             row_data = [
-                "", "", "", "", "",
+                "",
+                "",
+                "",
+                "",
+                "",
                 f"Total Used\n{_quantity_with_unit(item.used_stock, item.unit)}",
-            ]
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_inv_data = next((d for d in item.retailer_data if d.retailer_id == r.id), None)
-                    row_data.append(f"Total Used\n{_quantity_with_unit(r_inv_data.used_stock, item.unit)}" if r_inv_data else "")
-            
-            row_data.extend([
-                "", "", "", "", "Subtotal",
+                f"Total Used\n{_quantity_with_unit(_total_retailer_inventory_used(item), item.unit)}",
+                "",
+                "",
+                "",
+                "",
+                "Subtotal",
                 _quantity_with_unit(item.assumption_quantity, item.unit),
-            ])
-            
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_assump_qty = sum((next((d.assumption_quantity for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
-                    row_data.append(_quantity_with_unit(r_assump_qty, item.unit) if r_assump_qty else "")
-            
-            row_data.append(_quantity_with_unit(item.sales_quantity, item.unit))
-
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_sales_qty = sum((next((d.sales_quantity for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
-                    row_data.append(_quantity_with_unit(r_sales_qty, item.unit) if r_sales_qty else "")
-            
-            row_data.extend([
+                _quantity_with_unit(
+                    _item_total_retailer_billing_value(item, "assumption_quantity"),
+                    item.unit,
+                ),
+                _quantity_with_unit(item.sales_quantity, item.unit),
+                _quantity_with_unit(
+                    _item_total_retailer_billing_value(item, "sales_quantity"),
+                    item.unit,
+                ),
                 _quantity_with_unit(item.difference_quantity, item.unit),
                 _money(item.assumption_amount),
-            ])
-
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_assump_amt = sum((next((d.assumption_amount for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
-                    row_data.append(_money(r_assump_amt) if r_assump_amt else "")
-            
-            row_data.append(_money(item.sales_amount))
-            
-            if statement.retailers:
-                for r in statement.retailers:
-                    r_sales_amt = sum((next((d.sales_amount for d in b.retailer_data if d.retailer_id == r.id), Decimal(0)) for b in item.billing_items), Decimal(0))
-                    row_data.append(_money(r_sales_amt) if r_sales_amt else "")
-            
-            row_data.append(_money(item.difference_amount))
+                _money(_item_total_retailer_billing_value(item, "assumption_amount")),
+                _money(item.sales_amount),
+                _money(_item_total_retailer_billing_value(item, "sales_amount")),
+                _money(item.difference_amount),
+            ]
             rows.append(row_data)
 
     return rows
@@ -1479,7 +1496,7 @@ async def _generate_over_report_fpdf_pdf(
                 pdf.set_font("NotoSans", style="B", size=11)
                 pdf.set_text_color(31, 39, 51)
                 pdf.cell(
-                    sum(widths1[:8]),
+                    sum(widths1),
                     10,
                     text="No mapped billing Items",
                     align="C",
@@ -1487,10 +1504,10 @@ async def _generate_over_report_fpdf_pdf(
                     new_y="NEXT",
                 )
 
-                unmapped_widths = widths1[:8]
-                unmapped_alignments = alignments1[:8]
-                unmapped_header_alignments = header_alignments1[:8]
-                unmapped_headers = headers1[:8]
+                unmapped_widths = widths1
+                unmapped_alignments = alignments1
+                unmapped_header_alignments = header_alignments1
+                unmapped_headers = headers1
 
                 def draw_unmapped_header_row1() -> None:
                     pdf.set_font("NotoSans", style="B", size=11)
@@ -1518,7 +1535,7 @@ async def _generate_over_report_fpdf_pdf(
                         pdf,
                         unmapped_widths,
                         unmapped_alignments,
-                        [row[i] for i in range(8)],
+                        [row[i] for i in part1_indices],
                         line_height=14,
                         padding=4,
                         fill=fill,

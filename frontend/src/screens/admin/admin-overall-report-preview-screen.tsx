@@ -73,72 +73,31 @@ type SheetRow = {
   cells: string[];
 };
 
-export function buildSheetColumns(retailers?: OverallReportRetailer[]): SheetColumn[] {
-  const baseColumns: SheetColumn[] = [
+export function buildSheetColumns(_retailers?: OverallReportRetailer[]): SheetColumn[] {
+  return [
     { key: "date", label: "Date", tamilLabel: "\u0ba4\u0bc7\u0ba4\u0bbf", width: 92, align: "center" },
     { key: "inventory", label: "Inventory Item", tamilLabel: "\u0b9a\u0bb0\u0b95\u0bcd\u0b95\u0bc1 \u0baa\u0bca\u0bb0\u0bc1\u0bb3\u0bcd", width: 132 },
     { key: "old", label: "Old Stock", tamilLabel: "\u0baa\u0bb4\u0bc8\u0baf \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 118, align: "right", kgUnit: true },
-    { key: "adding", label: "Adding Stock", tamilLabel: "\u0b9a\u0bc7\u0bb0\u0bcd\u0b95\u0bcd\u0b95\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 126, align: "right", kgUnit: true },
+    { key: "adding", label: "Added Stock", tamilLabel: "\u0b9a\u0bc7\u0bb0\u0bcd\u0b95\u0bcd\u0b95\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 126, align: "right", kgUnit: true },
     { key: "available", label: "Total Available Stock", tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0b95\u0bbf\u0b9f\u0bc8\u0b95\u0bcd\u0b95\u0bc1\u0bae\u0bcd \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 136, align: "right", kgUnit: true },
-    { key: "used", label: "Used Stock", tamilLabel: "\u0baa\u0baf\u0ba9\u0bcd\u0baa\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 138, kgUnit: true },
-  ];
-
-  if (retailers) {
-    for (const r of retailers) {
-      baseColumns.push({ key: `used_${r.id}`, label: `${r.name}\nUsed`, tamilLabel: `${r.name}\n\u0baa\u0baf\u0ba9\u0bcd\u0baa\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f`, width: 130, align: "right", kgUnit: true });
-    }
-  }
-
-  baseColumns.push(
+    { key: "used", label: "Used Stock (Normal)", tamilLabel: "\u0baa\u0baf\u0ba9\u0bcd\u0baa\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 138, kgUnit: true },
+    { key: "retailer_used", label: "Total Retailer Used Stock", tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8\u0baf\u0bbe\u0bb3\u0bb0\u0bcd \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 148, align: "right", kgUnit: true },
     { key: "transfer", label: "Transfer Stock", tamilLabel: "\u0baa\u0bb0\u0bbf\u0bae\u0bbe\u0bb1\u0bcd\u0bb1 \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 130, align: "right", kgUnit: true },
     { key: "remaining", label: "Remaining Stock", tamilLabel: "\u0bae\u0bc0\u0ba4\u0bbf \u0b87\u0bb0\u0bc1\u0baa\u0bcd\u0baa\u0bc1", width: 126, align: "right", kgUnit: true },
-    { key: "billing", label: "Billing Items", tamilLabel: "\u0baa\u0bbf\u0bb2\u0bcd\u0bb2\u0bbf\u0b99\u0bcd \u0baa\u0bca\u0bb0\u0bc1\u0bb3\u0bcd\u0b95\u0bb3\u0bcd", width: 142 },
-    { key: "assumption", label: "Assumption", tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9\u0bae\u0bcd", width: 132, align: "right", kgUnit: true }
-  );
-
-  if (retailers) {
-    for (const r of retailers) {
-      baseColumns.push({ key: `assump_${r.id}`, label: `${r.name}\nAssumption`, tamilLabel: `${r.name}\n\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9\u0bae\u0bcd`, width: 132, align: "right", kgUnit: true });
-    }
-  }
-
-  baseColumns.push(
-    { key: "sales", label: "Sales", tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8", width: 112, align: "right", kgUnit: true }
-  );
-
-  if (retailers) {
-    for (const r of retailers) {
-      baseColumns.push({ key: `sales_${r.id}`, label: `${r.name}\nSales`, tamilLabel: `${r.name}\n\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8`, width: 112, align: "right", kgUnit: true });
-    }
-  }
-
-  baseColumns.push(
-    { key: "difference", label: "Difference", tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a\u0bae\u0bcd", width: 120, align: "right", kgUnit: true },
-    { key: "assumption_amount", label: "Assumption Amount", tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9 \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" }
-  );
-
-  if (retailers) {
-    for (const r of retailers) {
-      baseColumns.push({ key: `assump_amt_${r.id}`, label: `${r.name}\nAssumption Amount`, tamilLabel: `${r.name}\n\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9 \u0ba4\u0bca\u0b95\u0bc8`, width: 124, align: "right" });
-    }
-  }
-
-  baseColumns.push(
-    { key: "sales_amount", label: "Sales Amount", tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8 \u0ba4\u0bca\u0b95\u0bc8", width: 112, align: "right" }
-  );
-
-  if (retailers) {
-    for (const r of retailers) {
-      baseColumns.push({ key: `sales_amt_${r.id}`, label: `${r.name}\nSales Amount`, tamilLabel: `${r.name}\n\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8 \u0ba4\u0bca\u0b95\u0bc8`, width: 112, align: "right" });
-    }
-  }
-
-  baseColumns.push(
     { key: "purchase_rate", label: "Purchase Rate", tamilLabel: "\u0b95\u0bca\u0bb3\u0bcd\u0bae\u0bc1\u0ba4\u0bb2\u0bcd \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" },
-    { key: "difference_amount", label: "Difference Amount", tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" }
-  );
-
-  return baseColumns;
+    { key: "purchase_amount", label: "Purchase Amount", tamilLabel: "\u0b95\u0bca\u0bb3\u0bcd\u0bae\u0bc1\u0ba4\u0bb2\u0bcd \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" },
+    { key: "billing", label: "Billing Item", tamilLabel: "\u0baa\u0bbf\u0bb2\u0bcd\u0bb2\u0bbf\u0b99\u0bcd \u0baa\u0bca\u0bb0\u0bc1\u0bb3\u0bcd", width: 142 },
+    { key: "assumption", label: "Assumption (Normal)", tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9\u0bae\u0bcd", width: 132, align: "right", kgUnit: true },
+    { key: "retailer_assumption", label: "Total Retailer Assumption", tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8\u0baf\u0bbe\u0bb3\u0bb0\u0bcd \u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9\u0bae\u0bcd", width: 148, align: "right", kgUnit: true },
+    { key: "sales", label: "Sales (Normal)", tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8", width: 112, align: "right", kgUnit: true },
+    { key: "retailer_sales", label: "Total Retailer Sales", tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8\u0baf\u0bbe\u0bb3\u0bb0\u0bcd \u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8", width: 136, align: "right", kgUnit: true },
+    { key: "difference", label: "Difference", tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a\u0bae\u0bcd", width: 120, align: "right", kgUnit: true },
+    { key: "assumption_amount", label: "Assumption Amount (Normal)", tamilLabel: "\u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9 \u0ba4\u0bca\u0b95\u0bc8", width: 148, align: "right" },
+    { key: "retailer_assumption_amount", label: "Total Retailer Assumption Amount", tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8\u0baf\u0bbe\u0bb3\u0bb0\u0bcd \u0b85\u0ba9\u0bc1\u0bae\u0bbe\u0ba9 \u0ba4\u0bca\u0b95\u0bc8", width: 156, align: "right" },
+    { key: "sales_amount", label: "Sales Amount (Normal)", tamilLabel: "\u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8 \u0ba4\u0bca\u0b95\u0bc8", width: 132, align: "right" },
+    { key: "retailer_sales_amount", label: "Total Retailer Billing Amount", tamilLabel: "\u0bae\u0bca\u0ba4\u0bcd\u0ba4 \u0bb5\u0bbf\u0bb1\u0bcd\u0baa\u0ba9\u0bc8\u0baf\u0bbe\u0bb3\u0bb0\u0bcd \u0baa\u0bbf\u0bb2\u0bcd\u0bb2\u0bbf\u0b99\u0bcd \u0ba4\u0bca\u0b95\u0bc8", width: 156, align: "right" },
+    { key: "difference_amount", label: "Difference Amount", tamilLabel: "\u0bb5\u0bbf\u0ba4\u0bcd\u0ba4\u0bbf\u0baf\u0bbe\u0b9a \u0ba4\u0bca\u0b95\u0bc8", width: 124, align: "right" },
+  ];
 }
 const ROW_BATCH_SIZE = 18;
 
@@ -176,6 +135,31 @@ function formatUsedBreakdown(row: OverallReportUsedStockBreakdown | undefined, u
   return `${row.label}\n${formatReportQuantityWithUnit(row.quantity, unit)}`;
 }
 
+function sumRetailerInventoryUsed(item: OverallReportInventoryItem) {
+  return item.retailer_data?.reduce((total, entry) => money(total).plus(entry.used_stock).toString(), "0") ?? "0";
+}
+
+function sumRetailerBillingField(
+  billingRow: OverallReportInventoryItem["billing_items"][number] | undefined,
+  field: "assumption_quantity" | "sales_quantity" | "assumption_amount" | "sales_amount",
+) {
+  if (!billingRow) return "0";
+  return billingRow.retailer_data.reduce(
+    (total, entry) => money(total).plus(entry[field]).toString(),
+    "0",
+  );
+}
+
+function sumItemRetailerBillingField(
+  item: OverallReportInventoryItem,
+  field: "assumption_quantity" | "sales_quantity" | "assumption_amount" | "sales_amount",
+) {
+  return item.billing_items.reduce(
+    (total, billingRow) => money(total).plus(sumRetailerBillingField(billingRow, field)).toString(),
+    "0",
+  );
+}
+
 function buildInventoryRows(
   statement: OverallReportStatement,
   item: OverallReportInventoryItem,
@@ -209,63 +193,27 @@ function buildInventoryRows(
       isFirst ? formatReportQuantityWithUnit(item.adding_stock, item.unit) : "",
       isFirst ? formatReportQuantityWithUnit(item.total_available_stock, item.unit) : "",
       formatUsedBreakdown(usedRow, item.unit),
-    ];
-
-    if (statement.retailers) {
-      for (const r of statement.retailers) {
-        const rData = item.retailer_data?.find((d) => d.retailer_id === r.id);
-        cells.push(isFirst && rData ? formatReportQuantityWithUnit(rData.used_stock, item.unit) : "");
-      }
-    }
-
-    cells.push(
+      isFirst ? formatReportQuantityWithUnit(sumRetailerInventoryUsed(item), item.unit) : "",
       isFirst ? formatReportQuantityWithUnit(item.transfer_stock, item.unit) : "",
       formatReportQuantityWithUnit(item.remaining_stock, item.unit),
+      isFirst && item.purchase_rate != null ? formatReportMoney(item.purchase_rate) : "",
+      isFirst ? formatReportMoney(item.purchase_amount) : "",
       billingDisplayName ?? (isFirst && billingRows.length === 0 ? "No mapped billing sales" : ""),
       billingRow ? formatReportQuantityWithUnit(billingRow.assumption_quantity, billingRow.unit) : "",
-    );
-
-    if (statement.retailers) {
-      for (const r of statement.retailers) {
-        const rBillData = billingRow?.retailer_data?.find((d) => d.retailer_id === r.id);
-        cells.push(rBillData ? formatReportQuantityWithUnit(rBillData.assumption_quantity, billingRow.unit) : "");
-      }
-    }
-
-    cells.push(billingRow ? formatReportQuantityWithUnit(billingRow.sales_quantity, billingRow.unit) : "");
-
-    if (statement.retailers) {
-      for (const r of statement.retailers) {
-        const rBillData = billingRow?.retailer_data?.find((d) => d.retailer_id === r.id);
-        cells.push(rBillData ? formatReportQuantityWithUnit(rBillData.sales_quantity, billingRow.unit) : "");
-      }
-    }
-
-    cells.push(
+      billingRow
+        ? formatReportQuantityWithUnit(sumRetailerBillingField(billingRow, "assumption_quantity"), billingRow.unit)
+        : "",
+      billingRow ? formatReportQuantityWithUnit(billingRow.sales_quantity, billingRow.unit) : "",
+      billingRow
+        ? formatReportQuantityWithUnit(sumRetailerBillingField(billingRow, "sales_quantity"), billingRow.unit)
+        : "",
       billingRow ? formatReportQuantityWithUnit(billingRow.difference_quantity, billingRow.unit) : "",
       billingRow ? formatReportMoney(billingRow.assumption_amount) : "",
-    );
-
-    if (statement.retailers) {
-      for (const r of statement.retailers) {
-        const rBillData = billingRow?.retailer_data?.find((d) => d.retailer_id === r.id);
-        cells.push(rBillData ? formatReportMoney(rBillData.assumption_amount) : "");
-      }
-    }
-
-    cells.push(billingRow ? formatReportMoney(billingRow.sales_amount) : "");
-
-    if (statement.retailers) {
-      for (const r of statement.retailers) {
-        const rBillData = billingRow?.retailer_data?.find((d) => d.retailer_id === r.id);
-        cells.push(rBillData ? formatReportMoney(rBillData.sales_amount) : "");
-      }
-    }
-
-    cells.push(
-      isFirst ? formatReportMoney(item.purchase_amount) : "",
+      billingRow ? formatReportMoney(sumRetailerBillingField(billingRow, "assumption_amount")) : "",
+      billingRow ? formatReportMoney(billingRow.sales_amount) : "",
+      billingRow ? formatReportMoney(sumRetailerBillingField(billingRow, "sales_amount")) : "",
       billingRow ? formatReportMoney(billingRow.difference_amount) : "",
-    );
+    ];
 
     rows.push({
       id: `${statement.shop_id}-${statement.start_date}-${statement.end_date}-${item.inventory_item_id}-${index}`,
@@ -529,7 +477,7 @@ const StatementCard = memo(function StatementCard({
   );
 
   const tableConfig = useMemo(() => {
-    const columns = buildSheetColumns(statement.retailers);
+    const columns = buildSheetColumns();
     const unmappedColumns = [];
     for (const c of columns) {
       if (c.key === "billing") break;
@@ -547,7 +495,7 @@ const StatementCard = memo(function StatementCard({
       fullTableWidth: fullWidth,
       unmappedTableWidth: unmappedWidth,
     };
-  }, [statement.retailers]);
+  }, []);
 
   return (
     <View

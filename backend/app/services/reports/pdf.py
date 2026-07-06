@@ -80,19 +80,24 @@ _OVER_REPORT_HEADER_LABELS_EN = (
     "Date",
     "Inventory Item",
     "Old Stock",
-    "Adding Stock",
+    "Added Stock",
     "Total Available Stock",
-    "Used Stock",
+    "Used Stock (Normal)",
+    "Total Retailer Used Stock",
     "Transfer Stock",
     "Remaining Stock",
     "Purchase Rate",
     "Purchase Amount",
-    "Billing Items",
-    "Assumption",
-    "Sales",
+    "Billing Item",
+    "Assumption (Normal)",
+    "Total Retailer Assumption",
+    "Sales (Normal)",
+    "Total Retailer Sales",
     "Difference",
-    "Assumption Amount",
-    "Sales Amount",
+    "Assumption Amount (Normal)",
+    "Total Retailer Assumption Amount",
+    "Sales Amount (Normal)",
+    "Total Retailer Billing Amount",
     "Difference Amount",
 )
 _OVER_REPORT_HEADER_LABELS_TA = (
@@ -101,20 +106,25 @@ _OVER_REPORT_HEADER_LABELS_TA = (
     "பழைய இருப்பு",
     "சேர்க்கப்பட்ட இருப்பு",
     "மொத்த இருப்பு",
-    "பயன்படுத்தப்பட்ட இருப்பு",
+    "பயன்படுத்தப்பட்ட இருப்பு (சாதாரண)",
+    "மொத்த விற்பனையாளர் பயன்பாடு",
     "பரிமாற்ற இருப்பு",
     "மீதி இருப்பு",
     "கொள்முதல் விலை",
     "கொள்முதல் தொகை",
-    "பில்லிங் பொருள்கள்",
-    "அனுமானம்",
-    "விற்பனை",
+    "பில்லிங் பொருள்",
+    "அனுமானம் (சாதாரண)",
+    "மொத்த விற்பனையாளர் அனுமானம்",
+    "விற்பனை (சாதாரண)",
+    "மொத்த விற்பனையாளர் விற்பனை",
     "வித்தியாசம்",
-    "அனுமான தொகை",
-    "விற்பனை தொகை",
+    "அனுமான தொகை (சாதாரண)",
+    "மொத்த விற்பனையாளர் அனுமான தொகை",
+    "விற்பனை தொகை (சாதாரண)",
+    "மொத்த விற்பனையாளர் பில்லிங் தொகை",
     "வித்தியாச தொகை",
 )
-_KG_UNIT_HEADER_INDICES = frozenset({2, 3, 4, 5, 6, 7, 10, 11, 12})
+_KG_UNIT_HEADER_INDICES = frozenset({2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16})
 
 
 from app.schemas.admin import OverallReportRetailer
@@ -122,25 +132,29 @@ from app.schemas.admin import OverallReportRetailer
 def get_over_report_sheet_config(
     use_tamil: bool, retailers: list[OverallReportRetailer] | None = None
 ) -> tuple[list[str], list[int], list[str], list[str], list[int], list[int]]:
-    retailers = retailers or []
+    del retailers  # retailer-wise values are aggregated; no per-retailer PDF columns
     raw_labels = _OVER_REPORT_HEADER_LABELS_TA if use_tamil else _OVER_REPORT_HEADER_LABELS_EN
-    
+
     headers: list[str] = []
     min_widths: list[int] = []
     aligns: list[str] = []
     h_aligns: list[str] = []
-    
-    base_min_widths = [46, 58, 50, 50, 50, 68, 56, 52, 48, 52, 58, 50, 48, 48, 58, 52, 58]
-    base_aligns = [
-        "center", "left", "right", "right", "right", "left", "right", "right",
-        "right", "right", "left", "right", "right", "right", "right", "right", "right"
+
+    base_min_widths = [
+        46, 58, 50, 50, 50, 68, 64, 52, 48, 52, 58,
+        58, 50, 64, 50, 64, 48, 58, 68, 58, 72, 58,
     ]
-    
-    part1_indices = []
-    part2_indices = []
-    
-    def _add_col(label: str, min_width: int, align: str, h_align: str, is_part2: bool = False, force_kg: bool = False):
-        idx = len(headers)
+    base_aligns = [
+        "center", "left",
+        "right", "right", "right", "left", "right", "right", "right", "right", "right",
+        "left", "right", "right", "right", "right", "right",
+        "right", "right", "right", "right", "right",
+    ]
+
+    part1_indices = list(range(11))
+    part2_indices = [0, 1] + list(range(11, 22))
+
+    def _add_col(label: str, min_width: int, align: str, h_align: str, force_kg: bool = False) -> None:
         if force_kg:
             headers.append(f"{label}\n{KG_UNIT_SUFFIX}")
         else:
@@ -148,39 +162,20 @@ def get_over_report_sheet_config(
         min_widths.append(min_width)
         aligns.append(align)
         h_aligns.append(h_align)
-        
-        if idx in (0, 1):
-            part1_indices.append(idx)
-            part2_indices.append(idx)
-        else:
-            if is_part2:
-                part2_indices.append(idx)
-            else:
-                part1_indices.append(idx)
 
-    for i in range(17):
-        is_part2 = i >= 10
+    for i in range(22):
         force_kg = i in _KG_UNIT_HEADER_INDICES
-        _add_col(raw_labels[i], base_min_widths[i], base_aligns[i], "center", is_part2, force_kg)
-        
-        if retailers:
-            if i == 5:
-                for r in retailers:
-                    _add_col(f"{r.name}\nUsed", 50, "right", "center", is_part2=False, force_kg=True)
-            elif i == 11:
-                for r in retailers:
-                    _add_col(f"{r.name}\nAssump.", 50, "right", "center", is_part2=True, force_kg=True)
-            elif i == 12:
-                for r in retailers:
-                    _add_col(f"{r.name}\nSales", 50, "right", "center", is_part2=True, force_kg=True)
-            elif i == 14:
-                for r in retailers:
-                    _add_col(f"{r.name}\nAssump. Amt", 54, "right", "center", is_part2=True, force_kg=False)
-            elif i == 15:
-                for r in retailers:
-                    _add_col(f"{r.name}\nSales Amt", 54, "right", "center", is_part2=True, force_kg=False)
+        _add_col(raw_labels[i], base_min_widths[i], base_aligns[i], "center", force_kg)
 
     return headers, min_widths, aligns, h_aligns, part1_indices, part2_indices
+
+
+def _over_report_sheet_headers(
+    use_tamil: bool = False,
+    retailers: list[OverallReportRetailer] | None = None,
+) -> list[str]:
+    headers, _, _, _, _, _ = get_over_report_sheet_config(use_tamil, retailers)
+    return headers
 
 
 OVER_REPORT_SHEET_HEADER_PADDING = 8
