@@ -12,6 +12,7 @@ LOG_DIR="${DEPLOY_ROOT}/logs"
 DEPLOY_LOG="${LOG_DIR}/deploy.log"
 HEALTH_RETRIES="${HEALTH_RETRIES:-30}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"
+INFRA_HEALTH_RETRIES="${INFRA_HEALTH_RETRIES:-72}"
 export COMPOSE_PROFILES="${COMPOSE_PROFILES:-infra}"
 COMPOSE_BIN=()
 COMPOSE_V2=false
@@ -99,7 +100,7 @@ debug_log() {
 
 compose_file_args() {
   local -n _out=$1
-  _out=(-f "${COMPOSE_FILE}" --env-file "${ENV_FILE}")
+  _out=(--profile "${COMPOSE_PROFILES:-infra}" -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}")
   if [[ -f "${DEPLOY_ROOT}/docker-compose.prod.override.yml" ]]; then
     _out+=(-f "${DEPLOY_ROOT}/docker-compose.prod.override.yml")
   fi
@@ -162,7 +163,7 @@ validate_compose_config() {
 
 service_container_id() {
   local service="$1"
-  compose_quiet ps -q "${service}" | head -n1
+  compose_quiet ps -q --status running "${service}" | head -n1
 }
 
 service_health() {
@@ -170,10 +171,101 @@ service_health() {
   local cid
   cid="$(service_container_id "${service}")"
   if [[ -z "${cid}" ]]; then
+    cid="$(compose_quiet ps -q --status exited "${service}" | head -n1)"
+    if [[ -n "${cid}" ]]; then
+      echo "exited"
+      return 0
+    fi
     echo "missing"
     return 0
   fi
   docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${cid}" 2>/dev/null || echo "unknown"
+}
+
+log_infra_diagnostics() {
+  log "Compose service status:"
+  run_compose ps -a || true
+  local svc
+  for svc in postgres pgbouncer rustfs redis; do
+    log "${svc}=$(service_health "${svc}")"
+    log "Recent ${svc} logs:"
+    run_compose logs --tail 50 "${svc}" || true
+  done
+}
+
+wait_service_health() {
+  local service="$1"
+  local max_attempts="${2:-${HEALTH_RETRIES}}"
+  local i status
+  for ((i = 1; i <= max_attempts; i++)); do
+    status="$(service_health "${service}")"
+    if [[ "${status}" == "healthy" ]]; then
+      log "${service} healthy"
+      return 0
+    fi
+    if [[ "${status}" == "exited" || "${status}" == "dead" ]]; then
+      log "${service} stopped (status=${status})"
+      run_compose logs --tail 80 "${service}" || true
+      return 1
+    fi
+    if (( i == 1 || i % 6 == 0 )); then
+      log "${service} not ready yet: status=${status} (attempt ${i}/${max_attempts})"
+    fi
+    sleep "${HEALTH_INTERVAL}"
+  done
+  log "${service} health timeout (last status=${status})"
+  run_compose logs --tail 80 "${service}" || true
+  return 1
+}
+
+bootstrap_infra_service() {
+  local service="$1"
+  local build="${2:-false}"
+  local status
+  status="$(service_health "${service}")"
+
+  if [[ "${status}" == "healthy" ]]; then
+    return 0
+  fi
+
+  if [[ "${status}" == "starting" ]]; then
+    log "${service} still starting — waiting for health"
+    wait_service_health "${service}" "${INFRA_HEALTH_RETRIES}"
+    return $?
+  fi
+
+  if [[ "${status}" == "missing" || "${status}" == "exited" || "${status}" == "dead" ]]; then
+    log "Starting ${service} (status=${status})"
+    if [[ "${build}" == "true" ]]; then
+      run_compose up -d --build "${service}"
+    else
+      run_compose up -d "${service}"
+    fi
+  else
+    log "${service} not healthy (status=${status}) — recreating"
+    if [[ "${build}" == "true" ]]; then
+      run_compose up -d --build --force-recreate "${service}"
+    else
+      run_compose up -d --force-recreate "${service}"
+    fi
+  fi
+
+  wait_service_health "${service}" "${INFRA_HEALTH_RETRIES}"
+}
+
+RUSTFS_RUNTIME_UID=10001
+RUSTFS_RUNTIME_GID=10001
+
+rustfs_data_dir() {
+  echo "${RUSTFS_DATA_DIR:-/home/ubuntu/rustfs/data}"
+}
+
+ensure_rustfs_data_dir() {
+  local data_dir
+  data_dir="$(rustfs_data_dir)"
+  sudo mkdir -p "${data_dir}"
+  sudo chown -R "${RUSTFS_RUNTIME_UID}:${RUSTFS_RUNTIME_GID}" "${data_dir}"
+  sudo chmod 750 "${data_dir}"
 }
 
 infra_healthy() {
@@ -333,62 +425,44 @@ bootstrap_infra() {
     return 0
   fi
 
-  local pb_cid rf_cid rd_cid pb_health rf_health rd_health
-  pb_cid="$(service_container_id pgbouncer)"
-  rf_cid="$(service_container_id rustfs)"
-  rd_cid="$(service_container_id redis)"
-  pb_health="$(service_health pgbouncer)"
-  rf_health="$(service_health rustfs)"
-  rd_health="$(service_health redis)"
-
   if ! bootstrap_postgres; then
+    log_infra_diagnostics
     exit 1
   fi
 
-  if [[ -z "${pb_cid}" ]]; then
-    log "Starting pgBouncer for first-time bootstrap"
-    run_compose up -d --build pgbouncer
-  elif [[ "${pb_health}" != "healthy" ]]; then
-    log "pgBouncer not healthy (status=${pb_health}) — recreating pgbouncer"
-    run_compose up -d --build --force-recreate pgbouncer
+  ensure_rustfs_data_dir
+
+  if ! bootstrap_infra_service pgbouncer true; then
+    log_infra_diagnostics
+    exit 1
   fi
 
-  if [[ -z "${rf_cid}" ]]; then
-    log "Starting rustfs for first-time bootstrap"
-    run_compose up -d rustfs
-  elif [[ "${rf_health}" != "healthy" ]]; then
-    log "RustFS not healthy (status=${rf_health}) — recreating rustfs"
-    run_compose up -d --force-recreate rustfs
+  if ! bootstrap_infra_service rustfs false; then
+    log_infra_diagnostics
+    exit 1
   fi
 
-  if [[ -z "${rd_cid}" ]]; then
-    log "Starting redis for first-time bootstrap"
-    run_compose up -d redis
-  elif [[ "${rd_health}" != "healthy" ]]; then
-    log "Redis not healthy (status=${rd_health}) — recreating redis"
-    run_compose up -d --force-recreate redis
+  if ! bootstrap_infra_service redis false; then
+    log_infra_diagnostics
+    exit 1
   fi
 
-  log "Waiting for infra health"
-  local i
-  for ((i = 1; i <= HEALTH_RETRIES; i++)); do
-    if infra_healthy; then
-      log "Infra healthy"
-      return 0
-    fi
-    sleep "${HEALTH_INTERVAL}"
-  done
+  if infra_healthy; then
+    log "Infra healthy"
+    return 0
+  fi
 
-  log "Infra failed to become healthy (postgres=$(service_health postgres), pgbouncer=${pb_health}, rustfs=${rf_health}, redis=${rd_health})"
+  log "Infra failed final health check (postgres=$(service_health postgres), pgbouncer=$(service_health pgbouncer), rustfs=$(service_health rustfs), redis=$(service_health redis))"
+  log_infra_diagnostics
   exit 1
 }
 
 sync_compose_project() {
   log "Applying compose/network changes (infra only, no image pull)"
   if [[ "${COMPOSE_V2}" == "true" ]]; then
-    run_compose up -d --no-recreate --pull never postgres pgbouncer redis
+    run_compose up -d --no-recreate --pull never postgres pgbouncer redis rustfs
   else
-    run_compose up -d --no-recreate postgres pgbouncer redis
+    run_compose up -d --no-recreate postgres pgbouncer redis rustfs
   fi
 }
 

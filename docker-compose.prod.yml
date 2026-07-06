@@ -1,3 +1,5 @@
+name: brolier360-pos
+
 x-default-logging: &default-logging
   driver: json-file
   options:
@@ -249,9 +251,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "/usr/local/bin/pgbouncer-healthcheck.sh"]
       interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     deploy:
       resources:
         limits:
