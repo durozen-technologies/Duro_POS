@@ -30,7 +30,9 @@ LABEL org.opencontainers.image.title="Brolier 360 RustFS" \
       org.opencontainers.image.version="${BUILD_VERSION}" \
       org.opencontainers.image.revision="${BUILD_REVISION}"
 
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+USER root
+
+COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN set -eux; \
     if ! grep -Eq "^[^:]+:[^:]*:${RUSTFS_DATA_GID}:" /etc/group; then \
@@ -40,7 +42,6 @@ RUN set -eux; \
         echo "${RUSTFS_USER}:x:${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}:RustFS runtime user:/data:/sbin/nologin" >> /etc/passwd; \
     fi; \
     mkdir -p /data /logs; \
-    chmod 0755 /usr/local/bin/docker-entrypoint.sh; \
     chown -R "${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}" /data /logs /usr/local/bin/docker-entrypoint.sh
 
 USER ${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}
