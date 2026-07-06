@@ -12,7 +12,7 @@ LOG_DIR="${DEPLOY_ROOT}/logs"
 DEPLOY_LOG="${LOG_DIR}/deploy.log"
 HEALTH_RETRIES="${HEALTH_RETRIES:-30}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"
-APP_HEALTH_RETRIES="${APP_HEALTH_RETRIES:-15}"
+APP_HEALTH_RETRIES="${APP_HEALTH_RETRIES:-45}"
 APP_HEALTH_INTERVAL="${APP_HEALTH_INTERVAL:-1}"
 PULL_RETRIES="${PULL_RETRIES:-5}"
 PULL_RETRY_INTERVAL="${PULL_RETRY_INTERVAL:-10}"
@@ -214,6 +214,40 @@ compose_pull_with_retry() {
     sleep "${PULL_RETRY_INTERVAL}"
     ((attempt++))
   done
+}
+
+backend_image_ref() {
+  echo "${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${BACKEND_IMAGE_REPO:-brolier360-pos-backend}:${BACKEND_IMAGE_TAG:?Set BACKEND_IMAGE_TAG}"
+}
+
+caddy_image_ref() {
+  echo "${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${CADDY_IMAGE_REPO:-brolier360-pos-caddy}:${CADDY_IMAGE_TAG:?Set CADDY_IMAGE_TAG}"
+}
+
+pull_backend_images() {
+  local tag="$1"
+  BACKEND_IMAGE_TAG="${tag}"
+  if compose_pull_with_retry backend-1; then
+    return 0
+  fi
+  if docker image inspect "$(backend_image_ref)" &>/dev/null; then
+    log "Backend pull failed — using cached image $(backend_image_ref)"
+    return 0
+  fi
+  return 1
+}
+
+pull_caddy_image() {
+  local tag="$1"
+  CADDY_IMAGE_TAG="${tag}"
+  if compose_pull_with_retry caddy; then
+    return 0
+  fi
+  if docker image inspect "$(caddy_image_ref)" &>/dev/null; then
+    log "Caddy pull failed — using cached image $(caddy_image_ref)"
+    return 0
+  fi
+  return 1
 }
 
 validate_compose_config() {
@@ -538,16 +572,12 @@ resolve_image_tags() {
   local deploy_backend="${1}"
   local deploy_caddy="${2}"
 
-  if [[ "${deploy_backend}" == "true" ]]; then
-    export BACKEND_IMAGE_TAG="latest"
-  else
-    export BACKEND_IMAGE_TAG="${BACKEND_TAG_PREVIOUS:-latest}"
+  # Keep BACKEND_IMAGE_TAG / CADDY_IMAGE_TAG from .env (CI sets github.sha) when deploying.
+  if [[ "${deploy_backend}" != "true" ]]; then
+    export BACKEND_IMAGE_TAG="${BACKEND_TAG_PREVIOUS:-${BACKEND_IMAGE_TAG:-latest}}"
   fi
-
-  if [[ "${deploy_caddy}" == "true" ]]; then
-    export CADDY_IMAGE_TAG="latest"
-  else
-    export CADDY_IMAGE_TAG="${CADDY_TAG_PREVIOUS:-latest}"
+  if [[ "${deploy_caddy}" != "true" ]]; then
+    export CADDY_IMAGE_TAG="${CADDY_TAG_PREVIOUS:-${CADDY_IMAGE_TAG:-latest}}"
   fi
 
   log "Image tags: backend=${BACKEND_IMAGE_TAG} (deploy=${deploy_backend}), caddy=${CADDY_IMAGE_TAG} (deploy=${deploy_caddy})"
@@ -561,7 +591,10 @@ run_migrations() {
 
 backend_health_http_probe() {
   local service="${1:?backend service name required}"
-  compose_quiet exec -T "${service}" \
+  local cid
+  cid="$(service_container_id "${service}" running)"
+  [[ -z "${cid}" ]] && return 0
+  docker exec "${cid}" \
     python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read().decode())" \
     2>/dev/null || true
 }
@@ -629,10 +662,13 @@ wait_backend_health() {
 deploy_backend_instance() {
   local service="$1"
   local image_tag="$2"
-  log "Pulling ${service} image (tag=${image_tag})"
-  BACKEND_IMAGE_TAG="${image_tag}" compose_pull_with_retry "${service}"
+  local skip_pull="${3:-false}"
+  if [[ "${skip_pull}" != "true" ]]; then
+    log "Pulling ${service} image (tag=${image_tag})"
+    BACKEND_IMAGE_TAG="${image_tag}" compose_pull_with_retry "${service}" || return 1
+  fi
   log "Deploying ${service}"
-  BACKEND_IMAGE_TAG="${image_tag}" run_compose up -d --no-deps "${service}"
+  BACKEND_IMAGE_TAG="${image_tag}" run_compose up -d --no-deps --pull never "${service}"
   wait_backend_health "${service}"
 }
 
@@ -640,7 +676,7 @@ deploy_backend_rolling() {
   local image_tag="$1"
   local previous_tag="$2"
 
-  if ! deploy_backend_instance "backend-1" "${image_tag}"; then
+  if ! deploy_backend_instance "backend-1" "${image_tag}" true; then
     log "backend-1 failed to become healthy"
     if [[ -n "${previous_tag}" && "${previous_tag}" != "${image_tag}" ]]; then
       log "Rolling back backend-1 to ${previous_tag}"
@@ -649,7 +685,7 @@ deploy_backend_rolling() {
     return 1
   fi
 
-  if ! deploy_backend_instance "backend-2" "${image_tag}"; then
+  if ! deploy_backend_instance "backend-2" "${image_tag}" true; then
     log "backend-2 failed to become healthy — backend-1 is on ${image_tag}"
     if [[ -n "${previous_tag}" && "${previous_tag}" != "${image_tag}" ]]; then
       log "Rolling back backend-2 to ${previous_tag}"
@@ -677,7 +713,7 @@ refresh_backend_env_if_needed() {
     if backend_allowed_hosts_mismatch "${service}"; then
       mismatched=true
       log "${service} ALLOWED_HOSTS out of sync with .env — recreating"
-      run_compose up -d --no-deps "${service}"
+      run_compose up -d --no-deps --pull never "${service}"
       if ! wait_backend_health "${service}"; then
         log "${service} failed after env sync"
         return 1
@@ -772,10 +808,11 @@ deploy_app() {
     return 0
   fi
 
-  sync_compose_project
-
   if [[ "${deploy_backend}" == "true" ]]; then
-    BACKEND_IMAGE_TAG="${new_backend_tag}" compose_pull_with_retry backend-1 backend-2
+    if ! pull_backend_images "${new_backend_tag}"; then
+      log "Failed to pull backend image (tag=${new_backend_tag})"
+      exit 1
+    fi
 
     if ! run_migrations "${new_backend_tag}"; then
       log "Database migration failed"
@@ -795,10 +832,14 @@ deploy_app() {
 
   if [[ "${deploy_caddy}" == "true" ]]; then
     log "Pulling caddy image (tag=${new_caddy_tag})"
-    CADDY_IMAGE_TAG="${new_caddy_tag}" compose_pull_with_retry caddy
+    if ! pull_caddy_image "${new_caddy_tag}"; then
+      log "Failed to pull caddy image (tag=${new_caddy_tag})"
+      rollback "${BACKEND_TAG_PREVIOUS}" "${CADDY_TAG_PREVIOUS}" false true
+      exit 1
+    fi
 
     log "Deploying caddy"
-    CADDY_IMAGE_TAG="${new_caddy_tag}" run_compose up -d --no-deps caddy
+    CADDY_IMAGE_TAG="${new_caddy_tag}" run_compose up -d --no-deps --pull never caddy
 
     if ! wait_caddy_health; then
       log "Caddy health check failed"

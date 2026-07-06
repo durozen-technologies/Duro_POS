@@ -68,8 +68,6 @@ x-backend-app: &backend-app
   depends_on:
     pgbouncer:
       condition: service_healthy
-    migrate:
-      condition: service_completed_successfully
     rustfs:
       condition: service_healthy
     redis:

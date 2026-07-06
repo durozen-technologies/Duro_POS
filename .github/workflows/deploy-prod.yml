@@ -390,4 +390,7 @@ jobs:
             chmod +x scripts/deploy-prod.sh scripts/pos-logs.sh scripts/postgres-recover.sh
             export DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}"
             export DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN}"
+            export DEPLOY_BACKEND="${{ steps.plan.outputs.deploy_backend }}"
+            export DEPLOY_CADDY="${{ steps.plan.outputs.deploy_caddy }}"
+            export SYNC_COMPOSE="${{ steps.plan.outputs.sync_compose }}"
             bash scripts/deploy-prod.sh
