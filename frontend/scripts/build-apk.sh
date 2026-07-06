@@ -17,8 +17,8 @@ if [[ -z "${EXPO_PUBLIC_API_BASE_URL:-}" ]]; then
   exit 1
 fi
 
-npm run icons:android
-npx expo prebuild --platform android --clean
+bun run icons:android
+bunx expo prebuild --platform android --clean
 
 cd android
 chmod +x gradlew
