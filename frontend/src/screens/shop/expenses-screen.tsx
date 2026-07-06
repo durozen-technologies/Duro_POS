@@ -35,7 +35,6 @@ import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { LoadingState } from "@/components/ui/loading-state";
 import { TextField } from "@/components/ui/text-field";
 import { ShopHeaderActions } from "@/components/shop-header";
-import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import {
   getLocalizedItemName,
@@ -614,10 +613,6 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
           <Text className="min-w-0 flex-1 text-sm font-semibold text-[#B42318]">{errorMessage}</Text>
         </View>
       ) : null}
-      <ApiConnectionBanner />
-
-
-
       <Text className="text-base font-extrabold text-ink">Allocated expense items</Text>
     </View>
   );

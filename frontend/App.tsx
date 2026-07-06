@@ -14,6 +14,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { TamaguiProvider } from "tamagui";
 
 import { AnimatedBrandSplash } from "@/components/animated-brand-splash";
+import { ApiConnectionProvider } from "@/components/api-connection-provider";
 import { appTheme } from "@/constants/theme";
 import { useSessionLifecycle } from "@/hooks/use-session-lifecycle";
 import { AppNavigator } from "@/navigation/app-navigator";
@@ -80,13 +81,15 @@ export default function App() {
     <TamaguiProvider config={tamaguiConfig} defaultTheme="light">
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <StatusBar style="dark" />
-          <NavigationContainer theme={navigationTheme} linking={navigationLinking}>
-            <AppNavigator bootReady={appReady} />
-          </NavigationContainer>
-          {fontsLoaded && !splashAnimationDone ? (
-            <AnimatedBrandSplash onFinish={handleSplashFinish} />
-          ) : null}
+          <ApiConnectionProvider>
+            <StatusBar style="dark" />
+            <NavigationContainer theme={navigationTheme} linking={navigationLinking}>
+              <AppNavigator bootReady={appReady} />
+            </NavigationContainer>
+            {fontsLoaded && !splashAnimationDone ? (
+              <AnimatedBrandSplash onFinish={handleSplashFinish} />
+            ) : null}
+          </ApiConnectionProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </TamaguiProvider>

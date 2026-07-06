@@ -32,7 +32,6 @@ import { Image } from "expo-image";
 import { branding } from "@/constants/branding";
 import { login } from "@/api/auth";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
-import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useAuthStore } from "@/store/auth-store";
 import { useCartStore } from "@/store/cart-store";
 import { usePriceStore } from "@/store/price-store";
@@ -690,8 +689,6 @@ export function LoginScreen() {
                     trailingElement={passwordTrailing}
                   />
                 </View>
-
-                <ApiConnectionBanner />
 
                 {/* ── Form-level Error ────────────────────────────────── */}
                 {formError ? <ErrorBanner message={formError} /> : null}

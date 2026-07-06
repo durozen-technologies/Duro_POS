@@ -156,17 +156,6 @@ function getUploadResponseMessage(body: unknown) {
   return "";
 }
 
-function getUploadAttemptSummary(uploadUrls: string[]) {
-  const origins = uploadUrls.map((uploadUrl) => {
-    try {
-      return new URL(uploadUrl).origin;
-    } catch {
-      return uploadUrl;
-    }
-  });
-  return Array.from(new Set(origins)).join(", ");
-}
-
 class UploadHttpError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);

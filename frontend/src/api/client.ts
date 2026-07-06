@@ -1,6 +1,13 @@
 import axios, { CanceledError, type InternalAxiosRequestConfig, isAxiosError } from "axios";
 
 import {
+  API_CONNECTION_ERROR_MESSAGE,
+  ApiRequestError,
+  formatUserFacingApiMessage,
+  isApiRequestError,
+  isNetworkConnectionError,
+} from "@/api/api-errors";
+import {
   API_BASE_URL,
   API_BASE_URL_FALLBACKS,
   API_BASE_URL_STORAGE_KEY,
@@ -23,30 +30,8 @@ export type ApiError = {
   baseUrl?: string;
 };
 
-const API_CONNECTION_ERROR_MESSAGE = "Unable to connect to the server. Please check your internet connection and try again. Otherwise, contact your administrator.";
-
 export { API_CONNECTION_ERROR_MESSAGE };
-
-const NETWORK_ERROR_PATTERN =
-  /network request failed|network error|failed to fetch|cannot reach backend|unable to connect/i;
-
-export function isNetworkConnectionError(error: unknown) {
-  if (isAxiosError(error) && !error.response) {
-    return true;
-  }
-
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
-
-  return (
-    NETWORK_ERROR_PATTERN.test(message) ||
-    message === API_CONNECTION_ERROR_MESSAGE
-  );
-}
+export { isNetworkConnectionError } from "@/api/api-errors";
 
 const HTTP_ERROR_MAP: Partial<Record<number, string>> = {
   401: "Session expired. Please sign in again.",
@@ -430,7 +415,7 @@ function probeBaseUrl(baseUrl: string) {
       }
 
       throw new Error(
-        `Health probe failed for ${baseUrl} with status ${response.status}`,
+        `Health probe failed with status ${response.status}`,
       );
     });
 }
@@ -516,17 +501,21 @@ function getNextFallbackBaseUrl(config: RetryableAxiosConfig) {
 }
 
 function getErrorMessage(error: unknown) {
+  if (isApiRequestCanceled(error)) {
+    return "Request canceled.";
+  }
+
   if (!isAxiosError(error)) {
     if (error instanceof Error) {
-      if (/network request failed|network error|failed to fetch/i.test(error.message)) {
+      if (isNetworkConnectionError(error)) {
         return getNetworkFailureMessage();
       }
 
-      return error.message || "Something went wrong. Please try again.";
+      return formatUserFacingApiMessage(error.message);
     }
 
     if (typeof error === "string" && error.trim().length > 0) {
-      return error;
+      return formatUserFacingApiMessage(error);
     }
 
     return "Something went wrong. Please try again.";
@@ -535,7 +524,6 @@ function getErrorMessage(error: unknown) {
   if (!error.response) {
     return getNetworkFailureMessage({
       upload: isFormDataRequestBody(error.config?.data),
-      baseUrl: error.config?.baseURL?.trim(),
     });
   }
 
@@ -546,9 +534,10 @@ function getErrorMessage(error: unknown) {
 
   const responseMessage = getResponseMessage(error.response.data);
   if (responseMessage) {
-    return responseMessage;
+    return formatUserFacingApiMessage(responseMessage);
   }
-  return error.message || "Request failed";
+
+  return formatUserFacingApiMessage(error.message || "Request failed");
 }
 
 function getErrorStatus(error: unknown): number | undefined {
@@ -575,15 +564,24 @@ export function toApiError(error: unknown): ApiError {
     return { message: "Request canceled." };
   }
 
+  if (isApiRequestError(error)) {
+    return {
+      message: error.message,
+      status: error.status,
+      requestId: error.requestId,
+      baseUrl: error.baseUrl,
+    };
+  }
+
   const status = getErrorStatus(error);
   const responseHeaders = isAxiosError(error) ? error.response?.headers : undefined;
   const requestId =
     responseHeaders && typeof responseHeaders === "object"
       ? String(
-        (responseHeaders as Record<string, unknown>)["x-request-id"] ??
-        (responseHeaders as Record<string, unknown>)["X-Request-ID"] ??
-        "",
-      )
+          (responseHeaders as Record<string, unknown>)["x-request-id"] ??
+            (responseHeaders as Record<string, unknown>)["X-Request-ID"] ??
+            "",
+        )
       : "";
   const baseUrl = isAxiosError(error) ? error.config?.baseURL?.trim() : undefined;
   const message = getErrorMessage(error);
@@ -721,6 +719,6 @@ apiClient.interceptors.response.use(
         void logout();
       }
     }
-    return Promise.reject(error);
+    return Promise.reject(new ApiRequestError(toApiError(error), { cause: error }));
   },
 );

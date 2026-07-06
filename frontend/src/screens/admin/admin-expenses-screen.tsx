@@ -42,7 +42,6 @@ import {
   type ExpenseItemImageUploadFile,
 } from "@/api/expenses";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
-import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { AdminExpensesScreenProps } from "@/navigation/types";
 import { useFocusEffect } from "@react-navigation/native";
@@ -1890,7 +1889,6 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 
   const renderHeader = () => (
     <>
-      <ApiConnectionBanner variant="styled" palette={palette} />
       {errorMessage ? (
         <View style={[styles.errorBanner, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
           <MaterialCommunityIcons name="alert-circle-outline" size={18} color={palette.danger} />

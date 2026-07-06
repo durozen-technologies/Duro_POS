@@ -13,7 +13,6 @@ import {
   type FetchShopItemsParams,
 } from "@/api/admin";
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
-import { ApiConnectionBanner } from "@/components/api-connection-banner";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAdminItemsStore } from "@/store/admin-items-store";
 import type {
@@ -760,7 +759,6 @@ function AdminItemsRoute({
 
   const commonHeader = (
     <YStack gap={10}>
-      <ApiConnectionBanner variant="styled" palette={palette} />
       {workspaceNeedsShop ? (
         <ErrorState message={shopsState.error} palette={palette} onRetry={() => void shopsState.reload().catch(() => undefined)} />
       ) : null}
