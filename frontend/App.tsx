@@ -58,9 +58,9 @@ export default function App() {
     <TamaguiProvider config={tamaguiConfig} defaultTheme="light">
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
+          <StatusBar style="dark" />
           <NavigationContainer theme={navigationTheme}>
-            <StatusBar style="dark" />
-            {appReady ? <AppNavigator /> : null}
+            <AppNavigator bootReady={appReady} />
           </NavigationContainer>
           {fontsLoaded && !splashAnimationDone ? (
             <AnimatedBrandSplash onFinish={handleSplashFinish} />

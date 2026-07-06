@@ -50,6 +50,29 @@ class MigrationTests(unittest.TestCase):
         self.assertLess(drop_idx, insert_idx)
         self.assertLess(insert_idx, delete_legacy_idx)
 
+    def test_0012_uses_idempotent_drift_patches(self) -> None:
+        source = (TENANT_MIGRATION_VERSIONS_DIR / "0012_billing_reliability.py").read_text()
+        self.assertIn("ensure_tenant_schema_drift_patches(bind, schema)", source)
+        self.assertNotIn("op.add_column(", source)
+        self.assertNotIn("op.alter_column(", source)
+
+    def test_tenant_migration_chain_reaches_head(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
+        from app.db.tenant_schema import TENANT_MIGRATION_HEAD
+
+        revisions: dict[str, str | None] = {}
+        for path in sorted(TENANT_MIGRATION_VERSIONS_DIR.glob("*.py")):
+            module = _load_migration_module(path)
+            revisions[module.revision] = module.down_revision
+
+        seen: set[str] = set()
+        current: str | None = TENANT_MIGRATION_HEAD
+        while current is not None:
+            self.assertNotIn(current, seen, f"cycle at {current}")
+            seen.add(current)
+            current = revisions.get(current)
+        self.assertIn(None, revisions.values())
+
 
 if __name__ == "__main__":
     unittest.main()

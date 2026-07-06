@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -47,6 +48,7 @@ function exampleBillNumber(prefix: string): string {
 export function SuperAdminOrgEditScreen() {
   const route = useRoute<RouteProps>();
   const navigation = useNavigation<NavProps>();
+  const insets = useSafeAreaInsets();
   const { org: initialOrg } = route.params;
 
   const [org, setOrg] = useState<OrganizationRead>(initialOrg);
@@ -149,7 +151,10 @@ export function SuperAdminOrgEditScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         className="flex-1"
       >
-        <View className="mx-auto w-full max-w-5xl flex-1 px-4 pt-10">
+        <View 
+          className="mx-auto w-full max-w-5xl flex-1 px-4"
+          style={{ paddingTop: Math.max(insets.top, 16) }}
+        >
           {/* Screen header */}
           <View className="flex-row items-center gap-4 pb-6">
             <Pressable
@@ -173,7 +178,7 @@ export function SuperAdminOrgEditScreen() {
 
           <ScrollView
             className="flex-1"
-            contentContainerStyle={{ paddingBottom: 32 }}
+            contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 32) }}
             keyboardShouldPersistTaps="handled"
           >
           {/* Form */}
@@ -265,7 +270,7 @@ export function SuperAdminOrgEditScreen() {
             <Text className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
               Branches
             </Text>
-            <View className="rounded-3xl border border-border bg-card">
+            <View className="overflow-hidden rounded-3xl border border-border bg-card">
               {branchesLoading ? (
                 <View className="items-center py-6">
                   <ActivityIndicator color={INK} />
@@ -276,16 +281,16 @@ export function SuperAdminOrgEditScreen() {
                 branches.map((branch, index) => (
                   <View
                     key={branch.id}
-                    className={`flex-row items-center px-4 py-3 ${index < branches.length - 1 ? "border-b border-border" : ""}`}
+                    className={`flex-row items-center px-4 py-4 ${index < branches.length - 1 ? "border-b border-border" : ""}`}
                   >
-                    <View className="flex-1 pr-3">
-                      <Text className="text-sm font-semibold text-ink">{branch.name}</Text>
-                      <Text className="mt-0.5 text-xs text-muted">{branch.username}</Text>
+                    <View className="flex-1 pr-4">
+                      <Text className="text-base font-semibold text-ink">{branch.name}</Text>
+                      <Text className="mt-0.5 text-sm text-muted">{branch.username}</Text>
                     </View>
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Hard delete branch ${branch.name}`}
-                      className="min-h-[36px] min-w-[36px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft active:opacity-80"
+                      className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft active:opacity-80"
                       disabled={saving}
                       onPress={() => navigation.navigate("SuperAdminHardDelete", {
                         resourceType: "branch",
@@ -294,7 +299,7 @@ export function SuperAdminOrgEditScreen() {
                         organizationId: org.id,
                       })}
                     >
-                      <MaterialCommunityIcons name="delete-outline" size={18} color="#DC2626" />
+                      <MaterialCommunityIcons name="delete-outline" size={20} color="#DC2626" />
                     </Pressable>
                   </View>
                 ))

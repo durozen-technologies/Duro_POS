@@ -17,7 +17,7 @@ from app.db.tenant_schema import (
     create_tenant_schema,
     derive_schema_name,
     is_postgres_session,
-    run_tenant_migrations_async,
+    provision_tenant_schema_async,
     set_search_path,
     tenant_schema_scope,
 )
@@ -65,7 +65,7 @@ async def _provision_schema_for_org(db: AsyncSession, org: Organization, schema_
     await create_tenant_schema(db, safe_schema)
     try:
         async with tenant_schema_scope(db, safe_schema):
-            await run_tenant_migrations_async(db, safe_schema)
+            await provision_tenant_schema_async(db, safe_schema)
             await _create_tenant_full_admin_role(db, org.id)
     except Exception:
         from sqlalchemy import text

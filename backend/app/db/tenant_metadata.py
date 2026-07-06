@@ -241,7 +241,7 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                             """
                             ALTER TABLE bills
                             ADD CONSTRAINT fk_bills_created_by_user_id_users
-                            FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+                            FOREIGN KEY (created_by_user_id) REFERENCES public.users(id)
                             """
                         )
                     )

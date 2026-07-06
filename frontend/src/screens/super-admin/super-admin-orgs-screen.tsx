@@ -4,12 +4,15 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
@@ -39,6 +42,7 @@ function formatSlug(slug: string) {
 
 export function SuperAdminOrgsScreen() {
   const navigation = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [orgs, setOrgs] = useState<OrganizationRead[]>([]);
@@ -141,78 +145,80 @@ export function SuperAdminOrgsScreen() {
     const toggling = togglingId === org.id;
     return (
       <View
-        className={`flex-row items-center px-4 py-3 ${index < orgs.length - 1 ? "border-b border-border" : ""}`}
+        className={`flex-row items-center px-4 py-4 ${index < orgs.length - 1 ? "border-b border-border" : ""}`}
       >
         {/* Status indicator */}
         <View
-          className={`mr-3 h-2.5 w-2.5 rounded-full ${org.is_active ? "bg-success" : "bg-border"}`}
+          className={`mr-4 h-3 w-3 rounded-full ${org.is_active ? "bg-success" : "bg-border"}`}
         />
 
         {/* Info */}
-        <View className="flex-1 pr-3 justify-center">
-          <Text className="text-sm font-semibold text-ink leading-tight" numberOfLines={1}>
+        <View className="flex-1 pr-4 justify-center">
+          <Text className="text-base font-semibold text-ink leading-tight" numberOfLines={1}>
             {org.name}
           </Text>
           <View className="mt-1 flex-row items-center gap-2">
-            <Text className="text-xs text-muted">
+            <Text className="text-sm text-muted">
               {formatSlug(org.slug)}
             </Text>
             <View className="h-1 w-1 rounded-full bg-border" />
-            <Text className="text-xs text-muted">
+            <Text className="text-sm text-muted">
               {org.branch_count} / {org.max_branches} branches
             </Text>
           </View>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Hard delete ${org.name}`}
-          className="mr-2 min-h-[36px] min-w-[36px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft active:opacity-80"
-          disabled={togglingId != null}
-          onPress={() => navigation.navigate("SuperAdminHardDelete", {
-            resourceType: "organization",
-            resourceId: org.id,
-            resourceName: org.name,
-          })}
-        >
-          <MaterialCommunityIcons name="delete-outline" size={18} color="#DC2626" />
-        </Pressable>
+        <View className="flex-row items-center gap-2">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Hard delete ${org.name}`}
+            className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft active:opacity-80"
+            disabled={togglingId != null}
+            onPress={() => navigation.navigate("SuperAdminHardDelete", {
+              resourceType: "organization",
+              resourceId: org.id,
+              resourceName: org.name,
+            })}
+          >
+            <MaterialCommunityIcons name="delete-outline" size={20} color="#DC2626" />
+          </Pressable>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Edit ${org.name}`}
-          className="mr-2 min-h-[36px] min-w-[36px] items-center justify-center rounded-control border border-border bg-card active:opacity-80"
-          disabled={togglingId != null}
-          onPress={() => navigation.navigate("SuperAdminOrgEdit", { org })}
-        >
-          <MaterialCommunityIcons name="pencil-outline" size={18} color={INK} />
-        </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${org.name}`}
+            className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:opacity-80"
+            disabled={togglingId != null}
+            onPress={() => navigation.navigate("SuperAdminOrgEdit", { org })}
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={20} color={INK} />
+          </Pressable>
 
-        {/* Toggle button — spinner while toggling */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            org.is_active ? `Disable ${org.name}` : `Enable ${org.name}`
-          }
-          className={`min-h-[36px] min-w-[76px] items-center justify-center rounded-control border px-3 ${
-            toggling ? "opacity-50" : "active:opacity-80"
-          } ${org.is_active ? "border-transparent bg-dangerSoft" : "border-transparent bg-accent"}`}
-          disabled={toggling || togglingId != null}
-          onPress={() => confirmToggle(org)}
-        >
-          {toggling ? (
-            <ActivityIndicator
-              size="small"
-              color={org.is_active ? "#DC2626" : "#fff"}
-            />
-          ) : (
-            <Text
-              className={`text-sm font-medium ${org.is_active ? "text-danger" : "text-white"}`}
-            >
-              {org.is_active ? "Disable" : "Enable"}
-            </Text>
-          )}
-        </Pressable>
+          {/* Toggle button — spinner while toggling */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              org.is_active ? `Disable ${org.name}` : `Enable ${org.name}`
+            }
+            className={`min-h-[44px] min-w-[84px] items-center justify-center rounded-control border px-4 ${
+              toggling ? "opacity-50" : "active:opacity-80"
+            } ${org.is_active ? "border-transparent bg-dangerSoft" : "border-transparent bg-accent"}`}
+            disabled={toggling || togglingId != null}
+            onPress={() => confirmToggle(org)}
+          >
+            {toggling ? (
+              <ActivityIndicator
+                size="small"
+                color={org.is_active ? "#DC2626" : "#fff"}
+              />
+            ) : (
+              <Text
+                className={`text-sm font-medium ${org.is_active ? "text-danger" : "text-white"}`}
+              >
+                {org.is_active ? "Disable" : "Enable"}
+              </Text>
+            )}
+          </Pressable>
+        </View>
       </View>
     );
   };
@@ -220,8 +226,8 @@ export function SuperAdminOrgsScreen() {
   const listHeader = (
     <View>
       {/* Create form */}
-      <View className="px-4 pb-6 pt-2">
-        <Text className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">
+      <View className="mx-4 mb-8 mt-2 rounded-3xl border border-border bg-card p-5 shadow-sm">
+        <Text className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
           New Organization
         </Text>
         <View className="flex-row gap-3">
@@ -229,7 +235,7 @@ export function SuperAdminOrgsScreen() {
             accessibilityLabel="Organization name"
             autoCapitalize="words"
             autoCorrect={false}
-            className="min-h-[44px] flex-1 rounded-control border border-border bg-card px-4 py-2 text-sm text-ink"
+            className="min-h-[48px] flex-1 rounded-control border border-border bg-surface px-4 py-2 text-base text-ink"
             placeholder="e.g. Acme Retail"
             placeholderTextColor={MUTED}
             returnKeyType="done"
@@ -240,7 +246,7 @@ export function SuperAdminOrgsScreen() {
           <TextInput
             accessibilityLabel="Maximum branches"
             keyboardType="number-pad"
-            className="min-h-[44px] w-[72px] rounded-control border border-border bg-card px-3 py-2 text-center text-sm text-ink"
+            className="min-h-[48px] w-[80px] rounded-control border border-border bg-surface px-3 py-2 text-center text-base text-ink"
             placeholder="5"
             placeholderTextColor={MUTED}
             value={newOrgMaxBranches}
@@ -248,7 +254,7 @@ export function SuperAdminOrgsScreen() {
           />
           <Pressable
             accessibilityRole="button"
-            className={`min-h-[44px] min-w-[76px] items-center justify-center rounded-control bg-accent px-4 ${creating || !newOrgName.trim() ? "opacity-50" : "active:opacity-80"}`}
+            className={`min-h-[48px] min-w-[80px] items-center justify-center rounded-control bg-accent px-4 ${creating || !newOrgName.trim() ? "opacity-50" : "active:opacity-80"}`}
             disabled={creating || !newOrgName.trim()}
             onPress={() => void handleCreate()}
           >
@@ -261,29 +267,33 @@ export function SuperAdminOrgsScreen() {
         </View>
 
         {error ? (
-          <View className="mt-3 rounded-control border border-dangerSoft bg-dangerSoft px-4 py-3">
+          <View className="mt-4 rounded-control border border-dangerSoft bg-dangerSoft px-4 py-3">
             <Text className="text-sm text-danger">{error}</Text>
           </View>
         ) : null}
       </View>
 
       {/* Column header */}
-      <View className="flex-row items-center border-y border-border bg-surface px-4 py-2.5">
-        <View className="mr-3 w-2.5" />
-        <Text className="flex-1 pr-3 text-xs font-semibold uppercase tracking-wider text-muted">
+      <View className="flex-row items-center border-y border-border bg-surface px-4 py-3">
+        <View className="mr-4 w-3" />
+        <Text className="flex-1 pr-4 text-xs font-semibold uppercase tracking-wider text-muted">
           Organization
         </Text>
-        <View className="mr-2 w-[36px]" />
-        <View className="w-[76px]" />
       </View>
     </View>
   );
 
   return (
-    <View className="flex-1 bg-background">
-      <View className="mx-auto w-full max-w-5xl flex-1">
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      className="flex-1 bg-background"
+    >
+      <View
+        className="mx-auto w-full max-w-5xl flex-1"
+        style={{ paddingTop: Math.max(insets.top, 16) }}
+      >
         {/* Screen header */}
-        <View className="flex-row items-center gap-4 px-4 pb-6 pt-10">
+        <View className="flex-row items-center gap-4 px-4 pb-6">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -317,7 +327,7 @@ export function SuperAdminOrgsScreen() {
           <FlatList
             data={orgs}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ paddingBottom: 32 }}
+            contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 32) }}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl
@@ -351,6 +361,6 @@ export function SuperAdminOrgsScreen() {
           />
         )}
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

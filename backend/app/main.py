@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
         await run_database_startup_tasks()
 
         if is_postgres_database():
-            run_all_tenant_migrations()
+            run_all_tenant_migrations(quiet=True, registered_only=True)
         app.state.database_ready = True
     except Exception as exc:
         app.state.database_error = str(exc)

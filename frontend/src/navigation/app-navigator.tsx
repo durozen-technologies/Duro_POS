@@ -19,6 +19,39 @@ import { usePriceStore } from "@/store/price-store";
 import { UserRole } from "@/types/api";
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
+const RootStack = createNativeStackNavigator();
+
+type RootRouteName = "Boot" | "Hydration" | "Auth" | "SuperAdmin" | "Admin" | "Shop";
+
+function resolveRootRoute(
+  bootReady: boolean,
+  hydrated: boolean,
+  token: string | null,
+  user: { role: UserRole } | null,
+): RootRouteName {
+  if (!bootReady) return "Boot";
+  if (!hydrated) return "Hydration";
+  if (!token || !user) return "Auth";
+  if (user.role === UserRole.SUPER_ADMIN) return "SuperAdmin";
+  if (user.role === UserRole.TENANT_ADMIN) return "Admin";
+  return "Shop";
+}
+
+function AuthStackScreen() {
+  return <AuthStack />;
+}
+
+function SuperAdminStackScreen() {
+  return <SuperAdminStack />;
+}
+
+function AdminStackScreen() {
+  return <AdminStack />;
+}
+
+function ShopStackScreen() {
+  return <ShopStack />;
+}
 
 // ── Design Tokens (extracted from your existing #F7F1E8) ─────────────
 const COLORS = {
@@ -573,10 +606,17 @@ function ShopStack() {
 }
 
 // ── Main App Navigator (preserves all original logic) ────────────────
-export function AppNavigator() {
+type AppNavigatorProps = {
+  bootReady: boolean;
+};
+
+export function AppNavigator({ bootReady }: AppNavigatorProps) {
   const hydrated = useAuthHydration();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
+
+  const rootRoute = resolveRootRoute(bootReady, hydrated, token, user);
+  const rootKey = `${rootRoute}:${token ?? ""}:${user?.role ?? ""}`;
 
   // Original effect: clear cart/prices when logged out
   useEffect(() => {
@@ -586,27 +626,19 @@ export function AppNavigator() {
     }
   }, [token, user]);
 
-  // Early return: auth loading
-  if (!hydrated) {
-    return <SessionHydrationScreen />;
-  }
-
-  // Early return: not authenticated
-  if (!token || !user) {
-    return <AuthStack />;
-  }
-
-  // Super Admin route
-  if (user.role === UserRole.SUPER_ADMIN) {
-    return <SuperAdminStack />;
-  }
-
-  // Admin route (tenant admin + legacy admin alias)
-  if (user.role === UserRole.TENANT_ADMIN) {
-    return <AdminStack />;
-  }
-
-  // Shop route (default)
-  return <ShopStack />;
+  return (
+    <RootStack.Navigator
+      key={rootKey}
+      initialRouteName={rootRoute}
+      screenOptions={HEADER_HIDDEN_OPTIONS}
+    >
+      <RootStack.Screen name="Boot" component={SessionHydrationScreen} />
+      <RootStack.Screen name="Hydration" component={SessionHydrationScreen} />
+      <RootStack.Screen name="Auth" component={AuthStackScreen} />
+      <RootStack.Screen name="SuperAdmin" component={SuperAdminStackScreen} />
+      <RootStack.Screen name="Admin" component={AdminStackScreen} />
+      <RootStack.Screen name="Shop" component={ShopStackScreen} />
+    </RootStack.Navigator>
+  );
 }
 
