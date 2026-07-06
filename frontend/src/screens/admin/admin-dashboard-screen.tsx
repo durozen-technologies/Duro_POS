@@ -24,10 +24,8 @@ import { z } from "zod";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import type { AdminDashboardScreenProps } from "@/navigation/types";
-import { useAuthStore } from "@/store/auth-store";
-import { useCartStore } from "@/store/cart-store";
+import { logout } from "@/store/auth-store";
 import { usePrinterStore } from "@/store/printer-store";
-import { usePriceStore } from "@/store/price-store";
 import { AnalyticsPeriod, type BillRead, type ShopRead, type UUID } from "@/types/api";
 
 import { adminElevation } from "./admin-dashboard-theme";
@@ -172,9 +170,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const monthOptions = useMemo(() => buildMonthOptions(), []);
   const weekOptions = useMemo(() => buildWeekOptions(), []);
   const yearOptions = useMemo(() => buildYearOptions(), []);
-  const clearSession = useAuthStore((state) => state.clearSession);
-  const resetCart = useCartStore((state) => state.resetCart);
-  const clearPrices = usePriceStore((state) => state.clear);
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
@@ -280,10 +275,8 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
 
   const handleLogout = useCallback(() => {
     triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
-    clearSession();
-    resetCart();
-    clearPrices();
-  }, [clearPrices, clearSession, resetCart]);
+    void logout();
+  }, []);
 
   useEffect(() => {
     if (

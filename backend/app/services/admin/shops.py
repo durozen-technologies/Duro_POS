@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
 from app.core.security import get_password_hash
+from app.services.session_invalidation import invalidate_user_sessions
 from app.db.storage import (
     delete_item_image_storage,
     save_item_image_upload,
@@ -143,6 +144,7 @@ async def update_shop_account(
 
     if new_password is not None:
         shop.owner.password_hash = get_password_hash(new_password)
+        await invalidate_user_sessions(shop.owner)
         has_changes = True
 
     if not has_changes:
@@ -731,6 +733,8 @@ async def set_shop_active_state(
 
     shop.is_active = is_active
     shop.owner.is_active = is_active
+    if not is_active:
+        await invalidate_user_sessions(shop.owner)
     await db.flush()  # batch both UPDATEs before the commit
     await db.commit()
     return _shop_to_read(shop)

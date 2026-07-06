@@ -42,15 +42,41 @@ async def _load_tenant_user_with_relations(db: AsyncSession, user_id: UUID) -> U
     )
 
 
-async def get_current_user(
-    platform_db: AsyncSession = Depends(get_platform_db),
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> User:
-    credentials_exception = HTTPException(
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid authentication credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def _validate_token_claims(payload: dict, user: User) -> None:
+    credentials_exception = _credentials_exception()
+    token_perm = payload.get("perm_version")
+    if token_perm is None or int(token_perm) != user.permissions_version:
+        raise credentials_exception
+
+    token_org_raw = payload.get("org_id")
+    if user.organization_id is None:
+        if token_org_raw is not None:
+            raise credentials_exception
+        return
+
+    if token_org_raw is None:
+        raise credentials_exception
+    try:
+        token_org_id = UUID(str(token_org_raw))
+    except (TypeError, ValueError) as exc:
+        raise credentials_exception from exc
+    if token_org_id != user.organization_id:
+        raise credentials_exception
+
+
+async def get_current_user(
+    platform_db: AsyncSession = Depends(get_platform_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> User:
+    credentials_exception = _credentials_exception()
     if credentials is None or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -70,6 +96,7 @@ async def get_current_user(
         user = await _load_platform_user(platform_db, user_id)
         if user is None or user.organization_id is not None:
             raise credentials_exception
+        _validate_token_claims(payload, user)
         return user
 
     schema_name = await tenant_router.resolve_schema(platform_db, org_id)
@@ -82,6 +109,7 @@ async def get_current_user(
         user = await _load_tenant_user_with_relations(platform_db, user_id)
         if user is None:
             raise credentials_exception
+        _validate_token_claims(payload, user)
         return user
     finally:
         reset_active_tenant_schema(token)

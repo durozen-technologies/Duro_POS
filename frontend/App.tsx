@@ -7,7 +7,7 @@ import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -15,7 +15,9 @@ import { TamaguiProvider } from "tamagui";
 
 import { AnimatedBrandSplash } from "@/components/animated-brand-splash";
 import { appTheme } from "@/constants/theme";
+import { useSessionLifecycle } from "@/hooks/use-session-lifecycle";
 import { AppNavigator } from "@/navigation/app-navigator";
+import { navigationLinking } from "@/navigation/linking";
 import { tamaguiConfig } from "./tamagui.config";
 
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -41,9 +43,14 @@ const navigationTheme = {
   },
 };
 
+const BOOT_WATCHDOG_MS = 10_000;
+const SPLASH_WATCHDOG_MS = 3_000;
+
 export default function App() {
+  useSessionLifecycle();
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
-  const [fontsLoaded] = useFonts({
+  const [bootTimedOut, setBootTimedOut] = useState(false);
+  const [fontsLoaded, fontError] = useFonts({
     NotoSansTamil: require("./assets/fonts/NotoSansTamil.ttf"),
   });
 
@@ -52,14 +59,29 @@ export default function App() {
     setSplashAnimationDone(true);
   }, []);
 
-  const appReady = fontsLoaded && splashAnimationDone;
+  useEffect(() => {
+    const timer = setTimeout(() => setBootTimedOut(true), BOOT_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if ((!fontsLoaded && !fontError) || splashAnimationDone) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void handleSplashFinish();
+    }, SPLASH_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, [fontError, fontsLoaded, handleSplashFinish, splashAnimationDone]);
+
+  const appReady = (fontsLoaded || Boolean(fontError) || bootTimedOut) && splashAnimationDone;
 
   return (
     <TamaguiProvider config={tamaguiConfig} defaultTheme="light">
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <StatusBar style="dark" />
-          <NavigationContainer theme={navigationTheme}>
+          <NavigationContainer theme={navigationTheme} linking={navigationLinking}>
             <AppNavigator bootReady={appReady} />
           </NavigationContainer>
           {fontsLoaded && !splashAnimationDone ? (

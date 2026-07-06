@@ -18,9 +18,8 @@ from app.core.middleware import (
     SelectiveGZipMiddleware,
 )
 from app.core.redis_cache import configure_redis_environment
-from app.db.tenant_schema import is_postgres_database, run_all_tenant_migrations
-from app.db.startup import run_database_startup_tasks
 from app.routers import api_router
+from app.routers.health import readiness_router
 
 configure_redis_environment()
 
@@ -34,27 +33,6 @@ async def lifespan(app: FastAPI):
     from app.core.redis_cache import bind_app
 
     bind_app(app)
-    app.state.database_ready = False
-    app.state.database_error = None
-
-    try:
-        await run_database_startup_tasks()
-
-        if is_postgres_database():
-            run_all_tenant_migrations(quiet=True, registered_only=True)
-        app.state.database_ready = True
-    except Exception as exc:
-        app.state.database_error = str(exc)
-        log_event(
-            logger,
-            logging.ERROR,
-            "database_startup_failed",
-            "database initialization failed during startup",
-            error=str(exc),
-        )
-        logger.exception("Database initialization failed during startup.")
-        if settings.production:
-            raise
     yield
 
 
@@ -134,4 +112,5 @@ app.add_middleware(RequestIdMiddleware)
 app.add_middleware(SelectiveGZipMiddleware, minimum_size=1024)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
+app.include_router(readiness_router)
 app.include_router(api_router, prefix=settings.api_v1_prefix)

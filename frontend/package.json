@@ -32,6 +32,7 @@
     "web": "expo start --web",
     "lint": "eslint App.tsx src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
+    "test:auth": "AUTH_UTILS_SELF_CHECK=1 npx --yes tsx src/utils/api-request-path.ts && AUTH_UTILS_SELF_CHECK=1 npx --yes tsx src/utils/auth-errors.ts && JWT_SELF_CHECK=1 npx --yes tsx src/utils/jwt.ts",
     "icons:android": "python3 ./scripts/generate-android-icons.py",
     "build:apk": "bash ./scripts/build-apk.sh"
   },

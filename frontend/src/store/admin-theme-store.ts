@@ -21,6 +21,14 @@ export const useAdminThemeStore = create<AdminThemeState>()(
       name: ADMIN_THEME_STORAGE_KEY,
       storage: createJSONStorage(() => secureStorage),
       partialize: (state) => ({ themePreference: state.themePreference }),
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<Pick<AdminThemeState, "themePreference">>;
+        const preference = state.themePreference;
+        return {
+          themePreference:
+            preference === "light" || preference === "dark" ? preference : "system",
+        };
+      },
     },
   ),
 );

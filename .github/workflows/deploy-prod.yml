@@ -8,6 +8,7 @@ on:
       - "backend/**"
       - "caddy/**"
       - "docker-compose.prod.yml"
+      - "pgbouncer/**"
       - "scripts/**"
       - ".github/workflows/deploy-prod.yml"
   workflow_dispatch:
@@ -33,9 +34,12 @@ concurrency:
   group: production-deploy
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 env:
-  BACKEND_IMAGE: mlb-pos-backend
-  CADDY_IMAGE: mlb-pos-caddy
+  BACKEND_IMAGE: brolier360-pos-backend
+  CADDY_IMAGE: brolier360-pos-caddy
 
 jobs:
   changes:
@@ -57,6 +61,7 @@ jobs:
               - 'caddy/**'
             deploy:
               - 'docker-compose.prod.yml'
+              - 'pgbouncer/**'
               - 'scripts/**'
               - '.github/workflows/deploy-prod.yml'
 
@@ -66,6 +71,9 @@ jobs:
       needs.changes.outputs.backend == 'true' ||
       (github.event_name == 'workflow_dispatch' && inputs.skip_build != true && inputs.build_backend == true)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -82,6 +90,13 @@ jobs:
           file: ./backend/Dockerfile
           target: runtime
           push: true
+          provenance: true
+          sbom: true
+          build-args: |
+            BUILD_VERSION=${{ github.sha }}
+            BUILD_REVISION=${{ github.sha }}
+            PYTHON_VERSION=3.11.11
+            UV_VERSION=0.11.3
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
@@ -94,6 +109,9 @@ jobs:
       needs.changes.outputs.caddy == 'true' ||
       (github.event_name == 'workflow_dispatch' && inputs.skip_build != true && inputs.build_caddy == true)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -110,6 +128,12 @@ jobs:
           file: ./caddy/Dockerfile
           target: runtime
           push: true
+          provenance: true
+          sbom: true
+          build-args: |
+            BUILD_VERSION=${{ github.sha }}
+            BUILD_REVISION=${{ github.sha }}
+            CADDY_VERSION=2.9.1
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.CADDY_IMAGE }}:${{ github.sha }}
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.CADDY_IMAGE }}:latest
@@ -135,6 +159,7 @@ jobs:
       - name: Resolve deploy plan
         id: plan
         env:
+          GITHUB_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
           CHANGED_BACKEND: ${{ needs.changes.outputs.backend }}
           CHANGED_CADDY: ${{ needs.changes.outputs.caddy }}
@@ -148,8 +173,13 @@ jobs:
         run: |
           DEPLOY_BACKEND=false
           DEPLOY_CADDY=false
-          BACKEND_TAG="latest"
-          CADDY_TAG="latest"
+          BACKEND_TAG="${GITHUB_SHA}"
+          CADDY_TAG="${GITHUB_SHA}"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "${INPUT_TAG:-}" ]; then
+            BACKEND_TAG="${INPUT_TAG}"
+            CADDY_TAG="${INPUT_TAG}"
+          fi
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$SKIP_BUILD" = "true" ]; then
             if [ "$MANUAL_BACKEND" = "true" ]; then DEPLOY_BACKEND=true; fi
@@ -200,15 +230,16 @@ jobs:
           RUSTFS_SERVER_DOMAINS: ${{ secrets.RUSTFS_SERVER_DOMAINS }}
           BACKEND_SECRET_KEY: ${{ secrets.BACKEND_SECRET_KEY }}
           CADDY_ACME_EMAIL: ${{ secrets.CADDY_ACME_EMAIL }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
           BACKEND_RUSTFS_BUCKET_NAME: ${{ secrets.BACKEND_RUSTFS_BUCKET_NAME }}
           BACKEND_ALLOWED_HOSTS: '["${{ secrets.CADDY_PUBLIC_HOST }}","127.0.0.1","localhost","backend"]'
-          BACKEND_CORS_ORIGINS: '["*"]'
-          BACKEND_TRUSTED_PROXIES: '[]'
+          BACKEND_CORS_ORIGINS: ${{ secrets.BACKEND_CORS_ORIGINS }}
+          BACKEND_TRUSTED_PROXIES: '["172.16.0.0/12","10.0.0.0/8","192.168.0.0/16"]'
         run: |
           missing=()
           for key in CADDY_PUBLIC_HOST DOCKERHUB_USERNAME POSTGRES_PASSWORD \
             RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY RUSTFS_SERVER_DOMAINS \
-            BACKEND_SECRET_KEY CADDY_ACME_EMAIL; do
+            BACKEND_SECRET_KEY CADDY_ACME_EMAIL REDIS_PASSWORD BACKEND_CORS_ORIGINS; do
             if [ -z "${!key}" ]; then
               missing+=("${key}")
             fi
@@ -233,8 +264,8 @@ jobs:
 
           pairs = {
               "DOCKERHUB_USERNAME": os.environ["DOCKERHUB_USERNAME"],
-              "BACKEND_IMAGE_REPO": os.environ.get("BACKEND_IMAGE", "mlb-pos-backend"),
-              "CADDY_IMAGE_REPO": os.environ.get("CADDY_IMAGE", "mlb-pos-caddy"),
+              "BACKEND_IMAGE_REPO": os.environ.get("BACKEND_IMAGE", "brolier360-pos-backend"),
+              "CADDY_IMAGE_REPO": os.environ.get("CADDY_IMAGE", "brolier360-pos-caddy"),
               "BACKEND_IMAGE_TAG": os.environ.get("BACKEND_IMAGE_TAG", "latest"),
               "CADDY_IMAGE_TAG": os.environ.get("CADDY_IMAGE_TAG", "latest"),
               "DEPLOY_BACKEND": os.environ.get("DEPLOY_BACKEND", "false"),
@@ -249,14 +280,14 @@ jobs:
               "RUSTFS_SECRET_KEY": os.environ["RUSTFS_SECRET_KEY"],
               "RUSTFS_SERVER_DOMAINS": os.environ["RUSTFS_SERVER_DOMAINS"],
               "BACKEND_SECRET_KEY": os.environ["BACKEND_SECRET_KEY"],
+              "REDIS_PASSWORD": os.environ["REDIS_PASSWORD"],
               "BACKEND_PRODUCTION": "True",
               "BACKEND_ALLOWED_HOSTS": os.environ["BACKEND_ALLOWED_HOSTS"],
               "BACKEND_CORS_ORIGINS": os.environ["BACKEND_CORS_ORIGINS"],
               "BACKEND_TRUSTED_PROXIES": os.environ["BACKEND_TRUSTED_PROXIES"],
-              "BACKEND_RUSTFS_BUCKET_NAME": os.environ.get("BACKEND_RUSTFS_BUCKET_NAME", "pos-mlb-items"),
+              "BACKEND_RUSTFS_BUCKET_NAME": os.environ.get("BACKEND_RUSTFS_BUCKET_NAME", "brolier-360"),
               "CADDY_ACME_EMAIL": os.environ["CADDY_ACME_EMAIL"],
               "CADDY_PUBLIC_HOST": os.environ["CADDY_PUBLIC_HOST"],
-              "CADDY_UPSTREAM": "backend:8000",
           }
 
           with open(".env.deploy", "w", encoding="utf-8") as fh:
@@ -269,7 +300,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh"
+          source: "docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh,pgbouncer"
           target: ${{ secrets.DEPLOY_PATH }}
           strip_components: 0
 

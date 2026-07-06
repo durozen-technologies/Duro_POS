@@ -13,7 +13,9 @@ import {
   type SuperAdminBillingOrganizationRead,
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
+import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
 import { AnalyticsPeriod, type UUID } from "@/types/api";
+import { isAuthSessionError } from "@/utils/auth-errors";
 import { formatDate } from "@/utils/format";
 
 import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
@@ -324,6 +326,14 @@ export function SuperAdminBillingOverviewScreen() {
   }, []);
 
   const load = useCallback(async (isRefresh = false) => {
+    if (
+      skipUnlessAuthed(() => {
+        setLoading(false);
+        setRefreshing(false);
+      })
+    ) {
+      return;
+    }
     if (analyticsPeriod === AnalyticsPeriod.RANGE && rangeError) {
       setError(rangeError);
       setLoading(false);
@@ -343,6 +353,9 @@ export function SuperAdminBillingOverviewScreen() {
       );
       setOverview({ summary: data.summary, organizations: data.organizations });
     } catch (err) {
+      if (isAuthSessionError(err)) {
+        return;
+      }
       setError(toApiError(err).message || "Failed to load billing overview");
     } finally {
       setLoading(false);

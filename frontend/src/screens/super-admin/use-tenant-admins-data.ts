@@ -17,7 +17,9 @@ import {
   type TenantAdminCounts,
   type TenantAdminRead,
 } from "@/api/super-admin";
+import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
 import type { UUID } from "@/types/api";
+import { isAuthSessionError } from "@/utils/auth-errors";
 
 export type TenantAdminStatusFilter = "all" | "active" | "disabled";
 
@@ -76,6 +78,14 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
   );
 
   const loadFirstPage = useCallback(async (isRefresh = false) => {
+    if (
+      skipUnlessAuthed(() => {
+        setLoading(false);
+        setRefreshing(false);
+      })
+    ) {
+      return;
+    }
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -96,6 +106,9 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
           ? { created_at: rows.next_cursor_created_at, id: rows.next_cursor_id }
           : null;
     } catch (loadError) {
+      if (isAuthSessionError(loadError)) {
+        return;
+      }
       setError(toApiError(loadError).message || "Failed to load tenant admins");
     } finally {
       setLoading(false);

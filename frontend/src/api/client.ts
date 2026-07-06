@@ -1,4 +1,4 @@
-import axios, { type InternalAxiosRequestConfig, isAxiosError } from "axios";
+import axios, { CanceledError, type InternalAxiosRequestConfig, isAxiosError } from "axios";
 import { Platform } from "react-native";
 
 import {
@@ -8,10 +8,15 @@ import {
   CONFIGURED_API_BASE_URL,
   EXPO_TUNNEL_DETECTED,
 } from "@/constants/config";
-import { useAuthStore } from "@/store/auth-store";
-import { useCartStore } from "@/store/cart-store";
-import { usePriceStore } from "@/store/price-store";
+import { getSessionAbortSignal, logout, useAuthStore } from "@/store/auth-store";
 import { secureStorage } from "@/utils/secure-storage";
+import {
+  HEALTHCHECK_PATH,
+  isLoginRequestPath,
+  isPublicRequestPath,
+  normalizeRequestPath,
+} from "@/utils/api-request-path";
+import { isAuthRevocationError } from "@/utils/auth-errors";
 
 export type ApiError = {
   message: string;
@@ -21,7 +26,7 @@ export type ApiError = {
 };
 
 const HTTP_ERROR_MAP: Partial<Record<number, string>> = {
-  401: "Invalid username or password. Please try again.",
+  401: "Session expired. Please sign in again.",
   403: "Access denied. Please contact your administrator.",
   429: "Too many requests. Please wait a moment before retrying.",
   500: "A server error occurred. Please try again later.",
@@ -41,7 +46,6 @@ const PROBE_REQUEST_TIMEOUT_MS = 1200;
 const ADMIN_ITEMS_REQUEST_TIMEOUT_MS = 7000;
 const ADMIN_ITEMS_COUNT_TIMEOUT_MS = 3500;
 const UPLOAD_REQUEST_TIMEOUT_MS = 90000;
-const HEALTHCHECK_PATH = "/api/v1/health";
 const API_FIELD_LABELS: Record<string, string> = {
   base_unit: "Base unit",
   amount: "Amount",
@@ -344,10 +348,6 @@ function isFormDataRequestBody(data: unknown) {
   return typeof FormData !== "undefined" && data instanceof FormData;
 }
 
-function normalizeRequestPath(value: unknown) {
-  return typeof value === "string" ? value : "";
-}
-
 function isAdminItemsRequestPath(path: string) {
   return (
     path.startsWith("/api/v1/admin/items") ||
@@ -361,10 +361,6 @@ function isAdminItemsRequestPath(path: string) {
 
 function isAdminItemsCountRequestPath(path: string) {
   return path.endsWith("/counts") || path.includes("/counts?");
-}
-
-function isLoginRequestPath(path: string) {
-  return path === "/api/v1/auth/login" || path.endsWith("/api/v1/auth/login");
 }
 
 function shouldTryConfiguredUploadDirectly(config: RetryableAxiosConfig, candidates: string[]) {
@@ -567,6 +563,10 @@ function getErrorStatus(error: unknown): number | undefined {
 }
 
 export function toApiError(error: unknown): ApiError {
+  if (isApiRequestCanceled(error)) {
+    return { message: "Request canceled." };
+  }
+
   const status = getErrorStatus(error);
   const responseHeaders = isAxiosError(error) ? error.response?.headers : undefined;
   const requestId =
@@ -643,7 +643,15 @@ apiClient.interceptors.request.use(async (config) => {
   }
 
   const token = useAuthStore.getState().token;
-  if (token && !isLoginRequestPath(requestPath)) {
+  const isPublic = isPublicRequestPath(requestPath);
+
+  if (!isPublic) {
+    if (!config.signal) {
+      config.signal = getSessionAbortSignal();
+    }
+    if (!token) {
+      return Promise.reject(new CanceledError("Session ended"));
+    }
     config.headers.Authorization = `Bearer ${token}`;
   }
   if (isUploadRequest) {
@@ -697,12 +705,13 @@ apiClient.interceptors.response.use(
 
     if (
       isAxiosError(error) &&
-      error.response?.status === 401 &&
+      useAuthStore.getState().token &&
       !isLoginRequestPath(normalizeRequestPath(error.config?.url))
     ) {
-      useAuthStore.getState().clearSession();
-      useCartStore.getState().resetCart();
-      usePriceStore.getState().clear();
+      const status = error.response?.status;
+      if (status === 401 || isAuthRevocationError(error)) {
+        void logout();
+      }
     }
     return Promise.reject(error);
   },

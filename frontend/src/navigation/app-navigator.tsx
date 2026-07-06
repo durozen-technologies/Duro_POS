@@ -13,44 +13,24 @@ import { useAuthHydration } from "@/hooks/use-auth-hydration";
 import { useShopBootstrap } from "@/hooks/use-shop-bootstrap";
 import { ShopTranslationKey } from "@/hooks/use-shop-translation";
 import { AppStackParamList } from "@/navigation/types";
-import { useAuthStore } from "@/store/auth-store";
+import { logout, useAuthStore } from "@/store/auth-store";
 import { useCartStore } from "@/store/cart-store";
 import { usePriceStore } from "@/store/price-store";
 import { UserRole } from "@/types/api";
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
-const RootStack = createNativeStackNavigator();
 
-type RootRouteName = "Boot" | "Hydration" | "Auth" | "SuperAdmin" | "Admin" | "Shop";
-
-function resolveRootRoute(
-  bootReady: boolean,
-  hydrated: boolean,
-  token: string | null,
-  user: { role: UserRole } | null,
-): RootRouteName {
-  if (!bootReady) return "Boot";
-  if (!hydrated) return "Hydration";
-  if (!token || !user) return "Auth";
-  if (user.role === UserRole.SUPER_ADMIN) return "SuperAdmin";
-  if (user.role === UserRole.TENANT_ADMIN) return "Admin";
-  return "Shop";
+function resolveRoleStackKey(token: string, role: UserRole): string {
+  return `${role}:${token.slice(-12)}`;
 }
 
-function AuthStackScreen() {
-  return <AuthStack />;
-}
-
-function SuperAdminStackScreen() {
-  return <SuperAdminStack />;
-}
-
-function AdminStackScreen() {
-  return <AdminStack />;
-}
-
-function ShopStackScreen() {
-  return <ShopStack />;
+function resolveShopInitialRoute(
+  nextScreen: string | undefined,
+): keyof Pick<AppStackParamList, "Billing"> {
+  if (nextScreen === "daily_price_setup" || nextScreen === "billing") {
+    return "Billing";
+  }
+  return "Billing";
 }
 
 // ── Design Tokens (extracted from your existing #F7F1E8) ─────────────
@@ -187,17 +167,11 @@ const getRetailerSaleDetailScreen = () =>
 const getPrinterSetupScreen = () =>
   require("@/screens/shop/printer-setup-screen").PrinterSetupScreen;
 
-// ── Session reset hook (unchanged logic, memoized return) ────────────
+// ── Session reset (central logout) ───────────────────────────────────
 function useSessionReset() {
-  const clearSession = useAuthStore((state) => state.clearSession);
-  const resetCart = useCartStore((state) => state.resetCart);
-  const clearPrices = usePriceStore((state) => state.clear);
-
   return useCallback(() => {
-    clearSession();
-    resetCart();
-    clearPrices();
-  }, [clearPrices, clearSession, resetCart]);
+    void logout();
+  }, []);
 }
 
 // ── Animated Header Title (fade + slide in) ──────────────────────────
@@ -445,7 +419,9 @@ function AdminStack() {
 
 // ── Shop Stack (billing, checkout, printer) ──────────────────────────
 function ShopStack() {
-  const logout = useSessionReset();
+  const logoutHandler = useSessionReset();
+  const user = useAuthStore((state) => state.user);
+  const shopInitialRoute = resolveShopInitialRoute(user?.next_screen);
   const { bootstrap } = useShopBootstrap();
   const shopName = bootstrap?.shop_name ?? null;
 
@@ -497,13 +473,13 @@ function ShopStack() {
     [shopName],
   );
   const renderHeaderActions = useCallback(
-    () => <AnimatedHeaderActions onLogout={logout} />,
-    [logout],
+    () => <AnimatedHeaderActions onLogout={logoutHandler} />,
+    [logoutHandler],
   );
 
   return (
     <Stack.Navigator
-      initialRouteName="Billing"
+      initialRouteName={shopInitialRoute}
       screenOptions={SHOP_STACK_SCREEN_OPTIONS}
     >
       <Stack.Screen
@@ -605,20 +581,16 @@ function ShopStack() {
   );
 }
 
-// ── Main App Navigator (preserves all original logic) ────────────────
+// ── Main App Navigator ───────────────────────────────────────────────
 type AppNavigatorProps = {
   bootReady: boolean;
 };
 
 export function AppNavigator({ bootReady }: AppNavigatorProps) {
-  const hydrated = useAuthHydration();
+  const sessionReady = useAuthHydration();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
 
-  const rootRoute = resolveRootRoute(bootReady, hydrated, token, user);
-  const rootKey = `${rootRoute}:${token ?? ""}:${user?.role ?? ""}`;
-
-  // Original effect: clear cart/prices when logged out
   useEffect(() => {
     if (!token || !user) {
       useCartStore.getState().resetCart();
@@ -626,19 +598,21 @@ export function AppNavigator({ bootReady }: AppNavigatorProps) {
     }
   }, [token, user]);
 
-  return (
-    <RootStack.Navigator
-      key={rootKey}
-      initialRouteName={rootRoute}
-      screenOptions={HEADER_HIDDEN_OPTIONS}
-    >
-      <RootStack.Screen name="Boot" component={SessionHydrationScreen} />
-      <RootStack.Screen name="Hydration" component={SessionHydrationScreen} />
-      <RootStack.Screen name="Auth" component={AuthStackScreen} />
-      <RootStack.Screen name="SuperAdmin" component={SuperAdminStackScreen} />
-      <RootStack.Screen name="Admin" component={AdminStackScreen} />
-      <RootStack.Screen name="Shop" component={ShopStackScreen} />
-    </RootStack.Navigator>
-  );
+  if (!bootReady || !sessionReady) {
+    return <SessionHydrationScreen />;
+  }
+
+  if (!token || !user) {
+    return <AuthStack key="guest" />;
+  }
+
+  const stackKey = resolveRoleStackKey(token, user.role);
+  if (user.role === UserRole.SUPER_ADMIN) {
+    return <SuperAdminStack key={stackKey} />;
+  }
+  if (user.role === UserRole.TENANT_ADMIN) {
+    return <AdminStack key={stackKey} />;
+  }
+  return <ShopStack key={stackKey} />;
 }
 

@@ -29,9 +29,9 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, str]]:
+def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, object]]:
     url = async_postgres_url_object(database_url)
-    connect_args: dict[str, str] = {}
+    connect_args: dict[str, object] = {}
 
     sslmode = url.query.get("sslmode")
     # url.query.get may return a str or a tuple/list of str depending on how URL was parsed.
@@ -43,6 +43,10 @@ def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, str]]:
             url = url.set(
                 query={key: value for key, value in url.query.items() if key != "sslmode"}
             )
+
+    prepared_cache = url.query.get("prepared_statement_cache_size")
+    if prepared_cache in (None, "", "0", 0) or url.host == "pgbouncer":
+        connect_args["prepared_statement_cache_size"] = 0
 
     return url, connect_args
 

@@ -6,9 +6,18 @@ if [ -z "${CADDY_PUBLIC_HOST:-}" ]; then
   exit 1
 fi
 
+case "${CADDY_PUBLIC_HOST}" in
+  *[!a-zA-Z0-9.:_-]*)
+    echo "CADDY_PUBLIC_HOST contains invalid characters" >&2
+    exit 1
+    ;;
+  *)
+    ;;
+esac
+
 {
   cat /etc/caddy/Caddyfile.template
-  printf '\n%s {\n\timport pos_api\n}\n' "${CADDY_PUBLIC_HOST}"
+  printf '%s {\n\timport pos_api\n}\n' "${CADDY_PUBLIC_HOST}"
 } > /etc/caddy/Caddyfile
 
 exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile

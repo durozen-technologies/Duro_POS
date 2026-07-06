@@ -180,19 +180,28 @@ flowchart TB
   end
 
   subgraph ec2 [EC2 VM]
-    Caddy[Caddy :443 / :80]
-    Backend[Backend :8000]
+    Caddy[Caddy round_robin :443]
+    BE1[backend-1 :8000]
+    BE2[backend-2 :8000]
+    PGB[pgBouncer :6432]
     Postgres[(Postgres :5432)]
-    RustFS[RustFS :9000 / :9001]
+    Redis[(Redis :6379)]
+    RustFS[RustFS :9000]
     PGData["/home/ubuntu/pos-postgress/data"]
     RFData["/home/ubuntu/rustfs/data"]
   end
 
   Mobile -->|HTTPS| Caddy
   Clients -->|HTTPS| Caddy
-  Caddy --> Backend
-  Backend --> Postgres
-  Backend --> RustFS
+  Caddy --> BE1
+  Caddy --> BE2
+  BE1 --> PGB
+  BE2 --> PGB
+  PGB --> Postgres
+  BE1 --> RustFS
+  BE2 --> RustFS
+  BE1 --> Redis
+  BE2 --> Redis
   Postgres --- PGData
   RustFS --- RFData
 ```
@@ -203,30 +212,39 @@ flowchart TB
 | VM `DEPLOY_PATH/.env` | Generated each deploy (never commit) |
 | `/home/ubuntu/pos-postgress/data` | Postgres data |
 | `/home/ubuntu/rustfs/data` | Object storage data |
-| Docker Hub | `<user>/mlb-pos-backend:latest`, `<user>/mlb-pos-caddy:latest` |
+| Docker Hub | `<user>/brolier360-pos-backend:latest`, `<user>/brolier360-pos-caddy:latest` |
 
-All services attach to **`mlb-pos-network`**.
+All services attach to **`brolier360-pos-edge`** and **`brolier360-pos-internal`**.
+
+### Multi-backend notes
+
+Production runs **two backend replicas** behind Caddy (`round_robin` + active `/health` checks). Both connect to Postgres through **pgBouncer** (transaction pooling, port 6432).
+
+**Redis is required** for correct login rate limiting across replicas. If Redis is down, each backend falls back to in-memory counters (limits are effectively doubled). Keep `REDIS_PASSWORD` set and Redis healthy before enabling dual-backend mode.
+
+Database migrations run **once** via the `migrate` compose service (`scripts/deploy-prod.sh` → `compose run --rm migrate`) — not on backend startup.
 
 ### Deploy flow
 
 1. CI builds and pushes images when `backend/**` or `caddy/**` changes on `prod`.
-2. CI SCPs compose, scripts, and a generated `.env` to the VM.
+2. CI SCPs compose, pgBouncer config, scripts, and a generated `.env` to the VM.
 3. [`scripts/deploy-prod.sh`](scripts/deploy-prod.sh) on the VM:
-   - Ensures infra (Postgres, RustFS) is healthy
-   - Pulls new image tags
-   - Runs **`migrate.py`** on the new backend image **before** recreating the API container
-   - Recreates backend and/or Caddy; rolls back on health-check failure
-
-Migrations also run on container start via [`backend/docker-entrypoint.sh`](backend/docker-entrypoint.sh) as a safety net.
+   - Ensures infra (Postgres, pgBouncer, Redis, RustFS) is healthy
+   - Pulls new backend image tags
+   - Runs **`migrate`** once on the new image
+   - Rolling recreate: **backend-1** → wait healthy → **backend-2** → wait healthy
+   - Recreates Caddy when needed; rolls back on health-check failure
 
 ### Services and ports
 
 | Service | Image | Host ports | Internal |
 |---------|-------|------------|----------|
-| `postgres` | `postgres:17-alpine` | `5432` | `postgres:5432` |
-| `rustfs` | `rustfs/rustfs:latest` | `9000`, `9001` | `rustfs:9000` |
-| `backend` | `mlb-pos-backend:latest` | — | `backend:8000` |
-| `caddy` | `mlb-pos-caddy:latest` | `80`, `443` | — |
+| `postgres` | `postgres:17-alpine` | `5432` (localhost) | `postgres:5432` |
+| `pgbouncer` | built from `pgbouncer/` | — | `pgbouncer:6432` |
+| `redis` | `redis:7.4-alpine` | — | `redis:6379` |
+| `rustfs` | `rustfs/rustfs` | — | `rustfs:9000` |
+| `backend-1`, `backend-2` | `brolier360-pos-backend:latest` | — | `:8000` |
+| `caddy` | `brolier360-pos-caddy:latest` | `80`, `443` | — |
 
 External Postgres (restrict **5432** in the EC2 security group):
 
@@ -240,7 +258,7 @@ Password: <POSTGRES_PASSWORD>
 
 ### One-time VM setup
 
-1. Create deploy directory (e.g. `/home/ubuntu/mlb-pos`).
+1. Create deploy directory (e.g. `/home/ubuntu/brolier360-pos`).
 2. Configure [GitHub Secrets](#github-secrets) — CI writes `.env` on each deploy.
 3. Push to `prod` or run **Deploy Production** manually.
 4. Bootstrap super admin (once):
@@ -249,7 +267,12 @@ Password: <POSTGRES_PASSWORD>
    cd backend && uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
    ```
 
-   On the VM, run inside the backend container or with production `DATABASE_URL`.
+   On the VM, run inside a backend container:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env --profile infra \
+     exec backend-1 python -m app.cli bootstrap-super-admin --username <admin> --password <password>
+   ```
 
 5. Open security group: **80**, **443**; **5432** only if needed (prefer IP allowlist).
 
@@ -281,9 +304,9 @@ CI generates `BACKEND_ALLOWED_HOSTS` from `CADDY_PUBLIC_HOST`. List env vars in 
 Emergency on VM:
 
 ```bash
-cd /home/ubuntu/mlb-pos
+cd /home/ubuntu/brolier360-pos
 COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml \
-  -f docker-compose.prod.override.yml --env-file .env up -d --no-deps backend
+  -f docker-compose.prod.override.yml --env-file .env up -d --no-deps backend-1
 ```
 
 ### Logs
@@ -291,7 +314,7 @@ COMPOSE_PROFILES=infra docker compose -f docker-compose.prod.yml \
 | Command | Action |
 |---------|--------|
 | `~/pos-logs` | Follow all container logs |
-| `~/pos-logs backend` | One service |
+| `~/pos-logs backend-1` | One backend replica |
 | `~/pos-logs deploy` | Deploy log tail |
 
 On VM: `bash scripts/deploy-prod.sh`, `bash scripts/pos-logs.sh`.
@@ -301,8 +324,9 @@ On VM: `bash scripts/deploy-prod.sh`, `bash scripts/pos-logs.sh`.
 | Context | Health | Docs |
 |---------|--------|------|
 | Production (HTTPS) | `https://<CADDY_PUBLIC_HOST>/api/v1/health` | `https://<CADDY_PUBLIC_HOST>/docs` |
+| LB readiness | `https://<CADDY_PUBLIC_HOST>/health` | — |
 | Local dev | `http://127.0.0.1:8000/api/v1/health` | `http://127.0.0.1:8000/docs` |
-| Docker internal | `http://backend:8000/api/v1/health` | — |
+| Docker internal | `http://backend-1:8000/api/v1/health` | — |
 
 ## Database migrations
 
@@ -315,8 +339,8 @@ On VM: `bash scripts/deploy-prod.sh`, `bash scripts/pos-logs.sh`.
 
 | When | How |
 |------|-----|
-| Production deploy | `deploy-prod.sh` → `migrate.py` on new image, then recreate backend |
-| Container start | `docker-entrypoint.sh` → `migrate.py` → Gunicorn |
+| Production deploy | `deploy-prod.sh` → `migrate` service, then rolling backend-1/backend-2 |
+| Container start | Gunicorn only (no auto-migrate) |
 | Local dev | `cd backend && uv run python migrate.py` |
 
 ### Developer workflow (schema change)

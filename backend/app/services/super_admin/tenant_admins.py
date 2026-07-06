@@ -9,8 +9,8 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import log_event
-from app.core.redis_cache import evict_user_permission_cache
 from app.core.security import get_password_hash
+from app.services.session_invalidation import invalidate_user_sessions
 from app.db.tenant_schema import tenant_schema_scope
 from app.models import AdminRole, AdminUserRole, Organization, Shop, User, UserAuthIndex, UserRole
 from app.schemas.auth import normalize_username
@@ -34,8 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _bump_permission_version(user: User) -> None:
-    await evict_user_permission_cache(user.id, user.permissions_version)
-    user.permissions_version += 1
+    await invalidate_user_sessions(user)
 
 
 def _tenant_admin_to_read(user: User, org_name: str, role_ids: list[UUID]) -> TenantAdminRead:

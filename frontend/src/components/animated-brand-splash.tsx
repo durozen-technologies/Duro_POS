@@ -24,7 +24,12 @@ export function AnimatedBrandSplash({ onFinish }: AnimatedBrandSplashProps) {
       });
     }, 920);
 
-    return () => clearTimeout(timer);
+    const fallbackTimer = setTimeout(onFinish, 2_500);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(fallbackTimer);
+    };
   }, [onFinish, overlayOpacity]);
 
   return (

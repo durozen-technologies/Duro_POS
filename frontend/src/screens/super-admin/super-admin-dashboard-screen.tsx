@@ -1,18 +1,18 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { branding } from "@/constants/branding";
-import { toApiError } from "@/api/client";
+import { toApiError, isApiRequestCanceled } from "@/api/client";
 import {
   fetchOrganizationCounts,
   fetchOrganizationRows,
   type OrganizationRead,
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
-import { useAuthStore } from "@/store/auth-store";
+import { logout, useAuthStore, hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
 
 import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
@@ -59,7 +59,6 @@ const NAV_TILES = [
 
 export function SuperAdminDashboardScreen() {
   const navigation = useNavigation<Nav>();
-  const clearSession = useAuthStore((state) => state.clearSession);
   const user = useAuthStore((state) => state.user);
 
   const [loading, setLoading] = useState(true);
@@ -69,6 +68,14 @@ export function SuperAdminDashboardScreen() {
   const [recentOrgs, setRecentOrgs] = useState<OrganizationRead[]>([]);
 
   const load = useCallback(async (isRefresh = false) => {
+    if (
+      skipUnlessAuthed(() => {
+        setLoading(false);
+        setRefreshing(false);
+      })
+    ) {
+      return;
+    }
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -83,6 +90,9 @@ export function SuperAdminDashboardScreen() {
       setCounts(orgCounts);
       setRecentOrgs(orgRows.items.slice(0, 5));
     } catch (err) {
+      if (isApiRequestCanceled(err) || !hasAuthToken()) {
+        return;
+      }
       setError(toApiError(err).message || "Failed to load dashboard");
     } finally {
       setLoading(false);
@@ -94,9 +104,11 @@ export function SuperAdminDashboardScreen() {
     void load(true);
   }, [load]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   return (
     <View className="flex-1 bg-background">
@@ -136,7 +148,7 @@ export function SuperAdminDashboardScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Sign out"
                 className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:bg-dangerSoft active:border-dangerSoft"
-                onPress={() => clearSession()}
+                onPress={() => void logout()}
               >
                 <MaterialCommunityIcons name="logout" size={20} color={MUTED} />
               </Pressable>

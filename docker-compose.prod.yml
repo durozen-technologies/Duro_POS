@@ -4,28 +4,131 @@ x-default-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
+x-default-security: &default-security
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-backend-resources: &backend-resources
+  deploy:
+    resources:
+      limits:
+        cpus: "${BACKEND_CPU_LIMIT:-2.0}"
+        memory: "${BACKEND_MEMORY_LIMIT:-1G}"
+      reservations:
+        cpus: "${BACKEND_CPU_RESERVATION:-0.25}"
+        memory: "${BACKEND_MEMORY_RESERVATION:-256M}"
+  ulimits:
+    nofile:
+      soft: 8192
+      hard: 8192
+    nproc:
+      soft: 512
+      hard: 512
+
+x-backend-hardening: &backend-hardening
+  read_only: true
+  tmpfs:
+    - /tmp/app:size=128M,mode=1777,uid=10001,gid=10001
+
+x-caddy-hardening: &caddy-hardening
+  read_only: true
+  tmpfs:
+    - /etc/caddy:size=2M,mode=1700,uid=10001,gid=10001
+    - /tmp:size=64M,mode=1777,uid=10001,gid=10001
+
+x-postgres-user: &postgres-user
+  user: "70:70"
+
+x-redis-user: &redis-user
+  user: "999:999"
+
+x-rustfs-user: &rustfs-user
+  user: "10001:10001"
+
+x-backend-user: &backend-user
+  user: "10001:10001"
+
+x-caddy-user: &caddy-user
+  user: "10001:10001"
+  cap_add:
+    - NET_BIND_SERVICE
+
+x-backend-app: &backend-app
+  image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${BACKEND_IMAGE_REPO:-brolier360-pos-backend}:${BACKEND_IMAGE_TAG:?Set BACKEND_IMAGE_TAG}
+  <<: [*default-security, *backend-user, *backend-resources, *backend-hardening]
+  restart: unless-stopped
+  logging: *default-logging
+  networks:
+    - data
+  depends_on:
+    pgbouncer:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+    rustfs:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  environment: &backend-env
+    APP_NAME: ${BACKEND_APP_NAME:-Brolier 360 API}
+    SECRET_KEY: ${BACKEND_SECRET_KEY:?Set BACKEND_SECRET_KEY}
+    DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-brolier_360}?prepared_statement_cache_size=0}
+    PRODUCTION: ${BACKEND_PRODUCTION:-True}
+    ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:?Set BACKEND_ALLOWED_HOSTS}
+    CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?Set BACKEND_CORS_ORIGINS}
+    RUSTFS_ENDPOINT_URL: ${BACKEND_RUSTFS_ENDPOINT_URL:-http://rustfs:9000}
+    RUSTFS_ACCESS_KEY_ID: ${BACKEND_RUSTFS_ACCESS_KEY_ID:-${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY}}
+    RUSTFS_SECRET_ACCESS_KEY: ${BACKEND_RUSTFS_SECRET_ACCESS_KEY:-${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY}}
+    RUSTFS_BUCKET_NAME: ${BACKEND_RUSTFS_BUCKET_NAME:-brolier-360}
+    RUSTFS_SERVER_DOMAINS: ${RUSTFS_SERVER_DOMAINS:?Set RUSTFS_SERVER_DOMAINS}
+    RUSTFS_S3_HOST_HEADER: ${BACKEND_RUSTFS_S3_HOST_HEADER:-}
+    RUSTFS_REGION_NAME: ${BACKEND_RUSTFS_REGION_NAME:-us-east-1}
+    RUSTFS_PUBLIC_BASE_URL: ${BACKEND_RUSTFS_PUBLIC_BASE_URL:-}
+    RUSTFS_PUBLIC_READ_ENABLED: ${BACKEND_RUSTFS_PUBLIC_READ_ENABLED:-False}
+    TRUSTED_PROXIES: ${BACKEND_TRUSTED_PROXIES:-["172.16.0.0/12","10.0.0.0/8","192.168.0.0/16"]}
+    TRUST_X_FORWARDED_PROTO: ${BACKEND_TRUST_X_FORWARDED_PROTO:-True}
+    WEB_CONCURRENCY: ${BACKEND_WEB_CONCURRENCY:-1}
+    REDIS_URL: ${BACKEND_REDIS_URL:-redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379/0}
+    REDIS_PREFIX: ${BACKEND_REDIS_PREFIX:-brolier360}
+  expose:
+    - "8000"
+  healthcheck: &backend-healthcheck
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 20s
+
 networks:
-  pos:
-    name: mlb-pos-network
+  edge:
+    name: brolier360-pos-edge
     driver: bridge
+  data:
+    name: brolier360-pos-internal
+    driver: bridge
+    internal: true
 
 services:
   postgres:
     profiles: ["infra"]
     image: postgres:17-alpine
-    init: true
+    <<: [*default-security, *postgres-user]
     restart: unless-stopped
     logging: *default-logging
     networks:
-      - pos
+      - data
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-brolier_360}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
     volumes:
       - ${POSTGRES_DATA_DIR:-/home/ubuntu/pos-postgress/data}:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PUBLISH_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PUBLISH_PORT:-5432}:5432"
     healthcheck:
       test:
         [
@@ -36,127 +139,158 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${POSTGRES_CPU_LIMIT:-2.0}"
+          memory: "${POSTGRES_MEMORY_LIMIT:-1G}"
 
   rustfs:
     profiles: ["infra"]
-    image: rustfs/rustfs:latest
-    init: true
+    image: rustfs/rustfs:${RUSTFS_VERSION:-1.0.0-beta.8}
+    <<: [*default-security, *rustfs-user]
     restart: unless-stopped
     logging: *default-logging
     networks:
-      - pos
+      - data
     environment:
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY}
-      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ENABLE: ${RUSTFS_CONSOLE_ENABLE:-false}
       RUSTFS_SERVER_DOMAINS: ${RUSTFS_SERVER_DOMAINS:?Set RUSTFS_SERVER_DOMAINS}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     volumes:
       - ${RUSTFS_DATA_DIR:-/home/ubuntu/rustfs/data}:/data
     command:
       - --address
       - :9000
-      - --console-enable
       - --server-domains
       - ${RUSTFS_SERVER_DOMAINS:?Set RUSTFS_SERVER_DOMAINS}
-      - --access-key
-      - ${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY}
-      - --secret-key
-      - ${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY}
       - /data
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/ | grep -qE '^(200|403|404)$'",
+          "curl -fsS -o /dev/null http://127.0.0.1:9000/ || wget -qO- http://127.0.0.1:9000/ >/dev/null",
         ]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "${RUSTFS_CPU_LIMIT:-1.0}"
+          memory: "${RUSTFS_MEMORY_LIMIT:-512M}"
 
   redis:
     profiles: ["infra"]
-    image: redis:7-alpine
-    init: true
+    image: redis:7.4-alpine
+    <<: [*default-security, *redis-user]
     restart: unless-stopped
     logging: *default-logging
     networks:
-      - pos
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+      - data
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+        "--maxmemory",
+        "${REDIS_MAXMEMORY:-256mb}",
+        "--maxmemory-policy",
+        "allkeys-lru",
+        "--protected-mode",
+        "yes",
+        "--bind",
+        "0.0.0.0",
+        "--port",
+        "6379",
+      ]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${REDIS_CPU_LIMIT:-0.5}"
+          memory: "${REDIS_MEMORY_LIMIT:-384M}"
 
-  backend:
-    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${BACKEND_IMAGE_REPO:-mlb-pos-backend}:${BACKEND_IMAGE_TAG:-${IMAGE_TAG:-latest}}
-    init: true
+  pgbouncer:
+    profiles: ["infra"]
+    build:
+      context: ./pgbouncer
+      dockerfile: Dockerfile
+    <<: *default-security
     restart: unless-stopped
     logging: *default-logging
     networks:
-      - pos
+      - data
     depends_on:
       postgres:
         condition: service_healthy
-      rustfs:
-        condition: service_healthy
-      redis:
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    expose:
+      - "6432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U ${POSTGRES_USER:-postgres} || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${PGBOUNCER_CPU_LIMIT:-0.5}"
+          memory: "${PGBOUNCER_MEMORY_LIMIT:-128M}"
+
+  migrate:
+    profiles: ["infra"]
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${BACKEND_IMAGE_REPO:-brolier360-pos-backend}:${BACKEND_IMAGE_TAG:?Set BACKEND_IMAGE_TAG}
+    <<: [*default-security, *backend-user]
+    restart: "no"
+    logging: *default-logging
+    networks:
+      - data
+    depends_on:
+      pgbouncer:
         condition: service_healthy
     environment:
-      APP_NAME: ${BACKEND_APP_NAME:-Brolier 360 API}
-      SECRET_KEY: ${BACKEND_SECRET_KEY:?Set BACKEND_SECRET_KEY}
-      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-brolier_360}}
-      PRODUCTION: ${BACKEND_PRODUCTION:-True}
-      ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:?Set BACKEND_ALLOWED_HOSTS}
-      CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["*"]}
-      RUSTFS_ENDPOINT_URL: ${BACKEND_RUSTFS_ENDPOINT_URL:-http://rustfs:9000}
-      RUSTFS_ACCESS_KEY_ID: ${BACKEND_RUSTFS_ACCESS_KEY_ID:-${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY}}
-      RUSTFS_SECRET_ACCESS_KEY: ${BACKEND_RUSTFS_SECRET_ACCESS_KEY:-${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY}}
-      RUSTFS_BUCKET_NAME: ${BACKEND_RUSTFS_BUCKET_NAME:-pos-mlb-items}
-      RUSTFS_SERVER_DOMAINS: ${RUSTFS_SERVER_DOMAINS:?Set RUSTFS_SERVER_DOMAINS}
-      RUSTFS_S3_HOST_HEADER: ${BACKEND_RUSTFS_S3_HOST_HEADER:-}
-      RUSTFS_REGION_NAME: ${BACKEND_RUSTFS_REGION_NAME:-us-east-1}
-      RUSTFS_PUBLIC_BASE_URL: ${BACKEND_RUSTFS_PUBLIC_BASE_URL:-}
-      RUSTFS_PUBLIC_READ_ENABLED: ${BACKEND_RUSTFS_PUBLIC_READ_ENABLED:-False}
-      TRUSTED_PROXIES: ${BACKEND_TRUSTED_PROXIES:-[]}
-      TRUST_X_FORWARDED_PROTO: ${BACKEND_TRUST_X_FORWARDED_PROTO:-True}
-      WEB_CONCURRENCY: ${BACKEND_WEB_CONCURRENCY:-1}
-      REDIS_URL: ${BACKEND_REDIS_URL:-redis://redis:6379/0}
-      REDIS_PREFIX: ${BACKEND_REDIS_PREFIX:-brolier360}
-    expose:
-      - "8000"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).getcode()==200 else 1)",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      <<: *backend-env
+    command: ["python", "migrate.py", "--tenants"]
+
+  backend-1:
+    <<: *backend-app
+
+  backend-2:
+    <<: *backend-app
 
   caddy:
-    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${CADDY_IMAGE_REPO:-mlb-pos-caddy}:${CADDY_IMAGE_TAG:-${IMAGE_TAG:-latest}}
-    init: true
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/${CADDY_IMAGE_REPO:-brolier360-pos-caddy}:${CADDY_IMAGE_TAG:?Set CADDY_IMAGE_TAG}
+    <<: [*default-security, *caddy-user, *caddy-hardening]
     restart: unless-stopped
     logging: *default-logging
     networks:
-      - pos
+      - edge
+      - data
     depends_on:
-      backend:
+      backend-1:
+        condition: service_healthy
+      backend-2:
         condition: service_healthy
     environment:
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:?Set CADDY_ACME_EMAIL}
       CADDY_PUBLIC_HOST: ${CADDY_PUBLIC_HOST:?Set CADDY_PUBLIC_HOST}
-      CADDY_UPSTREAM: ${CADDY_UPSTREAM:-backend:8000}
     ports:
       - "80:80"
       - "443:443"
@@ -174,6 +308,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${CADDY_CPU_LIMIT:-1.0}"
+          memory: "${CADDY_MEMORY_LIMIT:-256M}"
 
 volumes:
   caddy-data:

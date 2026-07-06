@@ -1,9 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { NavigationProp } from "@react-navigation/native";
 
-import { useAuthStore } from "@/store/auth-store";
-import { useCartStore } from "@/store/cart-store";
-import { usePriceStore } from "@/store/price-store";
+import { logout } from "@/store/auth-store";
 
 type ShopStackNav = NavigationProp<Record<string, object | undefined>>;
 
@@ -13,15 +11,9 @@ type ShopHeaderMenuOptions = {
 };
 
 export function useShopHeaderMenu(navigation: ShopStackNav, options?: ShopHeaderMenuOptions) {
-  const clearSession = useAuthStore((s) => s.clearSession);
-  const resetCart = useCartStore((s) => s.resetCart);
-  const clearPrices = usePriceStore((s) => s.clear);
-
   const onLogout = useCallback(() => {
-    clearSession();
-    resetCart();
-    clearPrices();
-  }, [clearPrices, clearSession, resetCart]);
+    void logout();
+  }, []);
 
   const onInventory = useCallback(() => {
     navigation.navigate("InventoryManagement");

@@ -18,15 +18,14 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { SkeletonList } from "@/components/ui/skeleton";
 
-import { toApiError } from "@/api/client";
+import { toApiError, isApiRequestCanceled } from "@/api/client";
 import {
   createOrganization,
-  fetchOrganizationRows,
-  hardDeleteOrganization,
-  patchOrganizationStatus,
-  type OrganizationRead,
+  fetchOrganizationRows, patchOrganizationStatus,
+  type OrganizationRead
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
+import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
 
 import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
@@ -53,6 +52,14 @@ export function SuperAdminOrgsScreen() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
+    if (
+      skipUnlessAuthed(() => {
+        setLoading(false);
+        setRefreshing(false);
+      })
+    ) {
+      return;
+    }
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -63,6 +70,9 @@ export function SuperAdminOrgsScreen() {
       const { items } = await fetchOrganizationRows();
       setOrgs(items);
     } catch (err) {
+      if (isApiRequestCanceled(err) || !hasAuthToken()) {
+        return;
+      }
       setError(toApiError(err).message || "Failed to load organizations");
     } finally {
       setLoading(false);

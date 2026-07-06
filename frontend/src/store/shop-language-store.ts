@@ -26,6 +26,10 @@ export const useShopLanguageStore = create<ShopLanguageState>()(
       name: SHOP_LANGUAGE_STORAGE_KEY,
       storage: createJSONStorage(() => secureStorage),
       partialize: (state) => ({ language: state.language }),
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<Pick<ShopLanguageState, "language">>;
+        return { language: state.language === "ta" ? "ta" : "en" };
+      },
     },
   ),
 );

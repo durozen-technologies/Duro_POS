@@ -24,6 +24,10 @@ export const useAdminItemsStore = create<AdminItemsState>()(
       name: ADMIN_ITEMS_STORAGE_KEY,
       storage: createJSONStorage(() => secureStorage),
       partialize: (state) => ({ selectedShopId: state.selectedShopId }),
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<Pick<AdminItemsState, "selectedShopId">>;
+        return { selectedShopId: state.selectedShopId ?? null };
+      },
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
       },

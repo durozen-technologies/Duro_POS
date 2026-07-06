@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_active_user
@@ -14,7 +14,7 @@ from app.schemas.auth import (
     RegisterRequest,
     UserSession,
 )
-from app.services.auth import build_user_session, login_user, register_admin, reset_password_for_dev
+from app.services.auth import build_user_session, login_user, logout_user, register_admin, reset_password_for_dev
 
 router = APIRouter()
 
@@ -22,13 +22,16 @@ router = APIRouter()
 @router.post("/login", response_model=LoginResponse)
 async def login(
     payload: LoginRequest,
+    request: Request,
     platform_db: AsyncSession = Depends(get_platform_db),
 ) -> LoginResponse:
+    client_ip = request.client.host if request.client else "unknown"
     return await login_user(
         platform_db,
         payload.username,
         payload.password,
         organization_slug=payload.organization_slug,
+        client_ip=client_ip,
     )
 
 
@@ -46,6 +49,14 @@ async def reset_password(
     platform_db: AsyncSession = Depends(get_platform_db),
 ) -> PasswordResetResponse:
     return await reset_password_for_dev(platform_db, payload)
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    current_user: User = Depends(get_current_active_user),
+    platform_db: AsyncSession = Depends(get_platform_db),
+) -> None:
+    await logout_user(platform_db, current_user)
 
 
 @router.get("/me", response_model=UserSession)

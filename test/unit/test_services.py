@@ -69,6 +69,7 @@ from app.schemas.retailer_inventory import (
     RetailerStockAdjustRequest,
 )
 from app.schemas.retailers import RetailerCreate
+from app.services.auth import register_admin
 from app.services.admin import allocate_catalogue_item, create_shop_account, update_item_assumption
 from app.services.admin.shops import create_item
 from app.services.retailer_inventory import (
@@ -111,6 +112,7 @@ from app.services.reports import (
     build_overall_report,
     generate_admin_report_pdf,
 )
+from app.services.reports.pdf import get_over_report_sheet_config
 
 
 def _square_image_bytes(size: int = 400, image_format: str = "PNG") -> bytes:
@@ -125,7 +127,7 @@ class ServiceUnitTests(BackendTestCase):
             return len(text) * 4.0
 
         for use_tamil in (False, True):
-            headers = _over_report_sheet_headers(use_tamil=use_tamil)
+            headers, min_widths, _, _, _, _ = get_over_report_sheet_config(use_tamil=use_tamil)
             rows = [
                 [
                     "16/06/2026",
@@ -155,7 +157,8 @@ class ServiceUnitTests(BackendTestCase):
             widths = _over_report_sheet_widths(
                 headers,
                 line_width=measure,
-                available_width=2000,
+                available_width=5000,
+                min_widths=min_widths,
                 rows=rows,
                 data_line_width=measure,
             )
@@ -1166,7 +1169,9 @@ class ServiceUnitTests(BackendTestCase):
                     {add_result.movement.id, use_result.movement.id},
                 )
 
-                summary = await get_inventory_summary(db, current_shop)
+                with patch("app.services.inventory.date") as inventory_date:
+                    inventory_date.today.return_value = date(2026, 6, 3)
+                    summary = await get_inventory_summary(db, current_shop)
                 stock_item = next(row for row in summary.items if row.id == item.id)
                 self.assertEqual(stock_item.available_quantity, Decimal("7.000"))
                 self.assertEqual(stock_item.added_quantity, Decimal("10.000"))

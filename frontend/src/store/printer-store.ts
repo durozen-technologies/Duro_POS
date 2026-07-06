@@ -22,6 +22,10 @@ export const usePrinterStore = create<PrinterState>()(
       name: PRINTER_STORAGE_KEY,
       storage: createJSONStorage(() => secureStorage),
       partialize: (state) => ({ preferredPrinter: state.preferredPrinter }),
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<Pick<PrinterState, "preferredPrinter">>;
+        return { preferredPrinter: state.preferredPrinter ?? null };
+      },
     },
   ),
 );

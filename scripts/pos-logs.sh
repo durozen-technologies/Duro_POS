@@ -8,7 +8,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-${DEPLOY_ROOT}/docker-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-${DEPLOY_ROOT}/.env}"
 LOG_DIR="${DEPLOY_ROOT}/logs"
 ARCHIVE_DIR="${LOG_DIR}/archive"
-SERVICES=(postgres rustfs backend caddy)
+SERVICES=(postgres pgbouncer redis rustfs backend-1 backend-2 caddy)
 
 export COMPOSE_PROFILES="${COMPOSE_PROFILES:-infra}"
 
@@ -22,7 +22,7 @@ Usage: pos-logs [command] [service]
 
 Commands:
   (none)              Follow all service logs (live)
-  <service>           Follow one service (postgres|rustfs|backend|caddy)
+  <service>           Follow one service (postgres|pgbouncer|redis|rustfs|backend-1|backend-2|caddy)
   export              Export logs to ${LOG_DIR}/<service>.log
   export-archive      Export combined log to ${ARCHIVE_DIR}/pos-YYYYMMDD.log
   tail <service>      tail -f exported log file
@@ -100,7 +100,7 @@ main() {
     help|-h|--help)
       usage
       ;;
-    postgres|rustfs|backend|caddy)
+    postgres|pgbouncer|redis|rustfs|backend-1|backend-2|caddy)
       compose logs -f --tail=200 "${cmd}"
       ;;
     *)

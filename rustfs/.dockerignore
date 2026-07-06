@@ -1,2 +1,7 @@
+.git/
+.github/
+*.md
+Dockerfile
+.dockerignore
 data/
 *.log

@@ -23,6 +23,8 @@ import {
   type OrganizationRead,
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
+import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
+import { isAuthSessionError } from "@/utils/auth-errors";
 
 import { SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
@@ -64,11 +66,21 @@ export function SuperAdminOrgEditScreen() {
   const [branchesLoading, setBranchesLoading] = useState(true);
 
   const loadBranches = useCallback(async () => {
+    if (
+      skipUnlessAuthed(() => {
+        setBranchesLoading(false);
+      })
+    ) {
+      return;
+    }
     setBranchesLoading(true);
     try {
       const rows = await fetchOrganizationBranches(org.id);
       setBranches(rows);
     } catch (branchError) {
+      if (isAuthSessionError(branchError)) {
+        return;
+      }
       setError(toApiError(branchError).message || "Failed to load branches");
     } finally {
       setBranchesLoading(false);
@@ -76,6 +88,13 @@ export function SuperAdminOrgEditScreen() {
   }, [org.id]);
 
   const reloadOrg = useCallback(async () => {
+    if (
+      skipUnlessAuthed(() => {
+        setRefreshing(false);
+      })
+    ) {
+      return;
+    }
     setRefreshing(true);
     setError(null);
     try {
@@ -89,6 +108,9 @@ export function SuperAdminOrgEditScreen() {
       }
       await loadBranches();
     } catch (reloadError) {
+      if (isAuthSessionError(reloadError)) {
+        return;
+      }
       setError(toApiError(reloadError).message || "Failed to refresh organization");
     } finally {
       setRefreshing(false);

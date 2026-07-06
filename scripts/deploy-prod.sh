@@ -178,7 +178,9 @@ service_health() {
 
 infra_healthy() {
   [[ "$(service_health postgres)" == "healthy" ]] \
-    && [[ "$(service_health rustfs)" == "healthy" ]]
+    && [[ "$(service_health pgbouncer)" == "healthy" ]] \
+    && [[ "$(service_health rustfs)" == "healthy" ]] \
+    && [[ "$(service_health redis)" == "healthy" ]]
 }
 
 read_state() {
@@ -219,15 +221,19 @@ docker_login() {
 
 bootstrap_infra() {
   if infra_healthy; then
-    log "Postgres and RustFS healthy — skipping infra (no restart, no pull)"
+    log "Postgres, pgBouncer, RustFS, and Redis healthy — skipping infra restart"
     return 0
   fi
 
-  local pg_cid rf_cid pg_health rf_health
+  local pg_cid pb_cid rf_cid rd_cid pg_health pb_health rf_health rd_health
   pg_cid="$(service_container_id postgres)"
+  pb_cid="$(service_container_id pgbouncer)"
   rf_cid="$(service_container_id rustfs)"
+  rd_cid="$(service_container_id redis)"
   pg_health="$(service_health postgres)"
+  pb_health="$(service_health pgbouncer)"
   rf_health="$(service_health rustfs)"
+  rd_health="$(service_health redis)"
 
   if [[ -n "${pg_cid}" && "${pg_health}" != "healthy" ]]; then
     log "Postgres container exists but is not healthy (status=${pg_health})"
@@ -240,12 +246,28 @@ bootstrap_infra() {
     run_compose up -d postgres
   fi
 
+  if [[ -z "${pb_cid}" ]]; then
+    log "Starting pgBouncer for first-time bootstrap"
+    run_compose up -d --build pgbouncer
+  elif [[ "${pb_health}" != "healthy" ]]; then
+    log "pgBouncer not healthy (status=${pb_health}) — recreating pgbouncer"
+    run_compose up -d --build --force-recreate pgbouncer
+  fi
+
   if [[ -z "${rf_cid}" ]]; then
     log "Starting rustfs for first-time bootstrap"
     run_compose up -d rustfs
   elif [[ "${rf_health}" != "healthy" ]]; then
     log "RustFS not healthy (status=${rf_health}) — recreating rustfs"
     run_compose up -d --force-recreate rustfs
+  fi
+
+  if [[ -z "${rd_cid}" ]]; then
+    log "Starting redis for first-time bootstrap"
+    run_compose up -d redis
+  elif [[ "${rd_health}" != "healthy" ]]; then
+    log "Redis not healthy (status=${rd_health}) — recreating redis"
+    run_compose up -d --force-recreate redis
   fi
 
   log "Waiting for infra health"
@@ -258,16 +280,16 @@ bootstrap_infra() {
     sleep "${HEALTH_INTERVAL}"
   done
 
-  log "Infra failed to become healthy (postgres=${pg_health}, rustfs=${rf_health})"
+  log "Infra failed to become healthy (postgres=${pg_health}, pgbouncer=${pb_health}, rustfs=${rf_health}, redis=${rd_health})"
   exit 1
 }
 
 sync_compose_project() {
-  log "Applying compose/network changes (postgres only, no image pull)"
+  log "Applying compose/network changes (infra only, no image pull)"
   if [[ "${COMPOSE_V2}" == "true" ]]; then
-    run_compose up -d --no-recreate --pull never postgres
+    run_compose up -d --no-recreate --pull never postgres pgbouncer redis
   else
-    run_compose up -d --no-recreate postgres
+    run_compose up -d --no-recreate postgres pgbouncer redis
   fi
 }
 
@@ -292,71 +314,155 @@ resolve_image_tags() {
 
 run_migrations() {
   local image_tag="${1:-${BACKEND_IMAGE_TAG:-latest}}"
-  log "Running backend database migrations (image tag=${image_tag})"
-  BACKEND_IMAGE_TAG="${image_tag}" run_compose run --rm --no-deps backend python migrate.py --tenants
+  log "Running database migrations (image tag=${image_tag})"
+  BACKEND_IMAGE_TAG="${image_tag}" run_compose run --rm --no-deps migrate
 }
 
 backend_health_http_probe() {
-  compose_quiet exec -T backend python -c \
-    "import urllib.request,json,sys
-try:
- r=urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=5)
- body=r.read().decode()
- print(json.dumps({'code':r.getcode(),'body':body}))
- sys.exit(0 if r.getcode()==200 else 1)
-except Exception as e:
- print(json.dumps({'code':0,'error':str(e)}))
- sys.exit(1)"
+  local service="${1:?backend service name required}"
+  compose_quiet exec -T "${service}" curl -fsS http://127.0.0.1:8000/health || true
 }
 
 log_backend_health_diagnostics() {
-  local status="$1"
+  local service="$1"
+  local status="$2"
   local probe_out
-  log "Backend diagnostics: container_status=${status}"
-  probe_out="$(backend_health_http_probe 2>/dev/null || true)"
+  log "Backend diagnostics (${service}): container_status=${status}"
+  probe_out="$(backend_health_http_probe "${service}")"
   if [[ -n "${probe_out}" ]]; then
-    log "Backend health probe: ${probe_out}"
+    log "Backend health probe (${service}): ${probe_out}"
     debug_log "H3" "deploy-prod.sh:log_backend_health_diagnostics" "health probe" \
-      "{\"container_status\":\"${status}\",\"probe\":${probe_out}}"
+      "{\"service\":\"${service}\",\"container_status\":\"${status}\",\"probe\":${probe_out}}"
   fi
-  log "Backend logs (last 60 lines):"
-  compose_quiet logs --tail 60 backend || true
+  log "Backend logs (${service}, last 60 lines):"
+  compose_quiet logs --tail 60 "${service}" || true
 }
 
 wait_backend_health() {
+  local service="${1:?backend service name required}"
   local i status restart_count
-  log "Waiting for backend health (up to $((HEALTH_RETRIES * HEALTH_INTERVAL))s)"
+  log "Waiting for ${service} health (up to $((HEALTH_RETRIES * HEALTH_INTERVAL))s)"
   for ((i = 1; i <= HEALTH_RETRIES; i++)); do
-    status="$(service_health backend)"
+    status="$(service_health "${service}")"
     if [[ "${status}" == "healthy" ]]; then
-      log "Backend healthy"
+      log "${service} healthy"
       debug_log "H2" "deploy-prod.sh:wait_backend_health" "backend healthy" \
-        "{\"attempt\":${i},\"status\":\"${status}\"}"
+        "{\"service\":\"${service}\",\"attempt\":${i},\"status\":\"${status}\"}"
       return 0
     fi
     if [[ "${status}" == "exited" || "${status}" == "dead" ]]; then
-      log "Backend container is not running (status=${status})"
-      log_backend_health_diagnostics "${status}"
+      log "${service} container is not running (status=${status})"
+      log_backend_health_diagnostics "${service}" "${status}"
       return 1
     fi
     if [[ "${status}" == "unhealthy" ]]; then
-      restart_count="$(docker inspect --format='{{.RestartCount}}' "$(service_container_id backend)" 2>/dev/null || echo 0)"
+      restart_count="$(docker inspect --format='{{.RestartCount}}' "$(service_container_id "${service}")" 2>/dev/null || echo 0)"
       if [[ "${restart_count}" -ge 3 ]]; then
-        log "Backend crash-looping (status=${status}, restarts=${restart_count})"
-        log_backend_health_diagnostics "${status}"
+        log "${service} crash-looping (status=${status}, restarts=${restart_count})"
+        log_backend_health_diagnostics "${service}" "${status}"
         return 1
       fi
     fi
     if (( i == 1 || i % 6 == 0 )); then
-      log "Backend not ready yet: status=${status} (attempt ${i}/${HEALTH_RETRIES})"
+      log "${service} not ready yet: status=${status} (attempt ${i}/${HEALTH_RETRIES})"
       debug_log "H2" "deploy-prod.sh:wait_backend_health" "still waiting" \
-        "{\"attempt\":${i},\"status\":\"${status}\"}"
+        "{\"service\":\"${service}\",\"attempt\":${i},\"status\":\"${status}\"}"
     fi
     sleep "${HEALTH_INTERVAL}"
   done
-  status="$(service_health backend)"
-  log_backend_health_diagnostics "${status}"
+  status="$(service_health "${service}")"
+  log_backend_health_diagnostics "${service}" "${status}"
   return 1
+}
+
+deploy_backend_instance() {
+  local service="$1"
+  local image_tag="$2"
+  log "Pulling ${service} image (tag=${image_tag})"
+  BACKEND_IMAGE_TAG="${image_tag}" run_compose pull "${service}"
+  log "Deploying ${service}"
+  BACKEND_IMAGE_TAG="${image_tag}" run_compose up -d --no-deps "${service}"
+  wait_backend_health "${service}"
+}
+
+deploy_backend_rolling() {
+  local image_tag="$1"
+  local previous_tag="$2"
+
+  if ! deploy_backend_instance "backend-1" "${image_tag}"; then
+    log "backend-1 failed to become healthy"
+    if [[ -n "${previous_tag}" && "${previous_tag}" != "${image_tag}" ]]; then
+      log "Rolling back backend-1 to ${previous_tag}"
+      deploy_backend_instance "backend-1" "${previous_tag}" || true
+    fi
+    return 1
+  fi
+
+  if ! deploy_backend_instance "backend-2" "${image_tag}"; then
+    log "backend-2 failed to become healthy — backend-1 is on ${image_tag}"
+    if [[ -n "${previous_tag}" && "${previous_tag}" != "${image_tag}" ]]; then
+      log "Rolling back backend-2 to ${previous_tag}"
+      deploy_backend_instance "backend-2" "${previous_tag}" || true
+    fi
+    return 1
+  fi
+
+  return 0
+}
+
+backend_allowed_hosts_mismatch() {
+  local service="$1"
+  local cid current expected
+  cid="$(service_container_id "${service}")"
+  [[ -z "${cid}" ]] && return 1
+  current="$(compose_quiet exec -T "${service}" printenv ALLOWED_HOSTS || true)"
+  expected="${BACKEND_ALLOWED_HOSTS:-}"
+  [[ "${current}" != "${expected}" ]]
+}
+
+refresh_backend_env_if_needed() {
+  local service mismatched=false
+  for service in backend-1 backend-2; do
+    if backend_allowed_hosts_mismatch "${service}"; then
+      mismatched=true
+      log "${service} ALLOWED_HOSTS out of sync with .env — recreating"
+      run_compose up -d --no-deps "${service}"
+      if ! wait_backend_health "${service}"; then
+        log "${service} failed after env sync"
+        return 1
+      fi
+    fi
+  done
+  if [[ "${mismatched}" == "false" ]]; then
+    return 0
+  fi
+  return 0
+}
+
+rollback() {
+  local backend_tag="${1:-}"
+  local caddy_tag="${2:-}"
+  local rollback_backend="${3:-false}"
+  local rollback_caddy="${4:-false}"
+
+  if [[ "${rollback_backend}" == "true" && -n "${backend_tag}" ]]; then
+    log "Rolling back backends to ${backend_tag}"
+    BACKEND_IMAGE_TAG="${backend_tag}" run_compose pull backend-1 backend-2 || true
+    BACKEND_IMAGE_TAG="${backend_tag}" run_compose up -d --no-deps backend-1 backend-2
+    wait_backend_health backend-1 || true
+    wait_backend_health backend-2 || true
+  fi
+
+  if [[ "${rollback_caddy}" == "true" && -n "${caddy_tag}" ]]; then
+    log "Rolling back caddy to ${caddy_tag}"
+    CADDY_IMAGE_TAG="${caddy_tag}" run_compose pull caddy || true
+    CADDY_IMAGE_TAG="${caddy_tag}" run_compose up -d --no-deps caddy
+    wait_caddy_health || true
+  fi
+
+  write_state \
+    "$( [[ "${rollback_backend}" == "true" && -n "${backend_tag}" ]] && echo "${backend_tag}" || echo "${BACKEND_TAG_PREVIOUS}" )" \
+    "$( [[ "${rollback_caddy}" == "true" && -n "${caddy_tag}" ]] && echo "${caddy_tag}" || echo "${CADDY_TAG_PREVIOUS}" )"
 }
 
 wait_caddy_health() {
@@ -376,54 +482,6 @@ wait_caddy_health() {
   log "Caddy health check failed (last status=${status})"
   compose_quiet logs --tail 60 caddy || true
   return 1
-}
-
-backend_allowed_hosts_mismatch() {
-  local cid current expected
-  cid="$(service_container_id backend)"
-  [[ -z "${cid}" ]] && return 1
-  current="$(compose_quiet exec -T backend printenv ALLOWED_HOSTS || true)"
-  expected="${BACKEND_ALLOWED_HOSTS:-}"
-  [[ "${current}" != "${expected}" ]]
-}
-
-refresh_backend_env_if_needed() {
-  if ! backend_allowed_hosts_mismatch; then
-    return 0
-  fi
-
-  log "Backend ALLOWED_HOSTS out of sync with .env — recreating backend"
-  run_compose up -d --no-deps backend
-
-  if ! wait_backend_health; then
-    log "Backend failed after env sync"
-    return 1
-  fi
-}
-
-rollback() {
-  local backend_tag="${1:-}"
-  local caddy_tag="${2:-}"
-  local rollback_backend="${3:-false}"
-  local rollback_caddy="${4:-false}"
-
-  if [[ "${rollback_backend}" == "true" && -n "${backend_tag}" ]]; then
-    log "Rolling back backend to ${backend_tag}"
-    BACKEND_IMAGE_TAG="${backend_tag}" run_compose pull backend || true
-    BACKEND_IMAGE_TAG="${backend_tag}" run_compose up -d --no-deps backend
-    wait_backend_health || true
-  fi
-
-  if [[ "${rollback_caddy}" == "true" && -n "${caddy_tag}" ]]; then
-    log "Rolling back caddy to ${caddy_tag}"
-    CADDY_IMAGE_TAG="${caddy_tag}" run_compose pull caddy || true
-    CADDY_IMAGE_TAG="${caddy_tag}" run_compose up -d --no-deps caddy
-    wait_caddy_health || true
-  fi
-
-  write_state \
-    "$( [[ "${rollback_backend}" == "true" && -n "${backend_tag}" ]] && echo "${backend_tag}" || echo "${BACKEND_TAG_PREVIOUS}" )" \
-    "$( [[ "${rollback_caddy}" == "true" && -n "${caddy_tag}" ]] && echo "${caddy_tag}" || echo "${CADDY_TAG_PREVIOUS}" )"
 }
 
 deploy_app() {
@@ -466,20 +524,16 @@ deploy_app() {
   sync_compose_project
 
   if [[ "${deploy_backend}" == "true" ]]; then
-    log "Pulling backend image (tag=${new_backend_tag})"
-    BACKEND_IMAGE_TAG="${new_backend_tag}" run_compose pull backend
+    BACKEND_IMAGE_TAG="${new_backend_tag}" run_compose pull backend-1 backend-2
 
     if ! run_migrations "${new_backend_tag}"; then
       log "Database migration failed"
-      rollback "${BACKEND_TAG_PREVIOUS}" "${CADDY_TAG_PREVIOUS}" true false
       exit 1
     fi
 
-    log "Deploying backend"
-    BACKEND_IMAGE_TAG="${new_backend_tag}" run_compose up -d --no-deps backend
-
-    if ! wait_backend_health; then
-      log "Backend health check failed — verify POSTGRES_PASSWORD matches the data directory"
+    log "Rolling deploy: backend-1 then backend-2"
+    if ! deploy_backend_rolling "${new_backend_tag}" "${BACKEND_TAG_PREVIOUS}"; then
+      log "Rolling backend deploy failed"
       rollback "${BACKEND_TAG_PREVIOUS}" "${CADDY_TAG_PREVIOUS}" true false
       exit 1
     fi

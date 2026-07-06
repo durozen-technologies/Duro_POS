@@ -2,14 +2,48 @@ import logging
 
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.core.config import get_settings
 from app.core.logging import log_event
 from app.core.redis_cache import redis_health_status
+from app.db.database import get_engine
 from app.db.storage.paths import settings as storage_settings
 
 router = APIRouter()
+readiness_router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def _database_ping() -> tuple[bool, str | None]:
+    try:
+        async with get_engine().connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+@readiness_router.get("/health")
+async def readiness_probe() -> JSONResponse:
+    """Load-balancer readiness: cheap DB ping only."""
+    ok, error = await _database_ping()
+    if ok:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "ok", "database": "connected"},
+        )
+    log_event(
+        logger,
+        logging.ERROR,
+        "readiness_probe_failed",
+        "readiness database ping failed",
+        error=error,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"status": "unavailable", "database": "unavailable"},
+    )
 
 
 async def _rustfs_health_status() -> str:
@@ -28,8 +62,7 @@ async def _rustfs_health_status() -> str:
 @router.get("/health")
 async def health_check(request: Request) -> JSONResponse:
     settings = get_settings()
-    database_ready = getattr(request.app.state, "database_ready", False)
-    database_error = getattr(request.app.state, "database_error", None)
+    database_ready, database_error = await _database_ping()
 
     if database_error:
         log_event(

@@ -15,6 +15,9 @@ on:
       - "test/**"
       - ".github/workflows/backend-tests.yml"
 
+env:
+  TZ: UTC
+
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
@@ -35,12 +38,12 @@ jobs:
           uv sync --locked
 
       - name: Tenant baseline table check
-        run: python scripts/check_tenant_baseline.py
+        run: uv run python scripts/check_tenant_baseline.py
 
       - name: Public schema contract check
-        run: python scripts/check_public_schema.py
+        run: uv run python scripts/check_public_schema.py
 
       - name: Run unit tests
+        working-directory: ${{ github.workspace }}
         run: |
-          cd ..
-          PYTHONPATH=backend:. uv run --directory backend python -m unittest discover -s test/unit -p "test_*.py" -v
+          PYTHONPATH=backend:. uv run --project backend python -m unittest discover -s test/unit -p "test_*.py" -v

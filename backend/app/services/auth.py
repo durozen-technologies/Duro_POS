@@ -14,6 +14,7 @@ from app.core.errors import (
     ACCOUNT_DISABLED_BY_SUPER_ADMIN,
     ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
 )
+from app.core.login_rate_limit import enforce_login_rate_limit
 from app.core.logging import log_event
 from app.core.security import (
     create_access_token_for_user,
@@ -37,6 +38,7 @@ from app.models import (
     UserRole,
 )
 from app.models.enums import is_super_admin, is_tenant_admin
+from app.services.session_invalidation import invalidate_user_sessions
 from app.schemas.auth import (
     LoginResponse,
     PasswordResetRequest,
@@ -208,14 +210,25 @@ async def _load_tenant_user(
     )
 
 
+async def logout_user(db: AsyncSession, user: User) -> None:
+    await invalidate_user_sessions(user)
+    await db.flush()
+    await db.commit()
+
+
 async def login_user(
     platform_db: AsyncSession,
     username: str,
     password: str,
     *,
     organization_slug: str | None = None,
+    client_ip: str | None = None,
 ) -> LoginResponse:
     normalized_username = normalize_username(username)
+    await enforce_login_rate_limit(
+        client_ip=client_ip or "unknown",
+        username=normalized_username,
+    )
 
     user: User | None = None
     tenant_schema_name: str | None = None
@@ -305,6 +318,7 @@ async def reset_password_for_dev(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     user.password_hash = get_password_hash(payload.password)
+    await invalidate_user_sessions(user)
     await db.flush()
     await db.commit()
     await db.refresh(user)

@@ -1,69 +1,68 @@
-# services:
-#   backend:
-#     build:
-#       context: ./backend
-#     restart: unless-stopped
-#     env_file:
-#       - ./backend/.env
-#     environment:
-#       DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://postgres:root@host.docker.internal:5432/brolier_360}
-#       PRODUCTION: ${BACKEND_PRODUCTION:-False}
-#       ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:-["*"]}
-#       RUSTFS_ENDPOINT_URL: ${BACKEND_RUSTFS_ENDPOINT_URL:-http://host.docker.internal:9000}
-#       WEB_CONCURRENCY: ${BACKEND_WEB_CONCURRENCY:-1}
-#     extra_hosts:
-#       - "host.docker.internal:host-gateway"
-#     expose:
-#       - "8000"
-#     healthcheck:
-#       test:
-#         [
-#           "CMD",
-#           "python",
-#           "-c",
-#           "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).getcode()==200 else 1)",
-#         ]
-#       interval: 15s
-#       timeout: 5s
-#       retries: 5
-#       start_period: 20s
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
-#   nginx:
-#     build:
-#       context: ./nginx
-#     restart: unless-stopped
-#     depends_on:
-#       backend:
-#         condition: service_healthy
-#     ports:
-#       - "8000:8080"
-#     healthcheck:
-#       test:
-#         [
-#           "CMD-SHELL",
-#           "nginx -t && [ -s /tmp/nginx.pid ] && kill -0 \"$(cat /tmp/nginx.pid)\"",
-#         ]
-#       interval: 15s
-#       timeout: 5s
-#       retries: 5
-#       start_period: 10s
+x-default-security: &default-security
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-backend-user: &backend-user
+  user: "10001:10001"
+
+x-caddy-user: &caddy-user
+  user: "10001:10001"
+  cap_add:
+    - NET_BIND_SERVICE
+
+x-backend-hardening: &backend-hardening
+  read_only: true
+  tmpfs:
+    - /tmp/app:size=128M,mode=1777,uid=10001,gid=10001
+
+x-caddy-hardening: &caddy-hardening
+  read_only: true
+  tmpfs:
+    - /etc/caddy:size=2M,mode=1700,uid=10001,gid=10001
+    - /tmp:size=64M,mode=1777,uid=10001,gid=10001
+
+networks:
+  edge:
+    name: duropos-dev-edge
+    driver: bridge
+  data:
+    name: duropos-dev-internal
+    driver: bridge
+    internal: true
 
 services:
   backend:
+    <<: [*default-security, *backend-user, *backend-hardening]
+    logging: *default-logging
+    networks:
+      - data
     build:
       context: ./backend
       dockerfile: Dockerfile
       target: runtime
       args:
-        PYTHON_VERSION: ${BACKEND_PYTHON_VERSION:-3.11}
+        PYTHON_VERSION: ${BACKEND_PYTHON_VERSION:-3.11.11}
         UV_VERSION: ${BACKEND_UV_VERSION:-0.11.3}
+        BUILD_VERSION: ${IMAGE_TAG:-dev}
+        BUILD_REVISION: ${BUILD_REVISION:-local}
+        APP_UID: 10001
+        APP_GID: 10001
     restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
       DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+asyncpg://postgres:root@host.docker.internal:5432/brolier_360}
       PRODUCTION: ${BACKEND_PRODUCTION:-False}
-      ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:-["*"]}
+      ALLOWED_HOSTS: ${BACKEND_ALLOWED_HOSTS:-["localhost","127.0.0.1","backend"]}
       RUSTFS_ENDPOINT_URL: ${BACKEND_RUSTFS_ENDPOINT_URL:-http://host.docker.internal:9000}
       WEB_CONCURRENCY: ${BACKEND_WEB_CONCURRENCY:-1}
     extra_hosts:
@@ -84,12 +83,21 @@ services:
       start_period: 20s
 
   caddy:
+    <<: [*default-security, *caddy-user, *caddy-hardening]
+    logging: *default-logging
+    networks:
+      - edge
+      - data
     build:
       context: ./caddy
       dockerfile: Dockerfile
       target: runtime
       args:
-        CADDY_VERSION: ${CADDY_VERSION:-2}
+        CADDY_VERSION: ${CADDY_VERSION:-2.9.1}
+        BUILD_VERSION: ${IMAGE_TAG:-dev}
+        BUILD_REVISION: ${BUILD_REVISION:-local}
+        CADDY_UID: 10001
+        CADDY_GID: 10001
     restart: unless-stopped
     depends_on:
       backend:

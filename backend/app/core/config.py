@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     production: bool = False
     secret_key: str = ""
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 12 * 60
+    access_token_expire_minutes: int = 90
     shop_default_password: str = "ml123"
     allowed_hosts_raw: str = Field(default="*", validation_alias="ALLOWED_HOSTS")
     cors_origins_raw: str = Field(default="*", validation_alias="CORS_ORIGINS")
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     rustfs_access_key_id: str | None = None
     rustfs_secret_access_key: str | None = None
     rustfs_region_name: str = "us-east-1"
-    rustfs_bucket_name: str = "pos-mlb-items"
+    rustfs_bucket_name: str = "brolier-360"
     rustfs_server_domains_raw: str | None = Field(
         default=None, validation_alias="RUSTFS_SERVER_DOMAINS"
     )
@@ -151,6 +151,12 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL must be set in production")
         if self.cors_origins == ["*"]:
             self.cors_origins_raw = ""
+        if not self.cors_origins:
+            raise ValueError("CORS_ORIGINS must be explicitly set in production")
+        if self.access_token_expire_minutes > 240:
+            raise ValueError(
+                "ACCESS_TOKEN_EXPIRE_MINUTES must be 240 or less in production"
+            )
         if not self.allowed_hosts or self.allowed_hosts == ["*"]:
             if render_external_hostname:
                 self.allowed_hosts_raw = render_external_hostname

@@ -1,6 +1,8 @@
 import { apiClient } from "@/api/client";
 import { LoginRequest, LoginResponse, RegisterRequest, UserSession } from "@/types/api";
 
+import { AUTH_REVOCATION_CODES } from "@/constants/auth-codes";
+
 const DISABLED_LOGIN_MESSAGES: Record<string, string> = {
   ACCOUNT_DISABLED_BY_SUPER_ADMIN:
     "Your account has been disabled by the super admin. Please contact Durozen Technologies.",
@@ -90,7 +92,7 @@ export async function registerAdmin(payload: RegisterRequest) {
   return data;
 }
 
-export async function fetchMe() {
-  const { data } = await apiClient.get<UserSession>("/api/v1/auth/me");
+export async function fetchMe(signal?: AbortSignal) {
+  const { data } = await apiClient.get<UserSession>("/api/v1/auth/me", { signal });
   return data;
 }

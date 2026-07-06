@@ -16,7 +16,9 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { toApiError } from "@/api/client";
 import { fetchAllOrganizationRows, fetchAuditLogRows, type AuditLogRead } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
+import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
 import type { UUID } from "@/types/api";
+import { isAuthSessionError } from "@/utils/auth-errors";
 
 import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
@@ -60,6 +62,14 @@ export function SuperAdminAuditScreen() {
   const cursorRef = useRef<{ created_at: string; id: UUID } | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
+    if (
+      skipUnlessAuthed(() => {
+        setLoading(false);
+        setRefreshing(false);
+      })
+    ) {
+      return;
+    }
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -87,6 +97,9 @@ export function SuperAdminAuditScreen() {
             }
           : null;
     } catch (err) {
+      if (isAuthSessionError(err)) {
+        return;
+      }
       setError(toApiError(err).message || "Failed to load audit log");
     } finally {
       setLoading(false);
@@ -100,7 +113,7 @@ export function SuperAdminAuditScreen() {
 
   const loadMore = useCallback(async () => {
     const cursor = cursorRef.current;
-    if (!hasMore || loadingMore || !cursor) return;
+    if (!hasMore || loadingMore || !cursor || !hasAuthToken()) return;
     setLoadingMore(true);
     try {
       const page = await fetchAuditLogRows({
@@ -118,6 +131,9 @@ export function SuperAdminAuditScreen() {
             }
           : null;
     } catch (err) {
+      if (isAuthSessionError(err)) {
+        return;
+      }
       setError(toApiError(err).message || "Failed to load more");
     } finally {
       setLoadingMore(false);
