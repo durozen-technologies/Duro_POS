@@ -31,6 +31,15 @@ class PostgresUrlTests(unittest.TestCase):
             "postgresql+psycopg://postgres:root@localhost:5432/brolier_360",
         )
 
+    def test_sync_strips_asyncpg_only_query_params(self) -> None:
+        self.assertEqual(
+            sync_postgres_database_url(
+                "postgresql+asyncpg://postgres:root@pgbouncer:6432/brolier_360"
+                "?prepared_statement_cache_size=0"
+            ),
+            "postgresql+psycopg://postgres:root@pgbouncer:6432/brolier_360",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

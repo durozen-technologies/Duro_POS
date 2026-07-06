@@ -276,7 +276,6 @@ jobs:
           )
           backend_migrate_database_url = (
               f"postgresql+asyncpg://{pg_user}:{pg_password}@postgres:5432/{pg_db}"
-              f"?prepared_statement_cache_size=0"
           )
           backend_redis_url = f"redis://:{redis_password}@redis:6379/0"
 
