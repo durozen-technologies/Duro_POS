@@ -295,27 +295,66 @@ jobs:
                   fh.write(env_line(key, value))
           PY
 
+      - name: Normalize deploy target
+        env:
+          RAW_HOST: ${{ secrets.DEPLOY_HOST }}
+          RAW_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          missing=()
+          if [ -z "$RAW_HOST" ]; then missing+=("DEPLOY_HOST"); fi
+          if [ -z "$RAW_PATH" ]; then missing+=("DEPLOY_PATH"); fi
+          if [ -z "${{ secrets.DEPLOY_USER }}" ] || [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
+            missing+=("DEPLOY_USER/DEPLOY_SSH_KEY")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing deploy secrets: ${missing[*]}" >&2
+            exit 1
+          fi
+
+          DEPLOY_HOST="${RAW_HOST#https://}"
+          DEPLOY_HOST="${DEPLOY_HOST#http://}"
+          DEPLOY_HOST="${DEPLOY_HOST%%/*}"
+          DEPLOY_HOST="${DEPLOY_HOST%/}"
+
+          if [ -z "$DEPLOY_HOST" ] || echo "$DEPLOY_HOST" | grep -q '[[:space:]]'; then
+            echo "DEPLOY_HOST must be hostname or IP only (no https://)." >&2
+            echo "Example: ec2-16-113-19-64.ap-south-2.compute.amazonaws.com" >&2
+            exit 1
+          fi
+
+          DEPLOY_PATH="${RAW_PATH%/}"
+          if [ "${DEPLOY_PATH#/}" = "$DEPLOY_PATH" ]; then
+            echo "DEPLOY_PATH must be an absolute path, e.g. /home/ubuntu/brolier360-pos" >&2
+            exit 1
+          fi
+
+          echo "DEPLOY_HOST=$DEPLOY_HOST" >> "$GITHUB_ENV"
+          echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
+          echo "Deploy target: ${{ secrets.DEPLOY_USER }}@${DEPLOY_HOST}:${DEPLOY_PATH}"
+
       - uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
+          host: ${{ env.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           source: "docker-compose.prod.yml,.env.deploy,scripts/deploy-prod.sh,scripts/pos-logs.sh,scripts/postgres-recover.sh,pgbouncer"
-          target: ${{ secrets.DEPLOY_PATH }}
+          target: ${{ env.DEPLOY_PATH }}
           strip_components: 0
 
       - uses: appleboy/ssh-action@v1.2.0
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
+          host: ${{ env.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
+          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,DEPLOY_PATH
           script: |
             set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
+            cd "$DEPLOY_PATH"
             mv -f .env.deploy .env
             chmod +x scripts/deploy-prod.sh scripts/pos-logs.sh scripts/postgres-recover.sh
             export DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}"

@@ -281,7 +281,7 @@ Password: <POSTGRES_PASSWORD>
 | Secret | Purpose |
 |--------|---------|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | Image push and VM pull |
-| `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH` | SSH deploy target |
+| `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH` | SSH deploy target (`DEPLOY_HOST` = hostname/IP only, no `https://`) |
 | `CADDY_PUBLIC_HOST` | API hostname — TLS + `ALLOWED_HOSTS` |
 | `CADDY_ACME_EMAIL` | Let's Encrypt contact |
 | `POSTGRES_PASSWORD` | DB password (must match existing data dir) |
