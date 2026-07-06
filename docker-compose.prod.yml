@@ -183,7 +183,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -fsS -o /dev/null http://127.0.0.1:9000/ || wget -qO- http://127.0.0.1:9000/ >/dev/null",
+          "curl -fsS -o /dev/null http://127.0.0.1:9000/health || wget -qO- http://127.0.0.1:9000/health >/dev/null",
         ]
       interval: 15s
       timeout: 5s

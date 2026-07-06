@@ -49,7 +49,7 @@ USER ${RUSTFS_DATA_UID}:${RUSTFS_DATA_GID}
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-    CMD curl -fsS -o /dev/null http://127.0.0.1:9000/ || wget -qO- http://127.0.0.1:9000/ >/dev/null
+    CMD curl -fsS -o /dev/null http://127.0.0.1:9000/health || wget -qO- http://127.0.0.1:9000/health >/dev/null
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["/data"]
