@@ -296,8 +296,7 @@ jobs:
           redis_password = quote_plus(os.environ["REDIS_PASSWORD"])
 
           backend_database_url = (
-              f"postgresql+asyncpg://{pg_user}:{pg_password}@pgbouncer:6432/{pg_db}"
-              f"?prepared_statement_cache_size=0&statement_cache_size=0"
+              f"postgresql+psycopg://{pg_user}:{pg_password}@pgbouncer:6432/{pg_db}"
           )
           backend_migrate_database_url = (
               f"postgresql+asyncpg://{pg_user}:{pg_password}@postgres:5432/{pg_db}"

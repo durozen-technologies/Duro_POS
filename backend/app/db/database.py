@@ -1,4 +1,8 @@
+import json
+import logging
+import time
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from sqlalchemy import MetaData, event, text
 from sqlalchemy.engine import URL
@@ -12,15 +16,53 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from ..core.config import get_settings
+from ..core.logging import log_event
 from .postgres_url import (
-    async_postgres_url_object,
-    asyncpg_connect_args_for_url,
-    strip_async_only_query_params,
+    engine_connect_args_for_url,
+    engine_database_url_object,
     uses_pgbouncer,
 )
 from .tenant_context_var import get_active_tenant_schema
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+#region agent log
+_DEBUG_LOG_PATHS = (
+    Path(__file__).resolve().parents[3] / ".cursor" / "debug-3261f4.log",
+    Path("/tmp/debug-3261f4.log"),
+)
+
+
+def _agent_debug_log(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict[str, object],
+    run_id: str = "pre-fix",
+) -> None:
+    payload = {
+        "sessionId": "3261f4",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    line = json.dumps(payload, default=str) + "\n"
+    for path in _DEBUG_LOG_PATHS:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+            break
+        except OSError:
+            continue
+
+
+#endregion
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -38,12 +80,11 @@ class Base(DeclarativeBase):
 def _build_engine_config(
     database_url: str,
 ) -> tuple[URL | str, dict[str, object], dict[str, object]]:
-    url = async_postgres_url_object(database_url)
+    url = engine_database_url_object(database_url)
     connect_args: dict[str, object] = {}
     engine_kwargs: dict[str, object] = {}
 
     sslmode = url.query.get("sslmode")
-    # url.query.get may return a str or a tuple/list of str depending on how URL was parsed.
     if sslmode:
         if isinstance(sslmode, (list, tuple)):
             sslmode = sslmode[0] if sslmode else ""
@@ -53,13 +94,9 @@ def _build_engine_config(
                 query={key: value for key, value in url.query.items() if key != "sslmode"}
             )
 
+    connect_args.update(engine_connect_args_for_url(url))
     if uses_pgbouncer(url):
-        connect_args.update(asyncpg_connect_args_for_url(url))
         engine_kwargs["poolclass"] = NullPool
-    else:
-        connect_args.update(asyncpg_connect_args_for_url(url))
-
-    url = strip_async_only_query_params(url)
 
     return url, connect_args, engine_kwargs
 
@@ -116,6 +153,31 @@ def get_engine() -> AsyncEngine:
             **engine_kwargs,
         )
         _register_search_path_reset_if_needed(engine_url)
+        poolclass_name = (
+            "NullPool"
+            if engine_kwargs.get("poolclass") is NullPool
+            else "QueuePool"
+        )
+        engine_info = {
+            "driver": str(engine_url.drivername),
+            "host": str(engine_url.host),
+            "pgbouncer": uses_pgbouncer(engine_url),
+            "poolclass": poolclass_name,
+            "connect_arg_keys": sorted(engine_connect_args.keys()),
+        }
+        log_event(
+            logger,
+            logging.INFO,
+            "database_engine_initialized",
+            "async engine created",
+            **engine_info,
+        )
+        _agent_debug_log(
+            hypothesis_id="H1-H2",
+            location="database.py:get_engine",
+            message="engine initialized",
+            data=engine_info,
+        )
     return engine
 
 
@@ -138,10 +200,16 @@ async def close_database_connections() -> None:
 
 
 async def ping_database() -> None:
-    """Cheap DB liveness probe without SQLAlchemy prepared statements."""
+    """DB liveness probe without server-side prepared statements (psycopg/asyncpg safe)."""
     async with get_engine().connect() as conn:
-        raw = await conn.get_raw_connection()
-        await raw.driver_connection.fetchval("SELECT 1")
+        dialect_name = conn.dialect.driver
+        await conn.exec_driver_sql("SELECT 1")
+        _agent_debug_log(
+            hypothesis_id="H3",
+            location="database.py:ping_database",
+            message="health ping ok",
+            data={"dialect_driver": dialect_name, "method": "exec_driver_sql"},
+        )
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

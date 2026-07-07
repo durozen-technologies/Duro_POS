@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from sqlalchemy.engine import URL, make_url
 
-from app.core.ids import uuid7
-
 _ASYNC_DRIVER = "postgresql+asyncpg"
+_PGBOUNCER_DRIVER = "postgresql+psycopg"
 _SYNC_DRIVER = "postgresql+psycopg"
 _ASYNC_ONLY_QUERY_KEYS = frozenset({"prepared_statement_cache_size", "statement_cache_size"})
 _POSTGRES_DRIVERS = frozenset(
@@ -16,7 +15,7 @@ _POSTGRES_DRIVERS = frozenset(
 
 def is_async_postgres_database_url(url: str) -> bool:
     driver = make_url(url).drivername
-    return driver in {"postgres", "postgresql", _ASYNC_DRIVER}
+    return driver in {"postgres", "postgresql", _ASYNC_DRIVER, _PGBOUNCER_DRIVER}
 
 
 def async_postgres_database_url(url: str) -> str:
@@ -50,20 +49,26 @@ def uses_pgbouncer(url: URL) -> bool:
     return host == "pgbouncer" or host.endswith(".pgbouncer")
 
 
-def asyncpg_connect_args_for_url(url: URL) -> dict[str, object]:
-    """PgBouncer + SQLAlchemy asyncpg: disable caches and use unique prepare names."""
-    if uses_pgbouncer(url):
-        return {
-            "prepared_statement_cache_size": 0,
-            "statement_cache_size": 0,
-            # SQLAlchemy still calls asyncpg.prepare(); unique names avoid collisions
-            # when multiple clients share a server connection (transaction pooling).
-            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid7()}__",
-        }
+def engine_database_url_object(database_url: str) -> URL:
+    """URL for create_async_engine — psycopg async behind PgBouncer, asyncpg for direct Postgres."""
+    parsed = make_url(database_url)
+    if parsed.drivername in _POSTGRES_DRIVERS:
+        if uses_pgbouncer(parsed):
+            parsed = parsed.set(drivername=_PGBOUNCER_DRIVER)
+        elif parsed.drivername not in {_ASYNC_DRIVER, _PGBOUNCER_DRIVER}:
+            parsed = parsed.set(drivername=_ASYNC_DRIVER)
+    return strip_async_only_query_params(parsed)
 
-    prepared_cache = url.query.get("prepared_statement_cache_size")
-    if prepared_cache in (None, "", "0", 0):
-        return {"prepared_statement_cache_size": 0}
+
+def engine_connect_args_for_url(url: URL) -> dict[str, object]:
+    """PgBouncer: psycopg with server-side prepare disabled (no __asyncpg_stmt_* collisions)."""
+    if uses_pgbouncer(url):
+        return {"prepare_threshold": None}
+
+    if url.drivername == _ASYNC_DRIVER:
+        prepared_cache = url.query.get("prepared_statement_cache_size")
+        if prepared_cache in (None, "", "0", 0):
+            return {"prepared_statement_cache_size": 0}
     return {}
 
 
