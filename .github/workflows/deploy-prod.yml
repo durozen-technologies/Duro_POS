@@ -310,7 +310,15 @@ jobs:
               add_host(deploy_host)
 
           allowed_hosts = sorted(
-              {public_host, "127.0.0.1", "localhost", "backend", *extra_hosts}
+              {
+                  public_host,
+                  "127.0.0.1",
+                  "localhost",
+                  "backend",
+                  "backend-1",
+                  "backend-2",
+                  *extra_hosts,
+              }
           )
           caddy_extra_hosts = ",".join(extra_hosts)
 
