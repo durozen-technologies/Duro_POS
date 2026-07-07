@@ -28,14 +28,15 @@ LABEL org.opencontainers.image.title="Brolier 360 Caddy" \
       org.opencontainers.image.revision="${BUILD_REVISION}"
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
-COPY Caddyfile.template /etc/caddy/Caddyfile.template
+# ponytail: template lives outside /etc/caddy — compose tmpfs mounts that dir empty at runtime
+COPY Caddyfile.template /usr/share/caddy/Caddyfile.template
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN set -eux; \
     addgroup -S -g "${CADDY_GID}" caddyapp; \
     adduser -S -D -H -u "${CADDY_UID}" -G caddyapp -s /sbin/nologin caddyapp; \
-    mkdir -p /config /data /etc/caddy; \
-    chown -R caddyapp:caddyapp /config /data /etc/caddy; \
+    mkdir -p /config /data /etc/caddy /usr/share/caddy; \
+    chown -R caddyapp:caddyapp /config /data /etc/caddy /usr/share/caddy; \
     chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
 USER caddyapp:caddyapp

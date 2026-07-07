@@ -16,7 +16,7 @@ case "${CADDY_PUBLIC_HOST}" in
 esac
 
 {
-  cat /etc/caddy/Caddyfile.template
+  cat /usr/share/caddy/Caddyfile.template
   printf '%s {\n\timport pos_api\n}\n' "${CADDY_PUBLIC_HOST}"
 } > /etc/caddy/Caddyfile
 
