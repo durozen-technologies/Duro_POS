@@ -218,7 +218,7 @@ All services attach to **`brolier360-pos-edge`** and **`brolier360-pos-internal`
 
 ### Multi-backend notes
 
-Production runs **two backend replicas** behind Caddy (`round_robin` + active `/health` checks). Both connect to Postgres through **pgBouncer** (transaction pooling, port 6432).
+Production runs **two backend replicas** behind Caddy (`round_robin` + active `/health` checks). Both connect to Postgres through **pgBouncer** (transaction pooling, port 6432). pgBouncer sets `max_prepared_statements = 0`; backends use SQLAlchemy `NullPool` + `prepared_statement_cache_size=0` so asyncpg does not fight the pooler.
 
 **Redis is required** for correct login rate limiting across replicas. If Redis is down, each backend falls back to in-memory counters (limits are effectively doubled). Keep `REDIS_PASSWORD` set and Redis healthy before enabling dual-backend mode.
 

@@ -41,3 +41,19 @@ def sync_postgres_database_url(url: str) -> str:
 
 def async_postgres_url_object(url: str) -> URL:
     return make_url(async_postgres_database_url(url))
+
+
+def uses_pgbouncer(url: URL) -> bool:
+    host = (url.host or "").lower()
+    return host == "pgbouncer" or host.endswith(".pgbouncer")
+
+
+def strip_async_only_query_params(url: URL) -> URL:
+    if not url.query:
+        return url
+    filtered_query = {
+        key: value for key, value in url.query.items() if key not in _ASYNC_ONLY_QUERY_KEYS
+    }
+    if len(filtered_query) == len(url.query):
+        return url
+    return url.set(query=filtered_query)

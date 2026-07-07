@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.db.database import _build_engine_config
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,14 @@ def _repair_on_connection(connection, script: ScriptDirectory, head: str | None)
 async def _repair_async(alembic_config: Config) -> bool:
     script = ScriptDirectory.from_config(alembic_config)
     head = script.get_current_head()
-    engine = create_async_engine(str(get_settings().database_url), poolclass=NullPool)
+    engine_url, engine_connect_args, _engine_kwargs = _build_engine_config(
+        get_settings().database_url
+    )
+    engine = create_async_engine(
+        engine_url,
+        connect_args=engine_connect_args,
+        poolclass=NullPool,
+    )
     try:
         async with engine.begin() as connection:
             return await connection.run_sync(

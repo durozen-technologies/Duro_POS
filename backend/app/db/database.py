@@ -9,9 +9,14 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from ..core.config import get_settings
-from .postgres_url import async_postgres_url_object
+from .postgres_url import (
+    async_postgres_url_object,
+    strip_async_only_query_params,
+    uses_pgbouncer,
+)
 from .tenant_context_var import get_active_tenant_schema
 
 settings = get_settings()
@@ -29,9 +34,12 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, object]]:
+def _build_engine_config(
+    database_url: str,
+) -> tuple[URL | str, dict[str, object], dict[str, object]]:
     url = async_postgres_url_object(database_url)
     connect_args: dict[str, object] = {}
+    engine_kwargs: dict[str, object] = {}
 
     sslmode = url.query.get("sslmode")
     # url.query.get may return a str or a tuple/list of str depending on how URL was parsed.
@@ -44,11 +52,17 @@ def _build_engine_config(database_url: str) -> tuple[URL | str, dict[str, object
                 query={key: value for key, value in url.query.items() if key != "sslmode"}
             )
 
-    prepared_cache = url.query.get("prepared_statement_cache_size")
-    if prepared_cache in (None, "", "0", 0) or url.host == "pgbouncer":
+    if uses_pgbouncer(url):
         connect_args["prepared_statement_cache_size"] = 0
+        engine_kwargs["poolclass"] = NullPool
+    else:
+        prepared_cache = url.query.get("prepared_statement_cache_size")
+        if prepared_cache in (None, "", "0", 0):
+            connect_args["prepared_statement_cache_size"] = 0
 
-    return url, connect_args
+    url = strip_async_only_query_params(url)
+
+    return url, connect_args, engine_kwargs
 
 
 engine: AsyncEngine | None = None
@@ -83,16 +97,24 @@ def _register_search_path_reset_if_needed(engine_url: URL | str) -> None:
 def get_engine() -> AsyncEngine:
     global engine
     if engine is None:
-        engine_url, engine_connect_args = _build_engine_config(settings.database_url)
+        engine_url, engine_connect_args, engine_kwargs = _build_engine_config(
+            settings.database_url
+        )
+        pool_kwargs: dict[str, object] = {}
+        if engine_kwargs.get("poolclass") is not NullPool:
+            pool_kwargs = {
+                "pool_pre_ping": True,
+                "pool_size": settings.db_pool_size,
+                "max_overflow": settings.db_max_overflow,
+                "pool_timeout": settings.db_pool_timeout,
+                "pool_recycle": settings.db_pool_recycle,
+            }
         engine = create_async_engine(
             engine_url,
             future=True,
             connect_args=engine_connect_args,
-            pool_pre_ping=True,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_timeout=settings.db_pool_timeout,
-            pool_recycle=settings.db_pool_recycle,
+            **pool_kwargs,
+            **engine_kwargs,
         )
         _register_search_path_reset_if_needed(engine_url)
     return engine

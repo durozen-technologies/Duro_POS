@@ -521,23 +521,29 @@ bootstrap_postgres() {
   repair_unhealthy_postgres
 }
 
-bootstrap_infra() {
-  if infra_healthy; then
-    log "Postgres, pgBouncer, RustFS, and Redis healthy — skipping infra restart"
-    return 0
-  fi
+apply_pgbouncer_config() {
+  log "Applying pgBouncer config (rebuild)"
+  run_compose up -d --build --force-recreate pgbouncer
+  wait_service_health pgbouncer "${INFRA_HEALTH_RETRIES}"
+}
 
+bootstrap_infra() {
   if ! bootstrap_postgres; then
     log_infra_diagnostics
     exit 1
   fi
 
-  ensure_rustfs_data_dir
-
-  if ! bootstrap_infra_service pgbouncer true; then
+  if ! apply_pgbouncer_config; then
     log_infra_diagnostics
     exit 1
   fi
+
+  if infra_healthy; then
+    log "Postgres, pgBouncer, RustFS, and Redis healthy — skipping remaining infra restart"
+    return 0
+  fi
+
+  ensure_rustfs_data_dir
 
   if ! bootstrap_infra_service rustfs true; then
     log_infra_diagnostics
@@ -561,10 +567,11 @@ bootstrap_infra() {
 
 sync_compose_project() {
   log "Applying compose/network changes (infra only, no image pull)"
+  apply_pgbouncer_config
   if [[ "${COMPOSE_V2}" == "true" ]]; then
-    run_compose up -d --no-recreate --pull never postgres pgbouncer redis rustfs
+    run_compose up -d --no-recreate --pull never postgres redis rustfs
   else
-    run_compose up -d --no-recreate postgres pgbouncer redis rustfs
+    run_compose up -d --no-recreate postgres redis rustfs
   fi
 }
 
