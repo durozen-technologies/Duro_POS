@@ -162,6 +162,16 @@ docker compose -f docker-compose.prod.yml --env-file .env --profile infra \
 
 Idempotent: fails if a super admin already exists. In production, `POST /api/v1/auth/register` is disabled; use this CLI or the super-admin API to provision tenant admins.
 
+If a super admin already exists and you need to rotate its password:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env --profile infra \
+  run --rm migrate \
+  python -m app.cli set-super-admin-password \
+  --username <admin> \
+  --password <new-password>
+```
+
 Plain uvicorn after migrations:
 
 ```bash

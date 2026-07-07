@@ -41,6 +41,26 @@ async def bootstrap_super_admin(username: str, password: str) -> None:
         print(f"Super admin created: {normalized}")
 
 
+async def set_super_admin_password(username: str, password: str) -> None:
+    normalized = normalize_username(username)
+    session_factory = get_session_local()
+    async with session_factory() as db:
+        await set_search_path(db, None)
+        user = await db.scalar(
+            select(User).where(
+                User.role == UserRole.SUPER_ADMIN,
+                User.organization_id.is_(None),
+                User.username == normalized,
+            )
+        )
+        if user is None:
+            raise SystemExit(f"Super admin not found: {normalized}")
+
+        user.password_hash = get_password_hash(password)
+        await db.commit()
+        print(f"Super admin password updated: {normalized}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="app.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -48,6 +68,10 @@ def main(argv: list[str] | None = None) -> None:
     bootstrap = subparsers.add_parser("bootstrap-super-admin")
     bootstrap.add_argument("--username", required=True)
     bootstrap.add_argument("--password", required=True)
+
+    set_password = subparsers.add_parser("set-super-admin-password")
+    set_password.add_argument("--username", required=True)
+    set_password.add_argument("--password", required=True)
 
     migrate = subparsers.add_parser("migrate-tenant-data")
     migrate.add_argument("--org-id", default=None)
@@ -63,6 +87,8 @@ def main(argv: list[str] | None = None) -> None:
         try:
             if args.command == "bootstrap-super-admin":
                 await bootstrap_super_admin(args.username, args.password)
+            elif args.command == "set-super-admin-password":
+                await set_super_admin_password(args.username, args.password)
             elif args.command == "migrate-tenant-data":
                 from app.cli.migrate_tenant_data import run_migrate_tenant_data
 
