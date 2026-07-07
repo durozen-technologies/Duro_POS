@@ -246,7 +246,7 @@ Database migrations run **once** via the `migrate` compose service (`scripts/dep
 | `backend-1`, `backend-2` | `brolier360-pos-backend:latest` | — | `:8000` |
 | `caddy` | `brolier360-pos-caddy:latest` | `80`, `443` | — |
 
-External Postgres (restrict **5432** in the EC2 security group; use EC2 public IP or hostname — not the DuckDNS API domain unless it resolves to the same VM):
+External Postgres (restrict **5432** in the EC2 security group; use EC2 public IP or hostname — not the public API domain unless it resolves to the same VM):
 
 ```text
 Host:     <EC2 public IP or EC2 public DNS>
@@ -293,7 +293,7 @@ Public HTTPS API (mobile app, curl): `https://<CADDY_PUBLIC_HOST>` only — see 
 |--------|---------|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | Image push and VM pull |
 | `DEPLOY_HOST`, `DEPLOY_SSH_PORT`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH` | **SSH only** — CI deploy target (`DEPLOY_HOST` = EC2 IP/hostname; not the public API URL) |
-| `CADDY_PUBLIC_HOST` | **Public API + HTTPS** via Let's Encrypt (e.g. `api-broiler360.duckdns.org`) |
+| `CADDY_PUBLIC_HOST` | **Public API + HTTPS** via Let's Encrypt (`pos.durozen.in`) |
 | `CADDY_ACME_EMAIL` | Let's Encrypt contact |
 | `POSTGRES_PASSWORD` | DB password (must match existing data dir) |
 | `POSTGRES_DB`, `POSTGRES_USER` | Optional (`brolier_360` / `postgres`) |
@@ -446,7 +446,7 @@ cd frontend && npx tsc --noEmit
 | Tenant 500 “schema not configured” | Org missing `schema_name` | Run data migration or create org via super-admin |
 | `DuplicatePreparedStatementError` on bootstrap | CLI used `backend-1` via pgBouncer | Use `compose run --rm migrate python -m app.cli bootstrap-super-admin ...` |
 | Cannot reach Postgres from PC | Security group | Allow TCP 5432 for your IP only |
-| Caddy / TLS errors | Bad hostname, ACME, or DuckDNS IP drift | `~/pos-logs caddy`; set `CADDY_PUBLIC_HOST` to your DuckDNS/domain; **DuckDNS IP must match EC2 public IP**; use `https://<CADDY_PUBLIC_HOST>/health` only |
+| Caddy / TLS errors | Bad hostname, ACME, or DNS IP drift | `~/pos-logs caddy`; set `CADDY_PUBLIC_HOST` to `pos.durozen.in`; **DNS A record must match EC2 public IP**; use `https://pos.durozen.in/health` |
 | Postgres WAL corruption | Unclean shutdown | `scripts/postgres-recover.sh` after stopping postgres |
 
 ---

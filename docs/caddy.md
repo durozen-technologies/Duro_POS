@@ -26,7 +26,7 @@ The template lives at `/usr/share/caddy/Caddyfile.template` in the image (not un
 
 | Secret / env | Purpose |
 |--------------|---------|
-| `CADDY_PUBLIC_HOST` | **Only** public API hostname — HTTPS via Let's Encrypt (e.g. DuckDNS domain) |
+| `CADDY_PUBLIC_HOST` | **Only** public API hostname — HTTPS via Let's Encrypt (e.g. `pos.durozen.in`) |
 | `DEPLOY_HOST` | **SSH only** — CI deploy target; not served by Caddy |
 
 Do not use `*.compute.amazonaws.com` as the public API URL. Let's Encrypt cannot issue certificates for AWS-owned hostnames.
@@ -36,14 +36,14 @@ Do not use `*.compute.amazonaws.com` as the public API URL. Let's Encrypt cannot
 The entrypoint requires:
 
 ```env
-CADDY_PUBLIC_HOST=api-broiler360.duckdns.org
+CADDY_PUBLIC_HOST=pos.durozen.in
 CADDY_ACME_EMAIL=admin@example.com
 ```
 
 Generated site block (HTTPS, automatic certificates):
 
 ```caddyfile
-api-broiler360.duckdns.org {
+pos.durozen.in {
 	import pos_api
 }
 ```
@@ -93,4 +93,4 @@ Production disables `/docs` and OpenAPI.
 
 - Caddy is the current production proxy (not nginx).
 - TLS cert storage uses Docker volumes `caddy-data` and `caddy-config`.
-- DuckDNS (or any DNS) **A record must point to the EC2 public IP** or HTTPS will fail.
+- DNS **A record** for `CADDY_PUBLIC_HOST` (e.g. `pos.durozen.in`) **must point to the EC2 public IP** or HTTPS will fail.

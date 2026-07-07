@@ -1,4 +1,5 @@
 #!/bin/sh
+# Production host from CADDY_PUBLIC_HOST (e.g. pos.durozen.in).
 set -eu
 
 if [ -z "${CADDY_PUBLIC_HOST:-}" ]; then
