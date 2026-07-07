@@ -303,6 +303,7 @@ services:
     environment:
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:?Set CADDY_ACME_EMAIL}
       CADDY_PUBLIC_HOST: ${CADDY_PUBLIC_HOST:?Set CADDY_PUBLIC_HOST}
+      CADDY_EXTRA_HOSTS: ${CADDY_EXTRA_HOSTS:-}
     ports:
       - "80:80"
       - "443:443"

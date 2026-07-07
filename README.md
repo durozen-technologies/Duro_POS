@@ -282,7 +282,8 @@ Password: <POSTGRES_PASSWORD>
 |--------|---------|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | Image push and VM pull |
 | `DEPLOY_HOST`, `DEPLOY_SSH_PORT`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH` | SSH deploy target (`DEPLOY_HOST` = IP/hostname only; `DEPLOY_SSH_PORT` = SSH port, e.g. `22`) |
-| `CADDY_PUBLIC_HOST` | API hostname — TLS + `ALLOWED_HOSTS` |
+| `CADDY_PUBLIC_HOST` | Primary API hostname — HTTPS via Let's Encrypt (e.g. `api-broiler360.duckdns.org`) |
+| `CADDY_EXTRA_HOSTS` | Optional comma-separated extra hosts (e.g. EC2 DNS); `*.amazonaws.com` served over **HTTP only** |
 | `CADDY_ACME_EMAIL` | Let's Encrypt contact |
 | `POSTGRES_PASSWORD` | DB password (must match existing data dir) |
 | `POSTGRES_DB`, `POSTGRES_USER` | Optional (`brolier_360` / `postgres`) |
@@ -290,7 +291,7 @@ Password: <POSTGRES_PASSWORD>
 | `BACKEND_SECRET_KEY` | JWT secret (32+ chars) |
 | `BACKEND_RUSTFS_BUCKET_NAME` | Optional bucket override |
 
-CI generates `BACKEND_ALLOWED_HOSTS` from `CADDY_PUBLIC_HOST`. List env vars in `.env` use **single-quoted JSON** so Docker Compose does not strip quotes.
+CI generates `BACKEND_ALLOWED_HOSTS` from `CADDY_PUBLIC_HOST`, optional `CADDY_EXTRA_HOSTS`, and `DEPLOY_HOST` when it is a hostname.
 
 ### Updating production
 
@@ -434,7 +435,7 @@ cd frontend && npx tsc --noEmit
 | Login 409 “Organization required” | Username exists in multiple orgs | Pass `organization_slug` on login |
 | Tenant 500 “schema not configured” | Org missing `schema_name` | Run data migration or create org via super-admin |
 | Cannot reach Postgres from PC | Security group | Allow TCP 5432 for your IP only |
-| Caddy / TLS errors | Bad hostname or ACME | `~/pos-logs caddy`; check `CADDY_PUBLIC_HOST` and `CADDY_ACME_EMAIL` |
+| Caddy / TLS errors | Bad hostname, ACME, or DuckDNS IP drift | `~/pos-logs caddy`; set `CADDY_PUBLIC_HOST` to your DuckDNS/domain; **DuckDNS IP must match EC2 public IP**; use `http://ec2-....amazonaws.com/health` for EC2 hostname (no HTTPS on `*.amazonaws.com`) |
 | Postgres WAL corruption | Unclean shutdown | `scripts/postgres-recover.sh` after stopping postgres |
 
 ---
