@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.ids import uuid7
+from app.core.timezone import ist_month_key
 from app.db.storage import build_item_image_path, build_item_image_thumb_path
 from app.models import (
     AuditLog,
@@ -181,7 +182,7 @@ async def _shop_organization_name(db: AsyncSession, shop: Shop) -> str:
 
 
 async def _peek_next_sale_sequence(db: AsyncSession, now: datetime) -> int:
-    month_str = f"{now.year:04d}-{now.month:02d}"
+    month_str = ist_month_key(now)
     current_value = await db.scalar(
         select(MonthlyRetailerSaleSequence.current_value).where(
             MonthlyRetailerSaleSequence.month_year == month_str
@@ -524,7 +525,7 @@ async def preview_retailer_sale(
         "sale_no": sale_no,
         "created_at": now.isoformat(),
         "issued_at": now.isoformat(),
-        "month_year": f"{now.year:04d}-{now.month:02d}",
+        "month_year": ist_month_key(now),
         "payload_hash": _payload_fingerprint(payload),
         "sequence": sequence,
         "shop_id": str(shop.id),

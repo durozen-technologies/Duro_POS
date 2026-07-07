@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { createDateTimeFormat } from "@/utils/format";
 import { toDateInputValue } from "@/utils/expense-history-filters";
 
 type CalendarIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -40,13 +41,13 @@ type CalendarDatePickerModalProps = {
 };
 
 const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
-const monthFormatter = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" });
-const dateLabelFormatter = new Intl.DateTimeFormat("en-IN", {
+const monthFormatter = createDateTimeFormat({ month: "long", year: "numeric" });
+const dateLabelFormatter = createDateTimeFormat({
   day: "2-digit",
   month: "short",
   year: "numeric",
 });
-const selectedBannerFormatter = new Intl.DateTimeFormat("en-IN", {
+const selectedBannerFormatter = createDateTimeFormat({
   weekday: "short",
   day: "numeric",
   month: "long",

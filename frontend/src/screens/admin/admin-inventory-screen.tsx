@@ -1690,7 +1690,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                     </Text>
                     <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
                       {usage.created_by_name ? `By ${usage.created_by_name} · ` : ""}
-                      {new Date(usage.occurred_at).toLocaleString()}
+                      {formatDateTime(usage.occurred_at)}
                     </Text>
                   </View>
                 </View>

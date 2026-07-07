@@ -36,38 +36,65 @@ function balanceAfterPayment(sale: RetailerSaleRead, payment: RetailerPaymentRea
   return Math.max(0, Number(sale.total_amount) - paidThrough).toFixed(2);
 }
 
-function receiptLabels(language?: ShopLanguage) {
-  const ta = language === "ta";
+function receiptLabels() {
   return {
-    saleInvoice: ta ? "விற்பனை ரசீது" : "Sale Invoice",
-    paymentReceipt: ta ? "கட்டண ரசீது" : "Payment Receipt",
-    purchaser: ta ? "வாங்குபவர்" : "Purchaser",
-    saleNo: ta ? "விற்பனை எண்" : "Sale No",
-    saleDate: ta ? "விற்பனை தேதி" : "Sale Date",
-    receiptNo: ta ? "ரசீது" : "Receipt",
-    date: ta ? "தேதி" : "Date",
-    item: ta ? "பொருள்" : "Item",
-    quantityUnit: ta ? "அளவு" : "Qty/Unit",
-    lineTotal: ta ? "மொத்தம்" : "Total",
-    cash: ta ? "பணம்" : "Cash",
-    upi: ta ? "யூபிஐ" : "UPI",
-    grandTotal: ta ? "மொத்த தொகை" : "Grand Total",
-    paidAmount: ta ? "செலுத்திய தொகை" : "Paid Amount",
-    balanceAmount: ta ? "நிலுவை தொகை" : "Balance Amount",
-    paidThisVisit: ta ? "இப்போது செலுத்தியது" : "Paid This Visit",
-    paymentSettled: ta ? "கட்டணம் முழுமை" : "Payment Settled",
-    thankYou: ta ? "நன்றி. மீண்டும் வருக." : "Thank you. Visit again.",
-    poweredBy: ta ? "மென்பொருள் வழங்கியது" : "Software provided by",
+    saleInvoice: "Sale Invoice",
+    paymentReceipt: "Payment Receipt",
+    purchaser: "Purchaser",
+    saleNo: "Sale No",
+    saleDate: "Sale Date",
+    receiptNo: "Receipt",
+    date: "Date",
+    item: "Item",
+    quantityUnit: "Qty/Unit",
+    lineTotal: "Total",
+    cash: "Cash",
+    upi: "UPI",
+    grandTotal: "Grand Total",
+    paidAmount: "Paid Amount",
+    balanceAmount: "Balance Amount",
+    paidThisVisit: "Paid This Visit",
+    paymentSettled: "Payment Settled",
+    thankYou: "Thank you. Visit again.",
+    poweredBy: "Software provided by",
     provider: RETAILER_RECEIPT_PROVIDER,
   };
+}
+
+function receiptItemName(
+  item: RetailerSaleRead["items"][number],
+  language?: ShopLanguage,
+) {
+  return getLocalizedItemName(language === "ta" ? "ta" : "en", item.item_name, item.item_tamil_name);
+}
+
+function formatReceiptHeaderName(name: string) {
+  return name.toUpperCase();
 }
 
 function organizationName(sale: RetailerSaleRead) {
   return sale.organization_name.split("\n")[0]?.trim() || sale.organization_name;
 }
 
-function formatReceiptHeaderName(name: string, language?: ShopLanguage) {
-  return language === "ta" ? name : name.toUpperCase();
+function retailerPurchaserHtml(retailerName: string, labels: ReturnType<typeof receiptLabels>) {
+  return `
+        <span><strong>${labels.purchaser}:</strong></span>
+        <div class="strong" style="display:block;font-size:18px;font-weight:800;margin:4px 0 10px;line-height:1.3;">${escapeHtml(retailerName)}</div>`;
+}
+
+function retailerBillMetaHtml(
+  sale: RetailerSaleRead,
+  receipt: RetailerSaleReceiptRead,
+  labels: ReturnType<typeof receiptLabels>,
+) {
+  return `
+      <div class="bill-meta">
+        ${retailerPurchaserHtml(sale.retailer_name, labels)}
+        <span><strong>${labels.receiptNo}:</strong> ${escapeHtml(receipt.receipt_number)}</span>
+        <span><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(receipt.printed_at))}</span>
+        <span><strong>${labels.saleNo}:</strong> ${escapeHtml(sale.sale_no)}</span>
+        <span><strong>${labels.saleDate}:</strong> ${escapeHtml(formatDateTime(sale.created_at))}</span>
+      </div>`;
 }
 
 function settledFooter(settled: boolean, labels: ReturnType<typeof receiptLabels>) {
@@ -79,9 +106,9 @@ function settledFooter(settled: boolean, labels: ReturnType<typeof receiptLabels
     <div class="strong thank-you">${escapeHtml(labels.thankYou)}</div>`;
 }
 
-function organizationHeader(sale: RetailerSaleRead, language?: ShopLanguage) {
-  const org = formatReceiptHeaderName(organizationName(sale), language);
-  const shop = formatReceiptHeaderName(sale.shop_name, language);
+function organizationHeader(sale: RetailerSaleRead) {
+  const org = formatReceiptHeaderName(organizationName(sale));
+  const shop = formatReceiptHeaderName(sale.shop_name);
   return `
     <div class="center">
       <div class="strong header-main">${escapeHtml(org)}</div>
@@ -117,7 +144,7 @@ function saleItemRowsHtml(sale: RetailerSaleRead, language?: ShopLanguage) {
     .map(
       (item) => `
         <tr class="item-row">
-          <td class="item-name strong">${escapeHtml(getLocalizedItemName("ta", item.item_name, item.item_tamil_name))}</td>
+          <td class="item-name strong">${escapeHtml(receiptItemName(item, language))}</td>
           <td class="align-right item-qty">${escapeHtml(String(item.quantity))}&nbsp;${escapeHtml(formatUnit(item.unit))}</td>
           <td class="align-right item-total strong">${formatReceiptCurrency(item.line_total)}</td>
         </tr>`,
@@ -125,9 +152,9 @@ function saleItemRowsHtml(sale: RetailerSaleRead, language?: ShopLanguage) {
     .join("");
 }
 
-function saleItemsExport(sale: RetailerSaleRead) {
+function saleItemsExport(sale: RetailerSaleRead, language?: ShopLanguage) {
   return sale.items.map((item) => ({
-    itemName: getLocalizedItemName("ta", item.item_name, item.item_tamil_name),
+    itemName: receiptItemName(item, language),
     quantityText: `${item.quantity} ${formatUnit(item.unit)}`,
     lineTotal: formatReceiptCurrency(item.line_total),
   }));
@@ -165,7 +192,7 @@ export function buildRetailerSaleInvoiceHtml(
   receipt: RetailerSaleReceiptRead,
   language?: ShopLanguage,
 ) {
-  const labels = receiptLabels(language);
+  const labels = receiptLabels();
   const payment =
     findPayment(sale, receipt.retailer_payment_id) ?? sale.payments[0];
   if (!payment) {
@@ -178,8 +205,8 @@ export function buildRetailerSaleInvoiceHtml(
 
   const orgName = organizationName(sale);
   const exportPayload = {
-    companyName: formatReceiptHeaderName(orgName, language),
-    shopName: formatReceiptHeaderName(sale.shop_name, language),
+    companyName: formatReceiptHeaderName(orgName),
+    shopName: formatReceiptHeaderName(sale.shop_name),
     billText: `${labels.saleNo}: ${sale.sale_no} · ${labels.purchaser}: ${sale.retailer_name}`,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
@@ -193,19 +220,13 @@ export function buildRetailerSaleInvoiceHtml(
     thankYou: settled ? labels.paymentSettled : labels.thankYou,
     poweredBy: labels.poweredBy,
     provider: labels.provider,
-    items: saleItemsExport(sale),
+    items: saleItemsExport(sale, language),
   };
 
   const body = `
     <div class="receipt-container">
-      ${organizationHeader(sale, language)}
-      <div class="bill-meta">
-        <span><strong>${labels.purchaser}:</strong> ${escapeHtml(sale.retailer_name)}</span>
-        <span><strong>${labels.receiptNo}:</strong> ${escapeHtml(receipt.receipt_number)}</span>
-        <span><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(receipt.printed_at))}</span>
-        <span><strong>${labels.saleNo}:</strong> ${escapeHtml(sale.sale_no)}</span>
-        <span><strong>${labels.saleDate}:</strong> ${escapeHtml(formatDateTime(sale.created_at))}</span>
-      </div>
+      ${organizationHeader(sale)}
+      ${retailerBillMetaHtml(sale, receipt, labels)}
       ${saleItemsTableHtml(labels, itemRows)}
       <div class="payment-divider"></div>
       <table class="totals-section">
@@ -245,7 +266,7 @@ export function buildRetailerBalancePaymentHtml(
   receipt: RetailerSaleReceiptRead,
   language?: ShopLanguage,
 ) {
-  const labels = receiptLabels(language);
+  const labels = receiptLabels();
   const payment = findPayment(sale, receipt.retailer_payment_id);
   if (!payment) {
     throw new Error("Payment for receipt not found");
@@ -256,8 +277,8 @@ export function buildRetailerBalancePaymentHtml(
 
   const orgName = organizationName(sale);
   const exportPayload = {
-    companyName: formatReceiptHeaderName(orgName, language),
-    shopName: formatReceiptHeaderName(sale.shop_name, language),
+    companyName: formatReceiptHeaderName(orgName),
+    shopName: formatReceiptHeaderName(sale.shop_name),
     billText: `${labels.receiptNo}: ${receipt.receipt_number} · ${labels.purchaser}: ${sale.retailer_name}`,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
@@ -274,22 +295,16 @@ export function buildRetailerBalancePaymentHtml(
     thankYou: settled ? labels.paymentSettled : labels.thankYou,
     poweredBy: labels.poweredBy,
     provider: labels.provider,
-    items: saleItemsExport(sale),
+    items: saleItemsExport(sale, language),
   };
 
   const body = `
     <div class="receipt-container">
-      ${organizationHeader(sale, language)}
+      ${organizationHeader(sale)}
       <div class="center" style="margin-bottom: 8px;">
         <div class="strong" style="font-size: 18px;">${escapeHtml(labels.paymentReceipt)}</div>
       </div>
-      <div class="bill-meta">
-        <span><strong>${labels.purchaser}:</strong> ${escapeHtml(sale.retailer_name)}</span>
-        <span><strong>${labels.receiptNo}:</strong> ${escapeHtml(receipt.receipt_number)}</span>
-        <span><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(receipt.printed_at))}</span>
-        <span><strong>${labels.saleNo}:</strong> ${escapeHtml(sale.sale_no)}</span>
-        <span><strong>${labels.saleDate}:</strong> ${escapeHtml(formatDateTime(sale.created_at))}</span>
-      </div>
+      ${retailerBillMetaHtml(sale, receipt, labels)}
       ${saleItemsTableHtml(labels, itemRows)}
       <div class="payment-divider"></div>
       <table class="totals-section">

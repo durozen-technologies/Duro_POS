@@ -48,7 +48,9 @@ from app.schemas.admin import (
     AdminReportSection,
     AnalyticsPeriod,
 )
+from app.core.timezone import to_ist
 from app.services.admin import _get_period_bounds
+from app.services.retailer_sale_number import format_retailer_sale_bill_no
 from app.services.tenant_query import list_organization_shops
 
 SECTION_ORDER: tuple[AdminReportSection, ...] = (
@@ -142,7 +144,7 @@ def get_over_report_sheet_config(
 
     base_min_widths = [
         46, 58, 50, 50, 50, 68, 64, 52, 48, 52, 58,
-        58, 50, 64, 50, 64, 48, 58, 68, 58, 72, 58,
+        62, 58, 72, 58, 72, 56, 64, 76, 64, 80, 64,
     ]
     base_aligns = [
         "center", "left",
@@ -349,12 +351,17 @@ class ReportContext:
     shop_ids: tuple[UUID, ...]
     organization_id: UUID
     organization_name: str
+    retailer_ids: tuple[UUID, ...] = ()
 
     @property
     def scoped_shop_ids(self) -> tuple[UUID, ...]:
         if self.shop_ids:
             return self.shop_ids
         return tuple(shop_id for shop_id, _ in self.shops)
+
+    @property
+    def scoped_retailer_ids(self) -> tuple[UUID, ...]:
+        return self.retailer_ids
 
     @property
     def branch_label(self) -> str:
@@ -404,6 +411,7 @@ class TableState:
     headers: list[str]
     widths: list[int]
     alignments: list[str]
+    bold_borders: bool = False
 
 
 SoldItemCategoryKey = tuple[UUID, str, object]
@@ -600,8 +608,15 @@ class PdfReportWriter:
         rows: Iterable[Iterable[object]],
         widths: list[int],
         alignments: list[str],
+        *,
+        bold_borders: bool = False,
     ) -> int:
-        state = TableState(headers=headers, widths=widths, alignments=alignments)
+        state = TableState(
+            headers=headers,
+            widths=widths,
+            alignments=alignments,
+            bold_borders=bold_borders,
+        )
         self._current_table = state
         self._current_table_is_sheet = True
         self._table_row_index = 0
@@ -707,6 +722,11 @@ class PdfReportWriter:
             x += width
         self._y -= header_height
 
+    def _sheet_border_style(self, *, bold: bool) -> tuple[tuple[float, float, float], float]:
+        if bold:
+            return (0.12, 0.12, 0.12), 1.4
+        return (0.78, 0.78, 0.78), 0.8
+
     def _draw_sheet_table_header(self, state: TableState) -> None:
         font_size = 5.4
         line_height = 6.2
@@ -717,15 +737,18 @@ class PdfReportWriter:
         self._ensure_space(int(header_height), repeat_table_header=False)
         self._page_has_content = True
         header_y = self._y - header_height
+        header_stroke, header_line_width = self._sheet_border_style(bold=state.bold_borders)
         self._set_fill((0.90, 0.90, 0.90))
-        self._set_stroke((0.35, 0.35, 0.35))
+        self._set_stroke(header_stroke)
+        self._canvas.setLineWidth(header_line_width)
         self._canvas.rect(
             self._margin, header_y, sum(state.widths), header_height, stroke=1, fill=1
         )
         x = self._margin
         self._set_fill(self._text)
         for lines, width, alignment in zip(cell_lines, state.widths, state.alignments, strict=True):
-            self._set_stroke((0.35, 0.35, 0.35))
+            self._set_stroke(header_stroke)
+            self._canvas.setLineWidth(header_line_width)
             self._canvas.rect(x, header_y, width, header_height, stroke=1, fill=0)
             block_height = font_size + line_height * max(0, len(lines) - 1)
             text_y = header_y + (header_height + block_height) / 2 - font_size
@@ -752,13 +775,16 @@ class PdfReportWriter:
         self._page_has_content = True
         row_y = self._y - row_height
         fill = (0.98, 0.98, 0.98) if self._table_row_index % 2 else (1, 1, 1)
+        row_stroke, row_line_width = self._sheet_border_style(bold=state.bold_borders)
         self._set_fill(fill)
-        self._set_stroke((0.78, 0.78, 0.78))
+        self._set_stroke(row_stroke)
+        self._canvas.setLineWidth(row_line_width)
         self._canvas.rect(self._margin, row_y, sum(state.widths), row_height, stroke=1, fill=1)
         x = self._margin
         self._set_fill(self._text)
         for lines, width, alignment in zip(cell_lines, state.widths, state.alignments, strict=True):
-            self._set_stroke((0.78, 0.78, 0.78))
+            self._set_stroke(row_stroke)
+            self._canvas.setLineWidth(row_line_width)
             self._canvas.rect(x, row_y, width, row_height, stroke=1, fill=0)
             text_y = row_y + row_height - padding - font_size
             for line in lines:
@@ -993,11 +1019,15 @@ def _quantity(value: object) -> str:
 
 
 def _datetime_text(value: datetime | None) -> str:
-    return value.strftime("%Y-%m-%d %H:%M") if value is not None else ""
+    return to_ist(value).strftime("%Y-%m-%d %H:%M") if value is not None else ""
 
 
 def _date_text(value: date) -> str:
     return value.strftime("%d/%m/%Y")
+
+
+def _ist_date_text(value: datetime | None) -> str:
+    return to_ist(value).strftime("%d/%m/%Y") if value is not None else ""
 
 
 def _bill_filters(context: ReportContext) -> list[object]:
@@ -1106,6 +1136,7 @@ async def generate_admin_report_pdf(
     range_start_date: date | None = None,
     range_end_date: date | None = None,
     shop_ids: list[UUID] | None = None,
+    retailer_ids: list[UUID] | None = None,
     organization_id: UUID | None = None,
     language: str = "en",
 ) -> AdminReportFile:
@@ -1118,6 +1149,7 @@ async def generate_admin_report_pdf(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         shop_ids=shop_ids,
+        retailer_ids=retailer_ids,
         organization_id=organization_id,
     )
 
@@ -1139,6 +1171,7 @@ async def generate_admin_report_pdf(
             shop_ids=context.shop_ids,
             organization_id=context.organization_id,
             organization_name=context.organization_name,
+            retailer_ids=context.retailer_ids,
         )
         if non_over_sections:
             for section in non_over_sections:
@@ -1188,6 +1221,7 @@ async def _build_report_context(
     range_start_date: date | None,
     range_end_date: date | None,
     shop_ids: list[UUID] | None,
+    retailer_ids: list[UUID] | None = None,
     organization_id: UUID | None = None,
 ) -> ReportContext:
     if organization_id is None:
@@ -1211,6 +1245,7 @@ async def _build_report_context(
 
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     unique_shop_ids = tuple(dict.fromkeys(shop_ids or []))
+    unique_retailer_ids = tuple(dict.fromkeys(retailer_ids or []))
     shops = await list_organization_shops(
         db,
         organization_id,
@@ -1231,6 +1266,7 @@ async def _build_report_context(
         shop_ids=unique_shop_ids,
         organization_id=organization_id,
         organization_name=organization_name,
+        retailer_ids=unique_retailer_ids,
     )
 
 
@@ -1672,7 +1708,7 @@ async def _write_expenses_section(
     for row in page:
         writer.table_row(
             [
-                row.spent_at.strftime("%d/%m/%Y") if row.spent_at else "",
+                _ist_date_text(row.spent_at),
                 row.shop_name,
                 row.expense_name,
                 _money(row.amount),
@@ -1688,6 +1724,13 @@ async def _write_expenses_section(
             ("Total Amount", _money(stats.total_expenses)),
         ]
     )
+
+
+def _format_retailer_item_qty(quantity: Decimal, unit: str) -> str:
+    qty = float(quantity)
+    if unit == "kg":
+        return f"{qty:g} Kg"
+    return f"{qty:g} Units"
 
 
 async def _write_retailers_section(
@@ -1719,6 +1762,10 @@ async def _write_retailers_section(
     else:
         filters.append(RetailerSale.id.is_(None))
 
+    scoped_retailer_ids = context.scoped_retailer_ids
+    if scoped_retailer_ids:
+        filters.append(RetailerSale.retailer_id.in_(scoped_retailer_ids))
+
     cash_subq = (
         select(
             RetailerPayment.retailer_sale_id.label("sale_id"),
@@ -1729,7 +1776,7 @@ async def _write_retailers_section(
         .subquery()
     )
 
-    widths = [60, 45, 60, 90, 45, 45, 45, 45, 44, 44]
+    widths = [48, 42, 58, 78, 52, 40, 45, 40, 45, 38, 37]
     alignments = [
         "left",
         "left",
@@ -1741,23 +1788,21 @@ async def _write_retailers_section(
         "right",
         "right",
         "right",
+        "right",
     ]
-    writer.table_header(
-        [
-            "Bill No",
-            "Date",
-            "Retailer Name",
-            "Items (Qty + Kg/Unit)",
-            "Price",
-            "Amount",
-            "Paid",
-            "Balance",
-            "Cash",
-            "UPI",
-        ],
-        widths,
-        alignments,
-    )
+    headers = [
+        "Bill No",
+        "Date",
+        "Retailer",
+        "Items",
+        "Kg/Units",
+        "Price",
+        "Amount",
+        "Paid",
+        "Balance",
+        "Cash",
+        "UPI",
+    ]
 
     rows = (
         await db.execute(
@@ -1791,7 +1836,9 @@ async def _write_retailers_section(
         sale_items = (
             (
                 await db.execute(
-                    select(RetailerSaleItem).where(RetailerSaleItem.retailer_sale_id.in_(sale_ids))
+                    select(RetailerSaleItem)
+                    .where(RetailerSaleItem.retailer_sale_id.in_(sale_ids))
+                    .order_by(RetailerSaleItem.retailer_sale_id.asc(), RetailerSaleItem.id.asc())
                 )
             )
             .scalars()
@@ -1804,39 +1851,65 @@ async def _write_retailers_section(
     total_paid = Decimal("0.00")
     total_kg = Decimal("0.000")
     total_unit = Decimal("0.000")
+    table_rows: list[list[object]] = []
 
     for row in rows:
         total_balance += row.balance_due
         total_paid += row.amount_paid_total
 
         row_items = items_by_sale[row.id]
-        for i in row_items:
-            if i.unit.value == "kg":
-                total_kg += i.quantity
-            elif i.unit.value == "unit":
-                total_unit += i.quantity
+        for item in row_items:
+            if item.unit.value == "kg":
+                total_kg += item.quantity
+            elif item.unit.value == "unit":
+                total_unit += item.quantity
 
-        items_str = "\n".join(
-            [f"{i.item_name} - {float(i.quantity):g} {i.unit.value}" for i in row_items]
-        )
-        prices_str = "\n".join([_money(i.price_per_unit) for i in row_items])
+        bill_no = format_retailer_sale_bill_no(row.sale_no)
+        bill_date = _ist_date_text(row.created_at)
+        bill_amount = _money(row.total_amount)
+        bill_paid = _money(row.amount_paid_total)
+        bill_balance = _money(row.balance_due)
+        bill_cash = _money(row.cash_total)
+        bill_upi = _money(row.upi_total)
 
-        writer.table_row(
-            [
-                row.sale_no,
-                row.created_at.strftime("%d/%m/%Y") if row.created_at else "",
-                row.retailer_name,
-                items_str,
-                prices_str,
-                _money(row.total_amount),
-                _money(row.amount_paid_total),
-                _money(row.balance_due),
-                _money(row.cash_total),
-                _money(row.upi_total),
-            ],
-            widths,
-            alignments,
-        )
+        if not row_items:
+            table_rows.append(
+                [
+                    bill_no,
+                    bill_date,
+                    row.retailer_name,
+                    "-",
+                    "-",
+                    "-",
+                    bill_amount,
+                    bill_paid,
+                    bill_balance,
+                    bill_cash,
+                    bill_upi,
+                ]
+            )
+            continue
+
+        for index, item in enumerate(row_items):
+            is_first = index == 0
+            is_last = index == len(row_items) - 1
+            table_rows.append(
+                [
+                    bill_no if is_first else "",
+                    bill_date if is_first else "",
+                    row.retailer_name if is_first else "",
+                    item.item_name or "-",
+                    _format_retailer_item_qty(item.quantity, item.unit.value),
+                    _money(item.price_per_unit),
+                    bill_amount if is_last else "",
+                    bill_paid if is_last else "",
+                    bill_balance if is_last else "",
+                    bill_cash if is_last else "",
+                    bill_upi if is_last else "",
+                ]
+            )
+
+    writer.sheet_table(headers, table_rows, widths, alignments, bold_borders=True)
 
     writer.financial_summary(
         [
@@ -1915,7 +1988,7 @@ async def _write_transfers_section(
     for row in page:
         writer.table_row(
             [
-                row.occurred_at.strftime("%d/%m/%Y") if row.occurred_at else "",
+                _ist_date_text(row.occurred_at),
                 row.source_shop_name,
                 row.transfer_shop_name,
                 row.item_name,

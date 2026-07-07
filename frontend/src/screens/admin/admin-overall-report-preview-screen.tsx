@@ -465,15 +465,9 @@ const StatementCard = memo(function StatementCard({
     () => splitStatementRows(statement, language),
     [language, statement],
   );
-  const balanceAmount = useMemo(
-    () =>
-      formatReportMoney(
-        money(statement.sales_amount)
-          .minus(money(statement.purchase_amount))
-          .minus(money(statement.expense_amount))
-          .toString(),
-      ),
-    [statement.expense_amount, statement.purchase_amount, statement.sales_amount],
+  const profitAmount = useMemo(
+    () => formatReportMoney(statement.profit_amount),
+    [statement.profit_amount],
   );
 
   const tableConfig = useMemo(() => {
@@ -557,6 +551,14 @@ const StatementCard = memo(function StatementCard({
             </Text>
           </View>
           <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>
+              Total Retailer Paid Amount
+            </Text>
+            <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
+              {formatReportMoney(statement.retailer_paid_amount)}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Purchase</Text>
             <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
               {formatReportMoney(statement.purchase_amount)}
@@ -569,8 +571,16 @@ const StatementCard = memo(function StatementCard({
             </Text>
           </View>
           <View style={[styles.summaryRow, styles.summaryRowTotal, { borderTopColor: palette.border }]}>
-            <Text style={[styles.summaryLabelTotal, { color: palette.textPrimary }]}>Balance Amount</Text>
-            <Text style={[styles.summaryValueTotal, { color: palette.primary }]}>{balanceAmount}</Text>
+            <Text style={[styles.summaryLabelTotal, { color: palette.textPrimary }]}>Profit Amount</Text>
+            <Text style={[styles.summaryValueTotal, { color: palette.primary }]}>{profitAmount}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>
+              Retailer Balance Amount
+            </Text>
+            <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
+              {formatReportMoney(statement.retailer_balance_amount)}
+            </Text>
           </View>
         </View>
       )}

@@ -15,6 +15,7 @@ import {
 
 import { toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminRoleRead, TenantAdminRead } from "@/api/super-admin";
+import { formatDateTime } from "@/utils/format";
 
 type TenantAdminManageSheetProps = {
   visible: boolean;
@@ -35,12 +36,7 @@ function formatTimestamp(value?: string | null) {
   if (!value) return "Never logged in";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatDateTime(value);
 }
 
 const INK = "#0A110D";

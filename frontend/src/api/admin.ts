@@ -94,6 +94,7 @@ export type DownloadAdminReportPdfParams = {
   referenceDate?: string | null;
   range?: AnalyticsDateRange;
   shopIds?: UUID[];
+  retailerIds?: UUID[];
   language?: "en" | "ta";
 };
 export type FetchOverallReportParams = Omit<DownloadAdminReportPdfParams, "sections">;
@@ -292,6 +293,7 @@ function appendAdminReportFilterQuery(query: URLSearchParams, params: FetchOvera
     query.set("range_end_date", params.range.endDate);
   }
   params.shopIds?.forEach((shopId) => query.append("shop_ids", shopId));
+  params.retailerIds?.forEach((retailerId) => query.append("retailer_ids", retailerId));
 }
 
 function buildAdminReportQuery(params: DownloadAdminReportPdfParams) {

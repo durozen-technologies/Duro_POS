@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
+from app.core.timezone import to_ist
+
 BILL_NUMBER_PREFIX_SETTING = "bill_number_prefix"
 DEFAULT_BILL_NUMBER_PREFIX = "SMB"
 _MAX_SEQUENCE = 999_999
@@ -32,7 +34,8 @@ def bill_number_prefix_from_settings(settings: dict[str, object] | None) -> str:
 def bill_no_from_sequence(now: datetime, sequence: int, prefix: str) -> str:
     if sequence > _MAX_SEQUENCE:
         raise ValueError("Monthly bill sequence limit reached for this bill format")
-    return f"{prefix}-{now.year:04d}-{now.month:02d}-{sequence:06d}"
+    local = to_ist(now)
+    return f"{prefix}-{local.year:04d}-{local.month:02d}-{sequence:06d}"
 
 
 def example_bill_number(prefix: str, *, now: datetime | None = None) -> str:

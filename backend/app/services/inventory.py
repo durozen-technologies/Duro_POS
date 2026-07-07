@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.ids import uuid7
+from app.core.timezone import ist_midnight
 from app.db.storage import (
     build_inventory_item_image_path,
     build_inventory_item_image_thumb_path,
@@ -1271,7 +1272,7 @@ async def _movement_totals(
     ]
     if used_since is not None:
         use_filter.append(
-            InventoryMovement.occurred_at >= datetime.combine(used_since, time.min, tzinfo=UTC)
+            InventoryMovement.occurred_at >= ist_midnight(used_since)
         )
     if as_of is not None:
         use_filter.append(InventoryMovement.occurred_at <= as_of)
@@ -1313,7 +1314,7 @@ async def _movement_totals(
     ]
     if used_since is not None:
         transfer_filter.append(
-            InventoryTransfer.occurred_at >= datetime.combine(used_since, time.min, tzinfo=UTC)
+            InventoryTransfer.occurred_at >= ist_midnight(used_since)
         )
     if as_of is not None:
         transfer_filter.append(InventoryTransfer.occurred_at <= as_of)
@@ -1350,7 +1351,7 @@ async def _retailer_usage_totals(
     if used_since is not None:
         usage_filter.append(
             RetailerInventoryUsage.occurred_at
-            >= datetime.combine(used_since, time.min, tzinfo=UTC)
+            >= ist_midnight(used_since)
         )
     if as_of is not None:
         usage_filter.append(RetailerInventoryUsage.occurred_at <= as_of)
@@ -1963,18 +1964,18 @@ async def list_inventory_movements(
         if range_start_date is not None:
             query = query.where(
                 InventoryMovement.occurred_at
-                >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
+                >= ist_midnight(range_start_date)
             )
         if range_end_date is not None:
             query = query.where(
                 InventoryMovement.occurred_at
-                < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
+                < ist_midnight(range_end_date + timedelta(days=1))
             )
     elif reference_date is not None:
         query = query.where(
-            InventoryMovement.occurred_at >= datetime.combine(reference_date, time.min, tzinfo=UTC),
+            InventoryMovement.occurred_at >= ist_midnight(reference_date),
             InventoryMovement.occurred_at
-            < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
+            < ist_midnight(reference_date + timedelta(days=1)),
         )
     rows = (
         await db.scalars(
@@ -2014,18 +2015,18 @@ async def list_inventory_transfers(
         if range_start_date is not None:
             query = query.where(
                 InventoryTransfer.occurred_at
-                >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
+                >= ist_midnight(range_start_date)
             )
         if range_end_date is not None:
             query = query.where(
                 InventoryTransfer.occurred_at
-                < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
+                < ist_midnight(range_end_date + timedelta(days=1))
             )
     elif reference_date is not None:
         query = query.where(
-            InventoryTransfer.occurred_at >= datetime.combine(reference_date, time.min, tzinfo=UTC),
+            InventoryTransfer.occurred_at >= ist_midnight(reference_date),
             InventoryTransfer.occurred_at
-            < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
+            < ist_midnight(reference_date + timedelta(days=1)),
         )
     rows = (
         await db.scalars(

@@ -18,7 +18,7 @@ import { fetchAllOrganizationRows, fetchAuditLogRows, type AuditLogRead } from "
 import type { AppStackParamList } from "@/navigation/types";
 import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
 import type { UUID } from "@/types/api";
-import { isAuthSessionError } from "@/utils/auth-errors";
+import { formatDateTime } from "@/utils/format";
 
 import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
 
@@ -33,12 +33,7 @@ function formatTimestamp(value?: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatDateTime(value);
 }
 
 /** Convert snake_case entity types → readable labels */

@@ -1,4 +1,13 @@
 from datetime import UTC, date, datetime, timedelta
+
+from app.core.timezone import (
+    ist_day_bounds,
+    ist_month_bounds,
+    ist_range_bounds,
+    ist_week_bounds,
+    ist_year_bounds,
+    today_ist,
+)
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -1889,43 +1898,17 @@ def _get_period_bounds(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="range_end_date must be on or after range_start_date.",
             )
-        start = datetime(
-            range_start_date.year,
-            range_start_date.month,
-            range_start_date.day,
-            tzinfo=UTC,
-        )
-        end = datetime(
-            range_end_date.year,
-            range_end_date.month,
-            range_end_date.day,
-            tzinfo=UTC,
-        ) + timedelta(days=1)
-        return start, end
+        return ist_range_bounds(range_start_date, range_end_date)
 
-    base_date = reference_date or datetime.now(UTC).date()
-    now = datetime(base_date.year, base_date.month, base_date.day, tzinfo=UTC)
+    base_date = reference_date or today_ist()
 
     if period == "date":
-        start = datetime(now.year, now.month, now.day, tzinfo=UTC)
-        end = start + timedelta(days=1)
-        return start, end
+        return ist_day_bounds(base_date)
 
     if period == "month":
-        start = datetime(now.year, now.month, 1, tzinfo=UTC)
-        end = datetime(
-            now.year + (1 if now.month == 12 else 0),
-            1 if now.month == 12 else now.month + 1,
-            1,
-            tzinfo=UTC,
-        )
-        return start, end
+        return ist_month_bounds(base_date)
 
     if period == "year":
-        start = datetime(now.year, 1, 1, tzinfo=UTC)
-        end = datetime(now.year + 1, 1, 1, tzinfo=UTC)
-        return start, end
+        return ist_year_bounds(base_date)
 
-    start = now - timedelta(days=now.weekday())
-    end = start + timedelta(days=7)
-    return start, end
+    return ist_week_bounds(base_date)

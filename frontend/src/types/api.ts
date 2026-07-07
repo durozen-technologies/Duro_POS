@@ -920,6 +920,9 @@ export interface OverallReportStatement {
   unit_summaries: OverallReportUnitSummary[];
   expense_amount: string;
   sales_amount: string;
+  retailer_paid_amount: string;
+  retailer_balance_amount: string;
+  profit_amount: string;
   assumption_amount: string;
   purchase_amount: string;
   difference_amount: string;

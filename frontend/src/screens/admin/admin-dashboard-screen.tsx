@@ -29,6 +29,7 @@ import { logout } from "@/store/auth-store";
 import { usePrinterStore } from "@/store/printer-store";
 import { AnalyticsPeriod, type BillRead, type ShopRead, type UUID } from "@/types/api";
 
+import { createDateTimeFormat, formatDateValueInTimeZone, parseCalendarDate, todayDateValue } from "@/utils/format";
 import { adminElevation } from "./admin-dashboard-theme";
 import { useAdminTheme } from "./use-admin-theme";
 import {
@@ -108,18 +109,15 @@ const PERIOD_OPTIONS: { key: AnalyticsPeriod; label: string }[] = [
 
 const PRINT_ALL_CHUNK_SIZE = 50;
 const CALENDAR_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const calendarMonthFormatter = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" });
-const calendarDateFormatter = new Intl.DateTimeFormat("en-IN", {
+const calendarMonthFormatter = createDateTimeFormat({ month: "long", year: "numeric" });
+const calendarDateFormatter = createDateTimeFormat({
   day: "numeric",
   month: "short",
   year: "numeric",
 });
 
 function toLocalDateValue(date: Date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatDateValueInTimeZone(date);
 }
 
 function parseLocalDateValue(value: string) {
@@ -215,7 +213,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const debouncedItemSearch = useDebouncedValue(itemSearch.trim().toLowerCase());
   const toastAnimation = useRef(new Animated.Value(0)).current;
   const latestDashboardError = useRef<string | null>(null);
-  const todayValue = dateOptions[0]?.value ?? toLocalDateValue(new Date());
+  const todayValue = dateOptions[0]?.value ?? todayDateValue();
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonthValue), [calendarMonthValue]);
   const calendarMonthLabel = useMemo(
     () => calendarMonthFormatter.format(parseLocalDateValue(calendarMonthValue)),

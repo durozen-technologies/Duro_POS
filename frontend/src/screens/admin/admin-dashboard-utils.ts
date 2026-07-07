@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 
 import { AnalyticsPeriod, BaseUnit, type ShopRead } from "@/types/api";
 import { money } from "@/utils/decimal";
-import { formatDate } from "@/utils/format";
+import { APP_TIME_ZONE, addCalendarDays, createDateTimeFormat, formatDate, parseCalendarDate, todayDateValue } from "@/utils/format";
 
 export type AdminNavTab = "dashboard" | "billing" | "items" | "sales" | "inventory" | "expenses" | "retailers" | "settings";
 
@@ -40,36 +40,36 @@ function compactNumber(value: number, precision: number): string {
   return `${value.toFixed(0)}`;
 }
 
-const optionDayFormatter = new Intl.DateTimeFormat("en-IN", {
+const optionDayFormatter = createDateTimeFormat({
   weekday: "short",
   day: "numeric",
   month: "short",
 });
 
-const monthYearFormatter = new Intl.DateTimeFormat("en-IN", {
+const monthYearFormatter = createDateTimeFormat({
   month: "long",
   year: "numeric",
 });
 
-const shortWeekFormatter = new Intl.DateTimeFormat("en-IN", {
+const shortWeekFormatter = createDateTimeFormat({
   day: "numeric",
   month: "short",
 });
 
-const weekRangeEndFormatter = new Intl.DateTimeFormat("en-IN", {
+const weekRangeEndFormatter = createDateTimeFormat({
   day: "numeric",
   month: "short",
   year: "numeric",
 });
 
-const fullAnalyticsDateFormatter = new Intl.DateTimeFormat("en-IN", {
+const fullAnalyticsDateFormatter = createDateTimeFormat({
   weekday: "short",
   day: "numeric",
   month: "short",
   year: "numeric",
 });
 
-const analyticsYearFormatter = new Intl.DateTimeFormat("en-IN", {
+const analyticsYearFormatter = createDateTimeFormat({
   year: "numeric",
 });
 
@@ -132,41 +132,28 @@ export function getShopStatus(shop: ShopRead, lastActivityAt?: string | null): S
 
 
 
-function toLocalDateValue(date: Date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function istWeekdayMondayZero(dateValue: string): number {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_TIME_ZONE,
+    weekday: "short",
+  }).format(parseCalendarDate(dateValue));
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return (days.indexOf(weekday) + 6) % 7;
 }
 
-function getStartOfWeek(date: Date) {
-  const weekStart = new Date(date);
-  const dayOfWeek = weekStart.getDay();
-  const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  weekStart.setDate(weekStart.getDate() + offset);
-  weekStart.setHours(0, 0, 0, 0);
-  return weekStart;
+function getStartOfWeek(dateValue: string) {
+  return addCalendarDays(dateValue, -istWeekdayMondayZero(dateValue));
 }
 
 function parseLocalDateValue(value: string) {
-  const [yearText, monthText, dayText] = value.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-    return new Date(value);
-  }
-
-  return new Date(year, month - 1, day);
+  return parseCalendarDate(value);
 }
 
 export function buildDateOptions() {
-  const today = new Date();
+  const today = todayDateValue();
   return Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - index);
-    const value = toLocalDateValue(date);
+    const value = addCalendarDays(today, -index);
+    const date = parseCalendarDate(value);
 
     return {
       value,
@@ -181,40 +168,44 @@ export function buildDateOptions() {
 }
 
 export function buildMonthOptions() {
-  const today = new Date();
+  const [yearText, monthText] = todayDateValue().split("-");
+  let year = Number(yearText);
+  let month = Number(monthText);
   return Array.from({ length: 12 }, (_, index) => {
-    const date = new Date(today.getFullYear(), today.getMonth() - index, 1);
-    const value = toLocalDateValue(date);
-
+    let targetMonth = month - index;
+    let targetYear = year;
+    while (targetMonth <= 0) {
+      targetMonth += 12;
+      targetYear -= 1;
+    }
+    const value = `${targetYear}-${String(targetMonth).padStart(2, "0")}-01`;
     return {
       value,
-      label: monthYearFormatter.format(date),
+      label: monthYearFormatter.format(parseCalendarDate(value)),
     };
   });
 }
 
 export function buildWeekOptions() {
-  const currentWeekStart = getStartOfWeek(new Date());
+  const currentWeekStart = getStartOfWeek(todayDateValue());
   return Array.from({ length: 12 }, (_, index) => {
-    const weekStart = new Date(currentWeekStart);
-    weekStart.setDate(currentWeekStart.getDate() - index * 7);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
+    const value = addCalendarDays(currentWeekStart, -index * 7);
+    const weekEnd = addCalendarDays(value, 6);
 
     return {
-      value: toLocalDateValue(weekStart),
+      value,
       label:
         index === 0
           ? "This Week"
           : index === 1
             ? "Last Week"
-            : `${shortWeekFormatter.format(weekStart)} - ${weekRangeEndFormatter.format(weekEnd)}`,
+            : `${shortWeekFormatter.format(parseCalendarDate(value))} - ${weekRangeEndFormatter.format(parseCalendarDate(weekEnd))}`,
     };
   });
 }
 
 export function buildYearOptions() {
-  const currentYear = new Date().getFullYear();
+  const currentYear = Number(todayDateValue().slice(0, 4));
   return Array.from({ length: 6 }, (_, index) => {
     const year = currentYear - index;
     return {
@@ -252,10 +243,9 @@ export function formatAnalyticsReference(
     return analyticsYearFormatter.format(date);
   }
 
-  const weekStart = getStartOfWeek(date);
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6);
-  return `${shortWeekFormatter.format(weekStart)} - ${weekRangeEndFormatter.format(weekEnd)}`;
+  const weekStart = getStartOfWeek(value);
+  const weekEnd = addCalendarDays(weekStart, 6);
+  return `${shortWeekFormatter.format(parseCalendarDate(weekStart))} - ${weekRangeEndFormatter.format(parseCalendarDate(weekEnd))}`;
 }
 
 export function getUnitLabel(unit: BaseUnit, quantity: string) {

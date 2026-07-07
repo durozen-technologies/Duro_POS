@@ -67,6 +67,7 @@ import {
 } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { groupInventoryMovements } from "@/utils/group-inventory-movements";
+import { groupRetailerInventoryUsages } from "@/utils/group-retailer-inventory-usages";
 import { toDateInputValue } from "@/utils/expense-history-filters";
 import { getItemThumbnailUri } from "@/utils/item-images";
 import type { InventoryManagementScreenProps } from "@/navigation/types";
@@ -278,6 +279,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     [historyMode, movementHistoryParams],
   );
   const groupedMovements = useMemo(() => groupInventoryMovements(movements), [movements]);
+  const groupedRetailerUsages = useMemo(
+    () => groupRetailerInventoryUsages(retailerUsages),
+    [retailerUsages],
+  );
   const historyCardLabels = useMemo(
     () => ({
       added: t("inventory.movementAdded"),
@@ -1049,16 +1054,16 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
               </View>
             )
           ) : historyTab === "retailer" ? (
-            retailerUsages.length === 0 ? (
+            groupedRetailerUsages.length === 0 ? (
               <EmptyState
                 title={t("inventory.noRetailerStock", { defaultValue: "No retailer stock usage found." })}
                 description={t("inventory.noRecentMovement")}
               />
             ) : (
               <View className="gap-2.5">
-                {retailerUsages.map((entry) => (
+                {groupedRetailerUsages.map((entry) => (
                   <InventoryRetailerUsageHistoryCard
-                    key={entry.id}
+                    key={entry.key}
                     entry={entry}
                     itemName={getLocalizedItemName(
                       language,

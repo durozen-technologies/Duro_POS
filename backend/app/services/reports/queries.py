@@ -24,6 +24,7 @@ from app.models import (
     Retailer,
     RetailerInventoryUsage,
     RetailerItemPrice,
+    RetailerPayment,
     RetailerSale,
     RetailerSaleItem,
     ShopInventoryAllocation,
@@ -35,7 +36,6 @@ from app.schemas.admin import (
     OverallReportBillingItem,
     OverallReportInventoryItem,
     OverallReportRead,
-    OverallReportStatement,
     OverallReportStatement,
     OverallReportUnitSummary,
     OverallReportUsedStockBreakdown,
@@ -69,6 +69,20 @@ def _over_report_balance_amount(
     expense: Decimal | str | int | float,
 ) -> Decimal:
     return _decimal(sales) - _decimal(purchase) - _decimal(expense)
+
+
+def _over_report_profit_amount(
+    sales: Decimal | str | int | float,
+    retailer_paid: Decimal | str | int | float,
+    purchase: Decimal | str | int | float,
+    expense: Decimal | str | int | float,
+) -> Decimal:
+    return (
+        _decimal(sales)
+        + _decimal(retailer_paid)
+        - _decimal(purchase)
+        - _decimal(expense)
+    )
 
 
 def _total_retailer_inventory_used(item: OverallReportInventoryItem) -> Decimal:
@@ -168,20 +182,14 @@ async def _build_overall_report_statement(
     unit_summaries = _overall_report_unit_summaries(inventory_items.values())
     expense_amount = await _over_report_expense_amount(db, context, shop_id)
     
-    # Calculate regular sales totals
+    # Shop billing sales only (normal sales).
     sales_amount = sum(
         (_decimal(item.sales_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
     
-    # Calculate retailer sales total
-    retailer_sales_amount = Decimal("0")
-    for item in inventory_items.values():
-        for b_item in item.billing_items:
-            for r_data in b_item.retailer_data:
-                retailer_sales_amount += r_data.sales_amount
-
-    total_sales_amount = sales_amount + retailer_sales_amount
+    retailer_paid_amount = await _over_report_retailer_paid_amount(db, context, shop_id)
+    retailer_balance_amount = await _over_report_retailer_balance_amount(db, context, shop_id)
 
     assumption_amount = sum(
         (_decimal(item.assumption_amount) for item in inventory_items.values()),
@@ -198,6 +206,13 @@ async def _build_overall_report_statement(
         Decimal("0"),
     )
 
+    profit_amount = _over_report_profit_amount(
+        sales_amount,
+        retailer_paid_amount,
+        purchase_amount,
+        expense_amount,
+    )
+
     return OverallReportStatement(
         shop_id=shop_id,
         shop_name=shop_name,
@@ -206,12 +221,15 @@ async def _build_overall_report_statement(
         period_label=context.period_label,
         unit_summaries=unit_summaries,
         expense_amount=expense_amount,
-        sales_amount=total_sales_amount,
+        sales_amount=sales_amount,
+        retailer_paid_amount=retailer_paid_amount,
+        retailer_balance_amount=retailer_balance_amount,
+        profit_amount=profit_amount,
         assumption_amount=assumption_amount,
         purchase_amount=purchase_amount,
         difference_amount=difference_amount,
-        sales_minus_expense_amount=total_sales_amount - expense_amount,
-        sales_minus_assumption_amount=total_sales_amount - assumption_amount,
+        sales_minus_expense_amount=sales_amount - expense_amount,
+        sales_minus_assumption_amount=sales_amount - assumption_amount,
         inventory_items=list(inventory_items.values()),
         retailers=retailers,
     )
@@ -426,6 +444,21 @@ async def _overall_report_inventory_items(
                     OverallReportInventoryRetailerData(retailer_id=r.id, used_stock=used)
                 )
             item.retailer_data = r_data_list
+
+    for item in items.values():
+        total_retailer_used = _total_retailer_inventory_used(item)
+        item.remaining_stock = (
+            item.total_available_stock
+            - item.used_stock
+            - total_retailer_used
+            - item.transfer_stock
+        )
+        if item.purchase_rate is not None:
+            item.purchase_amount = (
+                item.used_stock + total_retailer_used + item.transfer_stock
+            ) * item.purchase_rate
+        else:
+            item.purchase_amount = Decimal("0")
 
     return items
 
@@ -684,12 +717,8 @@ async def _populate_overall_report_billing_items(
             if assumption_percent is not None
             else Decimal("0")
         )
-        difference_quantity = sales_quantity - assumption_quantity
         assumption_amount = (
             assumption_quantity * today_price if today_price is not None else Decimal("0")
-        )
-        difference_amount = (
-            difference_quantity * today_price if today_price is not None else Decimal("0")
         )
 
         r_data_list = []
@@ -713,6 +742,29 @@ async def _populate_overall_report_billing_items(
                 assumption_amount=r_assumption_amt,
                 sales_amount=r_sales_amt
             ))
+
+        total_retailer_assumption_qty = sum(
+            (entry.assumption_quantity for entry in r_data_list),
+            Decimal("0"),
+        )
+        total_retailer_sales_qty = sum(
+            (entry.sales_quantity for entry in r_data_list),
+            Decimal("0"),
+        )
+        total_retailer_assumption_amt = sum(
+            (entry.assumption_amount for entry in r_data_list),
+            Decimal("0"),
+        )
+        total_retailer_sales_amt = sum(
+            (entry.sales_amount for entry in r_data_list),
+            Decimal("0"),
+        )
+        difference_quantity = (assumption_quantity + total_retailer_assumption_qty) - (
+            sales_quantity + total_retailer_sales_qty
+        )
+        difference_amount = (assumption_amount + total_retailer_assumption_amt) - (
+            sales_amount + total_retailer_sales_amt
+        )
 
         inventory_item.billing_items.append(
             OverallReportBillingItem(
@@ -884,18 +936,11 @@ def _write_over_report_statement(
         writer.financial_summary(
             [
                 ("Total Sales", _money(statement.sales_amount)),
+                ("Total Retailer Paid Amount", _money(statement.retailer_paid_amount)),
                 ("Total Purchase", _money(statement.purchase_amount)),
                 ("Total Expense Amount", _money(statement.expense_amount)),
-                (
-                    "Balance Amount",
-                    _money(
-                        _over_report_balance_amount(
-                            statement.sales_amount,
-                            statement.purchase_amount,
-                            statement.expense_amount,
-                        )
-                    ),
-                ),
+                ("Profit Amount", _money(statement.profit_amount)),
+                ("Retailer Balance Amount", _money(statement.retailer_balance_amount)),
             ]
         )
 
@@ -1075,6 +1120,7 @@ def _context_for_day(context: ReportContext, day: date) -> ReportContext:
         shop_ids=context.shop_ids,
         organization_id=context.organization_id,
         organization_name=context.organization_name,
+        retailer_ids=context.retailer_ids,
     )
 
 
@@ -1088,6 +1134,38 @@ async def _over_report_expense_amount(
             ExpenseEntry.shop_id == shop_id,
             ExpenseEntry.spent_at >= context.start,
             ExpenseEntry.spent_at < context.end,
+        )
+    )
+    return _decimal(total).quantize(Decimal("0.01"))
+
+
+async def _over_report_retailer_paid_amount(
+    db: AsyncSession,
+    context: ReportContext,
+    shop_id: UUID,
+) -> Decimal:
+    total = await db.scalar(
+        select(func.coalesce(func.sum(RetailerPayment.total_paid), Decimal("0.00")))
+        .join(RetailerSale, RetailerSale.id == RetailerPayment.retailer_sale_id)
+        .where(
+            RetailerSale.shop_id == shop_id,
+            RetailerPayment.paid_at >= context.start,
+            RetailerPayment.paid_at < context.end,
+        )
+    )
+    return _decimal(total).quantize(Decimal("0.01"))
+
+
+async def _over_report_retailer_balance_amount(
+    db: AsyncSession,
+    context: ReportContext,
+    shop_id: UUID,
+) -> Decimal:
+    total = await db.scalar(
+        select(func.coalesce(func.sum(RetailerSale.balance_due), Decimal("0.00"))).where(
+            RetailerSale.shop_id == shop_id,
+            RetailerSale.created_at >= context.start,
+            RetailerSale.created_at < context.end,
         )
     )
     return _decimal(total).quantize(Decimal("0.01"))
@@ -1114,17 +1192,25 @@ class OverallReportPDF(FPDF):
         self.cell(0, 10, text=f"Page {self.page_no()}", align="R")
 
 
-def _fpdf_set_cell_font(pdf: FPDF, text: str, *, is_header: bool) -> None:
-    font_size = (
-        OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF
-        if is_header
-        else OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF
-    )
+def _fpdf_set_cell_font(
+    pdf: FPDF,
+    text: str,
+    *,
+    is_header: bool,
+    font_size: float | None = None,
+) -> None:
+    size = font_size
+    if size is None:
+        size = (
+            OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF
+            if is_header
+            else OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF
+        )
     style = "B" if is_header else ""
     if _has_tamil_text(text):
-        pdf.set_font("NotoSansTamil", style=style, size=font_size)
+        pdf.set_font("NotoSansTamil", style=style, size=size)
     else:
-        pdf.set_font("NotoSans", style=style, size=font_size)
+        pdf.set_font("NotoSans", style=style, size=size)
 
 
 def _fpdf_wrap_cell_lines(
@@ -1155,6 +1241,99 @@ def _fpdf_wrap_cell_lines(
     return lines or [""]
 
 
+def _fpdf_fit_token_lines(
+    pdf: FPDF,
+    token: str,
+    inner_width: float,
+    *,
+    is_header: bool,
+    font_size: float | None = None,
+) -> list[str]:
+    _fpdf_set_cell_font(pdf, token, is_header=is_header, font_size=font_size)
+    if pdf.get_string_width(token) <= inner_width:
+        return [token]
+    lines: list[str] = []
+    chunk = ""
+    for char in token:
+        candidate = f"{chunk}{char}"
+        _fpdf_set_cell_font(pdf, candidate, is_header=is_header, font_size=font_size)
+        if pdf.get_string_width(candidate) <= inner_width:
+            chunk = candidate
+            continue
+        if chunk:
+            lines.append(chunk)
+        chunk = char
+    if chunk:
+        lines.append(chunk)
+    return lines or [""]
+
+
+def _fpdf_vertical_cell_lines(
+    pdf: FPDF,
+    text: str,
+    inner_width: float,
+    *,
+    is_header: bool,
+    font_size: float | None = None,
+) -> list[str]:
+    lines: list[str] = []
+    for segment in text.split("\n"):
+        segment = segment.strip()
+        if not segment:
+            lines.append("")
+            continue
+        _fpdf_set_cell_font(pdf, segment, is_header=is_header, font_size=font_size)
+        if pdf.get_string_width(segment) <= inner_width:
+            lines.append(segment)
+            continue
+        for word in segment.split():
+            word = word.strip()
+            if not word:
+                continue
+            if is_header:
+                lines.extend(
+                    _fpdf_fit_token_lines(
+                        pdf,
+                        word,
+                        inner_width,
+                        is_header=True,
+                        font_size=font_size,
+                    )
+                )
+            else:
+                _fpdf_set_cell_font(pdf, word, is_header=False)
+                if pdf.get_string_width(word) <= inner_width:
+                    lines.append(word)
+                else:
+                    lines.extend(
+                        _fpdf_fit_token_lines(
+                            pdf,
+                            word,
+                            inner_width,
+                            is_header=False,
+                        )
+                    )
+    return lines or [""]
+
+
+def _fpdf_vertical_header_cell_lines(
+    pdf: FPDF,
+    text: str,
+    width: float,
+    padding: float,
+    *,
+    font_size: float | None = None,
+) -> list[str]:
+    inner_width = max(8.0, width - padding * 2)
+    return _fpdf_vertical_cell_lines(
+        pdf,
+        text,
+        inner_width,
+        is_header=True,
+        font_size=font_size,
+    )
+
+
 def _fpdf_cell_lines(
     pdf: FPDF,
     value: object,
@@ -1162,17 +1341,35 @@ def _fpdf_cell_lines(
     padding: float,
     *,
     is_header: bool,
+    header_font_size: float | None = None,
 ) -> list[str]:
     text = str(value) if value is not None else ""
-    if is_header:
-        return [line for line in text.split("\n")] or [""]
     inner_width = max(8.0, width - padding * 2)
+    if is_header:
+        return _fpdf_vertical_header_cell_lines(
+            pdf,
+            text,
+            width,
+            padding,
+            font_size=header_font_size,
+        )
     lines: list[str] = []
     for segment in text.split("\n"):
         if not segment:
             lines.append("")
             continue
-        lines.extend(_fpdf_wrap_cell_lines(pdf, segment, inner_width, is_header=False))
+        _fpdf_set_cell_font(pdf, segment, is_header=False)
+        if pdf.get_string_width(segment) <= inner_width:
+            lines.append(segment)
+            continue
+        lines.extend(
+            _fpdf_vertical_cell_lines(
+                pdf,
+                segment,
+                inner_width,
+                is_header=False,
+            )
+        )
     return lines or [""]
 
 
@@ -1187,9 +1384,19 @@ def _fpdf_draw_row(
     fill_color: tuple[int, int, int] = (255, 255, 255),
     is_header: bool = False,
     header_drawer: object = None,
+    *,
+    bold_borders: bool = False,
+    header_font_size: float | None = None,
 ) -> None:
     cell_lines = [
-        _fpdf_cell_lines(pdf, val, w, padding, is_header=is_header)
+        _fpdf_cell_lines(
+            pdf,
+            val,
+            w,
+            padding,
+            is_header=is_header,
+            header_font_size=header_font_size,
+        )
         for val, w in zip(row_values, widths, strict=True)
     ]
 
@@ -1205,6 +1412,11 @@ def _fpdf_draw_row(
     pdf.set_x(x_start)
     y_start = pdf.get_y()
 
+    border_color = (31, 39, 51) if bold_borders else (200, 205, 212)
+    border_width = 1.4 if bold_borders else 0.8
+    pdf.set_line_width(border_width)
+    pdf.set_draw_color(*border_color)
+
     current_x = x_start
     for lines, w, align in zip(cell_lines, widths, alignments, strict=True):
         if fill:
@@ -1217,7 +1429,12 @@ def _fpdf_draw_row(
         block_height = line_height * len(lines)
         y_offset = padding + (row_height - padding * 2 - block_height) / 2
         for idx, line in enumerate(lines):
-            _fpdf_set_cell_font(pdf, line, is_header=is_header)
+            _fpdf_set_cell_font(
+                pdf,
+                line,
+                is_header=is_header,
+                font_size=header_font_size if is_header else None,
+            )
             pdf.set_xy(current_x + padding, y_start + y_offset + idx * line_height)
             pdf.cell(w - padding * 2, line_height, text=line, align=align_code)
 
@@ -1226,16 +1443,31 @@ def _fpdf_draw_row(
     pdf.set_xy(x_start, y_start + row_height)
 
 
+OVER_REPORT_HIGHLIGHT_FILL = (255, 244, 196)
+
+
+def _fpdf_row_is_highlight_row(row_values: list[object]) -> bool:
+    for value in row_values:
+        text = str(value).strip()
+        if text == "Subtotal":
+            return True
+        if text == "Total Used" or text.startswith("Total Used\n"):
+            return True
+    return False
+
+
 def _fpdf_draw_day_summary_card(
     pdf: FPDF,
     day_label: str,
     sales: Decimal,
+    retailer_paid: Decimal,
     purchase: Decimal,
     expense: Decimal,
-    balance: Decimal,
+    profit: Decimal,
+    retailer_balance: Decimal,
 ) -> None:
     card_width = 400
-    card_height = 110
+    card_height = 168
     x_start = (pdf.w - card_width) / 2
     y_start = pdf.get_y() + 5
 
@@ -1251,28 +1483,28 @@ def _fpdf_draw_day_summary_card(
     pdf.set_font("NotoSans", style="B", size=14)
     pdf.cell(card_width - 20, 10, text=f"Day Summary ({day_label})")
 
-    pdf.set_font("NotoSans", size=14)
+    pdf.set_font("NotoSans", size=12)
 
-    pdf.set_xy(x_start + 10, y_start + 30)
-    pdf.cell(200, 12, text="Total Sales")
-    pdf.set_xy(x_start + card_width - 160, y_start + 30)
-    pdf.cell(150, 12, text=_money(sales), align="R")
-
-    pdf.set_xy(x_start + 10, y_start + 48)
-    pdf.cell(200, 12, text="Total Purchase")
-    pdf.set_xy(x_start + card_width - 160, y_start + 48)
-    pdf.cell(150, 12, text=_money(purchase), align="R")
-
-    pdf.set_xy(x_start + 10, y_start + 66)
-    pdf.cell(200, 12, text="Total Expense Amount")
-    pdf.set_xy(x_start + card_width - 160, y_start + 66)
-    pdf.cell(150, 12, text=_money(expense), align="R")
-
-    pdf.set_xy(x_start + 10, y_start + 88)
-    pdf.set_font("NotoSans", style="B", size=14)
-    pdf.cell(200, 12, text="Balance Amount")
-    pdf.set_xy(x_start + card_width - 160, y_start + 88)
-    pdf.cell(150, 12, text=_money(balance), align="R")
+    summary_rows = [
+        ("Total Sales", _money(sales)),
+        ("Total Retailer Paid Amount", _money(retailer_paid)),
+        ("Total Purchase", _money(purchase)),
+        ("Total Expense Amount", _money(expense)),
+        ("Profit Amount", _money(profit)),
+        ("Retailer Balance Amount", _money(retailer_balance)),
+    ]
+    y = y_start + 28
+    for label, value in summary_rows:
+        pdf.set_xy(x_start + 10, y)
+        pdf.cell(200, 12, text=label)
+        pdf.set_xy(x_start + card_width - 160, y)
+        is_profit = label == "Profit Amount"
+        if is_profit:
+            pdf.set_font("NotoSans", style="B", size=12)
+        pdf.cell(150, 12, text=value, align="R")
+        if is_profit:
+            pdf.set_font("NotoSans", size=12)
+        y += 18
 
     pdf.set_draw_color(200, 205, 212)
     pdf.set_xy(x_start, y_start + card_height + 5)
@@ -1281,13 +1513,15 @@ def _fpdf_draw_day_summary_card(
 def _fpdf_draw_grand_total_summary(
     pdf: FPDF,
     total_sales: Decimal,
+    total_retailer_paid: Decimal,
     total_purchase: Decimal,
     total_expense: Decimal,
-    total_balance: Decimal,
+    total_profit: Decimal,
+    total_retailer_balance: Decimal,
     table_width: int = 798,
 ) -> None:
     fin_width = 400
-    fin_height = 95
+    fin_height = 150
 
     x_start = (pdf.w - table_width) / 2 + table_width - fin_width
     y_start = pdf.get_y() + 8
@@ -1301,26 +1535,26 @@ def _fpdf_draw_grand_total_summary(
     pdf.rect(x_start, y_start, fin_width, fin_height, style="DF")
 
     pdf.set_xy(x_start + 10, y_start + 10)
-    pdf.set_font("NotoSans", size=14)
-    pdf.cell(200, 12, text="Total Sales")
-    pdf.set_xy(x_start + fin_width - 160, y_start + 10)
-    pdf.cell(150, 12, text=_money(total_sales), align="R")
-
-    pdf.set_xy(x_start + 10, y_start + 28)
-    pdf.cell(200, 12, text="Total Purchase")
-    pdf.set_xy(x_start + fin_width - 160, y_start + 28)
-    pdf.cell(150, 12, text=_money(total_purchase), align="R")
-
-    pdf.set_xy(x_start + 10, y_start + 46)
-    pdf.cell(200, 12, text="Total Expense Amount")
-    pdf.set_xy(x_start + fin_width - 160, y_start + 46)
-    pdf.cell(150, 12, text=_money(total_expense), align="R")
-
-    pdf.set_xy(x_start + 10, y_start + 68)
-    pdf.set_font("NotoSans", style="B", size=14)
-    pdf.cell(200, 12, text="Balance Amount")
-    pdf.set_xy(x_start + fin_width - 160, y_start + 68)
-    pdf.cell(150, 12, text=_money(total_balance), align="R")
+    pdf.set_font("NotoSans", size=12)
+    summary_rows = [
+        ("Total Sales", _money(total_sales)),
+        ("Total Retailer Paid Amount", _money(total_retailer_paid)),
+        ("Total Purchase", _money(total_purchase)),
+        ("Total Expense Amount", _money(total_expense)),
+        ("Profit Amount", _money(total_profit)),
+        ("Retailer Balance Amount", _money(total_retailer_balance)),
+    ]
+    y = y_start + 10
+    for label, value in summary_rows:
+        pdf.set_xy(x_start + 10, y)
+        pdf.cell(200, 12, text=label)
+        pdf.set_xy(x_start + fin_width - 160, y)
+        if label == "Profit Amount":
+            pdf.set_font("NotoSans", style="B", size=12)
+        pdf.cell(150, 12, text=value, align="R")
+        if label == "Profit Amount":
+            pdf.set_font("NotoSans", size=12)
+        y += 18
 
     pdf.set_xy(x_start, y_start + fin_height + 5)
 
@@ -1425,40 +1659,40 @@ async def _generate_over_report_fpdf_pdf(
         header_alignments2 = [h_aligns[i] for i in part2_indices]
 
         def draw_header_row1() -> None:
-            pdf.set_font("NotoSans", style="B", size=11)
             pdf.set_text_color(255, 255, 255)
-            pdf.set_draw_color(26, 37, 51)
             _fpdf_draw_row(
                 pdf,
                 widths1,
                 header_alignments1,
                 headers1,
-                line_height=14,
-                padding=5,
+                line_height=10,
+                padding=4,
                 fill=True,
                 fill_color=(46, 61, 82),
                 is_header=True,
+                bold_borders=True,
+                header_font_size=8.0,
             )
             pdf.set_text_color(31, 39, 51)
-            pdf.set_draw_color(200, 205, 212)
+            pdf.set_draw_color(31, 39, 51)
 
         def draw_header_row2() -> None:
-            pdf.set_font("NotoSans", style="B", size=11)
             pdf.set_text_color(255, 255, 255)
-            pdf.set_draw_color(26, 37, 51)
             _fpdf_draw_row(
                 pdf,
                 widths2,
                 header_alignments2,
                 headers2,
-                line_height=14,
-                padding=5,
+                line_height=10,
+                padding=4,
                 fill=True,
                 fill_color=(46, 61, 82),
                 is_header=True,
+                bold_borders=True,
+                header_font_size=8.0,
             )
             pdf.set_text_color(31, 39, 51)
-            pdf.set_draw_color(200, 205, 212)
+            pdf.set_draw_color(31, 39, 51)
 
         # Part 1
         pdf.set_font("NotoSans", style="B", size=14)
@@ -1476,17 +1710,21 @@ async def _generate_over_report_fpdf_pdf(
 
             pdf.set_font("NotoSans", size=12)
             for row in mapped_rows:
-                fill = row_index % 2 == 1
+                part1_row = [row[i] for i in part1_indices]
+                is_highlight = _fpdf_row_is_highlight_row(part1_row)
+                fill = is_highlight or row_index % 2 == 1
+                fill_color = OVER_REPORT_HIGHLIGHT_FILL if is_highlight else (244, 246, 248)
                 _fpdf_draw_row(
                     pdf,
                     widths1,
                     alignments1,
-                    [row[i] for i in part1_indices],
+                    part1_row,
                     line_height=14,
                     padding=4,
                     fill=fill,
-                    fill_color=(244, 246, 248),
+                    fill_color=fill_color,
                     header_drawer=draw_header_row1,
+                    bold_borders=True,
                 )
                 row_index += 1
 
@@ -1510,37 +1748,41 @@ async def _generate_over_report_fpdf_pdf(
                 unmapped_headers = headers1
 
                 def draw_unmapped_header_row1() -> None:
-                    pdf.set_font("NotoSans", style="B", size=11)
                     pdf.set_text_color(255, 255, 255)
-                    pdf.set_draw_color(26, 37, 51)
                     _fpdf_draw_row(
                         pdf,
                         unmapped_widths,
                         unmapped_header_alignments,
                         unmapped_headers,
-                        line_height=14,
-                        padding=5,
+                        line_height=10,
+                        padding=4,
                         fill=True,
                         fill_color=(46, 61, 82),
                         is_header=True,
+                        bold_borders=True,
+                        header_font_size=8.0,
                     )
                     pdf.set_text_color(31, 39, 51)
-                    pdf.set_draw_color(200, 205, 212)
+                    pdf.set_draw_color(31, 39, 51)
 
                 draw_unmapped_header_row1()
                 row_index = 0
                 for row in unmapped_rows:
-                    fill = row_index % 2 == 1
+                    part1_row = [row[i] for i in part1_indices]
+                    is_highlight = _fpdf_row_is_highlight_row(part1_row)
+                    fill = is_highlight or row_index % 2 == 1
+                    fill_color = OVER_REPORT_HIGHLIGHT_FILL if is_highlight else (244, 246, 248)
                     _fpdf_draw_row(
                         pdf,
                         unmapped_widths,
                         unmapped_alignments,
-                        [row[i] for i in part1_indices],
+                        part1_row,
                         line_height=14,
                         padding=4,
                         fill=fill,
-                        fill_color=(244, 246, 248),
+                        fill_color=fill_color,
                         header_drawer=draw_unmapped_header_row1,
+                        bold_borders=True,
                     )
                     row_index += 1
 
@@ -1557,38 +1799,63 @@ async def _generate_over_report_fpdf_pdf(
             mapped_items = [i for i in stmt.inventory_items if i.billing_items]
             mapped_rows = _over_report_sheet_rows(mapped_items, stmt, use_tamil=use_tamil)
 
-            pdf.set_font("NotoSans", size=12)
+            pdf.set_font("NotoSans", size=11)
             for row in mapped_rows:
-                fill = row_index % 2 == 1
+                part2_row = [row[i] for i in part2_indices]
+                is_highlight = _fpdf_row_is_highlight_row(part2_row)
+                fill = is_highlight or row_index % 2 == 1
+                fill_color = OVER_REPORT_HIGHLIGHT_FILL if is_highlight else (244, 246, 248)
                 _fpdf_draw_row(
                     pdf,
                     widths2,
                     alignments2,
-                    [row[i] for i in part2_indices],
-                    line_height=14,
+                    part2_row,
+                    line_height=13,
                     padding=4,
                     fill=fill,
-                    fill_color=(244, 246, 248),
+                    fill_color=fill_color,
                     header_drawer=draw_header_row2,
+                    bold_borders=True,
                 )
                 row_index += 1
 
             if stmt.inventory_items and period_start != period_end:
                 day_label = _statement_table_date(stmt)
                 day_sales = _decimal(stmt.sales_amount)
+                day_retailer_paid = _decimal(stmt.retailer_paid_amount)
                 day_purchase = _decimal(stmt.purchase_amount)
                 day_expense = _decimal(stmt.expense_amount)
-                day_balance = _over_report_balance_amount(day_sales, day_purchase, day_expense)
+                day_profit = _decimal(stmt.profit_amount)
+                day_retailer_balance = _decimal(stmt.retailer_balance_amount)
                 _fpdf_draw_day_summary_card(
-                    pdf, day_label, day_sales, day_purchase, day_expense, day_balance
+                    pdf,
+                    day_label,
+                    day_sales,
+                    day_retailer_paid,
+                    day_purchase,
+                    day_expense,
+                    day_profit,
+                    day_retailer_balance,
                 )
 
         total_sales = sum((_decimal(s.sales_amount) for s in statements), Decimal("0"))
+        total_retailer_paid = sum((_decimal(s.retailer_paid_amount) for s in statements), Decimal("0"))
         total_purchase = sum((_decimal(s.purchase_amount) for s in statements), Decimal("0"))
         total_expense = sum((_decimal(s.expense_amount) for s in statements), Decimal("0"))
-        total_balance = _over_report_balance_amount(total_sales, total_purchase, total_expense)
+        total_profit = sum((_decimal(s.profit_amount) for s in statements), Decimal("0"))
+        total_retailer_balance = sum(
+            (_decimal(s.retailer_balance_amount) for s in statements),
+            Decimal("0"),
+        )
         _fpdf_draw_grand_total_summary(
-            pdf, total_sales, total_purchase, total_expense, total_balance, table_width=sum(widths1)
+            pdf,
+            total_sales,
+            total_retailer_paid,
+            total_purchase,
+            total_expense,
+            total_profit,
+            total_retailer_balance,
+            table_width=sum(widths1),
         )
 
     return bytes(pdf.output())

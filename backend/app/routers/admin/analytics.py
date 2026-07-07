@@ -112,6 +112,7 @@ async def admin_report_pdf(
     range_start_date: RangeStartDateParam = None,
     range_end_date: RangeEndDateParam = None,
     shop_ids: ShopIdsParam = None,
+    retailer_ids: RetailerIdsParam = None,
     language: ReportLanguageParam = "en",
     db: DBSession = None,
     current_user: AdminUserDep = None,
@@ -126,6 +127,7 @@ async def admin_report_pdf(
         range_start_date=range_start_date,
         range_end_date=range_end_date,
         shop_ids=shop_ids,
+        retailer_ids=retailer_ids,
         organization_id=_require_org_id(current_user),
         language=language,
     )

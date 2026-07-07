@@ -14,6 +14,14 @@ class RetailerSaleNumberTests(unittest.TestCase):
             "RS-2026-07-000001",
         )
 
+    def test_uses_ist_calendar_month(self) -> None:
+        # 2026-06-30 20:00 UTC = 2026-07-01 01:30 IST
+        moment = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+        self.assertEqual(
+            retailer_sale_no_from_sequence(moment, 42),
+            "RS-2026-07-000042",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

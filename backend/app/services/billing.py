@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.ids import uuid7
+from app.core.timezone import ist_month_key
 from app.db.tenant_context_var import get_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import set_search_path, tenant_router
 from app.models import (
@@ -285,7 +286,7 @@ async def _org_bill_number_prefix(db: AsyncSession, shop: Shop) -> str:
 
 
 async def _allocate_bill_number(db: AsyncSession, shop: Shop, now: datetime) -> str:
-    month_str = f"{now.year:04d}-{now.month:02d}"
+    month_str = ist_month_key(now)
     sequence_row = await db.get(MonthlyBillSequence, month_str, with_for_update=True)
     if sequence_row is None:
         sequence = 1

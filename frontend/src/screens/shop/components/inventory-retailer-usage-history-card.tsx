@@ -2,11 +2,12 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Text, View } from "react-native";
 
 import { Card } from "@/components/ui/card";
-import { type BaseUnit, type RetailerInventoryUsageRead } from "@/types/api";
+import { type BaseUnit } from "@/types/api";
 import { formatDateTime } from "@/utils/format";
+import type { GroupedRetailerInventoryUsage } from "@/utils/group-retailer-inventory-usages";
 
 type InventoryRetailerUsageHistoryCardProps = {
-  entry: RetailerInventoryUsageRead;
+  entry: GroupedRetailerInventoryUsage;
   itemName: string;
   formatQuantity: (value: string | number, unit?: BaseUnit) => string;
   labels: {
@@ -40,16 +41,18 @@ export function InventoryRetailerUsageHistoryCard({
             <Text className="min-w-0 flex-1 text-sm font-extrabold text-ink" numberOfLines={2}>
               {itemName}
             </Text>
-            <Text className="text-sm font-extrabold" style={{ color: accentColor }}>
-              {formatQuantity(entry.quantity, entry.unit)}
-            </Text>
+            <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: accentSoft }}>
+              <Text className="text-[11px] font-extrabold uppercase tracking-wide" style={{ color: accentColor }}>
+                {labels.retailer}
+              </Text>
+            </View>
           </View>
+          <Text className="text-sm font-extrabold text-ink">
+            {formatQuantity(entry.total_quantity, entry.unit)}
+          </Text>
           <Text className="text-xs font-semibold text-muted">
             {labels.retailer}: {entry.retailer_name ?? "—"}
           </Text>
-          {entry.category_name ? (
-            <Text className="text-xs font-semibold text-muted">{entry.category_name}</Text>
-          ) : null}
           <Text className="text-xs font-semibold text-muted">{formatDateTime(entry.occurred_at)}</Text>
           {entry.created_by_name ? (
             <Text className="text-xs font-semibold text-muted">
@@ -63,6 +66,24 @@ export function InventoryRetailerUsageHistoryCard({
           ) : null}
         </View>
       </View>
+
+      {entry.categories.length > 0 ? (
+        <View className="border-t border-border/80 bg-surface px-3.5 py-2.5">
+          {entry.categories.map((category, index) => (
+            <View
+              key={`${category.category_id ?? "none"}-${index}`}
+              className="min-h-[40px] flex-row items-center justify-between gap-3 py-1"
+            >
+              <Text className="min-w-0 flex-1 text-sm font-semibold text-ink" numberOfLines={2}>
+                {category.category_name ?? labels.unknownCategory}
+              </Text>
+              <Text className="shrink-0 text-sm font-extrabold text-ink">
+                {formatQuantity(category.quantity, entry.unit)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </Card>
   );
 }

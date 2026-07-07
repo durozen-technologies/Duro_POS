@@ -44,6 +44,10 @@ ShopIdsParam = Annotated[
     list[UUID] | None,
     Query(description="Filter reports to one or more shop branches. Omit for all branches."),
 ]
+RetailerIdsParam = Annotated[
+    list[UUID] | None,
+    Query(description="Filter retailer sales report to one or more retailers. Omit for all retailers."),
+]
 PriceHistoryDateParam = Annotated[
     date,
     Query(description="Exact price date to look up for a shop branch."),
@@ -301,6 +305,7 @@ __all__ = [
     "ShopDep",
     "ShopIdParam",
     "ShopIdsParam",
+    "RetailerIdsParam",
     "_parse_custom_attributes",
     "_parse_inventory_billing_item_ids",
     "_parse_inventory_billing_mappings",

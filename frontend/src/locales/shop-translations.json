@@ -389,7 +389,7 @@
     "action.connectPrinter": "பிரிண்டரை இணை",
     "action.reconnectPrinter": "மீண்டும் இணை",
     "action.printTestSlip": "சோதனை ஸ்லிப் அச்சிடு",
-    "action.forgetPrinter": "பிரிண்டரை மறந்து விடு",
+    "action.forgetPrinter": "பிரிண்டரை நீக்கு",
     "action.connectBluetoothByAddress": "முகவரியால் புளூடூத் இணை",
     "action.setUpPrinter": "பிரிண்டரை அமை",
     "action.managePrinter": "பிரிண்டரை நிர்வகி",

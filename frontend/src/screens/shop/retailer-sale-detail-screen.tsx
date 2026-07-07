@@ -204,6 +204,41 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
           </View>
         </Card>
 
+        {hasBalance ? (
+          <Card className="gap-3">
+            <Text className="font-semibold text-ink">{t("retailers.collectPayment")}</Text>
+            <Controller
+              control={form.control}
+              name="cashAmount"
+              render={({ field }) => (
+                <TextField
+                  label={t("checkout.cashAmount")}
+                  keyboardType="decimal-pad"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                />
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="upiAmount"
+              render={({ field }) => (
+                <TextField
+                  label={t("checkout.upiAmount")}
+                  keyboardType="decimal-pad"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                />
+              )}
+            />
+            <Button
+              label={t("retailers.collectAndPrint")}
+              onPress={onCollect}
+              loading={submitting}
+            />
+          </Card>
+        ) : null}
+
         <Card className="gap-3">
           <SectionHeading title={t("retailers.saleItems")} />
           {sale.items.map((line) => {
@@ -283,41 +318,6 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
                 />
               </View>
             ))}
-          </Card>
-        ) : null}
-
-        {hasBalance ? (
-          <Card className="gap-3">
-            <Text className="font-semibold text-ink">{t("retailers.collectPayment")}</Text>
-            <Controller
-              control={form.control}
-              name="cashAmount"
-              render={({ field }) => (
-                <TextField
-                  label={t("checkout.cashAmount")}
-                  keyboardType="decimal-pad"
-                  value={field.value}
-                  onChangeText={field.onChange}
-                />
-              )}
-            />
-            <Controller
-              control={form.control}
-              name="upiAmount"
-              render={({ field }) => (
-                <TextField
-                  label={t("checkout.upiAmount")}
-                  keyboardType="decimal-pad"
-                  value={field.value}
-                  onChangeText={field.onChange}
-                />
-              )}
-            />
-            <Button
-              label={t("retailers.collectAndPrint")}
-              onPress={onCollect}
-              loading={submitting}
-            />
           </Card>
         ) : null}
       {receiptImagePrintBridge}

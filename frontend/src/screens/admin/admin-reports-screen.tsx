@@ -21,11 +21,13 @@ import {
   type AdminReportDetailLevel,
   type AdminReportSection,
 } from "@/api/admin";
+import { fetchAllRetailers } from "@/api/retailers";
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminReportsScreenProps } from "@/navigation/types";
-import { AnalyticsPeriod, type ShopRead, type UUID } from "@/types/api";
+import { AnalyticsPeriod, type RetailerRead, type ShopRead, type UUID } from "@/types/api";
 
 import { adminElevation, adminRadii, type ThemePalette, adminSpacing, adminTypography } from "./admin-dashboard-theme";
+import { createDateTimeFormat, formatDateValueInTimeZone, parseCalendarDate, todayDateValue } from "@/utils/format";
 import {
   buildDateOptions,
   buildMonthOptions,
@@ -77,22 +79,19 @@ const SECTION_ORDER: AdminReportSection[] = [
 ];
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CALENDAR_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const calendarMonthFormatter = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" });
-const calendarDateFormatter = new Intl.DateTimeFormat("en-IN", {
+const calendarMonthFormatter = createDateTimeFormat({ month: "long", year: "numeric" });
+const calendarDateFormatter = createDateTimeFormat({
   day: "numeric",
   month: "short",
   year: "numeric",
 });
 
 function toLocalDateValue(date: Date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatDateValueInTimeZone(date);
 }
 
 function todayValue() {
-  return toLocalDateValue(new Date());
+  return todayDateValue();
 }
 
 function daysBeforeToday(days: number) {
@@ -102,8 +101,7 @@ function daysBeforeToday(days: number) {
 }
 
 function parseLocalDateValue(value: string) {
-  const [yearText, monthText, dayText] = value.split("-");
-  return new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
+  return parseCalendarDate(value);
 }
 
 function addMonths(value: string, offset: number) {
@@ -139,6 +137,25 @@ function formatCalendarDateLabel(value?: string | null) {
 
 function pluralizeBranch(count: number) {
   return count === 1 ? "1 branch" : `${count} branches`;
+}
+
+function pluralizeRetailer(count: number) {
+  return count === 1 ? "1 retailer" : `${count} retailers`;
+}
+
+function formatSelectedRetailerNames(retailers: RetailerRead[], selectedIds: UUID[]) {
+  if (selectedIds.length === 0) {
+    return "Select retailers";
+  }
+  const selectedIdSet = new Set(selectedIds);
+  const selectedNames = retailers.filter((retailer) => selectedIdSet.has(retailer.id)).map((retailer) => retailer.name);
+  if (selectedNames.length === 0) {
+    return pluralizeRetailer(selectedIds.length);
+  }
+  if (selectedNames.length <= 2) {
+    return selectedNames.join(", ");
+  }
+  return `${selectedNames.slice(0, 2).join(", ")} +${selectedNames.length - 2}`;
 }
 
 function formatSelectedBranchNames(shops: ShopRead[], selectedIds: UUID[]) {
@@ -229,6 +246,50 @@ const BranchOption = memo(function BranchOption({
         </Text>
         <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
           {shop.is_active ? "Active" : "Paused"}
+        </Text>
+      </View>
+      <MaterialCommunityIcons
+        name={selected ? "check-circle" : "checkbox-blank-circle-outline"}
+        size={20}
+        color={selected ? palette.primary : palette.textMuted}
+      />
+    </Pressable>
+  );
+});
+
+const RetailerOption = memo(function RetailerOption({
+  retailer,
+  selected,
+  onToggle,
+  palette,
+}: {
+  retailer: RetailerRead;
+  selected: boolean;
+  onToggle: (id: string) => void;
+  palette: ThemePalette;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      onPress={() => onToggle(retailer.id)}
+      style={[
+        styles.branchDropdownOption,
+        {
+          backgroundColor: selected ? palette.primarySoft : palette.card,
+          borderColor: selected ? palette.primary : palette.border,
+        },
+      ]}
+    >
+      <View style={[styles.branchIcon, { backgroundColor: selected ? palette.primary : palette.surfaceMuted }]}>
+        <MaterialCommunityIcons name="store-outline" size={18} color={selected ? palette.onPrimary : palette.textMuted} />
+      </View>
+      <View style={styles.branchTextWrap}>
+        <Text numberOfLines={1} style={[styles.branchName, { color: palette.textPrimary }]}>
+          {retailer.name}
+        </Text>
+        <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
+          {retailer.is_active ? "Active" : "Paused"}
         </Text>
       </View>
       <MaterialCommunityIcons
@@ -357,6 +418,11 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const [allBranches, setAllBranches] = useState(true);
   const [selectedShopIds, setSelectedShopIds] = useState<UUID[]>([]);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const [retailers, setRetailers] = useState<RetailerRead[]>([]);
+  const [loadingRetailers, setLoadingRetailers] = useState(false);
+  const [allRetailers, setAllRetailers] = useState(true);
+  const [selectedRetailerIds, setSelectedRetailerIds] = useState<UUID[]>([]);
+  const [retailerDropdownOpen, setRetailerDropdownOpen] = useState(false);
   const [selectedSections, setSelectedSections] = useState<AdminReportSection[]>(["sales"]);
   const [language, setLanguage] = useState<"en" | "ta">("en");
   const [todayIso] = useState(todayValue);
@@ -378,7 +444,17 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const currentPeriodLabel = formatReportPeriodLabel(period, referenceDate, rangeStartDate, rangeEndDate);
   const selectedSectionSet = useMemo(() => new Set(selectedSections), [selectedSections]);
   const hasOverallReport = selectedSectionSet.has("over_report");
-  const canGenerate = selectedSections.length > 0 && (allBranches || selectedShopIds.length > 0) && !generating;
+  const hasRetailersReport = selectedSectionSet.has("retailers");
+  const selectedRetailerIdSet = useMemo(() => new Set(selectedRetailerIds), [selectedRetailerIds]);
+  const retailerSelectionLabel = allRetailers ? "All retailers" : pluralizeRetailer(selectedRetailerIds.length);
+  const retailerSelectionDetail = allRetailers
+    ? pluralizeRetailer(retailers.length)
+    : formatSelectedRetailerNames(retailers, selectedRetailerIds);
+  const canGenerate =
+    selectedSections.length > 0 &&
+    (allBranches || selectedShopIds.length > 0) &&
+    (!hasRetailersReport || allRetailers || selectedRetailerIds.length > 0) &&
+    !generating;
   const periodAccent = getPeriodAccent(period, palette);
   const referenceOptions = useMemo(() => {
     if (period === AnalyticsPeriod.DATE) return dateOptions;
@@ -402,6 +478,59 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       .finally(() => setLoadingShops(false));
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!hasRetailersReport) {
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingRetailers(true);
+    const loadRetailers = async () => {
+      try {
+        if (allBranches) {
+          const items = await fetchAllRetailers({ active: true });
+          if (!controller.signal.aborted) {
+            setRetailers(items);
+          }
+          return;
+        }
+        const byId = new Map<string, RetailerRead>();
+        for (const shopId of selectedShopIds) {
+          const items = await fetchAllRetailers({ active: true, shop_id: shopId });
+          for (const retailer of items) {
+            byId.set(retailer.id, retailer);
+          }
+        }
+        if (!controller.signal.aborted) {
+          setRetailers(
+            Array.from(byId.values()).sort((left, right) => left.name.localeCompare(right.name)),
+          );
+        }
+      } catch (error) {
+        if (!controller.signal.aborted && !isApiRequestCanceled(error)) {
+          setErrorMessage(formatApiErrorMessage(error, "Retailers could not be loaded."));
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingRetailers(false);
+        }
+      }
+    };
+    void loadRetailers();
+    return () => controller.abort();
+  }, [allBranches, hasRetailersReport, selectedShopIds]);
+
+  useEffect(() => {
+    if (!hasRetailersReport) {
+      setAllRetailers(true);
+      setSelectedRetailerIds([]);
+      setRetailerDropdownOpen(false);
+    }
+  }, [hasRetailersReport]);
+
+  useEffect(() => {
+    setSelectedRetailerIds((current) => current.filter((id) => retailers.some((retailer) => retailer.id === id)));
+  }, [retailers]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -503,6 +632,33 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     setBranchDropdownOpen((open) => !open);
   }, []);
 
+  const handleSelectAllRetailers = useCallback(() => {
+    triggerHaptic();
+    setAllRetailers(true);
+    setSelectedRetailerIds([]);
+    setRetailerDropdownOpen(false);
+  }, []);
+
+  const handleToggleRetailer = useCallback((retailerId: UUID) => {
+    triggerHaptic();
+    setAllRetailers(false);
+    setSelectedRetailerIds((current) => {
+      if (current.includes(retailerId)) {
+        const next = current.filter((value) => value !== retailerId);
+        if (next.length === 0) {
+          setAllRetailers(true);
+        }
+        return next;
+      }
+      return [...current, retailerId];
+    });
+  }, []);
+
+  const handleToggleRetailerDropdown = useCallback(() => {
+    triggerHaptic();
+    setRetailerDropdownOpen((open) => !open);
+  }, []);
+
   const handleGenerate = useCallback(async () => {
     if (!canGenerate) {
       return;
@@ -526,6 +682,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
             ? { startDate: rangeStartDate, endDate: rangeEndDate }
             : undefined,
         shopIds: allBranches ? undefined : selectedShopIds,
+        retailerIds: hasRetailersReport && !allRetailers ? selectedRetailerIds : undefined,
         language,
       });
       const sharingModule = requireOptionalNativeModule<ExpoSharingNativeModule>("ExpoSharing");
@@ -561,6 +718,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     allBranches,
     canGenerate,
     detailLevel,
+    hasRetailersReport,
     language,
     period,
     rangeEndDate,
@@ -568,6 +726,8 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     referenceDate,
     selectedSections,
     selectedShopIds,
+    allRetailers,
+    selectedRetailerIds,
   ]);
 
   const handlePreviewOverallReport = useCallback(() => {
@@ -823,39 +983,6 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         </View>
       </View>
 
-      {hasOverallReport ? (
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Language</Text>
-          <View style={[styles.segmentedControl, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-            {(["en", "ta"] as ("en" | "ta")[]).map((lang) => {
-              const selected = language === lang;
-              return (
-                <Pressable
-                  key={lang}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => {
-                    triggerHaptic();
-                    setLanguage(lang);
-                  }}
-                  style={[
-                    styles.segmentButton,
-                    {
-                      backgroundColor: selected ? palette.card : "transparent",
-                      borderColor: selected ? palette.border : "transparent",
-                    },
-                  ]}
-                >
-                  <Text style={[styles.segmentText, { color: selected ? palette.textPrimary : palette.textMuted }]}>
-                    {lang === "en" ? "English" : "Tamil"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
-
       <View style={styles.sectionBlock}>
         <View style={styles.branchHeaderRow}>
           <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Branches</Text>
@@ -953,6 +1080,139 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
           </View>
         ) : null}
       </View>
+
+      {hasOverallReport ? (
+        <View style={styles.sectionBlock}>
+          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Language</Text>
+          <View style={[styles.segmentedControl, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+            {(["en", "ta"] as ("en" | "ta")[]).map((lang) => {
+              const selected = language === lang;
+              return (
+                <Pressable
+                  key={lang}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    triggerHaptic();
+                    setLanguage(lang);
+                  }}
+                  style={[
+                    styles.segmentButton,
+                    {
+                      backgroundColor: selected ? palette.card : "transparent",
+                      borderColor: selected ? palette.border : "transparent",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.segmentText, { color: selected ? palette.textPrimary : palette.textMuted }]}>
+                    {lang === "en" ? "English" : "Tamil"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {hasRetailersReport ? (
+        <View style={styles.sectionBlock}>
+          <View style={styles.branchHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Retailers</Text>
+            <Text style={[styles.branchCount, { color: palette.textMuted }]}>{retailerSelectionLabel}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: retailerDropdownOpen }}
+            onPress={handleToggleRetailerDropdown}
+            style={[
+              styles.branchSelectButton,
+              {
+                backgroundColor: palette.card,
+                borderColor: retailerDropdownOpen ? palette.primary : palette.border,
+              },
+            ]}
+          >
+            <View style={[styles.branchIcon, { backgroundColor: allRetailers ? palette.settingsSoft : palette.primarySoft }]}>
+              <MaterialCommunityIcons name="store-outline" size={18} color={allRetailers ? palette.settings : palette.primary} />
+            </View>
+            <View style={styles.branchTextWrap}>
+              <Text style={[styles.branchName, { color: palette.textPrimary }]}>{retailerSelectionLabel}</Text>
+              <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
+                {retailerSelectionDetail}
+              </Text>
+            </View>
+            <MaterialCommunityIcons
+              name={retailerDropdownOpen ? "chevron-up" : "chevron-down"}
+              size={22}
+              color={palette.textMuted}
+            />
+          </Pressable>
+          {retailerDropdownOpen ? (
+            <View style={[styles.branchDropdown, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: allRetailers }}
+                onPress={handleSelectAllRetailers}
+                style={[
+                  styles.branchDropdownOption,
+                  {
+                    backgroundColor: allRetailers ? palette.settingsSoft : palette.card,
+                    borderColor: allRetailers ? palette.settings : palette.border,
+                  },
+                ]}
+              >
+                <View style={[styles.branchIcon, { backgroundColor: allRetailers ? palette.settings : palette.surfaceMuted }]}>
+                  <MaterialCommunityIcons
+                    name="store-outline"
+                    size={18}
+                    color={allRetailers ? palette.background : palette.textMuted}
+                  />
+                </View>
+                <View style={styles.branchTextWrap}>
+                  <Text style={[styles.branchName, { color: palette.textPrimary }]}>All retailers</Text>
+                  <Text style={[styles.branchMeta, { color: palette.textMuted }]}>{pluralizeRetailer(retailers.length)}</Text>
+                </View>
+                <MaterialCommunityIcons
+                  name={allRetailers ? "check-circle" : "checkbox-blank-circle-outline"}
+                  size={20}
+                  color={allRetailers ? palette.settings : palette.textMuted}
+                />
+              </Pressable>
+              {loadingRetailers ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator size="small" color={palette.primary} />
+                </View>
+              ) : (
+                <ScrollView
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={retailers.length > 4}
+                  style={styles.branchDropdownScroll}
+                  contentContainerStyle={styles.branchDropdownContent}
+                >
+                  {retailers.map((retailer) => (
+                    <RetailerOption
+                      key={retailer.id}
+                      retailer={retailer}
+                      selected={!allRetailers && selectedRetailerIdSet.has(retailer.id)}
+                      onToggle={handleToggleRetailer}
+                      palette={palette}
+                    />
+                  ))}
+                </ScrollView>
+              )}
+              {!allRetailers ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setRetailerDropdownOpen(false)}
+                  style={[styles.branchDoneButton, { backgroundColor: palette.primary, borderColor: palette.primary }]}
+                >
+                  <Text style={[styles.branchDoneText, { color: palette.onPrimary }]}>Done</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
     </View>
   );

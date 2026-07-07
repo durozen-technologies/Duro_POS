@@ -177,6 +177,42 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
     [addItem, quantities, t],
   );
 
+  const renderCartFooter = useCallback(
+    () =>
+      cartItems.length === 0 ? null : (
+        <View className="pb-4 pt-2">
+          <SectionHeading title={t("billing.reviewBeforeCheckout")} />
+          {cartItems.map((line) => {
+            const lineTotal = money(line.price_per_unit).mul(money(line.quantity)).toFixed(2);
+            const displayName = getLocalizedItemName(
+              language,
+              line.item_name,
+              line.item_tamil_name,
+            );
+            return (
+              <Card key={line.item_id} className="mb-2 flex-row items-center justify-between gap-3 p-3">
+                <View className="min-w-0 flex-1">
+                  <Text className="font-semibold text-ink" numberOfLines={2}>
+                    {displayName}
+                  </Text>
+                  <Text className="text-sm text-muted">
+                    {line.quantity} {formatUnit(line.base_unit)} × {formatCurrency(line.price_per_unit)}
+                  </Text>
+                </View>
+                <View className="items-end gap-1">
+                  <Text className="font-semibold text-ink">{formatCurrency(lineTotal)}</Text>
+                  <Pressable onPress={() => removeItem(line.item_id)} hitSlop={8}>
+                    <Text className="text-sm font-semibold text-danger">{t("action.remove")}</Text>
+                  </Pressable>
+                </View>
+              </Card>
+            );
+          })}
+        </View>
+      ),
+    [cartItems, language, removeItem, t],
+  );
+
   if (loading) return <LoadingState label={t("retailers.loadingCatalog")} />;
 
   return (
@@ -188,39 +224,7 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
           keyExtractor={(item) => item.item_id}
           contentContainerStyle={{ paddingBottom: cartItems.length > 0 ? 220 : 120 }}
           ListEmptyComponent={<Text className="text-muted">{t("retailers.noItemsMapped")}</Text>}
-          ListHeaderComponent={
-          cartItems.length > 0 ? (
-            <View className="mb-4">
-              <SectionHeading title={t("billing.reviewBeforeCheckout")} />
-              {cartItems.map((line) => {
-                const lineTotal = money(line.price_per_unit).mul(money(line.quantity)).toFixed(2);
-                const displayName = getLocalizedItemName(
-                  language,
-                  line.item_name,
-                  line.item_tamil_name,
-                );
-                return (
-                  <Card key={line.item_id} className="mb-2 flex-row items-center justify-between gap-3 p-3">
-                    <View className="min-w-0 flex-1">
-                      <Text className="font-semibold text-ink" numberOfLines={2}>
-                        {displayName}
-                      </Text>
-                      <Text className="text-sm text-muted">
-                        {line.quantity} {formatUnit(line.base_unit)} × {formatCurrency(line.price_per_unit)}
-                      </Text>
-                    </View>
-                    <View className="items-end gap-1">
-                      <Text className="font-semibold text-ink">{formatCurrency(lineTotal)}</Text>
-                      <Pressable onPress={() => removeItem(line.item_id)} hitSlop={8}>
-                        <Text className="text-sm font-semibold text-danger">{t("action.remove")}</Text>
-                      </Pressable>
-                    </View>
-                  </Card>
-                );
-              })}
-            </View>
-          ) : null
-          }
+          ListFooterComponent={renderCartFooter}
           renderItem={({ item }) => (
             <CatalogCard
               item={item}

@@ -1,7 +1,8 @@
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from app.core.timezone import ist_day_bounds, ist_midnight
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -267,16 +268,18 @@ async def list_inventory_transfers(
         query = query.where(InventoryTransfer.inventory_item_id == inventory_item_id)
 
     if reference_date is not None:
-        start_dt = datetime.combine(reference_date, time.min, tzinfo=UTC)
-        end_dt = datetime.combine(reference_date, time.max, tzinfo=UTC)
-        query = query.where(InventoryTransfer.occurred_at.between(start_dt, end_dt))
+        start_dt, end_dt = ist_day_bounds(reference_date)
+        query = query.where(
+            InventoryTransfer.occurred_at >= start_dt,
+            InventoryTransfer.occurred_at < end_dt,
+        )
     else:
         if range_start_date is not None:
-            start_dt = datetime.combine(range_start_date, time.min, tzinfo=UTC)
-            query = query.where(InventoryTransfer.occurred_at >= start_dt)
+            query = query.where(InventoryTransfer.occurred_at >= ist_midnight(range_start_date))
         if range_end_date is not None:
-            end_dt = datetime.combine(range_end_date, time.max, tzinfo=UTC)
-            query = query.where(InventoryTransfer.occurred_at <= end_dt)
+            query = query.where(
+                InventoryTransfer.occurred_at < ist_midnight(range_end_date + timedelta(days=1))
+            )
 
     query = query.order_by(desc(InventoryTransfer.occurred_at), desc(InventoryTransfer.id))
     query = query.limit(limit + 1).offset(offset)

@@ -26,6 +26,7 @@ import {
   type UUID,
 } from "@/types/api";
 import { isPositiveNumber, toMoneyString } from "@/utils/decimal";
+import { createDateTimeFormat, parseCalendarDate } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
 import { adminElevation, adminRadii, adminSpacing, type ThemePalette } from "../admin-dashboard-theme";
@@ -53,12 +54,12 @@ export type CategoryFilterOption = {
 export type AssumptionDraft = ItemAssumptionUpdate;
 
 const PRICE_HISTORY_WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-const priceHistoryDateFormatter = new Intl.DateTimeFormat("en-IN", {
+const priceHistoryDateFormatter = createDateTimeFormat({
   day: "2-digit",
   month: "short",
   year: "numeric",
 });
-const priceHistoryMonthFormatter = new Intl.DateTimeFormat("en-IN", {
+const priceHistoryMonthFormatter = createDateTimeFormat({
   month: "long",
   year: "numeric",
 });

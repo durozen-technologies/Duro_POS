@@ -22,6 +22,7 @@ import {
   type TenantAdminRead,
 } from "@/api/super-admin";
 import type { AppStackParamList } from "@/navigation/types";
+import { formatDateTime } from "@/utils/format";
 
 import { TenantAdminManageSheet } from "./tenant-admin-manage-sheet";
 import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";
@@ -40,12 +41,7 @@ function formatLastLogin(value?: string | null) {
   if (!value) return "Never logged in";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatDateTime(value);
 }
 
 // ── Design primitives ────────────────────────────────────────────────────────

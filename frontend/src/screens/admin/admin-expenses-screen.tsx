@@ -61,7 +61,7 @@ import {
   type ExpenseHistoryFilterDraft,
   type ExpenseHistoryRange,
 } from "@/utils/expense-history-filters";
-import { formatCurrency, formatDateTime } from "@/utils/format";
+import { createDateTimeFormat, formatCurrency, formatDateTime } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
 import { adminElevation, adminRadii, type ThemePalette } from "./admin-dashboard-theme";
@@ -96,8 +96,8 @@ const CANDIDATE_LIMIT = 20;
 const MAX_EXPENSE_ITEM_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024;
 const EXPENSE_ITEM_IMAGE_UPLOAD_DRAFT_DIR = "expense-item-image-uploads";
 const EXPENSE_CALENDAR_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const expenseCalendarMonthFormatter = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" });
-const expenseCalendarDateFormatter = new Intl.DateTimeFormat("en-IN", {
+const expenseCalendarMonthFormatter = createDateTimeFormat({ month: "long", year: "numeric" });
+const expenseCalendarDateFormatter = createDateTimeFormat({
   day: "numeric",
   month: "short",
   year: "numeric",

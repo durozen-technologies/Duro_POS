@@ -1,3 +1,5 @@
+import { addCalendarDays, formatDateValueInTimeZone, parseCalendarDate, todayDateValue } from "@/utils/format";
+
 export type ExpenseHistoryInterval = "today" | "date" | "range" | "week" | "month" | "year" | "all";
 
 export type ExpenseHistoryFilterDraft = {
@@ -37,19 +39,20 @@ function pad2(value: number) {
 }
 
 export function toDateInputValue(value: Date) {
-  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+  return formatDateValueInTimeZone(value);
 }
 
 export function createExpenseHistoryFilterDraft(now = new Date()): ExpenseHistoryFilterDraft {
-  const today = toDateInputValue(now);
+  const today = formatDateValueInTimeZone(now);
+  const [yearText, monthText] = today.split("-");
   return {
     interval: "today",
     date: today,
     startDate: today,
     endDate: today,
     weekDate: today,
-    month: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`,
-    year: String(now.getFullYear()),
+    month: `${yearText}-${monthText}`,
+    year: yearText,
   };
 }
 
@@ -58,14 +61,7 @@ function parseDateInput(value: string) {
   if (!match) {
     return null;
   }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    return null;
-  }
-  return date;
+  return value.trim();
 }
 
 function parseMonthInput(value: string) {
@@ -89,22 +85,23 @@ function parseYearInput(value: string) {
   return Number(match[1]);
 }
 
-function addDays(value: Date, days: number) {
-  const nextDate = new Date(value);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
+function istWeekdayMondayZero(dateValue: string): number {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    weekday: "short",
+  }).format(parseCalendarDate(dateValue));
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return (days.indexOf(weekday) + 6) % 7;
 }
 
-function startOfWeek(value: Date) {
-  const day = value.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  return addDays(value, mondayOffset);
+function startOfWeek(value: string) {
+  return addCalendarDays(value, -istWeekdayMondayZero(value));
 }
 
-function dateRange(start: Date, end: Date, label: string): ExpenseHistoryRange {
+function dateRange(start: string, end: string, label: string): ExpenseHistoryRange {
   return {
-    rangeStartDate: toDateInputValue(start),
-    rangeEndDate: toDateInputValue(end),
+    rangeStartDate: start,
+    rangeEndDate: end,
     label,
     isValid: true,
   };
@@ -126,7 +123,7 @@ export function buildExpenseHistoryRange(filter: ExpenseHistoryFilterDraft): Exp
   }
 
   if (filter.interval === "today") {
-    const today = toDateInputValue(new Date());
+    const today = todayDateValue();
     return { rangeStartDate: today, rangeEndDate: today, label: "Today", isValid: true };
   }
 
@@ -156,8 +153,8 @@ export function buildExpenseHistoryRange(filter: ExpenseHistoryFilterDraft): Exp
       return invalidRange("Week", "Use YYYY-MM-DD.");
     }
     const start = startOfWeek(referenceDate);
-    const end = addDays(start, 6);
-    return dateRange(start, end, `Week of ${toDateInputValue(start)}`);
+    const end = addCalendarDays(start, 6);
+    return dateRange(start, end, `Week of ${start}`);
   }
 
   if (filter.interval === "month") {
@@ -165,8 +162,8 @@ export function buildExpenseHistoryRange(filter: ExpenseHistoryFilterDraft): Exp
     if (!month) {
       return invalidRange("Month", "Use YYYY-MM.");
     }
-    const start = new Date(month.year, month.month - 1, 1);
-    const end = new Date(month.year, month.month, 0);
+    const start = `${month.year}-${pad2(month.month)}-01`;
+    const end = formatDateValueInTimeZone(new Date(Date.UTC(month.year, month.month, 0)));
     return dateRange(start, end, filter.month.trim());
   }
 
@@ -174,5 +171,5 @@ export function buildExpenseHistoryRange(filter: ExpenseHistoryFilterDraft): Exp
   if (!year) {
     return invalidRange("Year", "Use YYYY.");
   }
-  return dateRange(new Date(year, 0, 1), new Date(year, 11, 31), String(year));
+  return dateRange(`${year}-01-01`, `${year}-12-31`, String(year));
 }

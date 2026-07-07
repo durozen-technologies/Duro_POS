@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from uuid import UUID
+
+from app.core.timezone import today_ist
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
@@ -142,7 +144,7 @@ async def get_billing_overview(
         )
 
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
-    today_start, today_end = _get_period_bounds("date", datetime.now(UTC).date())
+    today_start, today_end = _get_period_bounds("date", today_ist())
 
     org_query = select(Organization).order_by(Organization.name.asc(), Organization.id.asc())
     if organization_id is not None:
@@ -193,7 +195,7 @@ async def get_billing_overview(
     )
     return SuperAdminBillingOverviewRead(
         period=period,
-        reference_date=None if period == "range" else (reference_date or datetime.now(UTC).date()),
+        reference_date=None if period == "range" else (reference_date or today_ist()),
         range_start_date=range_start_date if period == "range" else None,
         range_end_date=range_end_date if period == "range" else None,
         summary=summary,

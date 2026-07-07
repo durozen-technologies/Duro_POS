@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.ids import uuid7
+from app.core.timezone import ist_midnight
 from app.models import (
     BaseUnit,
     RetailerInventoryUsage,
@@ -93,19 +94,19 @@ async def list_retailer_inventory_usages(
         if range_start_date is not None:
             query = query.where(
                 RetailerInventoryUsage.occurred_at
-                >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
+                >= ist_midnight(range_start_date)
             )
         if range_end_date is not None:
             query = query.where(
                 RetailerInventoryUsage.occurred_at
-                < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
+                < ist_midnight(range_end_date + timedelta(days=1))
             )
     elif reference_date is not None:
         query = query.where(
             RetailerInventoryUsage.occurred_at
-            >= datetime.combine(reference_date, time.min, tzinfo=UTC),
+            >= ist_midnight(reference_date),
             RetailerInventoryUsage.occurred_at
-            < datetime.combine(reference_date + timedelta(days=1), time.min, tzinfo=UTC),
+            < ist_midnight(reference_date + timedelta(days=1)),
         )
     rows = (
         await db.scalars(

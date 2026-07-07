@@ -173,8 +173,8 @@ function StatusDot({ tone }: { tone: "success" | "warning" | "neutral" | "connec
   const color =
     tone === "success" ? C.success
       : tone === "warning" ? C.warning
-      : tone === "connecting" ? C.accent
-      : C.mutedLight;
+        : tone === "connecting" ? C.accent
+          : C.mutedLight;
   return <Stack width={8} height={8} borderRadius={99} style={{ backgroundColor: color }} />;
 }
 

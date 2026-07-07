@@ -31,6 +31,29 @@ export async function fetchRetailers(params?: {
   return data;
 }
 
+export async function fetchAllRetailers(params?: {
+  q?: string;
+  active?: boolean;
+  shop_id?: UUID;
+}) {
+  const pageSize = 100;
+  let page = 1;
+  let items: RetailerRead[] = [];
+  let total = 0;
+
+  do {
+    const response = await fetchRetailers({ ...params, page, page_size: pageSize });
+    if (response.items.length === 0) {
+      break;
+    }
+    items = items.concat(response.items);
+    total = response.total;
+    page += 1;
+  } while (items.length < total);
+
+  return items;
+}
+
 export async function createRetailer(payload: RetailerCreate) {
   const { data } = await apiClient.post<RetailerRead>("/api/v1/admin/retailers", payload);
   return data;

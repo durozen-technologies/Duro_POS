@@ -32,6 +32,7 @@ import type {
   ShopRead,
   UUID,
 } from "@/types/api";
+import { createDateTimeFormat } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
@@ -71,9 +72,14 @@ function savedPriceFromItem(item: RetailerItemAllocationRead): string {
   return item.price_per_unit ? normalizePrice(String(item.price_per_unit)) : "";
 }
 
+const retailerPriceDateFormatter = createDateTimeFormat({
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
 function formatHistoryDate(dateString: string): string {
-  const d = new Date(dateString);
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short" }).format(d);
+  return retailerPriceDateFormatter.format(new Date(dateString));
 }
 
 const PriceItemRow = memo(function PriceItemRow({ 
@@ -177,15 +183,7 @@ const PriceItemRow = memo(function PriceItemRow({
                 onSubmitEditing={() => saveRow(draft)}
                 returnKeyType="done"
                 keyboardType="decimal-pad"
-                placeholder={
-                  isHistoricalDate
-                    ? "-"
-                    : item.price_history?.[0]?.price_per_unit
-                      ? normalizePrice(item.price_history[0].price_per_unit)
-                      : draft.billing_price && Number(draft.billing_price) > 0
-                        ? String(draft.billing_price)
-                        : "0.00"
-                }
+                placeholder={isHistoricalDate ? "-" : "0"}
                 placeholderTextColor={palette.textMuted}
                 editable={!isHistoricalDate}
                 style={[
@@ -823,7 +821,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <MaterialCommunityIcons name="calendar-month" size={20} color={palette.textPrimary} />
                   <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]}>
-                    {selectedDate ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(selectedDate)) : "Today"}
+                    {selectedDate ? retailerPriceDateFormatter.format(new Date(selectedDate)) : "Today"}
                   </Text>
                 </View>
                 <MaterialCommunityIcons name="chevron-down" size={20} color={palette.textMuted} />

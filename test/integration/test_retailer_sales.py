@@ -21,6 +21,7 @@ from app.schemas.retailers import (
 )
 from app.services.admin.catalogue import allocate_catalogue_item
 from app.services.reports import generate_admin_report_pdf
+from app.services.retailer_sale_number import format_retailer_sale_bill_no
 from app.services.retailer_sales import (
     create_retailer_sale,
     get_retailer_sale,
@@ -435,9 +436,82 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                         "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages).split()
                     )
                     self.assertIn("Retailer Sales Report", text)
-                    self.assertIn(sale.sale_no, text)
+                    self.assertIn(format_retailer_sale_bill_no(sale.sale_no), text)
                     self.assertIn("Wholesale Co", text)
                 finally:
                     report.file.close()
+
+        self.run_async(scenario())
+
+    def test_report_section_filters_by_retailer_ids(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                other_retailer = await create_retailer(db, RetailerCreate(name="Other Retailer"))
+                await sync_retailer_branch_allocations(db, other_retailer.id, [current_shop.id])
+                payload = RetailerSaleCheckoutRequest(
+                    retailer_id=retailer.id,
+                    items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    payment=CheckoutPaymentInput(
+                        cash_amount=Decimal("60.00"),
+                        upi_amount=Decimal("40.00"),
+                    ),
+                )
+                preview = await preview_retailer_sale(db, current_shop, shop_user, payload)
+                sale = await create_retailer_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    RetailerSaleCheckoutCommitRequest(
+                        retailer_id=payload.retailer_id,
+                        items=payload.items,
+                        payment=payload.payment,
+                        checkout_token=preview.checkout_token,
+                    ),
+                )
+                today = datetime.now(UTC).date()
+                report_params = {
+                    "sections": ["retailers"],
+                    "period": "range",
+                    "range_start_date": today - timedelta(days=1),
+                    "range_end_date": today + timedelta(days=1),
+                    "shop_ids": [current_shop.id],
+                    "organization_id": current_shop.organization_id,
+                }
+
+                def pdf_text(pdf_report) -> str:
+                    from pypdf import PdfReader
+
+                    data = pdf_report.file.read()
+                    return " ".join(
+                        "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages).split()
+                    )
+
+                matched_report = await generate_admin_report_pdf(
+                    db,
+                    retailer_ids=[retailer.id],
+                    **report_params,
+                )
+                other_report = await generate_admin_report_pdf(
+                    db,
+                    retailer_ids=[other_retailer.id],
+                    **report_params,
+                )
+                try:
+                    matched_text = pdf_text(matched_report)
+                    other_text = pdf_text(other_report)
+                    bill_no = format_retailer_sale_bill_no(sale.sale_no)
+                    self.assertIn(bill_no, matched_text)
+                    self.assertIn("Wholesale Co", matched_text)
+                    self.assertNotIn(bill_no, other_text)
+                    self.assertNotIn("Wholesale Co", other_text)
+                finally:
+                    matched_report.file.close()
+                    other_report.file.close()
 
         self.run_async(scenario())

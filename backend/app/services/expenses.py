@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ExpenseEntry, ExpenseItem, Shop, ShopExpenseAllocation
+from app.core.timezone import ist_midnight
 from app.schemas.expenses import (
     ExpenseEntryCreate,
     ExpenseEntryPage,
@@ -864,12 +865,12 @@ def _date_range_filters(
     filters = []
     if range_start_date is not None:
         filters.append(
-            ExpenseEntry.spent_at >= datetime.combine(range_start_date, time.min, tzinfo=UTC)
+            ExpenseEntry.spent_at >= ist_midnight(range_start_date)
         )
     if range_end_date is not None:
         filters.append(
             ExpenseEntry.spent_at
-            < datetime.combine(range_end_date + timedelta(days=1), time.min, tzinfo=UTC)
+            < ist_midnight(range_end_date + timedelta(days=1))
         )
     return filters
 

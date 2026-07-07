@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from math import ceil
 from uuid import UUID
@@ -7,6 +7,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from app.core.timezone import ist_midnight, ist_range_bounds
 
 from app.models import Bill, Payment, Receipt, Shop, User
 from app.models.enums import ReceiptStatus
@@ -29,14 +31,12 @@ def _payment_method_label(cash_amount: Decimal, upi_amount: Decimal) -> str:
 
 
 def _day_bounds(start: date, end: date) -> tuple[datetime, datetime]:
-    start_dt = datetime.combine(start, time.min, tzinfo=UTC)
-    end_dt = datetime.combine(end, time.max, tzinfo=UTC)
     if end < start:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="range_end_date must be on or after range_start_date",
         )
-    return start_dt, end_dt
+    return ist_range_bounds(start, end)
 
 
 async def list_shop_bills(
@@ -74,11 +74,11 @@ async def list_shop_bills(
     if range_start_date and range_end_date:
         start_dt, end_dt = _day_bounds(range_start_date, range_end_date)
         filters.append(Bill.created_at >= start_dt)
-        filters.append(Bill.created_at <= end_dt)
+        filters.append(Bill.created_at < end_dt)
     elif range_start_date:
-        filters.append(Bill.created_at >= datetime.combine(range_start_date, time.min, tzinfo=UTC))
+        filters.append(Bill.created_at >= ist_midnight(range_start_date))
     elif range_end_date:
-        filters.append(Bill.created_at <= datetime.combine(range_end_date, time.max, tzinfo=UTC))
+        filters.append(Bill.created_at < ist_midnight(range_end_date + timedelta(days=1)))
     if amount_min is not None:
         filters.append(Bill.total_amount >= amount_min)
     if amount_max is not None:
