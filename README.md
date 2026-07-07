@@ -246,15 +246,17 @@ Database migrations run **once** via the `migrate` compose service (`scripts/dep
 | `backend-1`, `backend-2` | `brolier360-pos-backend:latest` | — | `:8000` |
 | `caddy` | `brolier360-pos-caddy:latest` | `80`, `443` | — |
 
-External Postgres (restrict **5432** in the EC2 security group):
+External Postgres (restrict **5432** in the EC2 security group; use EC2 public IP or hostname — not the DuckDNS API domain unless it resolves to the same VM):
 
 ```text
-Host:     <CADDY_PUBLIC_HOST or EC2 public IP>
+Host:     <EC2 public IP or EC2 public DNS>
 Port:     5432
 Database: brolier_360
 User:     postgres
 Password: <POSTGRES_PASSWORD>
 ```
+
+Public HTTPS API (mobile app, curl): `https://<CADDY_PUBLIC_HOST>` only — see [API URLs](#api-urls).
 
 ### One-time VM setup
 
