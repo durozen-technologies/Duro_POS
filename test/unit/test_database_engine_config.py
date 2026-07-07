@@ -15,12 +15,14 @@ class DatabaseEngineConfigTests(unittest.TestCase):
     def test_pgbouncer_uses_nullpool_and_disables_prepared_statements(self) -> None:
         url, connect_args, engine_kwargs = _build_engine_config(
             "postgresql+asyncpg://postgres:secret@pgbouncer:6432/brolier_360"
-            "?prepared_statement_cache_size=0"
+            "?prepared_statement_cache_size=0&statement_cache_size=0"
         )
 
         self.assertEqual(url.host, "pgbouncer")
         self.assertNotIn("prepared_statement_cache_size", url.query)
+        self.assertNotIn("statement_cache_size", url.query)
         self.assertEqual(connect_args["prepared_statement_cache_size"], 0)
+        self.assertEqual(connect_args["statement_cache_size"], 0)
         self.assertIs(engine_kwargs["poolclass"], NullPool)
 
     def test_direct_postgres_keeps_sqlalchemy_pool(self) -> None:

@@ -14,6 +14,7 @@ from sqlalchemy.pool import NullPool
 from ..core.config import get_settings
 from .postgres_url import (
     async_postgres_url_object,
+    asyncpg_connect_args_for_url,
     strip_async_only_query_params,
     uses_pgbouncer,
 )
@@ -53,12 +54,10 @@ def _build_engine_config(
             )
 
     if uses_pgbouncer(url):
-        connect_args["prepared_statement_cache_size"] = 0
+        connect_args.update(asyncpg_connect_args_for_url(url))
         engine_kwargs["poolclass"] = NullPool
     else:
-        prepared_cache = url.query.get("prepared_statement_cache_size")
-        if prepared_cache in (None, "", "0", 0):
-            connect_args["prepared_statement_cache_size"] = 0
+        connect_args.update(asyncpg_connect_args_for_url(url))
 
     url = strip_async_only_query_params(url)
 

@@ -6,7 +6,7 @@ from sqlalchemy.engine import URL, make_url
 
 _ASYNC_DRIVER = "postgresql+asyncpg"
 _SYNC_DRIVER = "postgresql+psycopg"
-_ASYNC_ONLY_QUERY_KEYS = frozenset({"prepared_statement_cache_size"})
+_ASYNC_ONLY_QUERY_KEYS = frozenset({"prepared_statement_cache_size", "statement_cache_size"})
 _POSTGRES_DRIVERS = frozenset(
     {"postgres", "postgresql", _ASYNC_DRIVER, _SYNC_DRIVER, "postgresql+psycopg2"}
 )
@@ -46,6 +46,20 @@ def async_postgres_url_object(url: str) -> URL:
 def uses_pgbouncer(url: URL) -> bool:
     host = (url.host or "").lower()
     return host == "pgbouncer" or host.endswith(".pgbouncer")
+
+
+def asyncpg_connect_args_for_url(url: URL) -> dict[str, object]:
+    """asyncpg needs both cache sizes at 0 behind PgBouncer transaction pooling."""
+    if uses_pgbouncer(url):
+        return {
+            "prepared_statement_cache_size": 0,
+            "statement_cache_size": 0,
+        }
+
+    prepared_cache = url.query.get("prepared_statement_cache_size")
+    if prepared_cache in (None, "", "0", 0):
+        return {"prepared_statement_cache_size": 0}
+    return {}
 
 
 def strip_async_only_query_params(url: URL) -> URL:

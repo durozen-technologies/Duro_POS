@@ -35,7 +35,7 @@ class PostgresUrlTests(unittest.TestCase):
         self.assertEqual(
             sync_postgres_database_url(
                 "postgresql+asyncpg://postgres:root@pgbouncer:6432/brolier_360"
-                "?prepared_statement_cache_size=0"
+                "?prepared_statement_cache_size=0&statement_cache_size=0"
             ),
             "postgresql+psycopg://postgres:root@pgbouncer:6432/brolier_360",
         )
