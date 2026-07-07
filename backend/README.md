@@ -139,11 +139,25 @@ One-off migration:
 uv run python migrate.py
 ```
 
-Bootstrap first super admin (production; run once after migrations):
+Bootstrap first super admin (run once after migrations):
+
+Local:
 
 ```bash
 cd backend
 uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
+```
+
+Production VM (use `migrate` — connects to `postgres:5432`, not pgBouncer):
+
+```bash
+cd ~/brolier360-pos   # DEPLOY_PATH
+
+docker compose -f docker-compose.prod.yml --env-file .env --profile infra \
+  run --rm migrate \
+  python -m app.cli bootstrap-super-admin \
+  --username <admin> \
+  --password <password>
 ```
 
 Idempotent: fails if a super admin already exists. In production, `POST /api/v1/auth/register` is disabled; use this CLI or the super-admin API to provision tenant admins.

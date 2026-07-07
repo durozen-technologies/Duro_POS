@@ -261,17 +261,25 @@ Password: <POSTGRES_PASSWORD>
 1. Create deploy directory (e.g. `/home/ubuntu/brolier360-pos`).
 2. Configure [GitHub Secrets](#github-secrets) — CI writes `.env` on each deploy.
 3. Push to `prod` or run **Deploy Production** manually.
-4. Bootstrap super admin (once):
+4. Bootstrap super admin (once, after deploy + migrations):
+
+   On the VM, use the **`migrate` service** so `DATABASE_URL` hits Postgres directly (not pgBouncer — avoids asyncpg prepared-statement errors):
 
    ```bash
-   cd backend && uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
+   cd ~/brolier360-pos   # or your DEPLOY_PATH
+
+   docker compose -f docker-compose.prod.yml --env-file .env --profile infra \
+     run --rm migrate \
+     python -m app.cli bootstrap-super-admin \
+     --username <admin> \
+     --password <password>
    ```
 
-   On the VM, run inside a backend container:
+   Local dev (from repo):
 
    ```bash
-   docker compose -f docker-compose.prod.yml --env-file .env --profile infra \
-     exec backend-1 python -m app.cli bootstrap-super-admin --username <admin> --password <password>
+   cd backend
+   uv run python -m app.cli bootstrap-super-admin --username <admin> --password <password>
    ```
 
 5. Open security group: **80**, **443**; **5432** only if needed (prefer IP allowlist).
@@ -281,9 +289,8 @@ Password: <POSTGRES_PASSWORD>
 | Secret | Purpose |
 |--------|---------|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | Image push and VM pull |
-| `DEPLOY_HOST`, `DEPLOY_SSH_PORT`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH` | SSH deploy target (`DEPLOY_HOST` = IP/hostname only; `DEPLOY_SSH_PORT` = SSH port, e.g. `22`) |
-| `CADDY_PUBLIC_HOST` | Primary API hostname — HTTPS via Let's Encrypt (e.g. `api-broiler360.duckdns.org`) |
-| `CADDY_EXTRA_HOSTS` | Optional comma-separated extra hosts (e.g. EC2 DNS); `*.amazonaws.com` served over **HTTP only** |
+| `DEPLOY_HOST`, `DEPLOY_SSH_PORT`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH` | **SSH only** — CI deploy target (`DEPLOY_HOST` = EC2 IP/hostname; not the public API URL) |
+| `CADDY_PUBLIC_HOST` | **Public API + HTTPS** via Let's Encrypt (e.g. `api-broiler360.duckdns.org`) |
 | `CADDY_ACME_EMAIL` | Let's Encrypt contact |
 | `POSTGRES_PASSWORD` | DB password (must match existing data dir) |
 | `POSTGRES_DB`, `POSTGRES_USER` | Optional (`brolier_360` / `postgres`) |
@@ -291,7 +298,7 @@ Password: <POSTGRES_PASSWORD>
 | `BACKEND_SECRET_KEY` | JWT secret (32+ chars) |
 | `BACKEND_RUSTFS_BUCKET_NAME` | Optional bucket override |
 
-CI generates `BACKEND_ALLOWED_HOSTS` from `CADDY_PUBLIC_HOST`, optional `CADDY_EXTRA_HOSTS`, and `DEPLOY_HOST` when it is a hostname.
+CI generates `BACKEND_ALLOWED_HOSTS` from `CADDY_PUBLIC_HOST` plus internal Docker hostnames (`backend-1`, `backend-2`). `DEPLOY_HOST` is never exposed on Caddy.
 
 ### Updating production
 
@@ -434,8 +441,9 @@ cd frontend && npx tsc --noEmit
 | `database: disconnected` | Postgres down or wrong password | `~/pos-logs postgres`; verify `POSTGRES_PASSWORD` |
 | Login 409 “Organization required” | Username exists in multiple orgs | Pass `organization_slug` on login |
 | Tenant 500 “schema not configured” | Org missing `schema_name` | Run data migration or create org via super-admin |
+| `DuplicatePreparedStatementError` on bootstrap | CLI used `backend-1` via pgBouncer | Use `compose run --rm migrate python -m app.cli bootstrap-super-admin ...` |
 | Cannot reach Postgres from PC | Security group | Allow TCP 5432 for your IP only |
-| Caddy / TLS errors | Bad hostname, ACME, or DuckDNS IP drift | `~/pos-logs caddy`; set `CADDY_PUBLIC_HOST` to your DuckDNS/domain; **DuckDNS IP must match EC2 public IP**; use `http://ec2-....amazonaws.com/health` for EC2 hostname (no HTTPS on `*.amazonaws.com`) |
+| Caddy / TLS errors | Bad hostname, ACME, or DuckDNS IP drift | `~/pos-logs caddy`; set `CADDY_PUBLIC_HOST` to your DuckDNS/domain; **DuckDNS IP must match EC2 public IP**; use `https://<CADDY_PUBLIC_HOST>/health` only |
 | Postgres WAL corruption | Unclean shutdown | `scripts/postgres-recover.sh` after stopping postgres |
 
 ---

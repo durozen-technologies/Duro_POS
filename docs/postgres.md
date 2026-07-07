@@ -100,6 +100,7 @@ PostgreSQL production uses **platform `public`** plus one schema per organizatio
 | Task | Command |
 |------|---------|
 | Platform + tenants migrate | `uv run python migrate.py` |
+| Bootstrap super admin (prod VM) | `docker compose ... run --rm migrate python -m app.cli bootstrap-super-admin ...` — see [`README.md`](../README.md#one-time-vm-setup) |
 | Tenants only | `uv run python migrate.py --tenants-only` |
 | Single tenant schema | `uv run python migrate.py --tenants-only --schema tenant_foo` |
 | Baseline table check | `uv run python scripts/check_tenant_baseline.py` |
