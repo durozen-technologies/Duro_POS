@@ -319,6 +319,7 @@ jobs:
         env:
           RAW_HOST: ${{ secrets.DEPLOY_HOST }}
           RAW_PATH: ${{ secrets.DEPLOY_PATH }}
+          RAW_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
         run: |
           set -euo pipefail
           missing=()
@@ -327,6 +328,7 @@ jobs:
           if [ -z "${{ secrets.DEPLOY_USER }}" ] || [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
             missing+=("DEPLOY_USER/DEPLOY_SSH_KEY")
           fi
+          if [ -z "${RAW_SSH_PORT:-}" ]; then missing+=("DEPLOY_SSH_PORT"); fi
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "Missing deploy secrets: ${missing[*]}" >&2
             exit 1
@@ -336,20 +338,20 @@ jobs:
           DEPLOY_HOST="${DEPLOY_HOST#http://}"
           DEPLOY_HOST="${DEPLOY_HOST%%/*}"
           DEPLOY_HOST="${DEPLOY_HOST%/}"
-
-          DEPLOY_SSH_PORT=22
-          if [[ "$DEPLOY_HOST" == *:* ]]; then
-            DEPLOY_SSH_PORT="${DEPLOY_HOST##*:}"
+          # host:port in DEPLOY_HOST ignored — port comes from DEPLOY_SSH_PORT secret
+          if [[ "$DEPLOY_HOST" == *:* && "$DEPLOY_HOST" != \[*\]* ]]; then
             DEPLOY_HOST="${DEPLOY_HOST%%:*}"
           fi
+
+          DEPLOY_SSH_PORT="${RAW_SSH_PORT}"
           if ! [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
-            echo "DEPLOY_HOST SSH port must be numeric (1-65535)." >&2
+            echo "DEPLOY_SSH_PORT must be numeric (1-65535)." >&2
             exit 1
           fi
 
           if [ -z "$DEPLOY_HOST" ] || echo "$DEPLOY_HOST" | grep -q '[[:space:]]'; then
-            echo "DEPLOY_HOST must be hostname or IP only (no https://)." >&2
-            echo "Example: ec2-16-113-19-64.ap-south-2.compute.amazonaws.com" >&2
+            echo "DEPLOY_HOST must be hostname or IP only (no https://, no :port)." >&2
+            echo "Example: 16.112.68.20 or ec2-16-113-19-64.ap-south-2.compute.amazonaws.com" >&2
             exit 1
           fi
 
@@ -368,12 +370,18 @@ jobs:
         env:
           DEPLOY_HOST: ${{ env.DEPLOY_HOST }}
           DEPLOY_SSH_PORT: ${{ env.DEPLOY_SSH_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          if ! grep -q 'BEGIN.*PRIVATE KEY' ~/.ssh/deploy_key; then
+            echo "DEPLOY_SSH_KEY is not a valid OpenSSH private key." >&2
+            exit 1
+          fi
+          echo "DEPLOY_SSH_KEY_PATH=${HOME}/.ssh/deploy_key" >> "$GITHUB_ENV"
           touch ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
@@ -438,7 +446,7 @@ jobs:
           host: ${{ env.DEPLOY_HOST }}
           port: ${{ env.DEPLOY_SSH_PORT }}
           username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          key_path: ${{ env.DEPLOY_SSH_KEY_PATH }}
           timeout: 120s
           command_timeout: 30m
           envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,DEPLOY_PATH
