@@ -286,6 +286,7 @@ Password: <POSTGRES_PASSWORD>
 
 ### GitHub Secrets
 
+
 | Secret | Purpose |
 |--------|---------|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | Image push and VM pull |
