@@ -337,6 +337,16 @@ jobs:
           DEPLOY_HOST="${DEPLOY_HOST%%/*}"
           DEPLOY_HOST="${DEPLOY_HOST%/}"
 
+          DEPLOY_SSH_PORT=22
+          if [[ "$DEPLOY_HOST" == *:* ]]; then
+            DEPLOY_SSH_PORT="${DEPLOY_HOST##*:}"
+            DEPLOY_HOST="${DEPLOY_HOST%%:*}"
+          fi
+          if ! [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
+            echo "DEPLOY_HOST SSH port must be numeric (1-65535)." >&2
+            exit 1
+          fi
+
           if [ -z "$DEPLOY_HOST" ] || echo "$DEPLOY_HOST" | grep -q '[[:space:]]'; then
             echo "DEPLOY_HOST must be hostname or IP only (no https://)." >&2
             echo "Example: ec2-16-113-19-64.ap-south-2.compute.amazonaws.com" >&2
@@ -350,21 +360,49 @@ jobs:
           fi
 
           echo "DEPLOY_HOST=$DEPLOY_HOST" >> "$GITHUB_ENV"
+          echo "DEPLOY_SSH_PORT=$DEPLOY_SSH_PORT" >> "$GITHUB_ENV"
           echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
-          echo "Deploy target: ${{ secrets.DEPLOY_USER }}@${DEPLOY_HOST}:${DEPLOY_PATH}"
+          echo "Deploy target: ${{ secrets.DEPLOY_USER }}@${DEPLOY_HOST}:${DEPLOY_SSH_PORT}:${DEPLOY_PATH}"
 
       - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ env.DEPLOY_HOST }}
+          DEPLOY_SSH_PORT: ${{ env.DEPLOY_SSH_PORT }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ env.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          touch ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          host_key_ready=false
+          for attempt in 1 2 3; do
+            if ssh-keyscan -H -T 30 -p "$DEPLOY_SSH_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts; then
+              if ssh-keygen -F "[$DEPLOY_HOST]:$DEPLOY_SSH_PORT" -f ~/.ssh/known_hosts >/dev/null 2>&1 \
+                || ssh-keygen -F "$DEPLOY_HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
+                host_key_ready=true
+                break
+              fi
+            fi
+            echo "ssh-keyscan attempt ${attempt}/3 failed; retrying in 5s..." >&2
+            sleep 5
+          done
+
+          if [ "$host_key_ready" != "true" ]; then
+            echo "Could not fetch SSH host key for ${DEPLOY_HOST}:${DEPLOY_SSH_PORT}." >&2
+            echo "Check security group/firewall allows GitHub Actions to reach SSH." >&2
+            exit 1
+          fi
 
       - name: Upload deploy bundle
         env:
           CHANGED_DEPLOY: ${{ needs.changes.outputs.deploy }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ env.DEPLOY_HOST }}
+          DEPLOY_SSH_PORT: ${{ env.DEPLOY_SSH_PORT }}
+          DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
         run: |
           set -euo pipefail
           paths=(
@@ -381,10 +419,13 @@ jobs:
           echo "Uploading deploy bundle (${#paths[@]} paths): ${paths[*]}"
           tar czf - "${paths[@]}" | ssh \
             -i ~/.ssh/deploy_key \
+            -p "$DEPLOY_SSH_PORT" \
             -o BatchMode=yes \
             -o ConnectTimeout=30 \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=3 \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "mkdir -p '${DEPLOY_PATH}' && tar xzf - -C '${DEPLOY_PATH}'"
 
@@ -395,6 +436,7 @@ jobs:
           DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
         with:
           host: ${{ env.DEPLOY_HOST }}
+          port: ${{ env.DEPLOY_SSH_PORT }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           timeout: 120s
