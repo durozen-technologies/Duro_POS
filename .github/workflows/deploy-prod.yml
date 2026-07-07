@@ -49,6 +49,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       caddy: ${{ steps.filter.outputs.caddy }}
       deploy: ${{ steps.filter.outputs.deploy }}
+      deploy_caddy_env: ${{ steps.filter.outputs.deploy_caddy_env }}
     steps:
       - uses: actions/checkout@v5
 
@@ -65,6 +66,9 @@ jobs:
               - 'rustfs/**'
               - 'pgbouncer/**'
               - 'scripts/**'
+              - '.github/workflows/deploy-prod.yml'
+            deploy_caddy_env:
+              - 'docker-compose.prod.yml'
               - '.github/workflows/deploy-prod.yml'
 
   build-backend:
@@ -166,6 +170,7 @@ jobs:
           CHANGED_BACKEND: ${{ needs.changes.outputs.backend }}
           CHANGED_CADDY: ${{ needs.changes.outputs.caddy }}
           CHANGED_DEPLOY: ${{ needs.changes.outputs.deploy }}
+          CHANGED_CADDY_ENV: ${{ needs.changes.outputs.deploy_caddy_env }}
           BUILT_BACKEND: ${{ needs.build-backend.result }}
           BUILT_CADDY: ${{ needs.build-caddy.result }}
           SKIP_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_build }}
@@ -199,9 +204,12 @@ jobs:
             fi
           fi
 
-          # ponytail: compose/.env changes must recreate caddy (ALLOWED_HOSTS, TLS host)
-          if [ "$CHANGED_DEPLOY" = "true" ]; then
+          # Recreate caddy when compose/.env generation affects proxy/TLS — not for pgbouncer/scripts-only.
+          if [ "$CHANGED_CADDY_ENV" = "true" ]; then
             DEPLOY_CADDY=true
+            if [ "$BUILT_CADDY" != "success" ]; then
+              CADDY_TAG="latest"
+            fi
           fi
 
           if [ "$CHANGED_DEPLOY" = "true" ] && [ "$DEPLOY_BACKEND" = "false" ] && [ "$DEPLOY_CADDY" = "false" ]; then

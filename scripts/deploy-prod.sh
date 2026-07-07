@@ -239,6 +239,7 @@ pull_backend_images() {
 
 pull_caddy_image() {
   local tag="$1"
+  local fallback=""
   CADDY_IMAGE_TAG="${tag}"
   if compose_pull_with_retry caddy; then
     return 0
@@ -246,6 +247,18 @@ pull_caddy_image() {
   if docker image inspect "$(caddy_image_ref)" &>/dev/null; then
     log "Caddy pull failed — using cached image $(caddy_image_ref)"
     return 0
+  fi
+  fallback="${CADDY_TAG_PREVIOUS:-latest}"
+  if [[ "${tag}" != "${fallback}" ]]; then
+    log "Caddy image tag ${tag} unavailable — trying ${fallback}"
+    CADDY_IMAGE_TAG="${fallback}"
+    if compose_pull_with_retry caddy; then
+      return 0
+    fi
+    if docker image inspect "$(caddy_image_ref)" &>/dev/null; then
+      log "Using cached caddy image $(caddy_image_ref)"
+      return 0
+    fi
   fi
   return 1
 }
@@ -844,6 +857,7 @@ deploy_app() {
       rollback "${BACKEND_TAG_PREVIOUS}" "${CADDY_TAG_PREVIOUS}" false true
       exit 1
     fi
+    new_caddy_tag="${CADDY_IMAGE_TAG}"
 
     log "Deploying caddy"
     CADDY_IMAGE_TAG="${new_caddy_tag}" run_compose up -d --no-deps --pull never caddy
