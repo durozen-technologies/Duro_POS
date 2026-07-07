@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from sqlalchemy.engine import URL, make_url
 
+from app.core.ids import uuid7
+
 _ASYNC_DRIVER = "postgresql+asyncpg"
 _SYNC_DRIVER = "postgresql+psycopg"
 _ASYNC_ONLY_QUERY_KEYS = frozenset({"prepared_statement_cache_size", "statement_cache_size"})
@@ -49,11 +51,14 @@ def uses_pgbouncer(url: URL) -> bool:
 
 
 def asyncpg_connect_args_for_url(url: URL) -> dict[str, object]:
-    """asyncpg needs both cache sizes at 0 behind PgBouncer transaction pooling."""
+    """PgBouncer + SQLAlchemy asyncpg: disable caches and use unique prepare names."""
     if uses_pgbouncer(url):
         return {
             "prepared_statement_cache_size": 0,
             "statement_cache_size": 0,
+            # SQLAlchemy still calls asyncpg.prepare(); unique names avoid collisions
+            # when multiple clients share a server connection (transaction pooling).
+            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid7()}__",
         }
 
     prepared_cache = url.query.get("prepared_statement_cache_size")

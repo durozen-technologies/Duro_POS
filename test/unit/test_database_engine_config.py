@@ -23,6 +23,7 @@ class DatabaseEngineConfigTests(unittest.TestCase):
         self.assertNotIn("statement_cache_size", url.query)
         self.assertEqual(connect_args["prepared_statement_cache_size"], 0)
         self.assertEqual(connect_args["statement_cache_size"], 0)
+        self.assertTrue(callable(connect_args["prepared_statement_name_func"]))
         self.assertIs(engine_kwargs["poolclass"], NullPool)
 
     def test_direct_postgres_keeps_sqlalchemy_pool(self) -> None:

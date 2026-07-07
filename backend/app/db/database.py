@@ -137,6 +137,13 @@ async def close_database_connections() -> None:
     SessionLocal = None
 
 
+async def ping_database() -> None:
+    """Cheap DB liveness probe without SQLAlchemy prepared statements."""
+    async with get_engine().connect() as conn:
+        raw = await conn.get_raw_connection()
+        await raw.driver_connection.fetchval("SELECT 1")
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with get_session_local()() as db:
         try:
