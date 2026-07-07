@@ -52,10 +52,16 @@ jobs:
       deploy_caddy_env: ${{ steps.filter.outputs.deploy_caddy_env }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
+      # Compare push commit to its parent — not main vs prod (same SHA after sync skips deploy).
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name == 'push'
         with:
+          base: ${{ github.event.before }}
+          ref: ${{ github.sha }}
           filters: |
             backend:
               - 'backend/**'
