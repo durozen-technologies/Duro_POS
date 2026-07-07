@@ -1,5 +1,8 @@
+import json
 import logging
+import time
 from datetime import UTC, date, datetime
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -50,6 +53,55 @@ from app.schemas.auth import (
 from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 
 logger = logging.getLogger(__name__)
+
+#region agent log
+_DEBUG_LOG_PATHS = (
+    Path(__file__).resolve().parents[3] / ".cursor" / "debug-3261f4.log",
+    Path("/tmp/debug-3261f4.log"),
+)
+
+
+def _agent_debug_log(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict[str, object],
+    run_id: str = "pre-fix",
+) -> None:
+    payload = {
+        "sessionId": "3261f4",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    line = json.dumps(payload, default=str) + "\n"
+    for path in _DEBUG_LOG_PATHS:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+            break
+        except OSError:
+            continue
+
+
+def _hash_fingerprint(hashed_password: str | None) -> dict[str, object]:
+    if not hashed_password:
+        return {"present": False}
+    parts = hashed_password.split("$")
+    return {
+        "present": True,
+        "length": len(hashed_password),
+        "scheme": parts[1] if len(parts) > 1 else "unknown",
+        "variant": parts[2] if len(parts) > 2 else "unknown",
+    }
+
+
+#endregion
 
 
 async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
@@ -225,6 +277,15 @@ async def login_user(
     client_ip: str | None = None,
 ) -> LoginResponse:
     normalized_username = normalize_username(username)
+    _agent_debug_log(
+        hypothesis_id="H1-H4",
+        location="auth.py:login_user:start",
+        message="login attempt normalized",
+        data={
+            "username": normalized_username,
+            "organization_slug": organization_slug.strip().lower() if organization_slug else None,
+        },
+    )
     await enforce_login_rate_limit(
         client_ip=client_ip or "unknown",
         username=normalized_username,
@@ -242,7 +303,21 @@ async def login_user(
             User.organization_id.is_(None),
         )
     )
-    if super_admin is not None and verify_password(password, super_admin.password_hash):
+    super_admin_verified = False
+    if super_admin is not None:
+        super_admin_verified = verify_password(password, super_admin.password_hash)
+    _agent_debug_log(
+        hypothesis_id="H1-H3",
+        location="auth.py:login_user:super_admin",
+        message="super admin candidate checked",
+        data={
+            "found": super_admin is not None,
+            "verified": super_admin_verified,
+            "user_id": str(super_admin.id) if super_admin is not None else None,
+            "hash": _hash_fingerprint(super_admin.password_hash) if super_admin is not None else None,
+        },
+    )
+    if super_admin is not None and super_admin_verified:
         user = super_admin
     else:
         auth_entry = await platform_db.scalar(
@@ -255,14 +330,56 @@ async def login_user(
             if org is None or auth_entry is None or auth_entry.organization_id != org.id:
                 auth_entry = None
 
+        _agent_debug_log(
+            hypothesis_id="H1-H2-H4",
+            location="auth.py:login_user:auth_index",
+            message="tenant auth index resolved",
+            data={
+                "found": auth_entry is not None,
+                "schema_name": auth_entry.schema_name if auth_entry is not None else None,
+                "user_id": str(auth_entry.user_id) if auth_entry is not None else None,
+                "organization_id": (
+                    str(auth_entry.organization_id) if auth_entry is not None else None
+                ),
+            },
+        )
         if auth_entry is not None:
             tenant_schema_name = auth_entry.schema_name
             async with tenant_schema_scope(platform_db, tenant_schema_name):
                 candidate = await _load_tenant_user(platform_db, user_id=auth_entry.user_id)
-                if candidate is not None and verify_password(password, candidate.password_hash):
+                candidate_verified = False
+                if candidate is not None:
+                    candidate_verified = verify_password(password, candidate.password_hash)
+                _agent_debug_log(
+                    hypothesis_id="H2-H3-H5",
+                    location="auth.py:login_user:tenant_candidate",
+                    message="tenant candidate checked",
+                    data={
+                        "found": candidate is not None,
+                        "verified": candidate_verified,
+                        "schema_name": tenant_schema_name,
+                        "user_id": str(candidate.id) if candidate is not None else None,
+                        "username": candidate.username if candidate is not None else None,
+                        "hash": (
+                            _hash_fingerprint(candidate.password_hash)
+                            if candidate is not None
+                            else None
+                        ),
+                    },
+                )
+                if candidate is not None and candidate_verified:
                     user = candidate
 
     if user is None:
+        _agent_debug_log(
+            hypothesis_id="H1-H5",
+            location="auth.py:login_user:invalid_credentials",
+            message="login rejected",
+            data={
+                "username": normalized_username,
+                "used_tenant_schema": tenant_schema_name,
+            },
+        )
         log_event(
             logger,
             logging.WARNING,
