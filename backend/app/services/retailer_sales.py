@@ -85,6 +85,7 @@ class PreparedRetailerCheckout:
     total_amount: Decimal
     cash_amount: Decimal
     upi_amount: Decimal
+    wallet_amount: Decimal
     total_paid: Decimal
     balance_due: Decimal
 
@@ -161,6 +162,7 @@ def _payload_fingerprint(payload: RetailerSaleCheckoutRequest) -> str:
         "payment": {
             "cash_amount": _decimal_token(_round_money(payload.payment.cash_amount)),
             "upi_amount": _decimal_token(_round_money(payload.payment.upi_amount)),
+            "wallet_amount": _decimal_token(_round_money(payload.payment.wallet_amount)),
         },
     }
     encoded = json.dumps(canonical_payload, separators=(",", ":"), sort_keys=True)
@@ -234,6 +236,154 @@ async def _get_active_retailer(
     ):
         raise HTTPException(status_code=404, detail="Retailer not available at this branch")
     return retailer
+
+
+async def _debit_retailer_wallet(
+    db: AsyncSession,
+    retailer_id: UUID,
+    wallet_amount: Decimal,
+) -> None:
+    if wallet_amount <= 0:
+        return
+    retailer = await db.scalar(
+        select(Retailer).where(Retailer.id == retailer_id).with_for_update()
+    )
+    if retailer is None:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    if wallet_amount > retailer.credit_balance:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Wallet amount exceeds available credit ({retailer.credit_balance})",
+        )
+    retailer.credit_balance = _round_money(retailer.credit_balance - wallet_amount)
+
+
+async def _credit_retailer_wallet(
+    db: AsyncSession,
+    retailer_id: UUID,
+    wallet_amount: Decimal,
+) -> None:
+    if wallet_amount <= 0:
+        return
+    retailer = await db.scalar(
+        select(Retailer).where(Retailer.id == retailer_id).with_for_update()
+    )
+    if retailer is None:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    retailer.credit_balance = _round_money(retailer.credit_balance + wallet_amount)
+
+
+async def apply_purchase_wallet_settlement_to_sale(
+    db: AsyncSession,
+    shop: Shop,
+    user: User,
+    sale: RetailerSale,
+    wallet_amount: Decimal,
+    purchase_id: UUID,
+) -> None:
+    wallet_amount = _round_money(wallet_amount)
+    if wallet_amount <= 0:
+        return
+    if wallet_amount > sale.balance_due:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Settlement exceeds balance due ({sale.balance_due})",
+        )
+
+    opening_balance = await _retailer_opening_balance_excluding_sale(
+        db, sale.retailer_id, exclude_sale_id=sale.id
+    )
+    await _debit_retailer_wallet(db, sale.retailer_id, wallet_amount)
+    payment = RetailerPayment(
+        retailer_sale_id=sale.id,
+        cash_amount=Decimal("0.00"),
+        upi_amount=Decimal("0.00"),
+        wallet_amount=wallet_amount,
+        total_paid=wallet_amount,
+        recorded_by_user_id=user.id,
+        retailer_inventory_purchase_id=purchase_id,
+    )
+    db.add(payment)
+    sale.amount_paid_total = _round_money(sale.amount_paid_total + wallet_amount)
+    sale.balance_due = _round_money(sale.total_amount - sale.amount_paid_total)
+    sale.status = _sale_status(sale.total_amount, sale.amount_paid_total)
+    await db.flush()
+    printed_at = datetime.now(UTC)
+    db.add(
+        RetailerSaleReceipt(
+            retailer_sale_id=sale.id,
+            retailer_payment_id=payment.id,
+            receipt_type=RetailerReceiptType.BALANCE_PAYMENT,
+            receipt_number=balance_receipt_number(sale.sale_no, printed_at, payment_id=payment.id),
+            printed_at=printed_at,
+            opening_balance=opening_balance,
+        )
+    )
+
+
+async def settle_purchase_against_open_sales(
+    db: AsyncSession,
+    shop: Shop,
+    user: User,
+    *,
+    retailer_id: UUID,
+    purchase_id: UUID,
+    settlement_pool: Decimal,
+) -> Decimal:
+    applied = Decimal("0.00")
+    remaining = _round_money(settlement_pool)
+    while remaining > 0:
+        sale = await db.scalar(
+            select(RetailerSale)
+            .where(
+                RetailerSale.retailer_id == retailer_id,
+                RetailerSale.shop_id == shop.id,
+                RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+                RetailerSale.balance_due > 0,
+            )
+            .order_by(RetailerSale.created_at.asc(), RetailerSale.id.asc())
+            .with_for_update()
+        )
+        if sale is None:
+            break
+        pay_amount = _round_money(min(remaining, sale.balance_due))
+        if pay_amount <= 0:
+            break
+        await apply_purchase_wallet_settlement_to_sale(
+            db, shop, user, sale, pay_amount, purchase_id
+        )
+        applied = _round_money(applied + pay_amount)
+        remaining = _round_money(remaining - pay_amount)
+    return applied
+
+
+async def reverse_purchase_settlement_payments(
+    db: AsyncSession,
+    retailer_id: UUID,
+    purchase_id: UUID,
+) -> None:
+    payments = (
+        await db.scalars(
+            select(RetailerPayment)
+            .where(RetailerPayment.retailer_inventory_purchase_id == purchase_id)
+            .options(
+                selectinload(RetailerPayment.sale),
+                selectinload(RetailerPayment.receipt),
+            )
+            .order_by(RetailerPayment.paid_at.desc(), RetailerPayment.id.desc())
+        )
+    ).all()
+    for payment in payments:
+        sale = payment.sale
+        if sale is None:
+            continue
+        sale.amount_paid_total = _round_money(sale.amount_paid_total - payment.total_paid)
+        sale.balance_due = _round_money(sale.total_amount - sale.amount_paid_total)
+        sale.status = _sale_status(sale.total_amount, sale.amount_paid_total)
+        await _credit_retailer_wallet(db, retailer_id, payment.wallet_amount)
+        if payment.receipt is not None:
+            await db.delete(payment.receipt)
+        await db.delete(payment)
 
 
 async def _prepare_retailer_checkout(
@@ -322,7 +472,8 @@ async def _prepare_retailer_checkout(
     total_amount = _round_money(total_amount)
     cash_amount = _round_money(payload.payment.cash_amount)
     upi_amount = _round_money(payload.payment.upi_amount)
-    total_paid = _round_money(cash_amount + upi_amount)
+    wallet_amount = _round_money(payload.payment.wallet_amount)
+    total_paid = _round_money(cash_amount + upi_amount + wallet_amount)
     if total_paid < 0:
         raise HTTPException(status_code=422, detail="Payment amounts must be non-negative")
     limit = max_payable if max_payable is not None else total_amount
@@ -337,6 +488,7 @@ async def _prepare_retailer_checkout(
         total_amount=total_amount,
         cash_amount=cash_amount,
         upi_amount=upi_amount,
+        wallet_amount=wallet_amount,
         total_paid=total_paid,
         balance_due=balance_due,
     )
@@ -582,6 +734,7 @@ async def preview_retailer_sale(
                 id=preview_payment_id,
                 cash_amount=prepared.cash_amount,
                 upi_amount=prepared.upi_amount,
+                wallet_amount=prepared.wallet_amount,
                 total_paid=prepared.total_paid,
                 paid_at=now,
                 recorded_by_user_id=user.id,
@@ -659,10 +812,12 @@ async def create_retailer_sale(
     db.add(sale)
     try:
         await db.flush()
+        await _debit_retailer_wallet(db, payload.retailer_id, prepared.wallet_amount)
         payment = RetailerPayment(
             retailer_sale_id=sale.id,
             cash_amount=prepared.cash_amount,
             upi_amount=prepared.upi_amount,
+            wallet_amount=prepared.wallet_amount,
             total_paid=prepared.total_paid,
             recorded_by_user_id=user.id,
         )
@@ -744,7 +899,8 @@ async def record_retailer_payment(
 
     cash_amount = _round_money(payload.payment.cash_amount)
     upi_amount = _round_money(payload.payment.upi_amount)
-    total_paid = _round_money(cash_amount + upi_amount)
+    wallet_amount = _round_money(payload.payment.wallet_amount)
+    total_paid = _round_money(cash_amount + upi_amount + wallet_amount)
     if total_paid <= 0:
         raise HTTPException(status_code=422, detail="Payment amount must be greater than zero")
     if total_paid > sale.balance_due:
@@ -757,10 +913,12 @@ async def record_retailer_payment(
         db, sale.retailer_id, exclude_sale_id=sale.id
     )
 
+    await _debit_retailer_wallet(db, sale.retailer_id, wallet_amount)
     payment = RetailerPayment(
         retailer_sale_id=sale.id,
         cash_amount=cash_amount,
         upi_amount=upi_amount,
+        wallet_amount=wallet_amount,
         total_paid=total_paid,
         recorded_by_user_id=user.id,
     )

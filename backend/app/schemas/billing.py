@@ -17,6 +17,7 @@ class BillItemInput(BaseModel):
 class CheckoutPaymentInput(BaseModel):
     cash_amount: Decimal = Field(ge=0)
     upi_amount: Decimal = Field(ge=0)
+    wallet_amount: Decimal = Field(default=Decimal("0"), ge=0)
 
 
 class BillCheckoutRequest(BaseModel):

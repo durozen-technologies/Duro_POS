@@ -19,6 +19,7 @@ import {
   type ScrollView as ScrollViewType,
 } from "react-native";
 
+import { fetchShopRetailerInventoryPurchases } from "@/api/retailer-inventory";
 import {
   addShopInventoryStock,
   fetchShopInventoryBackdatePolicy,
@@ -47,7 +48,9 @@ import { TextField } from "@/components/ui/text-field";
 import { TransferShopPicker } from "./components/transfer-shop-picker";
 import { InventoryMovementHistoryCard } from "./components/inventory-movement-history-card";
 import { InventoryTransferHistoryCard } from "./components/inventory-transfer-history-card";
+import { InventoryRetailerPurchaseHistoryCard } from "./components/inventory-retailer-purchase-history-card";
 import { InventoryRetailerUsageHistoryCard } from "./components/inventory-retailer-usage-history-card";
+import { RetailerPurchaseModal } from "./components/retailer-purchase-modal";
 import { RetailerStockModal } from "./components/retailer-stock-modal";
 import {
   getLocalizedItemName,
@@ -60,6 +63,7 @@ import {
   type InventoryItemStockRead,
   type InventoryMovementRead,
   type InventoryTransferRead,
+  type RetailerInventoryPurchaseRead,
   type RetailerInventoryUsageRead,
   type RetailerInventoryUsageBulkResult,
   type UUID,
@@ -75,7 +79,7 @@ import type { InventoryManagementScreenProps } from "@/navigation/types";
 type MovementMode = InventoryMovementType.ADD | InventoryMovementType.USE | "TRANSFER";
 type MovementHistoryMode = "date" | "range";
 type MovementHistoryCalendarTarget = "date" | "start" | "end";
-type MovementHistoryTab = "movements" | "transfers" | "retailer";
+type MovementHistoryTab = "movements" | "transfers" | "retailer" | "purchases";
 type MovementHistoryParams = {
   reference_date: string | null;
   range_start_date: string | null;
@@ -180,6 +184,8 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const [movements, setMovements] = useState<InventoryMovementRead[]>([]);
   const [transfers, setTransfers] = useState<InventoryTransferRead[]>([]);
   const [retailerUsages, setRetailerUsages] = useState<RetailerInventoryUsageRead[]>([]);
+  const [retailerPurchases, setRetailerPurchases] = useState<RetailerInventoryPurchaseRead[]>([]);
+  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsLoadedKey, setMovementsLoadedKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -244,6 +250,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
         { key: "movements" as const, label: t("inventory.historyTabMovements") },
         { key: "transfers" as const, label: t("inventory.historyTabTransfers") },
         { key: "retailer" as const, label: t("inventory.historyTabRetailer", { defaultValue: "Retailer Stock" }) },
+        { key: "purchases" as const, label: t("inventory.historyTabPurchases") },
       ],
     [t],
   );
@@ -296,6 +303,9 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       recordedBy: (name: string) =>
         t("inventory.recordedBy", { defaultValue: "By {{name}}", name }),
       adjustment: t("inventory.adjustmentReason", { defaultValue: "Reason" }),
+      applied: t("inventory.retailerPurchaseApplied"),
+      deposited: t("inventory.retailerPurchaseDeposited"),
+      purchaseTotal: t("inventory.retailerPurchaseTotalLabel"),
     }),
     [t],
   );
@@ -429,7 +439,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     movementsLoadingKeyRef.current = historyKey;
     setMovementsLoading(true);
     try {
-      const [nextMovements, nextTransfers, nextRetailerUsages] = await Promise.all([
+      const [nextMovements, nextTransfers, nextRetailerUsages, nextPurchases] = await Promise.all([
         fetchShopInventoryMovements({
           reference_date: historyParams.reference_date,
           range_start_date: historyParams.range_start_date,
@@ -448,6 +458,12 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           range_end_date: historyParams.range_end_date,
           limit: 100,
         }),
+        fetchShopRetailerInventoryPurchases({
+          reference_date: historyParams.reference_date,
+          range_start_date: historyParams.range_start_date,
+          range_end_date: historyParams.range_end_date,
+          limit: 100,
+        }),
       ]);
       if (requestId !== movementsRequestIdRef.current || movementHistoryKeyRef.current !== historyKey) {
         return;
@@ -455,6 +471,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       setMovements(nextMovements.items);
       setTransfers(nextTransfers.items);
       setRetailerUsages(nextRetailerUsages.items);
+      setRetailerPurchases(nextPurchases.items);
       movementsLoadedKeyRef.current = historyKey;
       setMovementsLoadedKey(historyKey);
     } catch (error) {
@@ -545,9 +562,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     if (historyOpen) {
       void loadMovements(true);
     } else {
-      setMovements([]);
-      setTransfers([]);
-      setRetailerUsages([]);
+    setMovements([]);
+    setTransfers([]);
+    setRetailerUsages([]);
+    setRetailerPurchases([]);
       movementsLoadedKeyRef.current = null;
       setMovementsLoadedKey(null);
     }
@@ -1053,6 +1071,29 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                 ))}
               </View>
             )
+          ) : historyTab === "purchases" ? (
+            retailerPurchases.length === 0 ? (
+              <EmptyState
+                title={t("inventory.noRetailerPurchases")}
+                description={t("inventory.noRecentMovement")}
+              />
+            ) : (
+              <View className="gap-2.5">
+                {retailerPurchases.map((purchase) => (
+                  <InventoryRetailerPurchaseHistoryCard
+                    key={purchase.id}
+                    purchase={purchase}
+                    formatQuantity={formatQuantity}
+                    labels={{
+                      retailer: historyCardLabels.retailer,
+                      applied: historyCardLabels.applied,
+                      deposited: historyCardLabels.deposited,
+                      total: historyCardLabels.purchaseTotal,
+                    }}
+                  />
+                ))}
+              </View>
+            )
           ) : historyTab === "retailer" ? (
             groupedRetailerUsages.length === 0 ? (
               <EmptyState
@@ -1129,6 +1170,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                   </Text>
                 </View>
               ) : null}
+              <Button
+                label={t("inventory.retailerPurchaseTitle")}
+                onPress={() => setPurchaseModalOpen(true)}
+              />
             </>
           )}
           ListEmptyComponent={
@@ -1385,6 +1430,16 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
         backdatePolicy={backdatePolicy}
         onClose={closeRetailerStock}
         onSaved={handleRetailerStockSaved}
+      />
+
+      <RetailerPurchaseModal
+        visible={purchaseModalOpen}
+        items={items}
+        onClose={() => setPurchaseModalOpen(false)}
+        onSaved={() => {
+          void loadInventory(true);
+          void loadMovements(true);
+        }}
       />
 
       <CalendarDatePickerModal

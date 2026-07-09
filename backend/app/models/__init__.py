@@ -10,6 +10,7 @@ from .enums import (
     ReceiptStatus,
     InventoryMovementType,
     ItemAssumptionStatus,
+    RetailerInventoryPurchaseStatus,
     RetailerReceiptType,
     RetailerSaleStatus,
     UnitType,
@@ -43,7 +44,11 @@ from .retailer import (
     ShopRetailerAllocation,
     ShopRetailerItemAllocation,
 )
-from .retailer_inventory import RetailerInventoryUsage
+from .retailer_inventory import (
+    RetailerInventoryPurchase,
+    RetailerInventoryPurchaseLine,
+    RetailerInventoryUsage,
+)
 from .shop import Shop
 from .shop_item_allocation import ShopItemAllocation
 from .transfer import InventoryTransfer, TransferShop
@@ -88,6 +93,9 @@ __all__ = [
     "ShopRetailerAllocation",
     "ShopRetailerItemAllocation",
     "RetailerInventoryUsage",
+    "RetailerInventoryPurchase",
+    "RetailerInventoryPurchaseLine",
+    "RetailerInventoryPurchaseStatus",
     "Shop",
     "ShopExpenseAllocation",
     "ShopInventoryAllocation",

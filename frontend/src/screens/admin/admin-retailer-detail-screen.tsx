@@ -11,28 +11,36 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { fetchAdminRetailerInventoryPurchases } from "@/api/retailer-inventory";
 import { fetchRetailerBalance, fetchRetailerBranchAllocations } from "@/api/retailers";
-import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { formatApiErrorMessage } from "@/api/client";
 import type { AdminRetailerDetailScreenProps } from "@/navigation/types";
-import type { RetailerBalanceRead } from "@/types/api";
+import type { RetailerBalanceRead, RetailerInventoryPurchaseRead } from "@/types/api";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 
 import { adminRadii } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import { EmptyStateCard } from "./components/admin-dashboard-primitives";
 import { AdminHeaderActions } from "./components/admin-header-actions";
+import { AdminRetailerPurchasesTab } from "./components/admin-retailer-purchases-tab";
 import { useAdminTheme } from "./use-admin-theme";
+
+type DetailTab = "overview" | "purchases";
 
 export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDetailScreenProps) {
   const retailer = route.params.retailer;
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
+  const [activeTab, setActiveTab] = useState<DetailTab>("overview");
   const [balance, setBalance] = useState<RetailerBalanceRead | null>(null);
+  const [purchases, setPurchases] = useState<RetailerInventoryPurchaseRead[]>([]);
+  const [purchasesLoading, setPurchasesLoading] = useState(false);
+  const [purchasesError, setPurchasesError] = useState<string | null>(null);
   const [allocatedShopCount, setAllocatedShopCount] = useState(retailer.allocated_shop_count ?? 0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
       const [balanceData, branchRows] = await Promise.all([
@@ -48,6 +56,23 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
       setLoading(false);
     }
   }, [retailer.id]);
+
+  const loadPurchases = useCallback(async () => {
+    setPurchasesLoading(true);
+    try {
+      const page = await fetchAdminRetailerInventoryPurchases(retailer.id, { limit: 50 });
+      setPurchases(page.items);
+      setPurchasesError(null);
+    } catch (err) {
+      setPurchasesError(formatApiErrorMessage(err));
+    } finally {
+      setPurchasesLoading(false);
+    }
+  }, [retailer.id]);
+
+  const load = useCallback(async () => {
+    await Promise.all([loadOverview(), loadPurchases()]);
+  }, [loadOverview, loadPurchases]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -73,16 +98,69 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
         <Text style={{ flex: 1, fontSize: 20, fontWeight: "900", color: palette.onShell }}>
           {retailer.name}
         </Text>
-        <AdminHeaderActions onRefresh={() => load()} refreshing={loading} />
+        <AdminHeaderActions onRefresh={() => load()} refreshing={loading || purchasesLoading} />
       </View>
-      {loading ? (
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 8,
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: 1,
+          borderBottomColor: palette.border,
+          backgroundColor: palette.background,
+        }}
+      >
+        {(["overview", "purchases"] as const).map((tab) => {
+          const selected = activeTab === tab;
+          return (
+            <Pressable
+              key={tab}
+              onPress={() => {
+                triggerHaptic();
+                setActiveTab(tab);
+              }}
+              style={{
+                flex: 1,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: selected ? palette.primary : palette.border,
+                backgroundColor: selected ? palette.card : palette.background,
+                paddingVertical: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: selected ? palette.primary : palette.textMuted,
+                  fontWeight: "800",
+                  fontSize: 13,
+                }}
+              >
+                {tab === "overview" ? "Overview" : "Inventory Purchases"}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {activeTab === "purchases" ? (
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <AdminRetailerPurchasesTab
+            purchases={purchases}
+            loading={purchasesLoading}
+            error={purchasesError}
+            palette={palette}
+            onRetry={() => void loadPurchases()}
+          />
+        </ScrollView>
+      ) : loading ? (
         <ActivityIndicator color={palette.primary} style={{ marginTop: 24 }} />
       ) : error ? (
         <EmptyStateCard
           title="Unable to load retailer"
           subtitle={error}
           actionLabel="Retry"
-          onAction={() => void load()}
+          onAction={() => void loadOverview()}
           palette={palette}
           icon="alert-circle-outline"
         />
@@ -102,6 +180,12 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
             </Text>
             <Text style={{ color: palette.textPrimary, fontSize: 28, fontWeight: "800", marginTop: 6 }}>
               {formatCurrency(balance?.outstanding_balance ?? "0")}
+            </Text>
+            <Text style={{ color: palette.textMuted, fontSize: 12, fontWeight: "600", marginTop: 14 }}>
+              WALLET CREDIT
+            </Text>
+            <Text style={{ color: palette.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 6 }}>
+              {formatCurrency(balance?.credit_balance ?? "0")}
             </Text>
           </View>
           <View style={{ flexDirection: "row", gap: 12 }}>

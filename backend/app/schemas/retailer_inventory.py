@@ -59,3 +59,47 @@ class RetailerStockAdjustRequest(BaseModel):
 class RetailerInventoryUsageBulkResult(BaseModel):
     usages: list[RetailerInventoryUsageRead]
     summary: InventorySummaryRead | None = None
+
+
+class RetailerInventoryPurchaseLineInput(BaseModel):
+    inventory_item_id: UUID
+    quantity: Decimal = Field(gt=0)
+    price_per_unit: Decimal = Field(gt=0)
+
+
+class RetailerInventoryPurchaseCreate(BaseModel):
+    retailer_id: UUID
+    lines: list[RetailerInventoryPurchaseLineInput] = Field(min_length=1)
+    occurred_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class RetailerInventoryPurchaseLineRead(BaseModel):
+    id: UUID
+    inventory_item_id: UUID
+    item_name: str
+    quantity: Decimal
+    price_per_unit: Decimal
+    line_total: Decimal
+
+
+class RetailerInventoryPurchaseRead(BaseModel):
+    id: UUID
+    shop_id: UUID
+    shop_name: str | None = None
+    retailer_id: UUID
+    retailer_name: str | None = None
+    total_amount: Decimal
+    amount_applied_to_outstanding: Decimal = Decimal("0.00")
+    amount_deposited_to_wallet: Decimal = Decimal("0.00")
+    status: str
+    notes: str | None = None
+    created_at: datetime
+    voided_at: datetime | None = None
+    lines: list[RetailerInventoryPurchaseLineRead]
+
+
+class RetailerInventoryPurchasePage(BaseModel):
+    items: list[RetailerInventoryPurchaseRead]
+    limit: int
+    has_more: bool

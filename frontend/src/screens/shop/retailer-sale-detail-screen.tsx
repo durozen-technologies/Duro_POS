@@ -3,7 +3,7 @@ import { useCallback, useLayoutEffect, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import { Controller, useForm } from "react-hook-form";
 
-import { fetchShopRetailerSale, recordShopRetailerPayment } from "@/api/retailer-sales";
+import { fetchShopRetailerSale, fetchShopRetailerWallet, recordShopRetailerPayment } from "@/api/retailer-sales";
 import { buildRetailerReceiptHtml } from "@/api/retailer-receipts";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
 import { formatRetailerSaleNoDisplay } from "@/utils/retailer-sale";
 
-type FormValues = { cashAmount: string; upiAmount: string };
+type FormValues = { walletAmount: string; cashAmount: string; upiAmount: string };
 
 function saleStatusLabel(status: RetailerSaleStatus, t: (key: ShopTranslationKey) => string) {
   switch (status) {
@@ -69,17 +69,27 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
   const { saleId } = route.params;
   const { language, t } = useShopTranslation();
   const [sale, setSale] = useState<RetailerSaleRead | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [reprintingId, setReprintingId] = useState<string | null>(null);
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
-  const form = useForm<FormValues>({ defaultValues: { cashAmount: "", upiAmount: "" } });
+  const form = useForm<FormValues>({
+    defaultValues: { walletAmount: "", cashAmount: "", upiAmount: "" },
+  });
   const { receiptImagePrintBridge, startReceiptHtmlPrintJob } = useReceiptImagePrintJob();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setSale(await fetchShopRetailerSale(saleId));
+      const saleData = await fetchShopRetailerSale(saleId);
+      setSale(saleData);
+      try {
+        const wallet = await fetchShopRetailerWallet(saleData.retailer_id);
+        setWalletBalance(wallet.credit_balance);
+      } catch {
+        setWalletBalance(null);
+      }
     } catch (error) {
       Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
     } finally {
@@ -132,9 +142,14 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
 
   const onCollect = form.handleSubmit(async (values) => {
     if (!sale || money(sale.balance_due).lessThanOrEqualTo(0)) return;
-    const paid = money(values.cashAmount).plus(money(values.upiAmount));
+    const walletPaid = money(values.walletAmount);
+    const paid = walletPaid.plus(money(values.cashAmount)).plus(money(values.upiAmount));
     if (paid.lessThanOrEqualTo(0)) {
       Alert.alert(t("retailers.enterPayment"));
+      return;
+    }
+    if (walletBalance !== null && walletPaid.greaterThan(money(walletBalance))) {
+      Alert.alert(t("checkout.checkoutFailedTitle"), t("retailers.walletExceedsAvailable"));
       return;
     }
     if (paid.greaterThan(money(sale.balance_due))) {
@@ -149,6 +164,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
     try {
       const result = await recordShopRetailerPayment(saleId, {
         payment: {
+          wallet_amount: toMoneyString(values.walletAmount),
           cash_amount: toMoneyString(values.cashAmount),
           upi_amount: toMoneyString(values.upiAmount),
         },
@@ -159,7 +175,13 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
         language,
       );
       setSale(result.sale);
-      form.reset({ cashAmount: "", upiAmount: "" });
+      form.reset({ walletAmount: "", cashAmount: "", upiAmount: "" });
+      try {
+        const wallet = await fetchShopRetailerWallet(result.sale.retailer_id);
+        setWalletBalance(wallet.credit_balance);
+      } catch {
+        setWalletBalance(null);
+      }
     } catch (error) {
       Alert.alert(t("checkout.checkoutFailedTitle"), formatApiErrorMessage(error));
     } finally {
@@ -207,6 +229,23 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
         {hasBalance ? (
           <Card className="gap-3">
             <Text className="font-semibold text-ink">{t("retailers.collectPayment")}</Text>
+            {walletBalance !== null && money(walletBalance).greaterThan(0) ? (
+              <Text className="text-sm text-muted">
+                {t("retailers.walletAvailable", { amount: formatCurrency(walletBalance) })}
+              </Text>
+            ) : null}
+            <Controller
+              control={form.control}
+              name="walletAmount"
+              render={({ field }) => (
+                <TextField
+                  label={t("retailers.walletAmount")}
+                  keyboardType="decimal-pad"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                />
+              )}
+            />
             <Controller
               control={form.control}
               name="cashAmount"
@@ -276,7 +315,8 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
               >
                 <Text className="text-sm text-muted">{formatDateTime(payment.paid_at)}</Text>
                 <Text className="font-semibold text-ink">
-                  {formatCurrency(payment.total_paid)} · {t("checkout.cashAmount")}{" "}
+                  {formatCurrency(payment.total_paid)} · {t("retailers.walletAmount")}{" "}
+                  {formatCurrency(payment.wallet_amount ?? "0")} · {t("checkout.cashAmount")}{" "}
                   {formatCurrency(payment.cash_amount)} · {t("checkout.upiAmount")}{" "}
                   {formatCurrency(payment.upi_amount)}
                 </Text>

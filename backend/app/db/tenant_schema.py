@@ -26,7 +26,7 @@ _SCHEMA_PREFIX = "tenant_"
 _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-TENANT_MIGRATION_HEAD = "0015_expense_split_cash_upi"
+TENANT_MIGRATION_HEAD = "0017_retailer_purchase_settle"
 RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
 _ALEMBIC_LOGGERS = (
     logging.getLogger("alembic"),

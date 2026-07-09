@@ -16,6 +16,8 @@ class RetailerTenantTablesTests(unittest.TestCase):
             "retailer_payments",
             "retailer_sale_receipts",
             "monthly_retailer_sale_sequences",
+            "retailer_inventory_purchases",
+            "retailer_inventory_purchase_lines",
             "shop_retailer_allocations",
             "shop_retailer_item_allocations",
         }

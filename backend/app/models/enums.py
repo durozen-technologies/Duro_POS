@@ -70,3 +70,8 @@ class RetailerSaleStatus(str, Enum):
 class RetailerReceiptType(str, Enum):
     SALE_INVOICE = "sale_invoice"
     BALANCE_PAYMENT = "balance_payment"
+
+
+class RetailerInventoryPurchaseStatus(str, Enum):
+    ACTIVE = "active"
+    VOID = "void"

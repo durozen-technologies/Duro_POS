@@ -40,6 +40,7 @@ from app.schemas.retailers import (
     RetailerPage,
     RetailerRead,
     RetailerUpdate,
+    RetailerWalletRead,
 )
 
 
@@ -880,6 +881,7 @@ async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerB
         retailer_id=retailer.id,
         retailer_name=retailer.name,
         outstanding_balance=outstanding,
+        credit_balance=retailer.credit_balance,
         open_sales=[
             RetailerOpenSaleSummary(
                 id=sale.id,
@@ -894,6 +896,20 @@ async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerB
             )
             for sale, shop_name in sales
         ],
+    )
+
+
+async def get_shop_retailer_wallet(
+    db: AsyncSession,
+    shop: Shop,
+    retailer_id: UUID,
+) -> RetailerWalletRead:
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop.id)
+    retailer = await get_retailer_or_404(db, retailer_id)
+    return RetailerWalletRead(
+        retailer_id=retailer.id,
+        retailer_name=retailer.name,
+        credit_balance=retailer.credit_balance,
     )
 
 

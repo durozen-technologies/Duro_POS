@@ -39,6 +39,9 @@ from app.schemas.inventory import (
 from app.schemas.inventory_policy import InventoryBackdatePolicyRead
 from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse
 from app.schemas.retailer_inventory import (
+    RetailerInventoryPurchaseCreate,
+    RetailerInventoryPurchasePage,
+    RetailerInventoryPurchaseRead,
     RetailerInventoryUsageBulkCreate,
     RetailerInventoryUsageBulkResult,
     RetailerInventoryUsagePage,
@@ -55,6 +58,7 @@ from app.schemas.retailers import (
     RetailerSaleRead,
     RetailerSaleReceiptPage,
     RetailerSaleReceiptRead,
+    RetailerWalletRead,
 )
 from app.schemas.transfer import (
     InventoryTransferCreate,
@@ -68,7 +72,6 @@ from app.services.billing import (
     preview_bill,
     update_bill_receipt_status,
 )
-from app.services.shop_billing import get_shop_bill, list_shop_bills
 from app.services.expenses import (
     create_shop_expense_entry,
     list_current_shop_expense_items,
@@ -89,6 +92,11 @@ from app.services.retailer_inventory import (
     list_retailer_inventory_usages,
     record_retailer_inventory_usages_bulk,
 )
+from app.services.retailer_inventory_purchases import (
+    create_retailer_inventory_purchase,
+    list_retailer_inventory_purchases,
+    void_retailer_inventory_purchase,
+)
 from app.services.retailer_sales import (
     create_retailer_sale,
     get_retailer_catalog,
@@ -99,7 +107,8 @@ from app.services.retailer_sales import (
     preview_retailer_sale,
     record_retailer_payment,
 )
-from app.services.retailers import list_active_retailers_for_shop
+from app.services.retailers import get_shop_retailer_wallet, list_active_retailers_for_shop
+from app.services.shop_billing import get_shop_bill, list_shop_bills
 from app.services.transfer import create_inventory_transfer, list_transfer_shops
 
 router = APIRouter(tags=["Shop"], dependencies=[Depends(require_roles(UserRole.SHOP_ACCOUNT))])
@@ -283,6 +292,63 @@ async def record_shop_retailer_inventory_usages(
     return await record_retailer_inventory_usages_bulk(
         db, shop, payload, actor=actor, include_summary=True
     )
+
+
+@router.get(
+    "/inventory/retailer-purchases",
+    response_model=RetailerInventoryPurchasePage,
+    response_model_exclude_unset=True,
+    summary="List retailer inventory purchases",
+)
+async def shop_list_retailer_inventory_purchases(
+    retailer_id: UUID | None = Query(None),
+    reference_date: date | None = Query(None),
+    range_start_date: date | None = Query(None),
+    range_end_date: date | None = Query(None),
+    limit: int = Query(30, ge=1, le=100),
+    shop: Shop = Depends(get_current_shop),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> RetailerInventoryPurchasePage:
+    return await list_retailer_inventory_purchases(
+        db,
+        shop_id=shop.id,
+        retailer_id=retailer_id,
+        reference_date=reference_date,
+        range_start_date=range_start_date,
+        range_end_date=range_end_date,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/inventory/retailer-purchases",
+    response_model=RetailerInventoryPurchaseRead,
+    response_model_exclude_unset=True,
+    status_code=201,
+    summary="Record retailer inventory purchase",
+)
+async def shop_create_retailer_inventory_purchase(
+    payload: RetailerInventoryPurchaseCreate,
+    shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> RetailerInventoryPurchaseRead:
+    return await create_retailer_inventory_purchase(db, shop, payload, actor=actor)
+
+
+@router.post(
+    "/inventory/retailer-purchases/{purchase_id}/void",
+    response_model=RetailerInventoryPurchaseRead,
+    response_model_exclude_unset=True,
+    summary="Void retailer inventory purchase",
+)
+async def shop_void_retailer_inventory_purchase(
+    purchase_id: UUID,
+    shop: Shop = Depends(get_current_shop),
+    actor: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> RetailerInventoryPurchaseRead:
+    return await void_retailer_inventory_purchase(db, shop, purchase_id, actor=actor)
 
 
 @router.get(
@@ -614,6 +680,19 @@ async def shop_list_retailers(
     shop: Shop = Depends(get_current_shop),
 ) -> list[RetailerRead]:
     return await list_active_retailers_for_shop(db, shop, q=q)
+
+
+@router.get(
+    "/retailers/{retailer_id}/wallet",
+    response_model=RetailerWalletRead,
+    summary="Retailer credit wallet balance",
+)
+async def shop_retailer_wallet(
+    retailer_id: UUID,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> RetailerWalletRead:
+    return await get_shop_retailer_wallet(db, shop, retailer_id)
 
 
 @router.get(

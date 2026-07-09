@@ -36,6 +36,11 @@ class Retailer(Base, BaseModelMixin):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    credit_balance: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        server_default=text("0.00"),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -249,6 +254,11 @@ class RetailerPayment(Base):
     )
     cash_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     upi_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    wallet_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        server_default=text("0.00"),
+    )
     total_paid: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     paid_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -258,6 +268,12 @@ class RetailerPayment(Base):
     )
     recorded_by_user_id: Mapped[UUID] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("users.id"), index=True, nullable=False
+    )
+    retailer_inventory_purchase_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("retailer_inventory_purchases.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
     )
 
     sale = relationship("RetailerSale", back_populates="payments")

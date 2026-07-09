@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
 
-from app.models import Item, RetailerReceiptType, RetailerSaleStatus, Shop, User
+from app.models import Item, Retailer, RetailerReceiptType, RetailerSaleStatus, Shop, User
 from app.schemas.billing import CheckoutPaymentInput
 from app.schemas.retailers import (
     RetailerCreate,
@@ -513,5 +513,110 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 finally:
                     matched_report.file.close()
                     other_report.file.close()
+
+        self.run_async(scenario())
+
+    def test_wallet_payment_debits_credit_and_settles(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                retailer_row = session.get(Retailer, retailer.id)
+                retailer_row.credit_balance = Decimal("600.00")
+                session.commit()
+
+                zero_payload = RetailerSaleCheckoutRequest(
+                    retailer_id=retailer.id,
+                    items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("6"))],
+                    payment=CheckoutPaymentInput(
+                        wallet_amount=Decimal("0.00"),
+                        cash_amount=Decimal("0.00"),
+                        upi_amount=Decimal("0.00"),
+                    ),
+                )
+                zero_preview = await preview_retailer_sale(
+                    db, current_shop, shop_user, zero_payload
+                )
+                with self.assertRaises(HTTPException):
+                    await create_retailer_sale(
+                        db,
+                        current_shop,
+                        shop_user,
+                        RetailerSaleCheckoutCommitRequest(
+                            retailer_id=zero_payload.retailer_id,
+                            items=zero_payload.items,
+                            payment=zero_payload.payment,
+                            checkout_token=zero_preview.checkout_token,
+                        ),
+                    )
+
+                payload = RetailerSaleCheckoutRequest(
+                    retailer_id=retailer.id,
+                    items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("6"))],
+                    payment=CheckoutPaymentInput(
+                        wallet_amount=Decimal("400.00"),
+                        cash_amount=Decimal("100.00"),
+                        upi_amount=Decimal("100.00"),
+                    ),
+                )
+                preview = await preview_retailer_sale(db, current_shop, shop_user, payload)
+                sale = await create_retailer_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    RetailerSaleCheckoutCommitRequest(
+                        retailer_id=payload.retailer_id,
+                        items=payload.items,
+                        payment=payload.payment,
+                        checkout_token=preview.checkout_token,
+                    ),
+                )
+                self.assertEqual(sale.status, RetailerSaleStatus.SETTLED)
+                self.assertEqual(sale.payments[0].wallet_amount, Decimal("400.00"))
+                session.refresh(retailer_row)
+                self.assertEqual(retailer_row.credit_balance, Decimal("200.00"))
+
+        self.run_async(scenario())
+
+    def test_wallet_payment_rejects_insufficient_credit(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                retailer_row = session.get(Retailer, retailer.id)
+                retailer_row.credit_balance = Decimal("50.00")
+                session.commit()
+
+                payload = RetailerSaleCheckoutRequest(
+                    retailer_id=retailer.id,
+                    items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("2"))],
+                    payment=CheckoutPaymentInput(
+                        wallet_amount=Decimal("100.00"),
+                        cash_amount=Decimal("100.00"),
+                        upi_amount=Decimal("0.00"),
+                    ),
+                )
+                preview = await preview_retailer_sale(db, current_shop, shop_user, payload)
+                with self.assertRaises(HTTPException) as ctx:
+                    await create_retailer_sale(
+                        db,
+                        current_shop,
+                        shop_user,
+                        RetailerSaleCheckoutCommitRequest(
+                            retailer_id=payload.retailer_id,
+                            items=payload.items,
+                            payment=payload.payment,
+                            checkout_token=preview.checkout_token,
+                        ),
+                    )
+                self.assertEqual(ctx.exception.status_code, 422)
 
         self.run_async(scenario())

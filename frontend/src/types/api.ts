@@ -361,6 +361,50 @@ export interface RetailerInventoryUsageBulkResult {
   summary?: InventorySummaryRead | null;
 }
 
+export interface RetailerInventoryPurchaseLineInput {
+  inventory_item_id: UUID;
+  quantity: string;
+  price_per_unit: string;
+}
+
+export interface RetailerInventoryPurchaseCreate {
+  retailer_id: UUID;
+  lines: RetailerInventoryPurchaseLineInput[];
+  occurred_at?: string | null;
+  notes?: string | null;
+}
+
+export interface RetailerInventoryPurchaseLineRead {
+  id: UUID;
+  inventory_item_id: UUID;
+  item_name: string;
+  quantity: string;
+  price_per_unit: string;
+  line_total: string;
+}
+
+export interface RetailerInventoryPurchaseRead {
+  id: UUID;
+  shop_id: UUID;
+  shop_name?: string | null;
+  retailer_id: UUID;
+  retailer_name?: string | null;
+  total_amount: string;
+  amount_applied_to_outstanding: string;
+  amount_deposited_to_wallet: string;
+  status: string;
+  notes?: string | null;
+  created_at: string;
+  voided_at?: string | null;
+  lines: RetailerInventoryPurchaseLineRead[];
+}
+
+export interface RetailerInventoryPurchasePage {
+  items: RetailerInventoryPurchaseRead[];
+  limit: number;
+  has_more: boolean;
+}
+
 export interface RetailerStockAdjustRequest {
   retailer_used_quantity: string;
   category_id?: UUID | null;
@@ -681,6 +725,7 @@ export interface BillItemInput {
 export interface CheckoutPaymentInput {
   cash_amount: string;
   upi_amount: string;
+  wallet_amount?: string;
 }
 
 export interface BillCheckoutRequest {
@@ -1181,7 +1226,14 @@ export interface RetailerBalanceRead {
   retailer_id: UUID;
   retailer_name: string;
   outstanding_balance: string;
+  credit_balance?: string;
   open_sales: RetailerOpenSaleSummary[];
+}
+
+export interface RetailerWalletRead {
+  retailer_id: UUID;
+  retailer_name: string;
+  credit_balance: string;
 }
 
 export interface RetailerSaleLineRead {
@@ -1200,6 +1252,7 @@ export interface RetailerPaymentRead {
   id: UUID;
   cash_amount: string;
   upi_amount: string;
+  wallet_amount?: string;
   total_paid: string;
   paid_at: string;
   recorded_by_user_id: UUID;

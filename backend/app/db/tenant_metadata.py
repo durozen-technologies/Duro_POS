@@ -178,6 +178,33 @@ def _ensure_public_receipt_status_enum(connection: Connection) -> None:
     )
 
 
+def _ensure_public_retailer_inventory_purchase_status_enum(connection: Connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    exists = connection.execute(
+        text(
+            "SELECT 1 FROM pg_type t "
+            "JOIN pg_namespace n ON n.oid = t.typnamespace "
+            "WHERE n.nspname = 'public' AND t.typname = 'retailerinventorypurchasestatus'"
+        )
+    ).scalar_one_or_none()
+    if exists is not None:
+        return
+    connection.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                CREATE TYPE retailerinventorypurchasestatus AS ENUM ('active', 'void');
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END
+            $$;
+            """
+        )
+    )
+
+
 def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str) -> None:
     """Idempotent tenant DDL when alembic_version is ahead of the physical schema."""
     safe = _safe_schema_name(schema_name)
@@ -457,6 +484,112 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                     )
                 )
 
+    if "retailers" in table_names:
+        retailer_columns = {
+            column["name"] for column in inspector.get_columns("retailers", schema=safe)
+        }
+        if "credit_balance" not in retailer_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailers "
+                        "ADD COLUMN IF NOT EXISTS credit_balance NUMERIC(10, 2) "
+                        "NOT NULL DEFAULT 0.00"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailers "
+                        "ADD COLUMN credit_balance NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+
+    if "retailer_payments" in table_names:
+        payment_columns = {
+            column["name"] for column in inspector.get_columns("retailer_payments", schema=safe)
+        }
+        if "wallet_amount" not in payment_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_payments "
+                        "ADD COLUMN IF NOT EXISTS wallet_amount NUMERIC(10, 2) "
+                        "NOT NULL DEFAULT 0.00"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_payments "
+                        "ADD COLUMN wallet_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+
+    purchase_tables = ("retailer_inventory_purchases", "retailer_inventory_purchase_lines")
+    if any(name not in table_names for name in purchase_tables):
+        create_tenant_tables(connection, safe)
+
+    if "retailer_inventory_purchases" in table_names:
+        purchase_columns = {
+            column["name"]
+            for column in inspector.get_columns("retailer_inventory_purchases", schema=safe)
+        }
+        if dialect == "postgresql":
+            if "amount_applied_to_outstanding" not in purchase_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_inventory_purchases "
+                        "ADD COLUMN IF NOT EXISTS amount_applied_to_outstanding "
+                        "NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+            if "amount_deposited_to_wallet" not in purchase_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_inventory_purchases "
+                        "ADD COLUMN IF NOT EXISTS amount_deposited_to_wallet "
+                        "NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+        else:
+            if "amount_applied_to_outstanding" not in purchase_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_inventory_purchases "
+                        "ADD COLUMN amount_applied_to_outstanding "
+                        "NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+            if "amount_deposited_to_wallet" not in purchase_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_inventory_purchases "
+                        "ADD COLUMN amount_deposited_to_wallet "
+                        "NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+
+    if "retailer_payments" in table_names:
+        payment_columns = {
+            column["name"] for column in inspector.get_columns("retailer_payments", schema=safe)
+        }
+        if "retailer_inventory_purchase_id" not in payment_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_payments "
+                        "ADD COLUMN IF NOT EXISTS retailer_inventory_purchase_id UUID"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_payments "
+                        "ADD COLUMN retailer_inventory_purchase_id CHAR(32)"
+                    )
+                )
+
 
 def ensure_tenant_schema_column_patches(connection: Connection, schema_name: str) -> None:
     """Backward-compatible alias for startup/repair drift patching."""
@@ -471,6 +604,7 @@ def create_tenant_tables(connection: Connection, schema_name: str) -> None:
     safe = _safe_schema_name(schema_name)
     inspector = inspect(connection)
     connection.execute(text(f'SET search_path TO "{safe}", public'))
+    _ensure_public_retailer_inventory_purchase_status_enum(connection)
 
     with _reuse_public_pg_enums(connection):
         for table in Base.metadata.sorted_tables:

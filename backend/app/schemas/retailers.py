@@ -29,6 +29,7 @@ class RetailerRead(ORMModel):
     phone: str | None = None
     notes: str | None = None
     is_active: bool
+    credit_balance: Decimal = Decimal("0.00")
     allocated_shop_count: int = 0
     outstanding_balance: Decimal = Decimal("0.00")
     branch_names: list[str] = []
@@ -148,7 +149,14 @@ class RetailerBalanceRead(BaseModel):
     retailer_id: UUID
     retailer_name: str
     outstanding_balance: Decimal
+    credit_balance: Decimal = Decimal("0.00")
     open_sales: list[RetailerOpenSaleSummary]
+
+
+class RetailerWalletRead(BaseModel):
+    retailer_id: UUID
+    retailer_name: str
+    credit_balance: Decimal
 
 
 class RetailerSaleItemInput(BaseModel):
@@ -188,6 +196,7 @@ class RetailerPaymentRead(ORMModel):
     id: UUID
     cash_amount: Decimal
     upi_amount: Decimal
+    wallet_amount: Decimal = Decimal("0.00")
     total_paid: Decimal
     paid_at: datetime
     recorded_by_user_id: UUID

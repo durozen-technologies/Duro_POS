@@ -10,12 +10,20 @@ import type {
   RetailerSaleRead,
   RetailerSaleReceiptPage,
   RetailerSaleReceiptRead,
+  RetailerWalletRead,
   UUID,
 } from "@/types/api";
 
 export async function fetchRetailerCatalog(retailerId: UUID) {
   const { data } = await apiClient.get<RetailerCatalogItemRead[]>(
     `/api/v1/shop/retailers/${retailerId}/catalog`,
+  );
+  return data;
+}
+
+export async function fetchShopRetailerWallet(retailerId: UUID) {
+  const { data } = await apiClient.get<RetailerWalletRead>(
+    `/api/v1/shop/retailers/${retailerId}/wallet`,
   );
   return data;
 }

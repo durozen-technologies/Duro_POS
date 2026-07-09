@@ -8,6 +8,7 @@ from app.auth.permission_codes import RETAILERS_MANAGE, RETAILERS_READ
 from app.auth.tenant_context import TenantContext, require_permission
 from app.models import RetailerSaleStatus
 from app.routers.admin._params import DBSession
+from app.schemas.retailer_inventory import RetailerInventoryPurchasePage
 from app.schemas.retailers import (
     RetailerBalanceRead,
     RetailerBranchAllocationRead,
@@ -30,6 +31,7 @@ from app.schemas.retailers import (
     RetailerUpdate,
     ShopRetailerCatalogSync,
 )
+from app.services.retailer_inventory_purchases import list_retailer_inventory_purchases
 from app.services.retailer_sales import (
     get_retailer_sale,
     get_retailer_sale_receipt,
@@ -253,6 +255,20 @@ async def admin_retailer_balance(
     db: DBSession,
 ) -> RetailerBalanceRead:
     return await get_retailer_balance(db, retailer_id)
+
+
+@router.get(
+    "/retailers/{retailer_id}/inventory-purchases",
+    response_model=RetailerInventoryPurchasePage,
+    dependencies=[Depends(require_permission(RETAILERS_READ))],
+    summary="List retailer inventory purchases",
+)
+async def admin_list_retailer_inventory_purchases(
+    retailer_id: UUID,
+    db: DBSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+) -> RetailerInventoryPurchasePage:
+    return await list_retailer_inventory_purchases(db, retailer_id=retailer_id, limit=limit)
 
 
 @router.get(
