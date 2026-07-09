@@ -124,6 +124,7 @@ async def commit_shop_checkout(payload, db, shop, actor):
     response = Response()
     return await checkout(payload, response, db, shop, actor)
 from app.schemas.admin import (
+    ConfirmDeleteRequest,
     ItemCategoryCreate,
     ItemCategoryUpdate,
     ItemMetadataUpdate,
@@ -1386,7 +1387,15 @@ class BackendApiIntegrationTests(BackendTestCase):
                 self.assertTrue(shop_page.items[0].can_deallocate)
 
                 with self.assertRaises(HTTPException) as delete_context:
-                    await delete_inventory_item(created_item.id, db)
+                    await delete_inventory_item(
+                        created_item.id,
+                        ConfirmDeleteRequest(
+                            username=admin_user.username,
+                            password="password123",
+                        ),
+                        db,
+                        admin_user,
+                    )
                 self.assertEqual(delete_context.exception.status_code, 409)
                 self.assertEqual(
                     delete_context.exception.detail,

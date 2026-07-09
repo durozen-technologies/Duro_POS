@@ -470,16 +470,37 @@ async def update_shop_inventory_item(
     )
 
 
+@router.post(
+    "/shops/{shop_id}/items/{item_id}/confirm-delete",
+    status_code=204,
+    summary="Confirm Delete Shop Item",
+    description=(
+        "Permanently delete a shop-owned item after re-authenticating the current "
+        "tenant admin. Rejects items with billing or price history."
+    ),
+)
 @router.delete(
     "/shops/{shop_id}/items/{item_id}",
     status_code=204,
     summary="Delete Shop Item",
+    description=(
+        "Same as POST .../confirm-delete. Requires tenant-admin username and password "
+        "in the body. Prefer POST for clients that do not send DELETE bodies."
+    ),
 )
 async def delete_shop_inventory_item(
     item_id: UUID,
+    payload: ConfirmDeleteRequest,
     shop: ShopDep,
     db: DBSession,
+    current_user: AdminUserDep,
 ) -> Response:
+    await verify_tenant_admin_credentials(
+        db,
+        current_user,
+        username=payload.username,
+        password=payload.password,
+    )
     await delete_item(db, item_id, shop_id=shop.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -785,19 +806,37 @@ async def delete_inventory_item_image(
     return await delete_item_image(db, item_id)
 
 
+@router.post(
+    "/items/{item_id}/confirm-delete",
+    status_code=204,
+    summary="Confirm Delete Catalogue Item",
+    description=(
+        "Permanently delete a catalogue item after re-authenticating the current "
+        "tenant admin. Rejects items with shop allocations, billing, or price history. "
+        "If an image exists, its RustFS object is removed after the database delete succeeds."
+    ),
+)
 @router.delete(
     "/items/{item_id}",
     status_code=204,
     summary="Delete Item",
     description=(
-        "Delete an item only if it has no billing history and no saved price history. "
-        "If an image exists, its RustFS object is also removed after the database delete succeeds."
+        "Same as POST .../confirm-delete. Requires tenant-admin username and password "
+        "in the body. Prefer POST for clients that do not send DELETE bodies."
     ),
 )
 async def delete_inventory_item(
     item_id: UUID,
+    payload: ConfirmDeleteRequest,
     db: DBSession,
+    current_user: AdminUserDep,
 ) -> Response:
-    """Delete an item only when it has no billing or price history."""
+    """Delete a catalogue item only when it has no billing or price history."""
+    await verify_tenant_admin_credentials(
+        db,
+        current_user,
+        username=payload.username,
+        password=payload.password,
+    )
     await delete_item(db, item_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

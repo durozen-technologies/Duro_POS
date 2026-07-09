@@ -30,6 +30,7 @@ from app.schemas.admin import (
     AdminReportDetailLevel,
     AdminReportSection,
     AnalyticsPeriod,
+    ConfirmDeleteRequest,
     ItemAssumptionUpdate,
     ItemCategoryCreate,
     ItemCategoryRead,
@@ -57,6 +58,7 @@ from app.schemas.admin import (
     ShopStatusUpdate,
     ShopUpdate,
 )
+from app.services.admin._credentials import verify_tenant_admin_credentials
 from app.schemas.billing import BillDetailBatchRequest, BillRead
 from app.schemas.expenses import (
     ExpenseEntryPage,

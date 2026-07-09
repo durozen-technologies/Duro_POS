@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { YStack } from "tamagui";
 
@@ -15,6 +15,11 @@ import {
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAdminItemsStore } from "@/store/admin-items-store";
+import { useAuthStore } from "@/store/auth-store";
+import {
+  AdminConfirmDeleteModal,
+  type ConfirmDeleteCredentials,
+} from "./components/admin-confirm-delete-modal";
 import type {
   DailyPriceCreate,
   ItemAssumptionUpdate,
@@ -139,6 +144,10 @@ function AdminItemsRoute({
   const [savingAssumptionId, setSavingAssumptionId] = useState<UUID | null>(null);
   const [categoryFilterKey, setCategoryFilterKey] = useState(ALL_CATEGORY_FILTER_KEY);
   const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<ShopItemRead | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const signedInUsername = useAuthStore((state) => state.user?.username ?? "");
   const toastAnimation = useMemo(() => new Animated.Value(0), []);
   const isCatalogueWorkspace = workspace === AdminItemWorkspace.Catalogue;
   const isAssumptionWorkspace = workspace === AdminItemWorkspace.Assumption;
@@ -427,34 +436,44 @@ function AdminItemsRoute({
       showToast("error", "Remove catalogue items from the shop instead of deleting the global record.");
       return;
     }
-    Alert.alert(
-      item.scope === ItemScope.Global ? "Delete catalogue item" : "Delete shop item",
-      item.scope === ItemScope.Global
-        ? `Delete ${item.name} from the catalogue? This is only allowed when it has no billing or price history.`
-        : `Delete ${item.name}? Items with billing or price history cannot be deleted.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                if (workspace === AdminItemWorkspace.Catalogue) {
-                  await catalogueState.deleteItem(item.id);
-                } else {
-                  await shopItemsState.deleteItem(item);
-                }
-                showToast("success", `${item.name} deleted.`);
-              } catch (error) {
-                showToast("error", formatApiErrorMessage(error, "Unable to delete item."));
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [catalogueState, shopItemsState, showToast, workspace]);
+    setDeleteError(null);
+    setPendingDeleteItem(item);
+  }, [showToast, workspace]);
+
+  const closeDeleteConfirm = useCallback(() => {
+    if (deleteBusy) {
+      return;
+    }
+    setPendingDeleteItem(null);
+    setDeleteError(null);
+  }, [deleteBusy]);
+
+  const submitPendingDelete = useCallback(
+    (credentials: ConfirmDeleteCredentials) => {
+      const item = pendingDeleteItem;
+      if (!item || deleteBusy) {
+        return;
+      }
+      void (async () => {
+        setDeleteBusy(true);
+        setDeleteError(null);
+        try {
+          if (workspace === AdminItemWorkspace.Catalogue) {
+            await catalogueState.deleteItem(item.id, credentials);
+          } else {
+            await shopItemsState.deleteItem(item, credentials);
+          }
+          setPendingDeleteItem(null);
+          showToast("success", `${item.name} deleted.`);
+        } catch (error) {
+          setDeleteError(formatApiErrorMessage(error, "Unable to delete item."));
+        } finally {
+          setDeleteBusy(false);
+        }
+      })();
+    },
+    [catalogueState, deleteBusy, pendingDeleteItem, shopItemsState, showToast, workspace],
+  );
 
   const openAvailableCatalogue = useCallback(() => {
     setShopItemsTab("available");
@@ -549,9 +568,17 @@ function AdminItemsRoute({
         };
 
     const secondary: RowAction[] = [];
+    if (item.can_delete && (isCatalogueWorkspace || !isGlobal)) {
+      secondary.push({
+        label: "Delete",
+        icon: "trash-can-outline",
+        tone: "danger",
+        onPress: () => confirmDelete(item),
+      });
+    }
 
     return { primary, secondary };
-  }, [navigateEdit, shopItemsState, showToast, workspace]);
+  }, [confirmDelete, navigateEdit, shopItemsState, showToast, workspace]);
 
   const refreshCatalogue = useCallback(() => {
     void catalogueState.refresh().catch((error) => {
@@ -1140,6 +1167,26 @@ function AdminItemsRoute({
               : renderShopItems()}
       </KeyboardAvoidingView>
       <ToastBanner toast={toast} palette={palette} animatedValue={toastAnimation} />
+      <AdminConfirmDeleteModal
+        visible={pendingDeleteItem !== null}
+        title={
+          pendingDeleteItem?.scope === ItemScope.Global
+            ? "Delete catalogue item"
+            : "Delete shop item"
+        }
+        resourceName={pendingDeleteItem?.name ?? "this item"}
+        message={
+          pendingDeleteItem?.scope === ItemScope.Global
+            ? "Enter your tenant admin password to permanently delete this catalogue item. Only allowed when it has no shop allocations, billing, or price history."
+            : "Enter your tenant admin password to permanently delete this shop item. Items with billing or price history cannot be deleted."
+        }
+        signedInUsername={signedInUsername}
+        palette={palette}
+        busy={deleteBusy}
+        errorMessage={deleteError}
+        onCancel={closeDeleteConfirm}
+        onConfirm={submitPendingDelete}
+      />
     </SafeAreaView>
   );
 }

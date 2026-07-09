@@ -788,8 +788,14 @@ export async function updateItemAssumption(itemId: UUID, payload: ItemAssumption
   return data;
 }
 
-export async function deleteItem(itemId: UUID) {
-  await apiClient.delete(`/api/v1/admin/items/${itemId}`);
+export type ConfirmDeletePayload = {
+  username: string;
+  password: string;
+};
+
+/** Prefer POST — some clients strip DELETE bodies. */
+export async function deleteItem(itemId: UUID, payload: ConfirmDeletePayload) {
+  await apiClient.post(`/api/v1/admin/items/${itemId}/confirm-delete`, payload);
 }
 
 export async function deleteInventoryItem(itemId: UUID) {
@@ -833,8 +839,9 @@ export async function updateShopItemMetadata(shopId: UUID, itemId: UUID, payload
   return data;
 }
 
-export async function deleteShopItem(shopId: UUID, itemId: UUID) {
-  await apiClient.delete(`/api/v1/admin/shops/${shopId}/items/${itemId}`);
+/** Prefer POST — some clients strip DELETE bodies. */
+export async function deleteShopItem(shopId: UUID, itemId: UUID, payload: ConfirmDeletePayload) {
+  await apiClient.post(`/api/v1/admin/shops/${shopId}/items/${itemId}/confirm-delete`, payload);
 }
 
 export async function deleteItemImage(itemId: UUID) {

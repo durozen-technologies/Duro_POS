@@ -350,8 +350,22 @@ async def update_item(
     filters = [Item.id == item_id]
     if shop_id is not None:
         filters.append(Item.shop_id == shop_id)
+    else:
+        filters.append(Item.shop_id.is_(None))
     item = await db.scalar(select(Item).where(*filters).with_for_update())
     if item is None:
+        if shop_id is None:
+            shop_owned = await db.scalar(
+                select(Item.id).where(Item.id == item_id, Item.shop_id.is_not(None))
+            )
+            if shop_owned is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=(
+                        "Item not found in catalogue. "
+                        "Use the shop item update endpoint for shop-owned items."
+                    ),
+                )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     item_name = _normalize_item_name(payload.name)
@@ -459,9 +473,26 @@ async def update_item_metadata(
 ) -> ItemRead:
     filters = [Item.id == item_id]
     if shop_id is not None:
+        # Shop-owned item must match the shop path.
         filters.append(Item.shop_id == shop_id)
+    else:
+        # Catalogue metadata path only updates global catalogue rows.
+        filters.append(Item.shop_id.is_(None))
     item = await db.scalar(select(Item).where(*filters).with_for_update())
     if item is None:
+        # ponytail: clearer hint when wrong endpoint is used for shop-owned items
+        if shop_id is None:
+            shop_owned = await db.scalar(
+                select(Item.id).where(Item.id == item_id, Item.shop_id.is_not(None))
+            )
+            if shop_owned is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=(
+                        "Item not found in catalogue. "
+                        "Use the shop item metadata endpoint for shop-owned items."
+                    ),
+                )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     previous_state = _json_safe_item_state(item)
@@ -658,8 +689,22 @@ async def delete_item(db: AsyncSession, item_id: UUID, shop_id: UUID | None = No
     filters = [Item.id == item_id]
     if shop_id is not None:
         filters.append(Item.shop_id == shop_id)
+    else:
+        filters.append(Item.shop_id.is_(None))
     item = await db.scalar(select(Item).where(*filters).with_for_update())
     if item is None:
+        if shop_id is None:
+            shop_owned = await db.scalar(
+                select(Item.id).where(Item.id == item_id, Item.shop_id.is_not(None))
+            )
+            if shop_owned is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=(
+                        "Item not found in catalogue. "
+                        "Use the shop item delete endpoint for shop-owned items."
+                    ),
+                )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     existence_row = (

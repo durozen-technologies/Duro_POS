@@ -5,7 +5,10 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+
+import { AdminConfirmDeleteModal, type ConfirmDeleteCredentials } from "./components/admin-confirm-delete-modal";
+import { useAuthStore } from "@/store/auth-store";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button as TButton, Input, Spinner, XStack, YStack } from "tamagui";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -16,7 +19,9 @@ import {
   createItemWithImageFile,
   createShopItem,
   createShopItemWithImageFile,
+  deleteItem,
   deleteItemImage,
+  deleteShopItem,
   fetchCatalogueItem,
   fetchItemCategories,
   fetchShopItem,
@@ -33,6 +38,7 @@ import { isApiRequestCanceled, resolveApiUrl, formatApiErrorMessage } from "@/ap
 import { authenticatedImageSource } from "@/utils/item-images";
 import {
   BaseUnit,
+  ItemScope,
   UnitType,
   type ItemCategoryRead,
   type ItemMetadataUpdate,
@@ -41,7 +47,7 @@ import {
 } from "@/types/api";
 import type { AdminItemEditorScreenProps } from "@/navigation/types";
 
-import type { ThemePalette } from "./admin-dashboard-theme";
+import { type ThemePalette, adminRadii, adminSpacing, adminTypography, adminPressOpacity, adminPressScale } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import {
   AdminItemEditorMode,
@@ -435,6 +441,10 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [loading, setLoading] = useState(!isCreate && !initialItem);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmError, setDeleteConfirmError] = useState<string | null>(null);
+  const signedInUsername = useAuthStore((state) => state.user?.username ?? "");
   const [itemError, setItemError] = useState<string | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -464,6 +474,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   const selectedCategoryName = watch("category");
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
+  const deletingRef = useRef(false);
 
   useEffect(() => {
     dirtyRef.current = isDirty || Boolean(imageDraft) || removeImageRequested;
@@ -532,10 +543,15 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     if (!initialItem) {
       setItemError(null);
     }
+    const ownedByShop =
+      Boolean(initialItem?.shop_id) ||
+      initialItem?.scope === ItemScope.Shop ||
+      (workspace === AdminItemWorkspace.Shop && Boolean(shopId));
+    const ownedShopId = initialItem?.shop_id ?? shopId;
     const request =
-      workspace === AdminItemWorkspace.Catalogue || !shopId
-        ? fetchCatalogueItem(itemId, { signal: controller.signal })
-        : fetchShopItem(shopId, itemId, { signal: controller.signal });
+      ownedByShop && ownedShopId
+        ? fetchShopItem(ownedShopId, itemId, { signal: controller.signal })
+        : fetchCatalogueItem(itemId, { signal: controller.signal });
     void request
       .then((loadedItem) => {
         if (!alive) {
@@ -573,7 +589,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (event) => {
-      if (saving || (!isDirty && !imageDraft && !removeImageRequested)) {
+      if (saving || deleting || (!isDirty && !imageDraft && !removeImageRequested)) {
         return;
       }
       event.preventDefault();
@@ -587,7 +603,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       ]);
     });
     return unsubscribe;
-  }, [imageDraft, isDirty, navigation, removeImageRequested, saving]);
+  }, [deleting, imageDraft, isDirty, navigation, removeImageRequested, saving]);
 
   const title = isCreate
     ? workspace === AdminItemWorkspace.Catalogue
@@ -607,7 +623,21 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   const customizationBlocked = isCustomize && item !== null && !item.allocated;
   const hasImageChange = Boolean(imageDraft || removeImageRequested);
   const hasPendingChanges = isDirty || hasImageChange;
-  const saveDisabled = saving || customizationBlocked || (!isCreate && !hasPendingChanges) || (isCreate && !isValid);
+  // Ownership, not workspace: shop-owned rows must never hit catalogue PATCH.
+  const isShopOwnedItem =
+    Boolean(item?.shop_id) || item?.scope === ItemScope.Shop;
+  const usesCatalogueEndpoint = !isCustomize && !isShopOwnedItem;
+  const effectiveShopId = item?.shop_id ?? shopId ?? undefined;
+  const canDeleteItem =
+    !isCreate &&
+    !isCustomize &&
+    Boolean(itemId);
+  const saveDisabled =
+    saving ||
+    deleting ||
+    customizationBlocked ||
+    (!isCreate && !hasPendingChanges) ||
+    (isCreate && !isValid);
   const refreshEditor = useCallback(() => {
     if (!isCustomize) {
       void loadCategories();
@@ -745,7 +775,9 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         if (!itemId) {
           throw new Error("Item is required for editing.");
         }
-        if (workspace === AdminItemWorkspace.Catalogue || !shopId) {
+        // Route by item ownership, not workspace alone — shop-owned rows
+        // must hit /shops/{id}/items/... or catalogue PATCH returns 404.
+        if (usesCatalogueEndpoint) {
           const metadataUnchanged = item ? editorValuesMatchItem(values, item) : false;
           if (hasImageChange && metadataUnchanged) {
             if (imageDraft) {
@@ -767,19 +799,30 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             await updateItemMetadata(itemId, buildMetadataPayload(values, customAttributes));
           }
         } else {
+          if (!effectiveShopId) {
+            throw new Error("Select a shop before editing this shop item.");
+          }
           if (hasImageChange) {
             if (imageDraft) {
               await updateShopItemWithImageFile(
-                shopId,
+                effectiveShopId,
                 itemId,
                 buildFormFields(values, customAttributes, false),
                 imageDraft,
               );
             } else {
-              await updateShopItem(shopId, itemId, buildFormData(values, null, removeImageRequested));
+              await updateShopItem(
+                effectiveShopId,
+                itemId,
+                buildFormData(values, null, removeImageRequested),
+              );
             }
           } else {
-            await updateShopItemMetadata(shopId, itemId, buildMetadataPayload(values, customAttributes));
+            await updateShopItemMetadata(
+              effectiveShopId,
+              itemId,
+              buildMetadataPayload(values, customAttributes),
+            );
           }
         }
       }
@@ -813,7 +856,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   });
 
   const saveItem = useCallback(() => {
-    if (saveDisabled || savingRef.current) {
+    if (saveDisabled || savingRef.current || deletingRef.current) {
       return;
     }
     savingRef.current = true;
@@ -823,6 +866,64 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     setImageStatus(hasImageChange ? "Saving item image..." : null);
     void submit();
   }, [hasImageChange, saveDisabled, submit]);
+
+  const openDeleteConfirm = useCallback(() => {
+    if (!itemId || isCreate || isCustomize || deletingRef.current || savingRef.current) {
+      return;
+    }
+    if (item && item.can_delete === false) {
+      setSaveError(
+        item.scope === ItemScope.Global
+          ? "Cannot delete this catalogue item while it has shop allocations, billing history, or price history."
+          : "Cannot delete this item while it has billing history or price history.",
+      );
+      return;
+    }
+    setDeleteConfirmError(null);
+    setDeleteConfirmOpen(true);
+  }, [isCreate, isCustomize, item, itemId]);
+
+  const closeDeleteConfirm = useCallback(() => {
+    if (deletingRef.current) {
+      return;
+    }
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmError(null);
+  }, []);
+
+  const submitDeleteItem = useCallback(
+    (credentials: ConfirmDeleteCredentials) => {
+      if (!itemId || isCreate || isCustomize || deletingRef.current || savingRef.current) {
+        return;
+      }
+      void (async () => {
+        deletingRef.current = true;
+        setDeleting(true);
+        setDeleteConfirmError(null);
+        setSaveError(null);
+        try {
+          if (usesCatalogueEndpoint) {
+            await deleteItem(itemId, credentials);
+          } else {
+            if (!effectiveShopId) {
+              throw new Error("Select a shop before deleting this shop item.");
+            }
+            await deleteShopItem(effectiveShopId, itemId, credentials);
+          }
+          dirtyRef.current = false;
+          setDeleteConfirmOpen(false);
+          navigation.goBack();
+        } catch (requestError) {
+          triggerHaptic();
+          setDeleteConfirmError(getRequestErrorMessage(requestError, "Unable to delete item."));
+        } finally {
+          deletingRef.current = false;
+          setDeleting(false);
+        }
+      })();
+    },
+    [effectiveShopId, isCreate, isCustomize, itemId, navigation, usesCatalogueEndpoint],
+  );
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
@@ -846,7 +947,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         </View>
         <AdminHeaderActions
           refreshing={loading || categoriesLoading}
-          refreshDisabled={saving}
+          refreshDisabled={saving || deleting}
           onRefresh={refreshEditor}
         />
       </View>
@@ -857,6 +958,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           <Text style={[styles.helper, { color: palette.textMuted }]}>Loading item...</Text>
         </View>
       ) : (
+        <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.content, { paddingBottom: 34 + insets.bottom }]}
@@ -909,12 +1011,12 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                   <MaterialCommunityIcons name="image-plus" size={30} color={palette.textMuted} />
                 )}
               </View>
-              <YStack flex={1} gap={8}>
+              <YStack flex={1} gap={adminSpacing.xs}>
                 <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Image</Text>
                 <Text style={[styles.sectionHint, { color: palette.textMuted }]}>Square image for admin and billing item rows.</Text>
                 {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
                 {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
-                <XStack gap={8} flexWrap="wrap">
+                <XStack gap={adminSpacing.xs} flexWrap="wrap">
                   <EditorButton label="Pick image" icon="image-edit-outline" onPress={pickImage} palette={palette} tone="info" active />
                   {imageDraft || hasStoredImage || removeImageRequested ? (
                     <EditorButton
@@ -969,7 +1071,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
 
           {canEditSharedFields ? (
             <>
-              <XStack gap={8}>
+              <XStack gap={adminSpacing.xs}>
                 <EditorButton
                   label="Weight"
                   icon="scale-balance"
@@ -1010,22 +1112,51 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             </>
           ) : null}
 
-          <XStack gap={10}>
+          <XStack gap={adminSpacing.sm}>
             <EditorButton label="Cancel" icon="close-circle-outline" onPress={() => navigation.goBack()} palette={palette} flex tone="warning" active />
             <EditorButton
               label={saving ? "Saving..." : "Save item"}
               icon="content-save-outline"
               onPress={saveItem}
               palette={palette}
+              flex
               tone="primary"
               active
-              loading={saving}
               disabled={saveDisabled}
-              flex
+              loading={saving}
             />
           </XStack>
+          {canDeleteItem ? (
+            <EditorButton
+              label={deleting ? "Deleting..." : "Delete item"}
+              icon="trash-can-outline"
+              onPress={openDeleteConfirm}
+              palette={palette}
+              tone="danger"
+              active
+              disabled={saving || deleting}
+              loading={deleting}
+            />
+          ) : null}
         </ScrollView>
+        </KeyboardAvoidingView>
       )}
+      <AdminConfirmDeleteModal
+        visible={deleteConfirmOpen}
+        title={usesCatalogueEndpoint ? "Delete catalogue item" : "Delete shop item"}
+        resourceName={item?.name?.trim() || "this item"}
+        message={
+          usesCatalogueEndpoint
+            ? "Enter your tenant admin password to permanently delete this catalogue item. Only allowed when it has no shop allocations, billing, or price history."
+            : "Enter your tenant admin password to permanently delete this shop item. Items with billing or price history cannot be deleted."
+        }
+        signedInUsername={signedInUsername}
+        palette={palette}
+        busy={deleting}
+        errorMessage={deleteConfirmError}
+        onCancel={closeDeleteConfirm}
+        onConfirm={submitDeleteItem}
+      />
     </SafeAreaView>
   );
 }
@@ -1050,7 +1181,7 @@ function EditorField({
   onChangeText: (value: string) => void;
 }) {
   return (
-    <YStack gap={7}>
+    <YStack gap={adminSpacing.xs}>
       <Text style={[styles.fieldLabel, { color: palette.textMuted }]}>{label}</Text>
       <Input
         value={value}
@@ -1060,7 +1191,7 @@ function EditorField({
         multiline={multiline}
         onChangeText={onChangeText}
         minHeight={multiline ? 92 : 48}
-        borderRadius={12}
+        borderRadius={adminRadii.control}
         borderWidth={1}
         borderColor={errorText ? palette.danger : palette.border}
         backgroundColor={palette.surfaceMuted}
@@ -1125,14 +1256,14 @@ function CategoryManager({
 
   return (
     <View style={[styles.categoryPanel, { borderColor: palette.border, backgroundColor: palette.card }]}>
-      <XStack alignItems="center" justifyContent="space-between" gap={10}>
+      <XStack alignItems="center" justifyContent="space-between" gap={adminSpacing.sm}>
         <YStack flex={1} minWidth={0}>
           <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Category</Text>
           <Text style={[styles.sectionHint, { color: palette.textMuted }]}>
             Choose a catalogue group for this item.
           </Text>
         </YStack>
-        <XStack alignItems="center" gap={4}>
+        <XStack alignItems="center" gap={adminSpacing.xxs}>
           {loading ? <Spinner color={palette.items} size="small" /> : null}
           <Pressable
             accessibilityRole="button"
@@ -1175,7 +1306,7 @@ function CategoryManager({
         <View style={[styles.modalOverlay, { backgroundColor: palette.overlay }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
           <View style={[styles.categorySheet, { backgroundColor: palette.card, borderColor: palette.border }]}>
-            <XStack alignItems="center" justifyContent="space-between" gap={10}>
+            <XStack alignItems="center" justifyContent="space-between" gap={adminSpacing.sm}>
               <YStack flex={1} minWidth={0}>
                 <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Select category</Text>
                 <Text style={[styles.sectionHint, { color: palette.textMuted }]}>Choose one category for this item.</Text>
@@ -1310,7 +1441,7 @@ function AttributeEditor({
 }) {
   return (
     <View style={[styles.attributesPanel, { borderColor: palette.border, backgroundColor: palette.card }]}>
-      <XStack alignItems="center" justifyContent="space-between" gap={10}>
+      <XStack alignItems="center" justifyContent="space-between" gap={adminSpacing.sm}>
         <YStack flex={1} minWidth={0}>
           <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Custom attributes</Text>
           <Text style={[styles.sectionHint, { color: palette.textMuted }]}>Typed key/value details for future filtering and shop customization.</Text>
@@ -1323,7 +1454,7 @@ function AttributeEditor({
           <Text style={[styles.sectionHint, { color: palette.textMuted }]}>No attributes yet.</Text>
         </View>
       ) : (
-        <YStack gap={9}>
+        <YStack gap={adminSpacing.sm}>
           {fields.map((field, index) => {
             const valueType = watchedAttributes[index]?.valueType ?? "text";
             const value = watchedAttributes[index]?.value ?? "";
@@ -1473,17 +1604,17 @@ function EditorButton({
       disabled={loading || disabled}
       flex={flex ? 1 : undefined}
       minHeight={44}
-      borderRadius={12}
+      borderRadius={adminRadii.control}
       borderWidth={1}
       borderColor={borderColor}
       backgroundColor={backgroundColor}
       opacity={disabled ? 0.56 : 1}
-      pressStyle={{ opacity: 0.9, scale: 0.98 }}
+      pressStyle={{ opacity: adminPressOpacity, scale: adminPressScale }}
     >
       {loading ? (
         <Spinner color={textColor} />
       ) : (
-        <XStack gap={7} alignItems="center" justifyContent="center">
+        <XStack gap={adminSpacing.xs} alignItems="center" justifyContent="center">
           <MaterialCommunityIcons name={icon} size={17} color={textColor} />
           <Text numberOfLines={1} style={[styles.buttonText, { color: textColor }]}>{label}</Text>
         </XStack>
@@ -1501,14 +1632,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingBottom: 10,
+    gap: adminSpacing.sm,
+    paddingHorizontal: adminSpacing.md,
+    paddingBottom: adminSpacing.sm,
   },
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1517,37 +1648,33 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: "900",
+    ...adminTypography.pageTitle,
   },
   subtitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
+    ...adminTypography.body,
   },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   content: {
-    gap: 16,
-    padding: 16,
+    gap: adminSpacing.md,
+    padding: adminSpacing.md,
   },
   panel: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm,
     flexDirection: "row",
-    gap: 12,
+    gap: adminSpacing.sm,
     alignItems: "center",
   },
   imagePreview: {
     width: 88,
     height: 88,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     borderWidth: 1,
     overflow: "hidden",
     alignItems: "center",
@@ -1555,94 +1682,74 @@ const styles = StyleSheet.create({
   },
   infoBox: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm,
     flexDirection: "row",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   infoText: {
     flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   sectionTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "900",
+    ...adminTypography.sectionTitle,
   },
   sectionHint: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "700",
+    ...adminTypography.body,
   },
   imageMessage: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   fieldLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "900",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+    ...adminTypography.caption,
   },
   fieldError: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   buttonText: {
-    fontSize: 13,
-    fontWeight: "900",
+    ...adminTypography.bodyStrong,
     flexShrink: 1,
   },
   helper: {
-    fontSize: 13,
-    fontWeight: "700",
+    ...adminTypography.bodyStrong,
   },
   errorBox: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   errorText: {
     flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
+    ...adminTypography.bodyStrong,
   },
   errorAction: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "900",
+    ...adminTypography.bodyStrong,
   },
   categoryPanel: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    gap: 12,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm,
+    gap: adminSpacing.sm,
   },
   categoryManageButton: {
     width: 42,
     height: 42,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     alignItems: "center",
     justifyContent: "center",
   },
   categorySelect: {
     minHeight: 58,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    borderRadius: adminRadii.card,
+    paddingHorizontal: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: adminSpacing.sm,
   },
   categorySelectTextWrap: {
     flex: 1,
@@ -1650,29 +1757,25 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   categorySelectText: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "900",
+    ...adminTypography.bodyStrong,
   },
   modalOverlay: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 16,
+    padding: adminSpacing.md,
   },
   categorySheet: {
     width: "100%",
     maxWidth: 520,
     maxHeight: "82%",
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.md,
+    gap: adminSpacing.sm,
   },
   sheetTitle: {
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: "900",
+    ...adminTypography.pageTitle,
   },
   sheetIconButton: {
     width: 40,
@@ -1684,51 +1787,49 @@ const styles = StyleSheet.create({
     minHeight: 120,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   categoryOption: {
     minHeight: 48,
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    borderRadius: adminRadii.card,
+    paddingHorizontal: adminSpacing.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   categoryOptionText: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "900",
+    ...adminTypography.bodyStrong,
   },
   categoryEmpty: {
     minHeight: 72,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     alignItems: "center",
     justifyContent: "center",
-    padding: 12,
+    padding: adminSpacing.sm,
     marginTop: 6,
   },
   attributesPanel: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    gap: 12,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm,
+    gap: adminSpacing.sm,
   },
   emptyAttributes: {
     minHeight: 48,
-    borderRadius: 12,
+    borderRadius: adminRadii.card,
     alignItems: "center",
     justifyContent: "center",
   },
   attributeRow: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 8,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.xs,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: adminSpacing.xs,
   },
   attributeKey: {
     flex: 1,
@@ -1738,38 +1839,36 @@ const styles = StyleSheet.create({
     minWidth: 64,
     minHeight: 40,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: adminSpacing.xs,
   },
   booleanButton: {
     flex: 1,
     minHeight: 40,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: adminSpacing.xs,
   },
   nullValue: {
     flex: 1,
     minHeight: 40,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: adminRadii.control,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: adminSpacing.xs,
   },
   typeText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "900",
+    ...adminTypography.caption,
   },
   removeAttributeButton: {
     width: 34,
     height: 34,
-    borderRadius: 17,
+    borderRadius: adminRadii.pill,
     alignItems: "center",
     justifyContent: "center",
   },

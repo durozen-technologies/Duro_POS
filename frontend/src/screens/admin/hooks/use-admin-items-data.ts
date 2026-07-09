@@ -17,6 +17,7 @@ import {
   saveShopDailyPrice,
   saveShopDailyPrices,
   type ApiRequestOptions,
+  type ConfirmDeletePayload,
   type FetchShopItemsParams,
 } from "@/api/admin";
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
@@ -434,9 +435,9 @@ export function useCatalogueItems(enabled = true) {
     fetchCountsPage: fetchCatalogueItemCounts,
   });
 
-  const remove = useCallback(async (itemId: UUID) => {
+  const remove = useCallback(async (itemId: UUID, credentials: ConfirmDeletePayload) => {
     try {
-      await deleteItem(itemId);
+      await deleteItem(itemId, credentials);
       await page.refresh();
     } catch (requestError) {
       throw new Error(formatApiErrorMessage(requestError));
@@ -495,13 +496,13 @@ export function useSelectedShopItems(shopId: UUID | null, enabled = true) {
     }
   }, [page, shopId]);
 
-  const remove = useCallback(async (item: ShopItemRead) => {
+  const remove = useCallback(async (item: ShopItemRead, credentials: ConfirmDeletePayload) => {
     if (!shopId) {
       throw new Error("Select a shop before deleting items.");
     }
     try {
       if (item.scope === ItemScope.Shop) {
-        await deleteShopItem(shopId, item.id);
+        await deleteShopItem(shopId, item.id, credentials);
       } else {
         throw new Error("Remove catalogue items from this shop instead of deleting the global catalogue record.");
       }
