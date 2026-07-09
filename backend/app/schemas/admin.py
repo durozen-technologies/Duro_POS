@@ -316,6 +316,8 @@ class ShopSalesSummary(BaseModel):
     shop_id: UUID
     shop_name: str
     total_sales: Decimal
+    expense_cash_total: Decimal = Decimal("0")
+    expense_upi_total: Decimal = Decimal("0")
 
 
 class PaymentSplitSummary(BaseModel):
@@ -424,6 +426,8 @@ class OverallReportStatement(BaseModel):
     end_date: date
     period_label: str
     unit_summaries: list[OverallReportUnitSummary] = Field(default_factory=list)
+    expense_cash_amount: Decimal = Decimal("0")
+    expense_upi_amount: Decimal = Decimal("0")
     expense_amount: Decimal = Decimal("0")
     sales_amount: Decimal = Decimal("0")
     retailer_paid_amount: Decimal = Decimal("0")

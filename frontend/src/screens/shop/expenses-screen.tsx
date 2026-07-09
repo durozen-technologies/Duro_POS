@@ -91,12 +91,22 @@ function mergeById<T extends { id: UUID }>(current: T[], nextRows: T[]) {
   return [...current, ...nextRows.filter((row) => !existingIds.has(row.id))];
 }
 
-function isValidAmount(value: string) {
+function parseMoneyDraft(value: string) {
   const trimmed = value.trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
-    return false;
+  if (!trimmed) {
+    return 0;
   }
-  return Number(trimmed) > 0;
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    return Number.NaN;
+  }
+  return Number(trimmed);
+}
+
+function expenseSplit(entry: ExpenseEntryRead) {
+  const amount = Number(entry.amount ?? 0);
+  const cash = entry.cash_amount != null ? Number(entry.cash_amount) : amount;
+  const upi = entry.upi_amount != null ? Number(entry.upi_amount) : 0;
+  return { cash, upi, total: amount || cash + upi };
 }
 
 function ExpenseRow({
@@ -149,6 +159,7 @@ function ExpenseRow({
 }
 
 function HistoryRow({ entry }: { entry: ExpenseEntryRead }) {
+  const split = expenseSplit(entry);
   return (
     <View className="mb-3 rounded-card border border-border bg-card p-4">
       <View className="flex-row items-start gap-3">
@@ -161,9 +172,12 @@ function HistoryRow({ entry }: { entry: ExpenseEntryRead }) {
               {entry.expense_name}
             </Text>
             <Text className="text-sm font-extrabold text-accent">
-              {formatCurrency(entry.amount)}
+              {formatCurrency(split.total)}
             </Text>
           </View>
+          <Text className="mt-1 text-xs font-semibold text-muted">
+            Cash {formatCurrency(split.cash)} | UPI {formatCurrency(split.upi)}
+          </Text>
           <Text className="mt-0.5 text-xs font-semibold text-muted" numberOfLines={1}>
             {formatDateTime(entry.spent_at)}
           </Text>
@@ -428,7 +442,8 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
   });
 
   const [selectedItem, setSelectedItem] = useState<ShopExpenseItemRead | null>(null);
-  const [amountDraft, setAmountDraft] = useState("");
+  const [cashDraft, setCashDraft] = useState("");
+  const [upiDraft, setUpiDraft] = useState("");
   const [saving, setSaving] = useState(false);
 
   const visibleItems = useMemo(
@@ -565,7 +580,8 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
 
   const openExpenseModal = useCallback((item: ShopExpenseItemRead) => {
     setSelectedItem(item);
-    setAmountDraft("");
+    setCashDraft("");
+    setUpiDraft("");
   }, []);
 
   const closeExpenseModal = useCallback(() => {
@@ -579,15 +595,23 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
     if (!selectedItem) {
       return;
     }
-    if (!isValidAmount(amountDraft)) {
-      Alert.alert("Invalid amount", "Enter a valid rupee amount with up to 2 decimals.");
+    const cashAmount = parseMoneyDraft(cashDraft);
+    const upiAmount = parseMoneyDraft(upiDraft);
+    if (!Number.isFinite(cashAmount) || !Number.isFinite(upiAmount) || cashAmount < 0 || upiAmount < 0) {
+      Alert.alert("Invalid amount", "Enter valid cash/UPI amounts with up to 2 decimals.");
+      return;
+    }
+    const total = cashAmount + upiAmount;
+    if (total <= 0) {
+      Alert.alert("Invalid amount", "Total expense must be greater than zero.");
       return;
     }
     setSaving(true);
     try {
       await createShopExpenseEntry({
         expense_item_id: selectedItem.id,
-        amount: Number(amountDraft).toFixed(2),
+        cash_amount: cashAmount.toFixed(2),
+        upi_amount: upiAmount.toFixed(2),
         note: null,
       });
       setSelectedItem(null);
@@ -599,7 +623,7 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
     } finally {
       setSaving(false);
     }
-  }, [amountDraft, historyLoaded, loadHistory, selectedItem]);
+  }, [cashDraft, historyLoaded, loadHistory, selectedItem, upiDraft]);
 
   const toggleHistory = useCallback(() => {
     setHistoryOpen((current) => !current);
@@ -720,13 +744,30 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
               </Text>
 
               <TextField
-                label="Amount in rupees"
-                value={amountDraft}
-                onChangeText={setAmountDraft}
+                label="Cash Amount"
+                value={cashDraft}
+                onChangeText={setCashDraft}
                 keyboardType="decimal-pad"
                 placeholder="Example 250.00"
                 autoFocus
               />
+              <TextField
+                label="UPI Amount"
+                value={upiDraft}
+                onChangeText={setUpiDraft}
+                keyboardType="decimal-pad"
+                placeholder="Example 120.00"
+              />
+              <View className="rounded-control border border-border bg-background px-3 py-2">
+                <Text className="text-[11px] font-black uppercase text-muted">Total Expense</Text>
+                <Text className="text-base font-extrabold text-ink">
+                  {formatCurrency(
+                    Number.isFinite(parseMoneyDraft(cashDraft)) && Number.isFinite(parseMoneyDraft(upiDraft))
+                      ? Math.max(0, parseMoneyDraft(cashDraft)) + Math.max(0, parseMoneyDraft(upiDraft))
+                      : 0,
+                  )}
+                </Text>
+              </View>
             </ScrollView>
 
             <View className="mt-5 flex-row gap-3">
@@ -741,6 +782,11 @@ export function ShopExpensesScreen(_: ShopExpensesScreenProps) {
                 label={language === "en" ? "Update amount" : "தொகையை புதுப்பி"}
                 onPress={submitExpense}
                 loading={saving}
+                disabled={
+                  !Number.isFinite(parseMoneyDraft(cashDraft)) ||
+                  !Number.isFinite(parseMoneyDraft(upiDraft)) ||
+                  parseMoneyDraft(cashDraft) + parseMoneyDraft(upiDraft) <= 0
+                }
                 className="flex-1"
               />
             </View>

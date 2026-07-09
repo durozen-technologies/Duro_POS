@@ -565,6 +565,18 @@ const StatementCard = memo(function StatementCard({
             </Text>
           </View>
           <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Expense (Cash)</Text>
+            <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
+              {formatReportMoney(statement.expense_cash_amount ?? 0)}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Expense (UPI)</Text>
+            <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
+              {formatReportMoney(statement.expense_upi_amount ?? 0)}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: palette.textSecondary }]}>Total Expense Amount</Text>
             <Text style={[styles.summaryValue, { color: palette.textPrimary }]}>
               {formatReportMoney(statement.expense_amount)}

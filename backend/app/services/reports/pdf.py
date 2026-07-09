@@ -1677,6 +1677,8 @@ async def _write_expenses_section(
         await db.execute(
             select(
                 func.count(ExpenseEntry.id).label("expense_count"),
+                func.coalesce(func.sum(ExpenseEntry.cash_amount), 0).label("total_cash_expenses"),
+                func.coalesce(func.sum(ExpenseEntry.upi_amount), 0).label("total_upi_expenses"),
                 func.coalesce(func.sum(ExpenseEntry.amount), 0).label("total_expenses"),
             )
             .select_from(ExpenseEntry)
@@ -1684,11 +1686,11 @@ async def _write_expenses_section(
         )
     ).one()
 
-    # Columns: Date (DD/MM/YYYY) | Branch | Expense | Amount
-    widths = [83, 140, 200, 100]
-    alignments = ["left", "left", "left", "right"]
+    # Columns: Date | Branch | Expense | Expense (Cash) | Expense (UPI) | Total Expense
+    widths = [70, 110, 130, 70, 70, 73]
+    alignments = ["left", "left", "left", "right", "right", "right"]
     writer.table_header(
-        ["Date", "Branch", "Expense", "Amount"],
+        ["Date", "Branch", "Expense", "Expense (Cash)", "Expense (UPI)", "Total Expense"],
         widths,
         alignments,
     )
@@ -1698,6 +1700,8 @@ async def _write_expenses_section(
             ExpenseEntry.spent_at,
             Shop.name.label("shop_name"),
             ExpenseEntry.expense_name,
+            ExpenseEntry.cash_amount,
+            ExpenseEntry.upi_amount,
             ExpenseEntry.amount,
         )
         .join(Shop, Shop.id == ExpenseEntry.shop_id)
@@ -1711,6 +1715,8 @@ async def _write_expenses_section(
                 _ist_date_text(row.spent_at),
                 row.shop_name,
                 row.expense_name,
+                _money(row.cash_amount),
+                _money(row.upi_amount),
                 _money(row.amount),
             ],
             widths,
@@ -1721,6 +1727,8 @@ async def _write_expenses_section(
     writer.financial_summary(
         [
             ("Total Expenses", str(int(stats.expense_count or 0))),
+            ("Total Expense (Cash)", _money(stats.total_cash_expenses)),
+            ("Total Expense (UPI)", _money(stats.total_upi_expenses)),
             ("Total Amount", _money(stats.total_expenses)),
         ]
     )

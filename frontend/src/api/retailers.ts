@@ -206,6 +206,8 @@ export async function fetchAllAdminRetailerSales(params?: {
   shop_id?: UUID;
   retailer_id?: UUID;
   status?: string;
+  start_date?: string;
+  end_date?: string;
 }) {
   const pageSize = 100;
   let page = 1;

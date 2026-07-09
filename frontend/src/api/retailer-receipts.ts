@@ -36,6 +36,28 @@ function balanceAfterPayment(sale: RetailerSaleRead, payment: RetailerPaymentRea
   return Math.max(0, Number(sale.total_amount) - paidThrough).toFixed(2);
 }
 
+function openingBalanceForReceipt(receipt: RetailerSaleReceiptRead): string {
+  return Number(receipt.opening_balance ?? 0).toFixed(2);
+}
+
+function totalBalanceAmount(openingBalance: string, currentBillBalance: string): string {
+  return (Number(openingBalance) + Number(currentBillBalance)).toFixed(2);
+}
+
+function retailerBalanceSummary(
+  sale: RetailerSaleRead,
+  receipt: RetailerSaleReceiptRead,
+  payment: RetailerPaymentRead,
+) {
+  const openingBalance = openingBalanceForReceipt(receipt);
+  const currentBillBalance = balanceAfterPayment(sale, payment);
+  return {
+    openingBalance,
+    currentBillBalance,
+    totalBalance: totalBalanceAmount(openingBalance, currentBillBalance),
+  };
+}
+
 function receiptLabels() {
   return {
     saleInvoice: "Sale Invoice",
@@ -53,6 +75,8 @@ function receiptLabels() {
     grandTotal: "Grand Total",
     paidAmount: "Paid Amount",
     balanceAmount: "Balance Amount",
+    openingBalance: "Opening Balance",
+    totalBalance: "Total Balance",
     paidThisVisit: "Paid This Visit",
     paymentSettled: "Payment Settled",
     thankYou: "Thank you. Visit again.",
@@ -77,21 +101,23 @@ function organizationName(sale: RetailerSaleRead) {
 }
 
 function retailerPurchaserHtml(retailerName: string, labels: ReturnType<typeof receiptLabels>) {
-  return `
-        <span><strong>${labels.purchaser}:</strong></span>
-        <div class="strong" style="display:block;font-size:18px;font-weight:800;margin:4px 0 10px;line-height:1.3;">${escapeHtml(retailerName)}</div>`;
+  return `<span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(retailerName)}</span>`;
 }
 
 function retailerBillMetaHtml(
   sale: RetailerSaleRead,
   receipt: RetailerSaleReceiptRead,
   labels: ReturnType<typeof receiptLabels>,
+  openingBalance: string,
 ) {
   return `
       <div class="bill-meta">
         ${retailerPurchaserHtml(sale.retailer_name, labels)}
         <span><strong>${labels.receiptNo}:</strong> ${escapeHtml(receipt.receipt_number)}</span>
-        <span><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(receipt.printed_at))}</span>
+        <span class="bill-meta-primary"><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(receipt.printed_at))}</span>
+        <div class="balance-divider"></div>
+        <span class="bill-meta-primary opening-balance-row"><strong>${labels.openingBalance}:</strong> Rs. ${formatReceiptCurrency(openingBalance)}</span>
+        <div class="balance-divider"></div>
         <span><strong>${labels.saleNo}:</strong> ${escapeHtml(sale.sale_no)}</span>
         <span><strong>${labels.saleDate}:</strong> ${escapeHtml(formatDateTime(sale.created_at))}</span>
       </div>`;
@@ -128,14 +154,21 @@ function receiptFooter(settled: boolean, labels: ReturnType<typeof receiptLabels
 
 function paymentSummaryExportFields(
   labels: ReturnType<typeof receiptLabels>,
+  paidAmountLabel: string,
   paidAmount: string,
   balanceAmount: string,
+  openingBalance: string,
+  totalBalance: string,
 ) {
   return {
-    paidAmountLabel: labels.paidAmount,
+    paidAmountLabel,
     paidAmountValue: `Rs. ${formatReceiptCurrency(paidAmount)}`,
     balanceAmountLabel: labels.balanceAmount,
     balanceAmountValue: `Rs. ${formatReceiptCurrency(balanceAmount)}`,
+    openingBalanceLabel: labels.openingBalance,
+    openingBalanceValue: `Rs. ${formatReceiptCurrency(openingBalance)}`,
+    totalBalanceLabel: labels.totalBalance,
+    totalBalanceValue: `Rs. ${formatReceiptCurrency(totalBalance)}`,
   };
 }
 
@@ -187,48 +220,16 @@ function itemExportHeaders(labels: ReturnType<typeof receiptLabels>) {
   };
 }
 
-export function buildRetailerSaleInvoiceHtml(
+function retailerTotalsTableHtml(
+  labels: ReturnType<typeof receiptLabels>,
+  payment: RetailerPaymentRead,
   sale: RetailerSaleRead,
-  receipt: RetailerSaleReceiptRead,
-  language?: ShopLanguage,
+  paidAmountLabel: string,
+  paidAmount: string,
+  balanceAmount: string,
+  totalBalance: string,
 ) {
-  const labels = receiptLabels();
-  const payment =
-    findPayment(sale, receipt.retailer_payment_id) ?? sale.payments[0];
-  if (!payment) {
-    throw new Error("Payment for receipt not found");
-  }
-  const paidAmount = payment.total_paid;
-  const balanceAmount = balanceAfterPayment(sale, payment);
-  const settled = Number(balanceAmount) <= 0;
-  const itemRows = saleItemRowsHtml(sale, language);
-
-  const orgName = organizationName(sale);
-  const exportPayload = {
-    companyName: formatReceiptHeaderName(orgName),
-    shopName: formatReceiptHeaderName(sale.shop_name),
-    billText: `${labels.saleNo}: ${sale.sale_no} · ${labels.purchaser}: ${sale.retailer_name}`,
-    dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
-    ...itemExportHeaders(labels),
-    cashLabel: labels.cash,
-    cashValue: formatReceiptCurrency(payment.cash_amount),
-    upiLabel: labels.upi,
-    upiValue: formatReceiptCurrency(payment.upi_amount),
-    totalLabel: labels.grandTotal,
-    totalValue: `Rs. ${formatReceiptCurrency(sale.total_amount)}`,
-    ...paymentSummaryExportFields(labels, paidAmount, balanceAmount),
-    thankYou: settled ? labels.paymentSettled : labels.thankYou,
-    poweredBy: labels.poweredBy,
-    provider: labels.provider,
-    items: saleItemsExport(sale, language),
-  };
-
-  const body = `
-    <div class="receipt-container">
-      ${organizationHeader(sale)}
-      ${retailerBillMetaHtml(sale, receipt, labels)}
-      ${saleItemsTableHtml(labels, itemRows)}
-      <div class="payment-divider"></div>
+  return `
       <table class="totals-section">
         <colgroup>
           <col class="col-total-label" />
@@ -247,14 +248,83 @@ export function buildRetailerSaleInvoiceHtml(
           <td class="align-right strong upi-bottom-divider">Rs. ${formatReceiptCurrency(sale.total_amount)}</td>
         </tr>
         <tr class="total-row">
-          <td class="strong">${labels.paidAmount}</td>
+          <td class="strong">${paidAmountLabel}</td>
           <td class="align-right strong">Rs. ${formatReceiptCurrency(paidAmount)}</td>
         </tr>
         <tr class="total-row">
           <td class="strong">${labels.balanceAmount}</td>
           <td class="align-right strong">Rs. ${formatReceiptCurrency(balanceAmount)}</td>
         </tr>
-      </table>
+        <tr class="total-row total-balance-divider">
+          <td colspan="2"></td>
+        </tr>
+        <tr class="total-row grand-total">
+          <td class="strong">${labels.totalBalance}</td>
+          <td class="align-right strong">Rs. ${formatReceiptCurrency(totalBalance)}</td>
+        </tr>
+      </table>`;
+}
+
+export function buildRetailerSaleInvoiceHtml(
+  sale: RetailerSaleRead,
+  receipt: RetailerSaleReceiptRead,
+  language?: ShopLanguage,
+) {
+  const labels = receiptLabels();
+  const payment =
+    findPayment(sale, receipt.retailer_payment_id) ?? sale.payments[0];
+  if (!payment) {
+    throw new Error("Payment for receipt not found");
+  }
+  const paidAmount = payment.total_paid;
+  const balances = retailerBalanceSummary(sale, receipt, payment);
+  const { openingBalance, currentBillBalance, totalBalance } = balances;
+  const settled = Number(currentBillBalance) <= 0;
+  const itemRows = saleItemRowsHtml(sale, language);
+
+  const orgName = organizationName(sale);
+  const exportPayload = {
+    companyName: formatReceiptHeaderName(orgName),
+    shopName: formatReceiptHeaderName(sale.shop_name),
+    billText: `${labels.saleNo}: ${sale.sale_no}`,
+    purchaserText: `${labels.purchaser}: ${sale.retailer_name}`,
+    dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
+    ...itemExportHeaders(labels),
+    cashLabel: labels.cash,
+    cashValue: formatReceiptCurrency(payment.cash_amount),
+    upiLabel: labels.upi,
+    upiValue: formatReceiptCurrency(payment.upi_amount),
+    totalLabel: labels.grandTotal,
+    totalValue: `Rs. ${formatReceiptCurrency(sale.total_amount)}`,
+    ...paymentSummaryExportFields(
+      labels,
+      labels.paidAmount,
+      paidAmount,
+      currentBillBalance,
+      openingBalance,
+      totalBalance,
+    ),
+    thankYou: settled ? labels.paymentSettled : labels.thankYou,
+    poweredBy: labels.poweredBy,
+    provider: labels.provider,
+    items: saleItemsExport(sale, language),
+  };
+
+  const body = `
+    <div class="receipt-container">
+      ${organizationHeader(sale)}
+      ${retailerBillMetaHtml(sale, receipt, labels, openingBalance)}
+      ${saleItemsTableHtml(labels, itemRows)}
+      <div class="payment-divider"></div>
+      ${retailerTotalsTableHtml(
+        labels,
+        payment,
+        sale,
+        labels.paidAmount,
+        paidAmount,
+        currentBillBalance,
+        totalBalance,
+      )}
       ${receiptFooter(settled, labels)}
     </div>`;
 
@@ -271,15 +341,17 @@ export function buildRetailerBalancePaymentHtml(
   if (!payment) {
     throw new Error("Payment for receipt not found");
   }
-  const balanceAmount = balanceAfterPayment(sale, payment);
-  const settled = Number(balanceAmount) <= 0;
+  const balances = retailerBalanceSummary(sale, receipt, payment);
+  const { openingBalance, currentBillBalance, totalBalance } = balances;
+  const settled = Number(currentBillBalance) <= 0;
   const itemRows = saleItemRowsHtml(sale, language);
 
   const orgName = organizationName(sale);
   const exportPayload = {
     companyName: formatReceiptHeaderName(orgName),
     shopName: formatReceiptHeaderName(sale.shop_name),
-    billText: `${labels.receiptNo}: ${receipt.receipt_number} · ${labels.purchaser}: ${sale.retailer_name}`,
+    billText: `${labels.receiptNo}: ${receipt.receipt_number}`,
+    purchaserText: `${labels.purchaser}: ${sale.retailer_name}`,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
     cashLabel: labels.cash,
@@ -288,10 +360,14 @@ export function buildRetailerBalancePaymentHtml(
     upiValue: formatReceiptCurrency(payment.upi_amount),
     totalLabel: labels.grandTotal,
     totalValue: `Rs. ${formatReceiptCurrency(sale.total_amount)}`,
-    paidAmountLabel: labels.paidThisVisit,
-    paidAmountValue: `Rs. ${formatReceiptCurrency(payment.total_paid)}`,
-    balanceAmountLabel: labels.balanceAmount,
-    balanceAmountValue: `Rs. ${formatReceiptCurrency(balanceAmount)}`,
+    ...paymentSummaryExportFields(
+      labels,
+      labels.paidThisVisit,
+      payment.total_paid,
+      currentBillBalance,
+      openingBalance,
+      totalBalance,
+    ),
     thankYou: settled ? labels.paymentSettled : labels.thankYou,
     poweredBy: labels.poweredBy,
     provider: labels.provider,
@@ -304,35 +380,18 @@ export function buildRetailerBalancePaymentHtml(
       <div class="center" style="margin-bottom: 8px;">
         <div class="strong" style="font-size: 18px;">${escapeHtml(labels.paymentReceipt)}</div>
       </div>
-      ${retailerBillMetaHtml(sale, receipt, labels)}
+      ${retailerBillMetaHtml(sale, receipt, labels, openingBalance)}
       ${saleItemsTableHtml(labels, itemRows)}
       <div class="payment-divider"></div>
-      <table class="totals-section">
-        <colgroup>
-          <col class="col-total-label" />
-          <col class="col-total-value" />
-        </colgroup>
-        <tr class="total-row">
-          <td>${labels.cash}</td>
-          <td class="align-right">${formatReceiptCurrency(payment.cash_amount)}</td>
-        </tr>
-        <tr class="total-row">
-          <td class="upi-bottom-divider">${labels.upi}</td>
-          <td class="align-right upi-bottom-divider">${formatReceiptCurrency(payment.upi_amount)}</td>
-        </tr>
-        <tr class="total-row grand-total">
-          <td class="strong upi-bottom-divider">${labels.grandTotal}</td>
-          <td class="align-right strong upi-bottom-divider">Rs. ${formatReceiptCurrency(sale.total_amount)}</td>
-        </tr>
-        <tr class="total-row">
-          <td class="strong">${labels.paidThisVisit}</td>
-          <td class="align-right strong">Rs. ${formatReceiptCurrency(payment.total_paid)}</td>
-        </tr>
-        <tr class="total-row">
-          <td class="strong">${labels.balanceAmount}</td>
-          <td class="align-right strong">Rs. ${formatReceiptCurrency(balanceAmount)}</td>
-        </tr>
-      </table>
+      ${retailerTotalsTableHtml(
+        labels,
+        payment,
+        sale,
+        labels.paidThisVisit,
+        payment.total_paid,
+        currentBillBalance,
+        totalBalance,
+      )}
       ${receiptFooter(settled, labels)}
     </div>`;
 

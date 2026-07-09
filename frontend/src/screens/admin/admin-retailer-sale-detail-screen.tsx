@@ -166,28 +166,47 @@ export function AdminRetailerSaleDetailScreen({
               >
                 {formatCurrency(sale.balance_due)}
               </Text>
-            </View>
-            <View
+            </View>            <View
               style={{
+                flexDirection: "row",
+                alignItems: "center",
                 alignSelf: "flex-start",
+                gap: 6,
                 marginTop: 4,
                 borderRadius: 999,
-                paddingHorizontal: 10,
-                paddingVertical: 4,
-                backgroundColor: palette.surfaceMuted,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                backgroundColor:
+                  sale.status === "settled"
+                    ? palette.successSoft
+                    : sale.status === "partial" || sale.status === "open"
+                      ? palette.warningSoft
+                      : palette.surfaceMuted,
               }}
             >
+              <MaterialCommunityIcons 
+                name={sale.status === "settled" ? "check-circle" : "clock-outline"} 
+                size={14} 
+                color={
+                  sale.status === "settled"
+                    ? palette.success
+                    : sale.status === "partial" || sale.status === "open"
+                      ? palette.warning
+                      : palette.textMuted
+                } 
+              />
               <Text
                 style={{
                   color:
                     sale.status === "settled"
                       ? palette.success
-                      : sale.status === "partial"
+                      : sale.status === "partial" || sale.status === "open"
                         ? palette.warning
                         : palette.textMuted,
                   fontWeight: "700",
-                  fontSize: 12,
+                  fontSize: 13,
                   textTransform: "uppercase",
+                  letterSpacing: 0.5,
                 }}
               >
                 {sale.status}

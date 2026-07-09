@@ -104,13 +104,17 @@ class ShopExpenseItemsOrderRead(BaseModel):
 
 class ExpenseEntryCreate(BaseModel):
     expense_item_id: UUID
-    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    cash_amount: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
+    upi_amount: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
     spent_at: datetime | None = None
     note: str | None = Field(default=None, max_length=255)
 
 
 class ExpenseEntryUpdate(BaseModel):
-    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    cash_amount: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
+    upi_amount: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
     spent_at: datetime
     note: str | None = Field(default=None, max_length=255)
 
@@ -125,6 +129,8 @@ class ExpenseEntryRead(ORMModel):
     image_path: str | None = None
     image_thumb_path: str | None = None
     image_content_type: str | None = None
+    cash_amount: Decimal = Decimal("0.00")
+    upi_amount: Decimal = Decimal("0.00")
     amount: Decimal
     spent_at: datetime
     note: str | None = None
@@ -135,6 +141,8 @@ class ExpenseEntryPage(BaseModel):
     items: list[ExpenseEntryRead]
     limit: int
     has_more: bool
+    total_cash_amount: Decimal = Decimal("0.00")
+    total_upi_amount: Decimal = Decimal("0.00")
     total_amount: Decimal = Decimal("0.00")
     next_cursor_spent_at: datetime | None = None
     next_cursor_id: UUID | None = None

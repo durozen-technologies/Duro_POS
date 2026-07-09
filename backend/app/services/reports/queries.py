@@ -180,7 +180,9 @@ async def _build_overall_report_statement(
     await _populate_overall_report_used_stock_breakdown(db, context, shop_id, inventory_items)
     await _populate_overall_report_billing_items(db, context, shop_id, inventory_items, retailers)
     unit_summaries = _overall_report_unit_summaries(inventory_items.values())
-    expense_amount = await _over_report_expense_amount(db, context, shop_id)
+    expense_cash_amount, expense_upi_amount, expense_amount = await _over_report_expense_amounts(
+        db, context, shop_id
+    )
     
     # Shop billing sales only (normal sales).
     sales_amount = sum(
@@ -220,6 +222,8 @@ async def _build_overall_report_statement(
         end_date=(context.end - timedelta(days=1)).date(),
         period_label=context.period_label,
         unit_summaries=unit_summaries,
+        expense_cash_amount=expense_cash_amount,
+        expense_upi_amount=expense_upi_amount,
         expense_amount=expense_amount,
         sales_amount=sales_amount,
         retailer_paid_amount=retailer_paid_amount,
@@ -938,6 +942,8 @@ def _write_over_report_statement(
                 ("Total Sales", _money(statement.sales_amount)),
                 ("Total Retailer Paid Amount", _money(statement.retailer_paid_amount)),
                 ("Total Purchase", _money(statement.purchase_amount)),
+                ("Total Expense (Cash)", _money(statement.expense_cash_amount)),
+                ("Total Expense (UPI)", _money(statement.expense_upi_amount)),
                 ("Total Expense Amount", _money(statement.expense_amount)),
                 ("Profit Amount", _money(statement.profit_amount)),
                 ("Retailer Balance Amount", _money(statement.retailer_balance_amount)),
@@ -1124,19 +1130,29 @@ def _context_for_day(context: ReportContext, day: date) -> ReportContext:
     )
 
 
-async def _over_report_expense_amount(
+async def _over_report_expense_amounts(
     db: AsyncSession,
     context: ReportContext,
     shop_id: UUID,
-) -> Decimal:
-    total = await db.scalar(
-        select(func.coalesce(func.sum(ExpenseEntry.amount), Decimal("0.00"))).where(
+) -> tuple[Decimal, Decimal, Decimal]:
+    row = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(ExpenseEntry.cash_amount), Decimal("0.00")).label("expense_cash_amount"),
+                func.coalesce(func.sum(ExpenseEntry.upi_amount), Decimal("0.00")).label("expense_upi_amount"),
+                func.coalesce(func.sum(ExpenseEntry.amount), Decimal("0.00")).label("expense_amount"),
+            ).where(
             ExpenseEntry.shop_id == shop_id,
             ExpenseEntry.spent_at >= context.start,
             ExpenseEntry.spent_at < context.end,
         )
+        )
+    ).one()
+    return (
+        _decimal(row.expense_cash_amount).quantize(Decimal("0.01")),
+        _decimal(row.expense_upi_amount).quantize(Decimal("0.01")),
+        _decimal(row.expense_amount).quantize(Decimal("0.01")),
     )
-    return _decimal(total).quantize(Decimal("0.01"))
 
 
 async def _over_report_retailer_paid_amount(

@@ -200,6 +200,7 @@ class RetailerSaleReceiptRead(ORMModel):
     retailer_payment_id: UUID
     printed_at: datetime
     payment_total: Decimal | None = None
+    opening_balance: Decimal = Decimal("0.00")
 
 
 class RetailerSaleRead(ORMModel):

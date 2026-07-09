@@ -457,13 +457,17 @@ export interface ShopExpenseItemsOrderRead {
 
 export interface ExpenseEntryCreate {
   expense_item_id: UUID;
-  amount: string;
+  amount?: string | null;
+  cash_amount?: string;
+  upi_amount?: string;
   spent_at?: string | null;
   note?: string | null;
 }
 
 export interface ExpenseEntryUpdate {
-  amount: string;
+  amount?: string | null;
+  cash_amount?: string;
+  upi_amount?: string;
   spent_at: string;
   note?: string | null;
 }
@@ -478,6 +482,8 @@ export interface ExpenseEntryRead {
   image_path?: string | null;
   image_thumb_path?: string | null;
   image_content_type?: string | null;
+  cash_amount?: string | null;
+  upi_amount?: string | null;
   amount: string;
   spent_at: string;
   note?: string | null;
@@ -488,6 +494,8 @@ export interface ExpenseEntryPage {
   items: ExpenseEntryRead[];
   limit: number;
   has_more: boolean;
+  total_cash_amount?: string;
+  total_upi_amount?: string;
   total_amount: string;
   next_cursor_spent_at?: string | null;
   next_cursor_id?: UUID | null;
@@ -812,6 +820,8 @@ export interface ShopSalesSummary {
   shop_id: UUID;
   shop_name: string;
   total_sales: string;
+  expense_cash_total?: string;
+  expense_upi_total?: string;
 }
 
 export interface PaymentSplitSummary {
@@ -918,6 +928,8 @@ export interface OverallReportStatement {
   end_date: string;
   period_label: string;
   unit_summaries: OverallReportUnitSummary[];
+  expense_cash_amount?: string;
+  expense_upi_amount?: string;
   expense_amount: string;
   sales_amount: string;
   retailer_paid_amount: string;
@@ -1205,6 +1217,7 @@ export interface RetailerSaleReceiptRead {
   retailer_payment_id: UUID;
   printed_at: string;
   payment_total?: string | null;
+  opening_balance?: string | null;
 }
 
 export interface RetailerSaleRead {

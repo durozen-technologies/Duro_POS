@@ -34,6 +34,8 @@ export type ShopDashboardRow = {
   totalSales: string;
   cashTotal: string;
   upiTotal: string;
+  expenseCashTotal: string;
+  expenseUpiTotal: string;
   billCount: number;
   lastActivityAt: string | null;
   status: ShopOperationalState;
@@ -247,7 +249,17 @@ export function useAdminDashboardData({
   );
 
   const salesByShopId = useMemo(
-    () => new Map(dashboardData.salesSummary.map((item) => [item.shop_id, item.total_sales])),
+    () =>
+      new Map(
+        dashboardData.salesSummary.map((item) => [
+          item.shop_id,
+          {
+            totalSales: item.total_sales,
+            expenseCashTotal: item.expense_cash_total ?? "0",
+            expenseUpiTotal: item.expense_upi_total ?? "0",
+          },
+        ]),
+      ),
     [dashboardData.salesSummary],
   );
 
@@ -269,9 +281,11 @@ export function useAdminDashboardData({
 
       return {
         shop,
-        totalSales: salesByShopId.get(shop.id) ?? "0",
+        totalSales: salesByShopId.get(shop.id)?.totalSales ?? "0",
         cashTotal: payment?.cashTotal ?? "0",
         upiTotal: payment?.upiTotal ?? "0",
+        expenseCashTotal: salesByShopId.get(shop.id)?.expenseCashTotal ?? "0",
+        expenseUpiTotal: salesByShopId.get(shop.id)?.expenseUpiTotal ?? "0",
         billCount: billCountByShopId.get(shop.id) ?? 0,
         lastActivityAt,
         status: getShopStatus(shop, lastActivityAt),

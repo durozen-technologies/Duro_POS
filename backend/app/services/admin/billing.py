@@ -10,6 +10,7 @@ from sqlalchemy.orm import contains_eager, selectinload
 from app.models import (
     Bill,
     BillItem,
+    ExpenseEntry,
     Item,
     Organization,
     Payment,
@@ -280,7 +281,6 @@ async def get_daily_bills(
     base_filters = [Bill.created_at >= start, Bill.created_at < end]
     if shop_id is not None:
         base_filters.append(Bill.shop_id == shop_id)
-
     page_filters = list(base_filters)
     if cursor_created_at is not None:
         page_filters.append(
@@ -492,6 +492,22 @@ async def get_dashboard_bootstrap(
     ]
     if shop_id is not None:
         base_filters.append(Bill.shop_id == shop_id)
+    expense_filters = [
+        ExpenseEntry.spent_at >= start,
+        ExpenseEntry.spent_at < end,
+    ]
+    if shop_id is not None:
+        expense_filters.append(ExpenseEntry.shop_id == shop_id)
+    expense_totals_sq = (
+        select(
+            ExpenseEntry.shop_id.label("shop_id"),
+            func.coalesce(func.sum(ExpenseEntry.cash_amount), 0).label("expense_cash_total"),
+            func.coalesce(func.sum(ExpenseEntry.upi_amount), 0).label("expense_upi_total"),
+        )
+        .where(*expense_filters)
+        .group_by(ExpenseEntry.shop_id)
+        .subquery()
+    )
 
     # Since sqlite and some DBs have issues with multiple SUMs from different joined tables due to cartesian product
     # The safest performant way is to join Payment to Bill (1-to-1) and then group by Shop
@@ -502,18 +518,25 @@ async def get_dashboard_bootstrap(
             func.coalesce(func.sum(Bill.total_amount), 0).label("total_sales"),
             func.coalesce(func.sum(Payment.cash_amount), 0).label("cash_total"),
             func.coalesce(func.sum(Payment.upi_amount), 0).label("upi_total"),
+            func.coalesce(func.max(expense_totals_sq.c.expense_cash_total), 0).label(
+                "expense_cash_total"
+            ),
+            func.coalesce(func.max(expense_totals_sq.c.expense_upi_total), 0).label(
+                "expense_upi_total"
+            ),
             func.count(distinct(Bill.id)).label("bill_count"),
             func.max(Bill.created_at).label("last_bill_at"),
             # Also find the largest bill ID if possible? No, we can just do a fast limit 1 query.
         )
         .outerjoin(Bill, and_(Bill.shop_id == Shop.id, *base_filters))
         .outerjoin(Payment, Payment.bill_id == Bill.id)
+        .outerjoin(expense_totals_sq, expense_totals_sq.c.shop_id == Shop.id)
         .where(Shop.organization_id == organization_id)
     )
     if shop_id is not None:
         combined_query = combined_query.where(Shop.id == shop_id)
 
-    combined_query = combined_query.group_by(Shop.id).order_by(Shop.name)
+    combined_query = combined_query.group_by(Shop.id, Shop.name).order_by(Shop.name)
     combined_rows = (await db.execute(combined_query)).all()
 
     sales_summary = []
@@ -521,18 +544,23 @@ async def get_dashboard_bootstrap(
     shop_stats = []
 
     for row in combined_rows:
-        if row.bill_count > 0:
-            sales_summary.append(
-                ShopSalesSummary(shop_id=row.id, shop_name=row.name, total_sales=row.total_sales)
+        sales_summary.append(
+            ShopSalesSummary(
+                shop_id=row.id,
+                shop_name=row.name,
+                total_sales=row.total_sales,
+                expense_cash_total=row.expense_cash_total,
+                expense_upi_total=row.expense_upi_total,
             )
-            payment_summary.append(
-                PaymentSplitSummary(
-                    shop_id=row.id,
-                    shop_name=row.name,
-                    cash_total=row.cash_total,
-                    upi_total=row.upi_total,
-                )
+        )
+        payment_summary.append(
+            PaymentSplitSummary(
+                shop_id=row.id,
+                shop_name=row.name,
+                cash_total=row.cash_total,
+                upi_total=row.upi_total,
             )
+        )
         shop_stats.append(
             AdminBillShopStat(
                 shop_id=row.id, bill_count=int(row.bill_count), last_bill_at=row.last_bill_at

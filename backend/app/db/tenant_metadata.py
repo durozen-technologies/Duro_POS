@@ -339,6 +339,124 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                     text("ALTER TABLE receipts ADD COLUMN last_print_error TEXT")
                 )
 
+    if "retailer_sale_receipts" in table_names:
+        retailer_receipt_columns = {
+            column["name"] for column in inspector.get_columns("retailer_sale_receipts", schema=safe)
+        }
+        if "opening_balance" not in retailer_receipt_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_sale_receipts "
+                        "ADD COLUMN IF NOT EXISTS opening_balance NUMERIC(10, 2) "
+                        "NOT NULL DEFAULT 0.00"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailer_sale_receipts "
+                        "ADD COLUMN opening_balance NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+
+    if "expense_entries" in table_names:
+        expense_columns = {
+            column["name"] for column in inspector.get_columns("expense_entries", schema=safe)
+        }
+        if "cash_amount" not in expense_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE expense_entries "
+                        "ADD COLUMN IF NOT EXISTS cash_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE expense_entries "
+                        "ADD COLUMN cash_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+        if "upi_amount" not in expense_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE expense_entries "
+                        "ADD COLUMN IF NOT EXISTS upi_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE expense_entries "
+                        "ADD COLUMN upi_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
+        if "cash_amount" not in expense_columns or "upi_amount" not in expense_columns:
+            connection.execute(
+                text(
+                    "UPDATE expense_entries SET cash_amount = amount, upi_amount = 0 "
+                    "WHERE cash_amount = 0 AND upi_amount = 0"
+                )
+            )
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        """
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'ck_expense_entries_cash_non_negative'
+                            ) THEN
+                                ALTER TABLE expense_entries
+                                ADD CONSTRAINT ck_expense_entries_cash_non_negative
+                                CHECK (cash_amount >= 0);
+                            END IF;
+                        END
+                        $$;
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'ck_expense_entries_upi_non_negative'
+                            ) THEN
+                                ALTER TABLE expense_entries
+                                ADD CONSTRAINT ck_expense_entries_upi_non_negative
+                                CHECK (upi_amount >= 0);
+                            END IF;
+                        END
+                        $$;
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'ck_expense_entries_split_positive'
+                            ) THEN
+                                ALTER TABLE expense_entries
+                                ADD CONSTRAINT ck_expense_entries_split_positive
+                                CHECK ((cash_amount + upi_amount) > 0);
+                            END IF;
+                        END
+                        $$;
+                        """
+                    )
+                )
+
 
 def ensure_tenant_schema_column_patches(connection: Connection, schema_name: str) -> None:
     """Backward-compatible alias for startup/repair drift patching."""

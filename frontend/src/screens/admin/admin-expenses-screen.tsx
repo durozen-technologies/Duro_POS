@@ -241,6 +241,13 @@ function isValidExpenseAmount(value: string) {
   return Number(trimmed) > 0;
 }
 
+function expenseEntrySplit(entry: ExpenseEntryRead) {
+  const total = Number(entry.amount ?? 0);
+  const cash = entry.cash_amount != null ? Number(entry.cash_amount) : total;
+  const upi = entry.upi_amount != null ? Number(entry.upi_amount) : 0;
+  return { cash, upi, total: total || cash + upi };
+}
+
 function entrySpentAtDateValue(spentAt: string) {
   return toDateInputValue(new Date(spentAt));
 }
@@ -662,12 +669,16 @@ function BranchDropdown({
 function HistoryFilterControls({
   filter,
   range,
+  totalCashAmount,
+  totalUpiAmount,
   totalAmount,
   palette,
   onChange,
 }: {
   filter: ExpenseHistoryFilterDraft;
   range: ExpenseHistoryRange;
+  totalCashAmount?: string;
+  totalUpiAmount?: string;
   totalAmount: string;
   palette: ReturnType<typeof useAdminTheme>["palette"];
   onChange: (filter: ExpenseHistoryFilterDraft) => void;
@@ -1145,6 +1156,9 @@ function HistoryFilterControls({
           ) : (
             <Text style={[styles.totalHint, { color: palette.textSecondary }]}>Filtered expense amount</Text>
           )}
+          <Text style={[styles.totalHint, { color: palette.textSecondary }]}>
+            Cash {formatCurrency(totalCashAmount ?? "0")} | UPI {formatCurrency(totalUpiAmount ?? "0")}
+          </Text>
         </View>
         <Text style={[styles.totalAmount, { color: palette.cash }]}>{formatCurrency(totalAmount)}</Text>
       </View>
@@ -1294,6 +1308,7 @@ function HistoryRow({
   busy?: boolean;
 }) {
   const imageUri = getItemThumbnailUri(entry);
+  const split = expenseEntrySplit(entry);
   return (
     <View style={[styles.rowCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
       <ItemThumbnail
@@ -1310,10 +1325,13 @@ function HistoryRow({
       <View style={styles.rowBody}>
         <View style={styles.rowTitleLine}>
           <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.textPrimary }]}>{entry.expense_name}</Text>
-          <Text style={[styles.amountText, { color: palette.cash }]}>{formatCurrency(entry.amount)}</Text>
+          <Text style={[styles.amountText, { color: palette.cash }]}>{formatCurrency(split.total)}</Text>
         </View>
         <Text numberOfLines={1} style={[styles.rowSubtitle, { color: palette.textSecondary }]}>
           {entry.shop_name} · {entry.expense_tamil_name}
+        </Text>
+        <Text numberOfLines={1} style={[styles.rowMeta, { color: palette.textMuted }]}>
+          Cash {formatCurrency(split.cash)} | UPI {formatCurrency(split.upi)}
         </Text>
         <Text numberOfLines={1} style={[styles.rowMeta, { color: palette.textMuted }]}>
           {formatDateTime(entry.spent_at)}{entry.note ? ` · ${entry.note}` : ""}
@@ -1365,6 +1383,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
   const [historyFilter, setHistoryFilter] = useState<ExpenseHistoryFilterDraft>(() => createExpenseHistoryFilterDraft());
   const historyRange = useMemo(() => buildExpenseHistoryRange(historyFilter), [historyFilter]);
   const [historyTotalAmount, setHistoryTotalAmount] = useState("0.00");
+  const [historyTotalCashAmount, setHistoryTotalCashAmount] = useState("0.00");
+  const [historyTotalUpiAmount, setHistoryTotalUpiAmount] = useState("0.00");
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyCursor, setHistoryCursor] = useState<{ spentAt: string | null; id: UUID | null }>({
     spentAt: null,
@@ -1500,6 +1520,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       setHistoryRows([]);
       setHistoryHasMore(false);
       setHistoryTotalAmount("0.00");
+      setHistoryTotalCashAmount("0.00");
+      setHistoryTotalUpiAmount("0.00");
       setHistoryCursor({ spentAt: null, id: null });
       return;
     }
@@ -1514,6 +1536,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       });
       setHistoryRows(page.items);
       setHistoryHasMore(page.has_more);
+      setHistoryTotalCashAmount(page.total_cash_amount ?? "0.00");
+      setHistoryTotalUpiAmount(page.total_upi_amount ?? "0.00");
       setHistoryTotalAmount(page.total_amount);
       setHistoryCursor({
         spentAt: page.next_cursor_spent_at ?? null,
@@ -1542,6 +1566,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       });
       setHistoryRows((current) => mergeById(current, page.items));
       setHistoryHasMore(page.has_more);
+      setHistoryTotalCashAmount(page.total_cash_amount ?? "0.00");
+      setHistoryTotalUpiAmount(page.total_upi_amount ?? "0.00");
       setHistoryTotalAmount(page.total_amount);
       setHistoryCursor({
         spentAt: page.next_cursor_spent_at ?? null,
@@ -2011,6 +2037,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       <HistoryFilterControls
         filter={historyFilter}
         range={historyRange}
+        totalCashAmount={historyTotalCashAmount}
+        totalUpiAmount={historyTotalUpiAmount}
         totalAmount={historyTotalAmount}
         palette={palette}
         onChange={setHistoryFilter}

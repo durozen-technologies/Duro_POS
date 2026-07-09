@@ -304,6 +304,11 @@ class RetailerSaleReceipt(Base):
         server_default=func.now(),
         nullable=False,
     )
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        server_default=text("0.00"),
+    )
 
     sale = relationship("RetailerSale", back_populates="receipts")
     payment = relationship("RetailerPayment", back_populates="receipt")

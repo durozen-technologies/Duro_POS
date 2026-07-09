@@ -323,15 +323,46 @@ function buildReceiptImageExportScript() {
                   align: "center",
                   lineHeightRatio: 1.4,
                 }).height;
-                y += 3;
+                y += 4;
+
+                if (payload.purchaserText) {
+                  y += drawWrappedText(measureContext, payload.purchaserText, 0, y, receiptWidth, {
+                    size: 24,
+                    weight: 800,
+                    align: "center",
+                    lineHeightRatio: 1.15,
+                  }).height;
+                  y += 4;
+                }
 
                 y += drawWrappedText(measureContext, payload.dateText, 0, y, receiptWidth, {
-                  size: 15,
-                  weight: 600,
+                  size: 19,
+                  weight: 800,
                   align: "center",
-                  lineHeightRatio: 1.4,
+                  lineHeightRatio: 1.15,
                 }).height;
-                y += 10;
+
+                if (payload.openingBalanceLabel && payload.openingBalanceValue) {
+                  y += 8;
+                  y += 7;
+                  y += drawWrappedText(
+                    measureContext,
+                    payload.openingBalanceLabel + ": " + payload.openingBalanceValue,
+                    0,
+                    y,
+                    receiptWidth,
+                    {
+                      size: 19,
+                      weight: 800,
+                      align: "center",
+                      lineHeightRatio: 1.15,
+                    },
+                  ).height;
+                  y += 8;
+                  y += 7;
+                } else {
+                  y += 10;
+                }
 
                 y += 7;
 
@@ -396,6 +427,15 @@ function buildReceiptImageExportScript() {
                     lineHeightRatio: 1.3,
                   });
                 }
+                if (payload.totalBalanceLabel && payload.totalBalanceValue) {
+                  y += 10;
+                  y += 8;
+                  y += measureFittedTextHeight(measureContext, payload.totalBalanceValue, totalValueWidth, {
+                    size: 26,
+                    weight: 800,
+                    lineHeightRatio: 1.2,
+                  });
+                }
                 y += 18;
                 y += 14;
                 y += getLineHeight(19, 1.3);
@@ -455,22 +495,63 @@ function buildReceiptImageExportScript() {
                 align: "center",
                 lineHeightRatio: 1.4,
               }).height;
-              y += 3;
+              y += 4;
+
+              if (payload.purchaserText) {
+                y += drawWrappedText(context, payload.purchaserText, 0, y, receiptWidth, {
+                  size: 24,
+                  weight: 800,
+                  align: "center",
+                  lineHeightRatio: 1.15,
+                }).height;
+                y += 4;
+              }
 
               y += drawWrappedText(context, payload.dateText, 0, y, receiptWidth, {
-                size: 15,
-                weight: 600,
+                size: 19,
+                weight: 800,
                 align: "center",
-                lineHeightRatio: 1.4,
+                lineHeightRatio: 1.15,
               }).height;
-              y += 10;
+
+              if (payload.openingBalanceLabel && payload.openingBalanceValue) {
+                y += 8;
+                context.lineWidth = 2.5;
+                context.beginPath();
+                context.moveTo(0, y);
+                context.lineTo(receiptWidth, y);
+                context.stroke();
+                y += 7;
+
+                y += drawWrappedText(
+                  context,
+                  payload.openingBalanceLabel + ": " + payload.openingBalanceValue,
+                  0,
+                  y,
+                  receiptWidth,
+                  {
+                    size: 19,
+                    weight: 800,
+                    align: "center",
+                    lineHeightRatio: 1.15,
+                  },
+                ).height;
+                y += 8;
+
+                context.beginPath();
+                context.moveTo(0, y);
+                context.lineTo(receiptWidth, y);
+                context.stroke();
+                y += 7;
+              } else {
+                y += 10;
+              }
 
               context.lineWidth = 2.5;
               context.beginPath();
               context.moveTo(0, y);
               context.lineTo(receiptWidth, y);
               context.stroke();
-
               y += 7;
               drawWrappedText(context, payload.itemHeader, xItem, y, columnItemWidth, {
                 size: 14,
@@ -582,6 +663,16 @@ function buildReceiptImageExportScript() {
                 y += drawTotalRow(payload.balanceAmountLabel, payload.balanceAmountValue, 18, 800);
               }
 
+              if (payload.totalBalanceLabel && payload.totalBalanceValue) {
+                context.lineWidth = 2.5;
+                context.beginPath();
+                context.moveTo(0, y);
+                context.lineTo(receiptWidth, y);
+                context.stroke();
+                y += 10;
+                y += drawTotalRow(payload.totalBalanceLabel, payload.totalBalanceValue, 26, 800);
+              }
+
               context.lineWidth = 2.5;
               context.beginPath();
               context.moveTo(0, y);
@@ -656,7 +747,10 @@ type ReceiptExportPayload = {
   companyName: string;
   shopName: string;
   billText: string;
+  purchaserText?: string;
   dateText: string;
+  openingBalanceLabel?: string;
+  openingBalanceValue?: string;
   itemHeader: string;
   quantityHeader: string;
   totalHeader: string;
@@ -670,6 +764,8 @@ type ReceiptExportPayload = {
   paidAmountValue?: string;
   balanceAmountLabel?: string;
   balanceAmountValue?: string;
+  totalBalanceLabel?: string;
+  totalBalanceValue?: string;
   thankYou: string;
   poweredBy: string;
   provider: string;
@@ -783,6 +879,27 @@ export function buildReceiptHtmlMarkup(
           }
           .bill-meta span:last-child {
             margin-bottom: 0;
+          }
+          .bill-meta-purchaser {
+            font-size: 24px;
+            font-weight: 800;
+            line-height: 1.15;
+          }
+          .bill-meta-primary {
+            font-size: 19px;
+            font-weight: 800;
+            line-height: 1.15;
+          }
+          .balance-divider {
+            border-top: 2.5px solid #000000;
+            margin: 8px 0;
+          }
+          .opening-balance-row {
+            margin-bottom: 0;
+          }
+          .total-balance-divider td {
+            border-top: 2.5px solid #000000;
+            padding-top: 8px;
           }
 
           table {
@@ -899,7 +1016,9 @@ export function buildReceiptHtmlMarkup(
           @media (max-width: 360px) {
             .header-main { font-size: 20px; }
             .header-sub  { font-size: 17px; }
-            .bill-meta   { font-size: 13px; }
+            .bill-meta          { font-size: 13px; }
+            .bill-meta-purchaser { font-size: 20px; }
+            .bill-meta-primary  { font-size: 17px; }
             .item-name   { font-size: 16px; }
             .item-qty    { font-size: 17px; }
             .item-total  { font-size: 16px; }
@@ -1155,6 +1274,8 @@ export function retailerSaleToBillRead(
       id: invoiceReceipt?.id ?? sale.id,
       receipt_number: invoiceReceipt?.receipt_number ?? `RCT-${sale.sale_no}`,
       printed_at: invoiceReceipt?.printed_at ?? sale.created_at,
+      receipt_status: invoiceReceipt?.printed_at ? "printed" : "pending",
+      print_attempts: invoiceReceipt?.printed_at ? 1 : 0,
     },
   };
 }

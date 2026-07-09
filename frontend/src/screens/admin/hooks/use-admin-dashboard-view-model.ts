@@ -181,6 +181,16 @@ export function useAdminDashboardAnalytics({
   );
   const paymentTotal = useMemo(() => totalCash.plus(totalUpi), [totalCash, totalUpi]);
   const cashShare = paymentTotal.greaterThan(0) ? totalCash.div(paymentTotal).mul(100).toNumber() : 0;
+  const totalExpenseCash = useMemo(
+    () => visibleShopRows.reduce((sum, row) => sum.plus(money(row.expenseCashTotal)), money(0)),
+    [visibleShopRows],
+  );
+  const totalExpenseUpi = useMemo(
+    () => visibleShopRows.reduce((sum, row) => sum.plus(money(row.expenseUpiTotal)), money(0)),
+    [visibleShopRows],
+  );
+  const remainingCash = useMemo(() => totalCash.minus(totalExpenseCash), [totalCash, totalExpenseCash]);
+  const remainingUpi = useMemo(() => totalUpi.minus(totalExpenseUpi), [totalExpenseUpi, totalUpi]);
 
   const visibleBillCount = useMemo(() => dailyBillsTotalCount, [dailyBillsTotalCount]);
 
@@ -334,6 +344,32 @@ export function useAdminDashboardAnalytics({
         sparklineLabel: "Digital spread",
         sparklineValues: metricSparklineValues.upi,
       },
+      {
+        key: "remaining-cash",
+        label: "Remaining Cash",
+        value: remainingCash.toNumber(),
+        formatter: (value: number) => formatCurrency(value),
+        note: `Cash collected - cash expenses`,
+        noteIcon: "cash-minus",
+        icon: "wallet-plus-outline",
+        accent: palette.success,
+        accentSoft: palette.successSoft,
+        sparklineLabel: "Net cash",
+        sparklineValues: [remainingCash.toNumber()],
+      },
+      {
+        key: "remaining-upi",
+        label: "Remaining UPI",
+        value: remainingUpi.toNumber(),
+        formatter: (value: number) => formatCurrency(value),
+        note: `UPI collected - UPI expenses`,
+        noteIcon: "qrcode-minus",
+        icon: "qrcode",
+        accent: palette.upi,
+        accentSoft: palette.upiSoft,
+        sparklineLabel: "Net UPI",
+        sparklineValues: [remainingUpi.toNumber()],
+      },
     ],
     [
       analyticsReferenceLabel,
@@ -352,8 +388,12 @@ export function useAdminDashboardAnalytics({
       palette.upi,
       palette.upiSoft,
       totalCash,
+      totalExpenseCash,
+      totalExpenseUpi,
       totalRevenue,
       totalUpi,
+      remainingCash,
+      remainingUpi,
       visibleBillCount,
     ],
   );

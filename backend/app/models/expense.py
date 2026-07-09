@@ -135,6 +135,12 @@ class ExpenseEntry(Base, BaseModelMixin):
     )
     expense_name: Mapped[str] = mapped_column(String(120), nullable=False)
     expense_tamil_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    cash_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=Decimal("0.00"), server_default=text("0")
+    )
+    upi_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=Decimal("0.00"), server_default=text("0")
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     spent_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -149,6 +155,12 @@ class ExpenseEntry(Base, BaseModelMixin):
 
     __table_args__ = (
         CheckConstraint("amount > 0", name="ck_expense_entries_amount_positive"),
+        CheckConstraint("cash_amount >= 0", name="ck_expense_entries_cash_non_negative"),
+        CheckConstraint("upi_amount >= 0", name="ck_expense_entries_upi_non_negative"),
+        CheckConstraint(
+            "(cash_amount + upi_amount) > 0",
+            name="ck_expense_entries_split_positive",
+        ),
         CheckConstraint(
             "length(trim(expense_name)) >= 2", name="ck_expense_entries_name_not_blank"
         ),

@@ -25,6 +25,7 @@ backend/app/services/super_admin/organizations.py   New-org provisioning API
 
 Current tenant head revision is defined in code as `TENANT_MIGRATION_HEAD` in `tenant_schema.py` (must match the latest file under `migrations/tenant/versions/`).
 
+
 ## Platform migrations
 
 ### What they cover
@@ -97,6 +98,8 @@ Set `TARGET_SCHEMA` when invoking tenant Alembic directly (normally handled by `
 ### Drift patches
 
 `ensure_tenant_schema_drift_patches()` in `tenant_metadata.py` applies idempotent column/index fixes when physical schema lags stamped Alembic head (for example after a hotfix). Tenant migration `0012_billing_reliability` delegates to this helper instead of blocking `ALTER TABLE` in Alembic.
+
+
 
 ## App startup vs CLI
 

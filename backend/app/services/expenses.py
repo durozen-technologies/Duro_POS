@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -7,8 +7,8 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ExpenseEntry, ExpenseItem, Shop, ShopExpenseAllocation
 from app.core.timezone import ist_midnight
+from app.models import ExpenseEntry, ExpenseItem, Shop, ShopExpenseAllocation
 from app.schemas.expenses import (
     ExpenseEntryCreate,
     ExpenseEntryPage,
@@ -61,6 +61,37 @@ def _normalize_note(raw_note: str | None) -> str | None:
         return None
     note = raw_note.strip()
     return note or None
+
+
+def _normalize_expense_split(
+    *,
+    cash_amount: Decimal | None,
+    upi_amount: Decimal | None,
+    amount: Decimal | None = None,
+) -> tuple[Decimal, Decimal, Decimal]:
+    if amount is not None:
+        total = Decimal(amount).quantize(Decimal("0.01"))
+        if total <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Expense amount must be greater than zero",
+            )
+        return total, Decimal("0.00"), total
+
+    cash = Decimal(cash_amount or 0).quantize(Decimal("0.01"))
+    upi = Decimal(upi_amount or 0).quantize(Decimal("0.01"))
+    if cash < 0 or upi < 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Cash and UPI amounts cannot be negative",
+        )
+    total = (cash + upi).quantize(Decimal("0.01"))
+    if total <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Expense total must be greater than zero",
+        )
+    return cash, upi, total
 
 
 async def _ensure_unique_expense_name(
@@ -851,6 +882,8 @@ def _expense_entry_to_read(
             original_object_key=item.image_object_key,
         ),
         image_content_type=item.image_content_type,
+        cash_amount=entry.cash_amount,
+        upi_amount=entry.upi_amount,
         amount=entry.amount,
         spent_at=entry.spent_at,
         note=entry.note,
@@ -904,12 +937,19 @@ async def create_shop_expense_entry(
         )
     item = row.ExpenseItem
     spent_at = payload.spent_at or datetime.now(UTC)
+    cash_amount, upi_amount, total_amount = _normalize_expense_split(
+        cash_amount=payload.cash_amount,
+        upi_amount=payload.upi_amount,
+        amount=payload.amount,
+    )
     entry = ExpenseEntry(
         shop_id=shop.id,
         expense_item_id=item.id,
         expense_name=item.name,
         expense_tamil_name=item.tamil_name,
-        amount=Decimal(payload.amount).quantize(Decimal("0.01")),
+        cash_amount=cash_amount,
+        upi_amount=upi_amount,
+        amount=total_amount,
         spent_at=spent_at,
         note=_normalize_note(payload.note),
     )
@@ -927,7 +967,14 @@ async def update_expense_entry(
     entry = await db.get(ExpenseEntry, entry_id, with_for_update=True)
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense entry not found")
-    entry.amount = Decimal(payload.amount).quantize(Decimal("0.01"))
+    cash_amount, upi_amount, total_amount = _normalize_expense_split(
+        cash_amount=payload.cash_amount,
+        upi_amount=payload.upi_amount,
+        amount=payload.amount,
+    )
+    entry.cash_amount = cash_amount
+    entry.upi_amount = upi_amount
+    entry.amount = total_amount
     entry.spent_at = payload.spent_at
     entry.note = _normalize_note(payload.note)
     await db.commit()
@@ -970,9 +1017,15 @@ async def list_expense_entries(
                 and_(ExpenseEntry.spent_at == cursor_spent_at, ExpenseEntry.id < cursor_id),
             )
         )
-    total_amount = await db.scalar(
-        select(func.coalesce(func.sum(ExpenseEntry.amount), Decimal("0.00"))).where(*base_filters)
-    )
+    totals = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(ExpenseEntry.cash_amount), Decimal("0.00")).label("total_cash_amount"),
+                func.coalesce(func.sum(ExpenseEntry.upi_amount), Decimal("0.00")).label("total_upi_amount"),
+                func.coalesce(func.sum(ExpenseEntry.amount), Decimal("0.00")).label("total_amount"),
+            ).where(*base_filters)
+        )
+    ).one()
 
     rows = (
         await db.execute(
@@ -1006,7 +1059,9 @@ async def list_expense_entries(
         items=items,
         limit=limit,
         has_more=len(rows) > limit,
-        total_amount=Decimal(total_amount or 0).quantize(Decimal("0.01")),
+        total_cash_amount=Decimal(totals.total_cash_amount or 0).quantize(Decimal("0.01")),
+        total_upi_amount=Decimal(totals.total_upi_amount or 0).quantize(Decimal("0.01")),
+        total_amount=Decimal(totals.total_amount or 0).quantize(Decimal("0.01")),
         next_cursor_spent_at=next_cursor_spent_at,
         next_cursor_id=next_cursor_id,
     )

@@ -372,7 +372,24 @@ def _receipt_to_read(
         retailer_payment_id=receipt.retailer_payment_id,
         printed_at=receipt.printed_at,
         payment_total=payment_totals.get(receipt.retailer_payment_id),
+        opening_balance=receipt.opening_balance,
     )
+
+
+async def _retailer_opening_balance_excluding_sale(
+    db: AsyncSession,
+    retailer_id: UUID,
+    *,
+    exclude_sale_id: UUID | None = None,
+) -> Decimal:
+    query = select(func.coalesce(func.sum(RetailerSale.balance_due), Decimal("0.00"))).where(
+        RetailerSale.retailer_id == retailer_id,
+        RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+    )
+    if exclude_sale_id is not None:
+        query = query.where(RetailerSale.id != exclude_sale_id)
+    opening = await db.scalar(query)
+    return _round_money(opening or Decimal("0.00"))
 
 
 def _sale_load_options():
@@ -532,6 +549,9 @@ async def preview_retailer_sale(
         "retailer_id": str(payload.retailer_id),
     }
     sale_status = _sale_status(prepared.total_amount, prepared.total_paid)
+    opening_balance = await _retailer_opening_balance_excluding_sale(
+        db, payload.retailer_id
+    )
     preview_payment_id = uuid7()
     preview_receipt = RetailerSaleReceiptRead(
         id=uuid7(),
@@ -540,6 +560,7 @@ async def preview_retailer_sale(
         retailer_payment_id=preview_payment_id,
         printed_at=now,
         payment_total=prepared.total_paid,
+        opening_balance=opening_balance,
     )
     preview = RetailerSalePreviewRead(
         id=uuid7(),
@@ -647,6 +668,9 @@ async def create_retailer_sale(
         )
         db.add(payment)
         await db.flush()
+        opening_balance = await _retailer_opening_balance_excluding_sale(
+            db, sale.retailer_id, exclude_sale_id=sale.id
+        )
         printed_at = datetime.now(UTC)
         receipt = RetailerSaleReceipt(
             retailer_sale_id=sale.id,
@@ -654,6 +678,7 @@ async def create_retailer_sale(
             receipt_type=RetailerReceiptType.SALE_INVOICE,
             receipt_number=invoice_receipt_number(sale.sale_no),
             printed_at=printed_at,
+            opening_balance=opening_balance,
         )
         db.add(receipt)
         db.add(
@@ -728,6 +753,10 @@ async def record_retailer_payment(
             detail=f"Payment exceeds balance due ({sale.balance_due})",
         )
 
+    opening_balance = await _retailer_opening_balance_excluding_sale(
+        db, sale.retailer_id, exclude_sale_id=sale.id
+    )
+
     payment = RetailerPayment(
         retailer_sale_id=sale.id,
         cash_amount=cash_amount,
@@ -765,6 +794,7 @@ async def record_retailer_payment(
             receipt_type=RetailerReceiptType.BALANCE_PAYMENT,
             receipt_number=balance_receipt_number(sale.sale_no, printed_at, payment_id=payment.id),
             printed_at=printed_at,
+            opening_balance=opening_balance,
         )
         db.add(payment_receipt)
         await db.commit()
