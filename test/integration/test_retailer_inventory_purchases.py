@@ -114,6 +114,7 @@ class RetailerInventoryPurchaseIntegrationTests(BackendTestCase):
                             RetailerInventoryPurchaseLineInput(
                                 inventory_item_id=inventory_item.id,
                                 quantity=Decimal("5"),
+                                bird_count=3,
                                 price_per_unit=Decimal("100.00"),
                             )
                         ],
@@ -121,6 +122,7 @@ class RetailerInventoryPurchaseIntegrationTests(BackendTestCase):
                     actor=shop_user,
                 )
                 self.assertEqual(purchase.total_amount, Decimal("500.00"))
+                self.assertEqual(purchase.lines[0].bird_count, 3)
                 self.assertEqual(purchase.amount_applied_to_outstanding, Decimal("200.00"))
                 self.assertEqual(purchase.amount_deposited_to_wallet, Decimal("300.00"))
 

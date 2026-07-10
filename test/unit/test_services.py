@@ -133,12 +133,19 @@ class ServiceUnitTests(BackendTestCase):
                     "16/06/2026",
                     "Chicken Stock",
                     "10 Kg",
+                    "8",
                     "5 Kg",
+                    "4",
                     "15 Kg",
+                    "12",
                     "Kitchen Use\n4 Kg",
+                    "3",
                     "2 Kg",
+                    "1",
                     "0 Kg",
+                    "0",
                     "11 Kg",
+                    "8",
                     "Rs. 50.00",
                     "Rs. 200.00",
                     "Chicken",
@@ -210,9 +217,9 @@ class ServiceUnitTests(BackendTestCase):
         for row in rows:
             self.assertEqual(len(row), len(headers))
         subtotal_row = rows[-1]
-        self.assertEqual(subtotal_row[9], "")
-        self.assertEqual(subtotal_row[10], "")
-        self.assertEqual(subtotal_row[11], "Subtotal")
+        self.assertEqual(subtotal_row[16], "")
+        self.assertEqual(subtotal_row[17], "")
+        self.assertEqual(subtotal_row[18], "Subtotal")
 
     def test_over_report_accounts_for_inventory_transfers(self) -> None:
         _actor, shop = self.run_async(

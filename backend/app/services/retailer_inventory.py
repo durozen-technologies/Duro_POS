@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -27,14 +27,18 @@ from app.schemas.retailer_inventory import (
 from app.services.retailers import ensure_retailer_at_shop
 
 from .inventory import (
+    THREE_DECIMALS,
     ZERO,
-    _available_quantity_at,
+    _bird_availability_for_transaction,
     _get_allocated_inventory_item_for_shop,
     _normalize_nonnegative_quantity,
     _normalize_quantity,
     _prepare_occurred_at,
+    _quantity_availability_for_transaction,
+    _quantity_exceeds_available,
     _retailer_usage_totals,
     _stock_item_for_shop_inventory_item,
+    _validate_bird_count_ceiling,
     get_inventory_summary,
 )
 
@@ -57,6 +61,7 @@ def _usage_to_read(usage: RetailerInventoryUsage) -> RetailerInventoryUsageRead:
         category_id=usage.category_id,
         category_name=category.name if category is not None else None,
         quantity=usage.quantity,
+        bird_count=usage.bird_count,
         unit=item.base_unit if item is not None else BaseUnit.KG,
         occurred_at=usage.occurred_at,
         created_at=usage.created_at,
@@ -144,6 +149,7 @@ async def record_retailer_inventory_usages_bulk(
         item, _allocation = await _get_allocated_inventory_item_for_shop(db, shop, item_id)
         category_ids = {link.category_id for link in item.category_links}
         item_total = ZERO
+        item_bird_total = 0
         for line in lines:
             quantity = _normalize_quantity(item.base_unit, line.quantity)
             if category_ids:
@@ -158,15 +164,38 @@ async def record_retailer_inventory_usages_bulk(
                     detail="Inventory category is not linked to this item",
                 )
             item_total += quantity
+            item_bird_total += line.bird_count
 
-        available_quantity = await _available_quantity_at(
-            db, shop.id, item.id, as_of=occurred_at
+        available_quantity = await _quantity_availability_for_transaction(
+            db,
+            shop.id,
+            item.id,
+            raw_occurred_at=payload.occurred_at,
+            occurred_at=occurred_at,
         )
-        if item_total > available_quantity:
+        if _quantity_exceeds_available(item_total, available_quantity):
+            requested = item_total.quantize(THREE_DECIMALS)
+            available = available_quantity.quantize(THREE_DECIMALS)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Retailer stock for {item.name} exceeds available quantity",
+                detail=(
+                    f"Retailer stock for {item.name} exceeds available quantity "
+                    f"({requested} requested, {available} available)"
+                ),
             )
+        added_bird_count, available_bird_count = await _bird_availability_for_transaction(
+            db,
+            shop.id,
+            item.id,
+            raw_occurred_at=payload.occurred_at,
+            occurred_at=occurred_at,
+        )
+        _validate_bird_count_ceiling(
+            item,
+            item_bird_total,
+            available_bird_count=available_bird_count,
+            added_bird_count=added_bird_count,
+        )
 
         for line in lines:
             quantity = _normalize_quantity(item.base_unit, line.quantity)
@@ -177,6 +206,7 @@ async def record_retailer_inventory_usages_bulk(
                 inventory_item_id=item.id,
                 category_id=line.category_id,
                 quantity=quantity,
+                bird_count=line.bird_count,
                 occurred_at=occurred_at,
                 created_by_user_id=actor.id if actor is not None else None,
             )
@@ -230,36 +260,112 @@ async def admin_set_retailer_inventory_stock(
             detail="Inventory category is not linked to this item",
         )
 
-    _, retailer_used_today = await _retailer_usage_totals(
-        db, shop.id, [item_id], used_since=date.today()
-    )
-    _, category_retailer_used_today = await _retailer_usage_totals(
-        db, shop.id, [item_id], used_since=date.today()
-    )
+    (
+        retailer_used_today,
+        category_retailer_used_today,
+        retailer_used_today_bird,
+        category_retailer_used_today_bird,
+    ) = await _retailer_usage_totals(db, shop.id, [item_id], used_since=date.today())
 
-    target_used = _normalize_nonnegative_quantity(item.base_unit, payload.retailer_used_quantity)
-    if payload.category_id:
-        current_used = category_retailer_used_today.get((item_id, payload.category_id), ZERO)
-    else:
-        current_used = retailer_used_today.get(item_id, ZERO)
+    delta = ZERO
+    if payload.retailer_used_quantity is not None:
+        target_used = _normalize_nonnegative_quantity(
+            item.base_unit, payload.retailer_used_quantity
+        )
+        if payload.category_id:
+            current_used = category_retailer_used_today.get((item_id, payload.category_id), ZERO)
+        else:
+            current_used = retailer_used_today.get(item_id, ZERO)
 
-    delta = (target_used - current_used).quantize(Decimal("0.001"))
-    if delta != ZERO:
+        delta = (target_used - current_used).quantize(Decimal("0.001"))
+
+    birds_delta = 0
+    if payload.retailer_used_bird_count is not None and item.base_unit == BaseUnit.KG:
+        if payload.category_id:
+            current_bird = category_retailer_used_today_bird.get(
+                (item_id, payload.category_id), 0
+            )
+        else:
+            current_bird = retailer_used_today_bird.get(item_id, 0)
+        birds_delta = payload.retailer_used_bird_count - current_bird
+
+    if delta != ZERO or birds_delta != 0:
         if payload.retailer_id is not None:
             await ensure_retailer_at_shop(
                 db, retailer_id=payload.retailer_id, shop_id=shop.id
             )
-        usage = RetailerInventoryUsage(
-            shop_id=shop.id,
-            retailer_id=payload.retailer_id,
-            inventory_item_id=item_id,
-            category_id=payload.category_id,
-            quantity=delta,
-            occurred_at=occurred_at,
-            created_by_user_id=actor.id if actor is not None else None,
-            adjustment_reason=payload.adjustment_reason,
-        )
-        db.add(usage)
+        adjustment_reason = payload.adjustment_reason
+        if delta != ZERO:
+            usage = RetailerInventoryUsage(
+                shop_id=shop.id,
+                retailer_id=payload.retailer_id,
+                inventory_item_id=item_id,
+                category_id=payload.category_id,
+                quantity=delta,
+                bird_count=abs(birds_delta) if birds_delta > 0 and delta != ZERO else 0,
+                occurred_at=occurred_at,
+                created_by_user_id=actor.id if actor is not None else None,
+                adjustment_reason=adjustment_reason,
+            )
+            db.add(usage)
+            birds_delta = 0 if birds_delta > 0 else birds_delta
+
+        if birds_delta != 0:
+            trace = THREE_DECIMALS
+            if birds_delta > 0:
+                db.add(
+                    RetailerInventoryUsage(
+                        shop_id=shop.id,
+                        retailer_id=payload.retailer_id,
+                        inventory_item_id=item_id,
+                        category_id=payload.category_id,
+                        quantity=trace,
+                        bird_count=birds_delta,
+                        occurred_at=occurred_at,
+                        created_by_user_id=actor.id if actor is not None else None,
+                        adjustment_reason=adjustment_reason,
+                    )
+                )
+                db.add(
+                    RetailerInventoryUsage(
+                        shop_id=shop.id,
+                        retailer_id=payload.retailer_id,
+                        inventory_item_id=item_id,
+                        category_id=payload.category_id,
+                        quantity=-trace,
+                        bird_count=0,
+                        occurred_at=occurred_at,
+                        created_by_user_id=actor.id if actor is not None else None,
+                        adjustment_reason=adjustment_reason,
+                    )
+                )
+            else:
+                db.add(
+                    RetailerInventoryUsage(
+                        shop_id=shop.id,
+                        retailer_id=payload.retailer_id,
+                        inventory_item_id=item_id,
+                        category_id=payload.category_id,
+                        quantity=trace,
+                        bird_count=0,
+                        occurred_at=occurred_at,
+                        created_by_user_id=actor.id if actor is not None else None,
+                        adjustment_reason=adjustment_reason,
+                    )
+                )
+                db.add(
+                    RetailerInventoryUsage(
+                        shop_id=shop.id,
+                        retailer_id=payload.retailer_id,
+                        inventory_item_id=item_id,
+                        category_id=payload.category_id,
+                        quantity=-trace,
+                        bird_count=birds_delta,
+                        occurred_at=occurred_at,
+                        created_by_user_id=actor.id if actor is not None else None,
+                        adjustment_reason=adjustment_reason,
+                    )
+                )
         await db.commit()
 
     return await _stock_item_for_shop_inventory_item(

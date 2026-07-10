@@ -20,6 +20,7 @@ export type GroupedRetailerInventoryUsage = {
   created_by_name?: string | null;
   adjustment_reason?: string | null;
   total_quantity: string;
+  total_bird_count: number;
   categories: GroupedRetailerCategoryLine[];
 };
 
@@ -43,6 +44,7 @@ export function groupRetailerInventoryUsages(
   const grouped = Array.from(buckets.entries()).map(([key, rows]) => {
     const head = rows[0];
     const total = rows.reduce((sum, row) => sum.add(money(row.quantity)), money(0));
+    const totalBirdCount = rows.reduce((sum, row) => sum + (row.bird_count ?? 0), 0);
     const categories = rows
       .filter((row) => row.category_id || row.category_name)
       .map((row) => ({
@@ -65,6 +67,7 @@ export function groupRetailerInventoryUsages(
       created_by_name: head.created_by_name,
       adjustment_reason: head.adjustment_reason,
       total_quantity: total.toString(),
+      total_bird_count: totalBirdCount,
       categories,
     };
   });
@@ -90,6 +93,7 @@ if (__DEV__) {
       category_id: "00000000-0000-4000-8000-000000000020",
       category_name: "Retail",
       quantity: "2",
+      bird_count: 1,
       unit: BaseUnit.KG,
       occurred_at: "2026-06-29T10:00:00.000Z",
       created_at: "2026-06-29T10:00:01.000Z",
@@ -104,6 +108,7 @@ if (__DEV__) {
       category_id: "00000000-0000-4000-8000-000000000021",
       category_name: "Wholesale",
       quantity: "3",
+      bird_count: 2,
       unit: BaseUnit.KG,
       occurred_at: "2026-06-29T10:00:00.000Z",
       created_at: "2026-06-29T10:00:01.000Z",

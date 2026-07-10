@@ -100,6 +100,159 @@ function formatInventoryQuantity(value: string | number, unit: BaseUnit) {
   return `${display || "0"} ${unit === BaseUnit.KG ? "kg" : numeric === 1 ? "unit" : "units"}`;
 }
 
+function formatInventoryQuantityWithBirds(
+  quantity: string | number,
+  unit: BaseUnit,
+  birdCount?: number,
+  options?: { alwaysShowBirds?: boolean },
+) {
+  const formatted = formatInventoryQuantity(quantity, unit);
+  if (
+    unit === BaseUnit.KG
+    && birdCount != null
+    && (birdCount > 0 || options?.alwaysShowBirds)
+  ) {
+    return `${formatted} | ${birdCount} birds`;
+  }
+  return formatted;
+}
+
+type ParsedStockEditKey = {
+  itemId: UUID;
+  field: "available" | "used" | "retailer" | "transfer";
+  birds: boolean;
+  categoryId?: UUID;
+};
+
+function stockBirdKey(baseKey: string) {
+  return `${baseKey}-birds`;
+}
+
+function parseStockEditKey(key: string): ParsedStockEditKey | null {
+  const birds = key.endsWith("-birds");
+  const baseKey = birds ? key.slice(0, -6) : key;
+  const parts = baseKey.split(":");
+  const itemId = parts[0] as UUID | undefined;
+  if (!itemId) {
+    return null;
+  }
+  if (parts[1] === "available") {
+    return { itemId, field: "available", birds };
+  }
+  if (parts[1] === "used") {
+    return { itemId, field: "used", birds };
+  }
+  if (parts[1] === "transfer") {
+    return { itemId, field: "transfer", birds };
+  }
+  if (parts[1] === "retailer") {
+    return { itemId, field: "retailer", birds, categoryId: parts[2] as UUID | undefined };
+  }
+  if (parts.length === 2) {
+    return { itemId, field: "used", birds, categoryId: parts[1] as UUID };
+  }
+  return null;
+}
+
+type AdminStockQuantityBlockProps = {
+  label: string;
+  quantityKey: string;
+  quantity: string | number;
+  birdCount?: number;
+  unit: BaseUnit;
+  editableQuantity?: boolean;
+  editableBirds?: boolean;
+  editingStockKey: string | null;
+  editingStockValue: string;
+  setEditingStockValue: (value: string) => void;
+  toggleStockEdit: (key: string, currentValue: string) => void;
+  handleSaveStockValue: () => void;
+  palette: ThemePalette;
+  quantityTextStyle?: object;
+  labelTextStyle?: object;
+};
+
+function AdminStockQuantityBlock({
+  label,
+  quantityKey,
+  quantity,
+  birdCount,
+  unit,
+  editableQuantity = false,
+  editableBirds = false,
+  editingStockKey,
+  editingStockValue,
+  setEditingStockValue,
+  toggleStockEdit,
+  handleSaveStockValue,
+  palette,
+  quantityTextStyle,
+  labelTextStyle,
+}: AdminStockQuantityBlockProps) {
+  const birdKey = stockBirdKey(quantityKey);
+  const showBirds = unit === BaseUnit.KG;
+  const editingQuantity = editingStockKey === quantityKey;
+  const editingBirds = editingStockKey === birdKey;
+  const editing = editingQuantity || editingBirds;
+  const display = showBirds
+    ? formatInventoryQuantityWithBirds(quantity, unit, birdCount, {
+        alwaysShowBirds: editableBirds,
+      })
+    : formatInventoryQuantity(quantity, unit);
+
+  return (
+    <View style={styles.itemQuantityGroup}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+        <Text style={[styles.quantityLabel, { color: palette.textMuted }, labelTextStyle]}>{label}</Text>
+        {editableQuantity ? (
+          <Pressable onPress={() => toggleStockEdit(quantityKey, String(quantity))} hitSlop={10}>
+            <MaterialCommunityIcons
+              name={editingQuantity ? "check" : "pencil-outline"}
+              size={14}
+              color={palette.textMuted}
+            />
+          </Pressable>
+        ) : null}
+        {showBirds && editableBirds ? (
+          <Pressable
+            onPress={() => toggleStockEdit(birdKey, String(birdCount ?? 0))}
+            hitSlop={10}
+            accessibilityLabel={`Edit ${label.toLowerCase()} bird count`}
+          >
+            <MaterialCommunityIcons
+              name={editingBirds ? "check" : "pencil-outline"}
+              size={12}
+              color={palette.textMuted}
+            />
+          </Pressable>
+        ) : null}
+      </View>
+      {editing ? (
+        <TextInput
+          value={editingStockValue}
+          onChangeText={setEditingStockValue}
+          keyboardType={editingBirds ? "number-pad" : "numeric"}
+          style={[
+            styles.quantityValue,
+            quantityTextStyle,
+            {
+              color: palette.textPrimary,
+              borderBottomWidth: 1,
+              borderBottomColor: palette.border,
+              minWidth: 60,
+              padding: 0,
+            },
+          ]}
+          onSubmitEditing={handleSaveStockValue}
+          autoFocus
+        />
+      ) : (
+        <Text style={[styles.quantityValue, { color: palette.textPrimary }, quantityTextStyle]}>{display}</Text>
+      )}
+    </View>
+  );
+}
+
 function formatPurchaseRate(value: string | number, unit: BaseUnit) {
   return `₹${money(value).toFixed(2)}/${unit === BaseUnit.KG ? "kg" : "unit"}`;
 }
@@ -825,38 +978,58 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
 
   const handleSaveStockValue = useCallback(async () => {
     if (!editingStockKey || !selectedShopId) return;
-    const parts = editingStockKey.split(":");
-    const itemId = parts[0];
-    const type = parts[1];
-    const categoryId = parts[2];
-    const numValue = parseFloat(editingStockValue) || 0;
-    const strValue = numValue.toString();
+    const parsed = parseStockEditKey(editingStockKey);
+    if (!parsed) return;
 
     setEditingStockKey(null);
     setErrorMessage(null);
 
     try {
-      if (type === "retailer") {
-        const updatedItem = await adminSetRetailerInventoryStock(selectedShopId, itemId, {
-          retailer_used_quantity: strValue,
-          category_id: categoryId ?? null,
-        });
-        setStockItems((currentItems) => currentItems.map((item) => (item.id === itemId ? updatedItem : item)));
+      if (parsed.field === "retailer") {
+        const payload =
+          parsed.birds
+            ? {
+                retailer_used_bird_count: Math.max(0, parseInt(editingStockValue, 10) || 0),
+                category_id: parsed.categoryId ?? null,
+              }
+            : {
+                retailer_used_quantity: (parseFloat(editingStockValue) || 0).toString(),
+                category_id: parsed.categoryId ?? null,
+              };
+        const updatedItem = await adminSetRetailerInventoryStock(
+          selectedShopId,
+          parsed.itemId,
+          payload,
+        );
+        setStockItems((currentItems) =>
+          currentItems.map((item) => (item.id === parsed.itemId ? updatedItem : item)),
+        );
         return;
       }
 
-      const payload: Record<string, string | null> = {};
-      if (type === "available") {
-        payload.available_quantity = strValue;
-      } else if (type === "used") {
-        payload.used_quantity = strValue;
-      } else {
-        payload.used_quantity = strValue;
-        payload.category_id = type;
-      }
+      const payload =
+        parsed.field === "available"
+          ? parsed.birds
+            ? { available_bird_count: Math.max(0, parseInt(editingStockValue, 10) || 0) }
+            : { available_quantity: (parseFloat(editingStockValue) || 0).toString() }
+          : parsed.field === "transfer"
+            ? parsed.birds
+              ? { transfer_bird_count: Math.max(0, parseInt(editingStockValue, 10) || 0) }
+              : { transfer_quantity: (parseFloat(editingStockValue) || 0).toString() }
+          : parsed.birds
+            ? {
+                used_bird_count: Math.max(0, parseInt(editingStockValue, 10) || 0),
+                category_id: parsed.categoryId ?? null,
+              }
+            : {
+                used_quantity: (parseFloat(editingStockValue) || 0).toString(),
+                category_id: parsed.categoryId ?? null,
+              };
 
-      const updatedItem = await adminSetShopInventoryStock(selectedShopId, itemId, payload);
-      setStockItems((currentItems) => currentItems.map((item) => (item.id === itemId ? updatedItem : item)));
+      const updatedItem = await adminSetShopInventoryStock(selectedShopId, parsed.itemId, payload);
+      setStockItems((currentItems) =>
+        currentItems.map((item) => (item.id === parsed.itemId ? updatedItem : item)),
+      );
     } catch (error) {
       triggerHaptic();
       setErrorMessage(getRequestMessage(error, "Unable to save stock value."));
@@ -1363,82 +1536,66 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           <View style={styles.itemText}>
             <Text style={[styles.itemName, { color: palette.textPrimary }]}>{item.name}</Text>
             <View style={styles.itemQuantityRow}>
-              <View style={styles.itemQuantityGroup}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Available</Text>
-                  <Pressable onPress={() => toggleStockEdit(`${item.id}:available`, item.available_quantity)} hitSlop={10}>
-                    <MaterialCommunityIcons name={editingStockKey === `${item.id}:available` ? "check" : "pencil-outline"} size={14} color={palette.textMuted} />
-                  </Pressable>
-                </View>
-                {editingStockKey === `${item.id}:available` ? (
-                  <TextInput
-                    value={editingStockValue}
-                    onChangeText={setEditingStockValue}
-                    keyboardType="numeric"
-                    style={[styles.quantityValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.border, minWidth: 60, padding: 0 }]}
-                    onSubmitEditing={handleSaveStockValue}
-                    autoFocus
-                  />
-                ) : (
-                  <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
-                    {formatInventoryQuantity(item.available_quantity, item.base_unit)}
-                  </Text>
-                )}
-              </View>
-              <View style={styles.itemQuantityGroup}>
-                <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Transfer</Text>
-                <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
-                  {formatInventoryQuantity(item.transfer_stock ?? "0", item.base_unit)}
-                </Text>
-              </View>
-              <View style={styles.itemQuantityGroup}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Used</Text>
-                  {categoryUsage.length === 0 && (
-                    <Pressable onPress={() => toggleStockEdit(`${item.id}:used`, item.used_quantity)} hitSlop={10}>
-                      <MaterialCommunityIcons name={editingStockKey === `${item.id}:used` ? "check" : "pencil-outline"} size={14} color={palette.textMuted} />
-                    </Pressable>
-                  )}
-                </View>
-                {editingStockKey === `${item.id}:used` ? (
-                  <TextInput
-                    value={editingStockValue}
-                    onChangeText={setEditingStockValue}
-                    keyboardType="numeric"
-                    style={[styles.quantityValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.border, minWidth: 60, padding: 0 }]}
-                    onSubmitEditing={handleSaveStockValue}
-                    autoFocus
-                  />
-                ) : (
-                  <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
-                    {formatInventoryQuantity(item.used_quantity, item.base_unit)}
-                  </Text>
-                )}
-              </View>
-              <View style={styles.itemQuantityGroup}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <Text style={[styles.quantityLabel, { color: palette.textMuted }]}>Retailer</Text>
-                  {categoryUsage.length === 0 && (
-                    <Pressable onPress={() => toggleStockEdit(`${item.id}:retailer`, item.retailer_used_quantity ?? "0")} hitSlop={10}>
-                      <MaterialCommunityIcons name={editingStockKey === `${item.id}:retailer` ? "check" : "pencil-outline"} size={14} color={palette.textMuted} />
-                    </Pressable>
-                  )}
-                </View>
-                {editingStockKey === `${item.id}:retailer` ? (
-                  <TextInput
-                    value={editingStockValue}
-                    onChangeText={setEditingStockValue}
-                    keyboardType="numeric"
-                    style={[styles.quantityValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.border, minWidth: 60, padding: 0 }]}
-                    onSubmitEditing={handleSaveStockValue}
-                    autoFocus
-                  />
-                ) : (
-                  <Text style={[styles.quantityValue, { color: palette.textPrimary }]}>
-                    {formatInventoryQuantity(item.retailer_used_quantity ?? "0", item.base_unit)}
-                  </Text>
-                )}
-              </View>
+              <AdminStockQuantityBlock
+                label="Available"
+                quantityKey={`${item.id}:available`}
+                quantity={item.available_quantity}
+                birdCount={item.available_bird_count}
+                unit={item.base_unit}
+                editableQuantity
+                editableBirds
+                editingStockKey={editingStockKey}
+                editingStockValue={editingStockValue}
+                setEditingStockValue={setEditingStockValue}
+                toggleStockEdit={toggleStockEdit}
+                handleSaveStockValue={() => void handleSaveStockValue()}
+                palette={palette}
+              />
+              <AdminStockQuantityBlock
+                label="Transfer"
+                quantityKey={`${item.id}:transfer`}
+                quantity={item.transfer_stock ?? "0"}
+                birdCount={item.transfer_bird_count}
+                unit={item.base_unit}
+                editableQuantity
+                editableBirds
+                editingStockKey={editingStockKey}
+                editingStockValue={editingStockValue}
+                setEditingStockValue={setEditingStockValue}
+                toggleStockEdit={toggleStockEdit}
+                handleSaveStockValue={() => void handleSaveStockValue()}
+                palette={palette}
+              />
+              <AdminStockQuantityBlock
+                label="Used"
+                quantityKey={`${item.id}:used`}
+                quantity={item.used_quantity}
+                birdCount={item.used_bird_count}
+                unit={item.base_unit}
+                editableQuantity={categoryUsage.length === 0}
+                editableBirds={categoryUsage.length === 0}
+                editingStockKey={editingStockKey}
+                editingStockValue={editingStockValue}
+                setEditingStockValue={setEditingStockValue}
+                toggleStockEdit={toggleStockEdit}
+                handleSaveStockValue={() => void handleSaveStockValue()}
+                palette={palette}
+              />
+              <AdminStockQuantityBlock
+                label="Retailer"
+                quantityKey={`${item.id}:retailer`}
+                quantity={item.retailer_used_quantity ?? "0"}
+                birdCount={item.retailer_used_bird_count}
+                unit={item.base_unit}
+                editableQuantity={categoryUsage.length === 0}
+                editableBirds={categoryUsage.length === 0}
+                editingStockKey={editingStockKey}
+                editingStockValue={editingStockValue}
+                setEditingStockValue={setEditingStockValue}
+                toggleStockEdit={toggleStockEdit}
+                handleSaveStockValue={() => void handleSaveStockValue()}
+                palette={palette}
+              />
             </View>
           </View>
           {!item.is_active ? (
@@ -1488,50 +1645,40 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                   {category.category_name}
                 </Text>
                 <View style={styles.categoryUsageTotals}>
-                  <View style={styles.categoryUsageTotal}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Text style={[styles.categoryUsageLabel, { color: palette.textMuted }]}>Used</Text>
-                      <Pressable onPress={() => toggleStockEdit(`${item.id}:${category.category_id}`, category.used_quantity)} hitSlop={10}>
-                        <MaterialCommunityIcons name={editingStockKey === `${item.id}:${category.category_id}` ? "check" : "pencil-outline"} size={14} color={palette.textMuted} />
-                      </Pressable>
-                    </View>
-                    {editingStockKey === `${item.id}:${category.category_id}` ? (
-                      <TextInput
-                        value={editingStockValue}
-                        onChangeText={setEditingStockValue}
-                        keyboardType="numeric"
-                        style={[styles.categoryUsageValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.border, minWidth: 60, padding: 0 }]}
-                        onSubmitEditing={handleSaveStockValue}
-                        autoFocus
-                      />
-                    ) : (
-                      <Text style={[styles.categoryUsageValue, { color: palette.textPrimary }]}>
-                        {formatInventoryQuantity(category.used_quantity, item.base_unit)}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.categoryUsageTotal}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Text style={[styles.categoryUsageLabel, { color: palette.textMuted }]}>Retailer</Text>
-                      <Pressable onPress={() => toggleStockEdit(`${item.id}:retailer:${category.category_id}`, category.retailer_used_quantity ?? "0")} hitSlop={10}>
-                        <MaterialCommunityIcons name={editingStockKey === `${item.id}:retailer:${category.category_id}` ? "check" : "pencil-outline"} size={14} color={palette.textMuted} />
-                      </Pressable>
-                    </View>
-                    {editingStockKey === `${item.id}:retailer:${category.category_id}` ? (
-                      <TextInput
-                        value={editingStockValue}
-                        onChangeText={setEditingStockValue}
-                        keyboardType="numeric"
-                        style={[styles.categoryUsageValue, { color: palette.textPrimary, borderBottomWidth: 1, borderBottomColor: palette.border, minWidth: 60, padding: 0 }]}
-                        onSubmitEditing={handleSaveStockValue}
-                        autoFocus
-                      />
-                    ) : (
-                      <Text style={[styles.categoryUsageValue, { color: palette.textPrimary }]}>
-                        {formatInventoryQuantity(category.retailer_used_quantity ?? "0", item.base_unit)}
-                      </Text>
-                    )}
-                  </View>
+                  <AdminStockQuantityBlock
+                    label="Used"
+                    quantityKey={`${item.id}:${category.category_id}`}
+                    quantity={category.used_quantity}
+                    birdCount={category.used_bird_count}
+                    unit={item.base_unit}
+                    editableQuantity
+                    editableBirds
+                    editingStockKey={editingStockKey}
+                    editingStockValue={editingStockValue}
+                    setEditingStockValue={setEditingStockValue}
+                    toggleStockEdit={toggleStockEdit}
+                    handleSaveStockValue={() => void handleSaveStockValue()}
+                    palette={palette}
+                    labelTextStyle={styles.categoryUsageLabel}
+                    quantityTextStyle={styles.categoryUsageValue}
+                  />
+                  <AdminStockQuantityBlock
+                    label="Retailer"
+                    quantityKey={`${item.id}:retailer:${category.category_id}`}
+                    quantity={category.retailer_used_quantity ?? "0"}
+                    birdCount={category.retailer_used_bird_count}
+                    unit={item.base_unit}
+                    editableQuantity
+                    editableBirds
+                    editingStockKey={editingStockKey}
+                    editingStockValue={editingStockValue}
+                    setEditingStockValue={setEditingStockValue}
+                    toggleStockEdit={toggleStockEdit}
+                    handleSaveStockValue={() => void handleSaveStockValue()}
+                    palette={palette}
+                    labelTextStyle={styles.categoryUsageLabel}
+                    quantityTextStyle={styles.categoryUsageValue}
+                  />
                 </View>
               </View>
             ))}

@@ -25,6 +25,11 @@ export async function fetchShopInventory() {
   return data;
 }
 
+export async function fetchShopInventoryStockItem(itemId: UUID) {
+  const summary = await fetchShopInventory();
+  return summary.items.find((item) => item.id === itemId) ?? null;
+}
+
 export type FetchShopInventoryRowsParams = {
   q?: string;
   limit?: number;

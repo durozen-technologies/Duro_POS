@@ -142,6 +142,8 @@ class InventoryCategoryUsageRead(BaseModel):
     available_quantity: Decimal = Decimal("0")
     used_quantity: Decimal = Decimal("0")
     retailer_used_quantity: Decimal = Decimal("0")
+    used_bird_count: int = 0
+    retailer_used_bird_count: int = 0
 
 
 class InventoryItemStockRead(InventoryItemRead):
@@ -153,6 +155,11 @@ class InventoryItemStockRead(InventoryItemRead):
     used_quantity: Decimal = Decimal("0")
     transfer_stock: Decimal = Decimal("0")
     retailer_used_quantity: Decimal = Decimal("0")
+    available_bird_count: int = 0
+    added_bird_count: int = 0
+    used_bird_count: int = 0
+    transfer_bird_count: int = 0
+    retailer_used_bird_count: int = 0
     category_usage: list[InventoryCategoryUsageRead] = Field(default_factory=list)
 
 
@@ -164,6 +171,9 @@ class InventorySummaryRead(BaseModel):
     total_transfer_stock: Decimal = Decimal("0")
     total_used_stock: Decimal = Decimal("0")
     total_retailer_used_stock: Decimal = Decimal("0")
+    total_transfer_bird_count: int = 0
+    total_used_bird_count: int = 0
+    total_retailer_used_bird_count: int = 0
 
 
 class InventoryStockRowsPage(BaseModel):
@@ -178,6 +188,9 @@ class InventoryStockRowsPage(BaseModel):
     total_transfer_stock: Decimal = Decimal("0")
     total_used_stock: Decimal = Decimal("0")
     total_retailer_used_stock: Decimal = Decimal("0")
+    total_transfer_bird_count: int = 0
+    total_used_bird_count: int = 0
+    total_retailer_used_bird_count: int = 0
 
 
 class InventoryMovementRead(BaseModel):
@@ -191,6 +204,7 @@ class InventoryMovementRead(BaseModel):
     category_name: str | None = None
     movement_type: InventoryMovementType
     quantity: Decimal
+    bird_count: int = 0
     unit: BaseUnit
     driver_name: str | None = None
     vehicle_number: str | None = None
@@ -206,6 +220,7 @@ class InventoryMovementPage(BaseModel):
 
 class InventoryAddRequest(BaseModel):
     quantity: Decimal = Field(gt=0)
+    bird_count: int = Field(default=0, ge=0)
     driver_name: str = Field(min_length=1, max_length=100)
     vehicle_number: str = Field(min_length=2, max_length=120)
     occurred_at: datetime | None = None
@@ -221,12 +236,14 @@ class InventoryAddRequest(BaseModel):
 class InventoryUseRequest(BaseModel):
     category_id: UUID | None = None
     quantity: Decimal = Field(gt=0)
+    bird_count: int = Field(default=0, ge=0)
     occurred_at: datetime | None = None
 
 
 class InventoryUseSplitLine(BaseModel):
     category_id: UUID
     quantity: Decimal = Field(ge=0)
+    bird_count: int = Field(default=0, ge=0)
 
 
 class InventoryUseSplitRequest(BaseModel):
@@ -237,7 +254,11 @@ class InventoryUseSplitRequest(BaseModel):
 
 class InventoryStockAdjustRequest(BaseModel):
     available_quantity: Decimal | None = Field(default=None, ge=0)
+    available_bird_count: int | None = Field(default=None, ge=0)
     used_quantity: Decimal | None = Field(default=None, ge=0)
+    used_bird_count: int | None = Field(default=None, ge=0)
+    transfer_quantity: Decimal | None = Field(default=None, ge=0)
+    transfer_bird_count: int | None = Field(default=None, ge=0)
     category_id: UUID | None = None
     occurred_at: datetime | None = None
 

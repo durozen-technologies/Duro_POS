@@ -166,7 +166,8 @@ export function AdminRetailerSaleDetailScreen({
               >
                 {formatCurrency(sale.balance_due)}
               </Text>
-            </View>            <View
+            </View>
+            <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",

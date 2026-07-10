@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Card } from "@/components/ui/card";
-import type { BaseUnit, InventoryTransferRead } from "@/types/api";
+import { BaseUnit, type InventoryTransferRead } from "@/types/api";
 import { formatDateTime } from "@/utils/format";
 
 type InventoryTransferHistoryCardProps = {
@@ -69,7 +69,9 @@ export function InventoryTransferHistoryCard({
             </View>
           </View>
           <Text className="text-sm font-extrabold text-ink">
-            {formatQuantity(transfer.quantity, transfer.unit as BaseUnit)}
+            {transfer.unit === BaseUnit.KG && transfer.bird_count > 0
+              ? `${formatQuantity(transfer.quantity, transfer.unit)} · ${transfer.bird_count} birds`
+              : formatQuantity(transfer.quantity, transfer.unit)}
           </Text>
           <Text className="text-xs font-semibold text-muted">{formatDateTime(transfer.occurred_at)}</Text>
           {recordedLabel ? (

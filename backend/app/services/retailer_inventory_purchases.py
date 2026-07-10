@@ -80,6 +80,7 @@ def _purchase_to_read(purchase: RetailerInventoryPurchase) -> RetailerInventoryP
                 inventory_item_id=line.inventory_item_id,
                 item_name=line.item_name,
                 quantity=line.quantity,
+                bird_count=line.bird_count,
                 price_per_unit=line.price_per_unit,
                 line_total=line.line_total,
             )
@@ -115,7 +116,7 @@ async def create_retailer_inventory_purchase(
                 detail=f"Invalid line total for {item.name}",
             )
         total_amount += line_total
-        prepared_lines.append((item, quantity, price_per_unit, line_total))
+        prepared_lines.append((item, quantity, line.bird_count, price_per_unit, line_total))
 
     total_amount = _round_money(total_amount)
     retailer = await _lock_retailer(db, payload.retailer_id)
@@ -134,12 +135,13 @@ async def create_retailer_inventory_purchase(
     db.add(purchase)
     await db.flush()
 
-    for item, quantity, price_per_unit, line_total in prepared_lines:
+    for item, quantity, bird_count, price_per_unit, line_total in prepared_lines:
         movement = InventoryMovement(
             shop_id=shop.id,
             inventory_item_id=item.id,
             movement_type=InventoryMovementType.ADD,
             quantity=quantity,
+            bird_count=bird_count,
             occurred_at=occurred_at,
         )
         db.add(movement)
@@ -150,6 +152,7 @@ async def create_retailer_inventory_purchase(
             inventory_movement_id=movement.id,
             item_name=item.name,
             quantity=quantity,
+            bird_count=bird_count,
             price_per_unit=price_per_unit,
             line_total=line_total,
         )
@@ -230,6 +233,7 @@ async def void_retailer_inventory_purchase(
             inventory_item_id=item.id,
             movement_type=InventoryMovementType.USE,
             quantity=line.quantity,
+            bird_count=line.bird_count,
             occurred_at=voided_at,
         )
         db.add(reversal)

@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Card } from "@/components/ui/card";
-import { InventoryMovementType, type BaseUnit } from "@/types/api";
+import { BaseUnit, InventoryMovementType } from "@/types/api";
 import type { GroupedInventoryMovement } from "@/utils/group-inventory-movements";
 import { formatDateTime } from "@/utils/format";
 
@@ -17,6 +17,7 @@ type InventoryMovementHistoryCardProps = {
     driver: string;
     vehicle: string;
     recordedAt: (dateTime: string) => string;
+    birds?: string;
   };
 };
 
@@ -60,6 +61,11 @@ export function InventoryMovementHistoryCard({
   const recordedLabel = movementRecordedLabel(entry.occurred_at, entry.created_at, labels.recordedAt);
   const vehicleNumber = movementTextValue(entry.vehicle_number);
   const driverName = movementTextValue(entry.driver_name);
+  const birdsLabel = labels.birds ?? "birds";
+  const quantityLabel =
+    entry.unit === BaseUnit.KG && entry.total_bird_count > 0
+      ? `${formatQuantity(entry.total_quantity, entry.unit)} · ${entry.total_bird_count} ${birdsLabel}`
+      : formatQuantity(entry.total_quantity, entry.unit);
 
   return (
     <Card className="gap-0 border-border bg-card p-0">
@@ -86,7 +92,7 @@ export function InventoryMovementHistoryCard({
             </View>
           </View>
           <Text className="text-sm font-extrabold text-ink">
-            {formatQuantity(entry.total_quantity, entry.unit)}
+            {quantityLabel}
           </Text>
           <Text className="text-xs font-semibold text-muted">{formatDateTime(entry.occurred_at)}</Text>
           {recordedLabel ? (
@@ -117,7 +123,9 @@ export function InventoryMovementHistoryCard({
                 {category.category_name ?? labels.unknownCategory}
               </Text>
               <Text className="shrink-0 text-sm font-extrabold text-ink">
-                {formatQuantity(category.quantity, entry.unit)}
+                {entry.unit === BaseUnit.KG && category.bird_count > 0
+                  ? `${formatQuantity(category.quantity, entry.unit)} · ${category.bird_count} ${birdsLabel}`
+                  : formatQuantity(category.quantity, entry.unit)}
               </Text>
             </View>
           ))}

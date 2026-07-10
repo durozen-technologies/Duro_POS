@@ -590,6 +590,34 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                     )
                 )
 
+    _bird_count_tables = (
+        "inventory_movements",
+        "inventory_movement_splits",
+        "inventory_transfers",
+        "retailer_inventory_usages",
+        "retailer_inventory_purchase_lines",
+    )
+    for table_name in _bird_count_tables:
+        if table_name not in table_names:
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name, schema=safe)}
+        if "bird_count" in columns:
+            continue
+        if dialect == "postgresql":
+            connection.execute(
+                text(
+                    f'ALTER TABLE "{table_name}" '
+                    "ADD COLUMN IF NOT EXISTS bird_count INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+        else:
+            connection.execute(
+                text(
+                    f'ALTER TABLE "{table_name}" '
+                    "ADD COLUMN bird_count INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+
 
 def ensure_tenant_schema_column_patches(connection: Connection, schema_name: str) -> None:
     """Backward-compatible alias for startup/repair drift patching."""

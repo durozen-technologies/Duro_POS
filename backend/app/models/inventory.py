@@ -350,6 +350,7 @@ class InventoryMovement(Base, BaseModelMixin):
         Enum(InventoryMovementType), nullable=False
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    bird_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -387,6 +388,7 @@ class InventoryMovementSplit(Base, BaseModelMixin):
         nullable=False,
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    bird_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
     movement = relationship("InventoryMovement", back_populates="splits")
     category = relationship("InventoryCategory")

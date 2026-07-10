@@ -15,7 +15,7 @@ import {
   type ScrollView as ScrollViewType,
 } from "react-native";
 
-import { recordShopRetailerInventoryUsages } from "@/api/inventory";
+import { fetchShopInventoryStockItem, recordShopRetailerInventoryUsages } from "@/api/inventory";
 import { fetchShopRetailers } from "@/api/retailers";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,39 @@ function isWholeDecimalValue(value: ReturnType<typeof money>) {
   return value.equals(value.toDecimalPlaces(0));
 }
 
+function effectiveAvailableBirdCount(value?: number): number {
+  return Math.max(0, value ?? 0);
+}
+
+function shouldValidateBirdCountCeiling(item: InventoryItemStockRead, birdCount: number): boolean {
+  return item.base_unit === BaseUnit.KG && birdCount > 0 && (item.added_bird_count ?? 0) > 0;
+}
+
+function formatQuantityWithBirds(
+  formatQuantity: (value: string | number, unit?: BaseUnit) => string,
+  quantity: string | number,
+  unit: BaseUnit,
+  birdCount?: number,
+  birdsLabel = "birds",
+) {
+  const formatted = formatQuantity(quantity, unit);
+  if (unit === BaseUnit.KG && birdCount != null) {
+    return `${formatted} | ${birdCount} ${birdsLabel}`;
+  }
+  return formatted;
+}
+
+function parseBirdCountDraft(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  return Number.parseInt(trimmed, 10);
+}
+
 function itemQuantityKey(itemId: UUID, categoryId?: UUID | null) {
   return categoryId ? `${itemId}:${categoryId}` : itemId;
 }
@@ -84,20 +117,24 @@ type RetailerStockModalProps = {
   backdatePolicy: InventoryBackdatePolicyRead | null;
   onClose: () => void;
   onSaved: (result: RetailerInventoryUsageBulkResult) => void;
+  onStockUpdated?: (item: InventoryItemStockRead) => void;
 };
 
 export function RetailerStockModal({
   visible,
   item,
-  backdatePolicy,
+  backdatePolicy: _backdatePolicy,
   onClose,
   onSaved,
+  onStockUpdated,
 }: RetailerStockModalProps) {
   const { language, t } = useShopTranslation();
+  const [stockItem, setStockItem] = useState<InventoryItemStockRead | null>(item);
   const [retailers, setRetailers] = useState<RetailerRead[]>([]);
   const [retailersLoading, setRetailersLoading] = useState(false);
   const [selectedRetailerId, setSelectedRetailerId] = useState<UUID | null>(null);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [birdQuantities, setBirdQuantities] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const scrollRef = useRef<ScrollViewType>(null);
   const scrollOffsetRef = useRef(0);
@@ -110,6 +147,7 @@ export function RetailerStockModal({
   const resetForm = useCallback(() => {
     setSelectedRetailerId(null);
     setQuantities({});
+    setBirdQuantities({});
     setSaving(false);
     setKeyboardInset(0);
     keyboardInsetRef.current = 0;
@@ -121,6 +159,34 @@ export function RetailerStockModal({
     resetForm();
     onClose();
   }, [onClose, resetForm]);
+
+  useEffect(() => {
+    setStockItem(item);
+  }, [item]);
+
+  useEffect(() => {
+    if (!visible || !item) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const fresh = await fetchShopInventoryStockItem(item.id);
+        if (cancelled || !fresh) {
+          return;
+        }
+        setStockItem(fresh);
+        onStockUpdated?.(fresh);
+      } catch {
+        if (!cancelled) {
+          setStockItem(item);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item, onStockUpdated, visible]);
 
   useEffect(() => {
     if (!visible) {
@@ -207,52 +273,65 @@ export function RetailerStockModal({
     };
   }, [scrollFieldIntoView, visible]);
 
+  const activeItem = stockItem ?? item;
+
   const linesToSave = useMemo(() => {
-    if (!item || !selectedRetailerId) {
+    if (!activeItem || !selectedRetailerId) {
       return [];
     }
-    const lines: { inventory_item_id: UUID; category_id?: UUID | null; quantity: string }[] = [];
-    if (item.category_usage.length > 0) {
-      for (const category of item.category_usage) {
-        const raw = quantities[itemQuantityKey(item.id, category.category_id)]?.trim() ?? "";
+    const lines: { inventory_item_id: UUID; category_id?: UUID | null; quantity: string; bird_count: number }[] = [];
+    if (activeItem.category_usage.length > 0) {
+      for (const category of activeItem.category_usage) {
+        const key = itemQuantityKey(activeItem.id, category.category_id);
+        const raw = quantities[key]?.trim() ?? "";
         const parsed = parseQuantityDraft(raw);
         if (parsed && parsed.greaterThan(0)) {
+          const birdCount =
+            activeItem.base_unit === BaseUnit.KG ? parseBirdCountDraft(birdQuantities[key] ?? "") ?? -1 : 0;
           lines.push({
-            inventory_item_id: item.id,
+            inventory_item_id: activeItem.id,
             category_id: category.category_id,
             quantity: parsed.toFixed(3),
+            bird_count: birdCount,
           });
         }
       }
     } else {
-      const raw = quantities[itemQuantityKey(item.id)]?.trim() ?? "";
+      const key = itemQuantityKey(activeItem.id);
+      const raw = quantities[key]?.trim() ?? "";
       const parsed = parseQuantityDraft(raw);
       if (parsed && parsed.greaterThan(0)) {
+        const birdCount =
+          activeItem.base_unit === BaseUnit.KG ? parseBirdCountDraft(birdQuantities[key] ?? "") ?? -1 : 0;
         lines.push({
-          inventory_item_id: item.id,
+          inventory_item_id: activeItem.id,
           quantity: parsed.toFixed(3),
+          bird_count: birdCount,
         });
       }
     }
     return lines;
-  }, [item, quantities, selectedRetailerId]);
+  }, [activeItem, birdQuantities, quantities, selectedRetailerId]);
 
   const itemName = useMemo(
-    () => (item ? getLocalizedItemName(language, item.name, item.tamil_name) : ""),
-    [item, language],
+    () => (activeItem ? getLocalizedItemName(language, activeItem.name, activeItem.tamil_name) : ""),
+    [activeItem, language],
   );
 
   const validationError = useMemo(() => {
-    if (!item || !selectedRetailerId) {
+    if (!activeItem || !selectedRetailerId) {
       return null;
     }
     if (linesToSave.length === 0) {
       return t("inventory.retailerStockEnterQuantity", { defaultValue: "Enter at least one quantity." });
     }
+    if (linesToSave.some((line) => line.bird_count < 0)) {
+      return t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." });
+    }
     let itemTotal = money(0);
-    if (item.category_usage.length > 0) {
-      for (const category of item.category_usage) {
-        const raw = quantities[itemQuantityKey(item.id, category.category_id)]?.trim() ?? "";
+    if (activeItem.category_usage.length > 0) {
+      for (const category of activeItem.category_usage) {
+        const raw = quantities[itemQuantityKey(activeItem.id, category.category_id)]?.trim() ?? "";
         if (!raw) {
           continue;
         }
@@ -260,7 +339,7 @@ export function RetailerStockModal({
         if (parsed === null) {
           return t("inventory.invalidQuantityMessage");
         }
-        if (item.base_unit === BaseUnit.UNIT && !isWholeDecimalValue(parsed)) {
+        if (activeItem.base_unit === BaseUnit.UNIT && !isWholeDecimalValue(parsed)) {
           return t("billing.alertInvalidUnitQuantityMessage", {
             itemName,
           });
@@ -268,31 +347,44 @@ export function RetailerStockModal({
         itemTotal = itemTotal.plus(parsed);
       }
     } else {
-      const raw = quantities[itemQuantityKey(item.id)]?.trim() ?? "";
+      const raw = quantities[itemQuantityKey(activeItem.id)]?.trim() ?? "";
       const parsed = parseQuantityDraft(raw);
       if (parsed === null) {
         return t("inventory.invalidQuantityMessage");
       }
-      if (item.base_unit === BaseUnit.UNIT && !isWholeDecimalValue(parsed)) {
+      if (activeItem.base_unit === BaseUnit.UNIT && !isWholeDecimalValue(parsed)) {
         return t("billing.alertInvalidUnitQuantityMessage", {
           itemName,
         });
       }
       itemTotal = itemTotal.plus(parsed);
     }
-    if (itemTotal.greaterThan(money(item.available_quantity))) {
+    const availableQuantity = money(activeItem.available_quantity).toDecimalPlaces(3);
+    if (itemTotal.toDecimalPlaces(3).greaterThan(availableQuantity)) {
       return t("inventory.retailerStockExceedsAvailable", {
-        defaultValue: `${item.name} exceeds available stock.`,
-        itemName: item.name,
+        defaultValue: `${activeItem.name} exceeds available stock.`,
+        itemName: activeItem.name,
       });
     }
+    if (activeItem.base_unit === BaseUnit.KG) {
+      const birdTotal = linesToSave.reduce((sum, line) => sum + line.bird_count, 0);
+      if (
+        shouldValidateBirdCountCeiling(activeItem, birdTotal) &&
+        birdTotal > effectiveAvailableBirdCount(activeItem.available_bird_count)
+      ) {
+        return t("inventory.retailerStockExceedsAvailableBirds", {
+          defaultValue: `${activeItem.name} exceeds available bird count.`,
+          itemName: activeItem.name,
+        });
+      }
+    }
     return null;
-  }, [item, itemName, linesToSave.length, quantities, selectedRetailerId, t]);
+  }, [activeItem, itemName, linesToSave, quantities, selectedRetailerId, t]);
 
   const canSave = Boolean(selectedRetailerId && linesToSave.length > 0 && !validationError);
 
   const handleSave = useCallback(async () => {
-    if (!item || !selectedRetailerId || !canSave) {
+    if (!activeItem || !selectedRetailerId || !canSave) {
       return;
     }
     setSaving(true);
@@ -300,26 +392,34 @@ export function RetailerStockModal({
       const result = await recordShopRetailerInventoryUsages({
         retailer_id: selectedRetailerId,
         lines: linesToSave,
-        occurred_at: backdatePolicy?.allow_shop_backdated_inventory ? undefined : undefined,
       });
       onSaved(result);
       handleClose();
-      Alert.alert(
-        t("inventory.retailerStockSavedTitle", { defaultValue: "Retailer stock saved" }),
-        t("inventory.retailerStockSavedMessage", { defaultValue: "Usage recorded for the selected retailer." }),
-      );
+      
     } catch (error) {
+      const apiError = toApiError(error);
+      if (apiError.status === 409) {
+        try {
+          const fresh = await fetchShopInventoryStockItem(activeItem.id);
+          if (fresh) {
+            setStockItem(fresh);
+            onStockUpdated?.(fresh);
+          }
+        } catch {
+          // keep current snapshot
+        }
+      }
       Alert.alert(t("inventory.saveFailedTitle"), formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }
-  }, [backdatePolicy, canSave, handleClose, item, linesToSave, onSaved, selectedRetailerId, t]);
+  }, [activeItem, canSave, handleClose, linesToSave, onSaved, onStockUpdated, selectedRetailerId, t]);
 
-  if (!item) {
+  if (!activeItem) {
     return null;
   }
 
-  const hasCategories = item.category_usage.length > 0;
+  const hasCategories = activeItem.category_usage.length > 0;
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={handleClose}>
@@ -385,11 +485,19 @@ export function RetailerStockModal({
                     {t("inventory.available")}
                   </Text>
                   <Text className="mt-1 text-3xl font-bold text-ink" style={{ fontVariant: ["tabular-nums"] }}>
-                    {formatQuantity(item.available_quantity, item.base_unit)}
+                    {activeItem.base_unit === BaseUnit.KG
+                      ? formatQuantityWithBirds(
+                          formatQuantity,
+                          activeItem.available_quantity,
+                          activeItem.base_unit,
+                          effectiveAvailableBirdCount(activeItem.available_bird_count),
+                          t("inventory.birds", { defaultValue: "birds" }),
+                        )
+                      : formatQuantity(activeItem.available_quantity, activeItem.base_unit)}
                   </Text>
                   <Text className="mt-2 text-xs font-semibold text-muted">
                     {t("inventory.retailerUsed", { defaultValue: "Retailer used" })}{" "}
-                    {formatQuantity(item.retailer_used_quantity ?? "0", item.base_unit)}
+                    {formatQuantity(activeItem.retailer_used_quantity ?? "0", activeItem.base_unit)}
                   </Text>
                 </View>
 
@@ -401,10 +509,12 @@ export function RetailerStockModal({
                           {t("inventory.category")}
                         </Text>
                         <Text className="text-[11px] font-semibold uppercase text-muted">
-                          {t("inventory.quantity", { defaultValue: "Quantity" })}
+                          {activeItem.base_unit === BaseUnit.KG
+                            ? `${t("inventory.quantity", { defaultValue: "Quantity" })} / ${t("common.birdCount", { defaultValue: "Bird count" })}`
+                            : t("inventory.quantity", { defaultValue: "Quantity" })}
                         </Text>
                       </View>
-                      {item.category_usage.map((category) => (
+                      {activeItem.category_usage.map((category) => (
                         <View
                           key={category.category_id}
                           ref={(node) => {
@@ -417,30 +527,54 @@ export function RetailerStockModal({
                               {category.category_name}
                             </Text>
                             <Text className="mt-0.5 text-xs font-semibold text-muted">
-                              {t("inventory.used")} {formatQuantity(category.used_quantity, item.base_unit)}
+                              {t("inventory.used")} {formatQuantity(category.used_quantity, activeItem.base_unit)}
                             </Text>
                           </View>
-                          <View className="h-14 w-40 flex-row items-center rounded-control border border-border bg-card px-3">
-                            <TextInput
-                              keyboardType="decimal-pad"
-                              placeholder={item.base_unit === BaseUnit.KG ? "0" : "0"}
-                              placeholderTextColor="#95A293"
-                              value={quantities[itemQuantityKey(item.id, category.category_id)] ?? ""}
-                              onChangeText={(next) =>
-                                setQuantities((current) => ({
-                                  ...current,
-                                  [itemQuantityKey(item.id, category.category_id)]: next,
-                                }))
-                              }
-                              onFocus={() => focusField(categoryFieldRefs.current[category.category_id])}
-                              selectTextOnFocus={false}
-                              autoCorrect={false}
-                              underlineColorAndroid="transparent"
-                              selectionColor="#244734"
-                              cursorColor="#244734"
-                              className="min-w-0 flex-1 text-center text-xl font-bold text-ink"
-                            />
-                            <Text className="ml-2 text-xs font-semibold uppercase text-muted">{item.base_unit}</Text>
+                          <View className="flex-row items-center gap-2">
+                            <View className="h-14 w-28 flex-row items-center rounded-control border border-border bg-card px-3">
+                              <TextInput
+                                keyboardType="decimal-pad"
+                                placeholder={activeItem.base_unit === BaseUnit.KG ? "0" : "0"}
+                                placeholderTextColor="#95A293"
+                                value={quantities[itemQuantityKey(activeItem.id, category.category_id)] ?? ""}
+                                onChangeText={(next) =>
+                                  setQuantities((current) => ({
+                                    ...current,
+                                    [itemQuantityKey(activeItem.id, category.category_id)]: next,
+                                  }))
+                                }
+                                onFocus={() => focusField(categoryFieldRefs.current[category.category_id])}
+                                selectTextOnFocus={false}
+                                autoCorrect={false}
+                                underlineColorAndroid="transparent"
+                                selectionColor="#244734"
+                                cursorColor="#244734"
+                                className="min-w-0 flex-1 text-center text-xl font-bold text-ink"
+                              />
+                              <Text className="ml-2 text-xs font-semibold uppercase text-muted">{activeItem.base_unit}</Text>
+                            </View>
+                            {activeItem.base_unit === BaseUnit.KG ? (
+                              <View className="h-14 w-20 flex-row items-center rounded-control border border-border bg-card px-2">
+                                <TextInput
+                                  keyboardType="number-pad"
+                                  placeholder="0"
+                                  placeholderTextColor="#95A293"
+                                  value={birdQuantities[itemQuantityKey(activeItem.id, category.category_id)] ?? ""}
+                                  onChangeText={(next) =>
+                                    setBirdQuantities((current) => ({
+                                      ...current,
+                                      [itemQuantityKey(activeItem.id, category.category_id)]: next,
+                                    }))
+                                  }
+                                  selectTextOnFocus={false}
+                                  autoCorrect={false}
+                                  underlineColorAndroid="transparent"
+                                  selectionColor="#244734"
+                                  cursorColor="#244734"
+                                  className="min-w-0 flex-1 text-center text-xl font-bold text-ink"
+                                />
+                              </View>
+                            ) : null}
                           </View>
                         </View>
                       ))}
@@ -456,11 +590,11 @@ export function RetailerStockModal({
                           keyboardType="decimal-pad"
                           placeholder={t("inventory.quantity", { defaultValue: "Quantity" })}
                           placeholderTextColor="#95A293"
-                          value={quantities[itemQuantityKey(item.id)] ?? ""}
+                          value={quantities[itemQuantityKey(activeItem.id)] ?? ""}
                           onChangeText={(next) =>
                             setQuantities((current) => ({
                               ...current,
-                              [itemQuantityKey(item.id)]: next,
+                              [itemQuantityKey(activeItem.id)]: next,
                             }))
                           }
                           onFocus={() => focusField(quantityFieldRef.current)}
@@ -471,8 +605,31 @@ export function RetailerStockModal({
                           cursorColor="#244734"
                           className="min-w-0 flex-1 text-center text-2xl font-bold text-ink"
                         />
-                        <Text className="ml-2 text-xs font-semibold uppercase text-muted">{item.base_unit}</Text>
+                        <Text className="ml-2 text-xs font-semibold uppercase text-muted">{activeItem.base_unit}</Text>
                       </View>
+                      {activeItem.base_unit === BaseUnit.KG ? (
+                        <View className="mt-3 h-14 flex-row items-center rounded-control border border-border bg-surface px-3">
+                          <TextInput
+                            keyboardType="number-pad"
+                            placeholder={t("common.birdCount", { defaultValue: "Bird count" })}
+                            placeholderTextColor="#95A293"
+                            value={birdQuantities[itemQuantityKey(activeItem.id)] ?? ""}
+                            onChangeText={(next) =>
+                              setBirdQuantities((current) => ({
+                                ...current,
+                                [itemQuantityKey(activeItem.id)]: next,
+                              }))
+                            }
+                            onFocus={() => focusField(quantityFieldRef.current)}
+                            selectTextOnFocus={false}
+                            autoCorrect={false}
+                            underlineColorAndroid="transparent"
+                            selectionColor="#244734"
+                            cursorColor="#244734"
+                            className="min-w-0 flex-1 text-center text-2xl font-bold text-ink"
+                          />
+                        </View>
+                      ) : null}
                     </View>
                   )
                 ) : (

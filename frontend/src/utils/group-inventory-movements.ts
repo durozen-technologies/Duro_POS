@@ -10,6 +10,7 @@ export type GroupedMovementCategoryLine = {
   category_id: UUID | null;
   category_name: string | null;
   quantity: string;
+  bird_count: number;
 };
 
 export type GroupedInventoryMovement = {
@@ -24,6 +25,7 @@ export type GroupedInventoryMovement = {
   driver_name?: string | null;
   vehicle_number?: string | null;
   total_quantity: string;
+  total_bird_count: number;
   categories: GroupedMovementCategoryLine[];
 };
 
@@ -66,6 +68,7 @@ export function groupInventoryMovements(movements: InventoryMovementRead[]): Gro
   const grouped = Array.from(buckets.entries()).map(([key, rows]) => {
     const head = rows[0];
     const total = rows.reduce((sum, row) => sum.add(money(row.quantity)), money(0));
+    const totalBirdCount = rows.reduce((sum, row) => sum + (row.bird_count ?? 0), 0);
     const categories =
       head.movement_type === InventoryMovementType.USE
         ? rows
@@ -74,6 +77,7 @@ export function groupInventoryMovements(movements: InventoryMovementRead[]): Gro
               category_id: row.category_id ?? null,
               category_name: row.category_name ?? null,
               quantity: row.quantity,
+              bird_count: row.bird_count ?? 0,
             }))
             .sort((left, right) => (left.category_name ?? "").localeCompare(right.category_name ?? ""))
         : [];
@@ -90,6 +94,7 @@ export function groupInventoryMovements(movements: InventoryMovementRead[]): Gro
       driver_name: pickMovementTextField(rows, "driver_name"),
       vehicle_number: pickMovementTextField(rows, "vehicle_number"),
       total_quantity: total.toString(),
+      total_bird_count: totalBirdCount,
       categories,
     };
   });
@@ -114,6 +119,7 @@ if (__DEV__) {
       category_id: "00000000-0000-4000-8000-000000000020",
       category_name: "Retail",
       quantity: "2",
+      bird_count: 1,
       unit: BaseUnit.KG,
       occurred_at: "2026-06-29T10:00:00.000Z",
       created_at: "2026-06-29T10:00:01.000Z",
@@ -127,6 +133,7 @@ if (__DEV__) {
       category_id: "00000000-0000-4000-8000-000000000021",
       category_name: "Wholesale",
       quantity: "3",
+      bird_count: 2,
       unit: BaseUnit.KG,
       occurred_at: "2026-06-29T10:00:00.000Z",
       created_at: "2026-06-29T10:00:01.000Z",

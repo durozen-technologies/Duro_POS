@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Text, View } from "react-native";
 
 import { Card } from "@/components/ui/card";
-import { type BaseUnit } from "@/types/api";
+import { BaseUnit } from "@/types/api";
 import { formatDateTime } from "@/utils/format";
 import type { GroupedRetailerInventoryUsage } from "@/utils/group-retailer-inventory-usages";
 
@@ -15,6 +15,7 @@ type InventoryRetailerUsageHistoryCardProps = {
     unknownCategory: string;
     recordedBy: (name: string) => string;
     adjustment: string;
+    birds?: string;
   };
 };
 
@@ -26,6 +27,11 @@ export function InventoryRetailerUsageHistoryCard({
 }: InventoryRetailerUsageHistoryCardProps) {
   const accentColor = "#B45309";
   const accentSoft = "#FFF7ED";
+  const birdsLabel = labels.birds ?? "birds";
+  const quantityLabel =
+    entry.unit === BaseUnit.KG && entry.total_bird_count > 0
+      ? `${formatQuantity(entry.total_quantity, entry.unit)} · ${entry.total_bird_count} ${birdsLabel}`
+      : formatQuantity(entry.total_quantity, entry.unit);
 
   return (
     <Card className="gap-0 border-border bg-card p-0">
@@ -48,7 +54,7 @@ export function InventoryRetailerUsageHistoryCard({
             </View>
           </View>
           <Text className="text-sm font-extrabold text-ink">
-            {formatQuantity(entry.total_quantity, entry.unit)}
+            {quantityLabel}
           </Text>
           <Text className="text-xs font-semibold text-muted">
             {labels.retailer}: {entry.retailer_name ?? "—"}

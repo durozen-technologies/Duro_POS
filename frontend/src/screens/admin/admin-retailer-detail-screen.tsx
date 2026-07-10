@@ -61,7 +61,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
     setPurchasesLoading(true);
     try {
       const page = await fetchAdminRetailerInventoryPurchases(retailer.id, { limit: 50 });
-      setPurchases(page.items);
+      setPurchases(page.items ?? []);
       setPurchasesError(null);
     } catch (err) {
       setPurchasesError(formatApiErrorMessage(err));
@@ -237,7 +237,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
           {(balance?.open_sales ?? []).length === 0 ? (
             <Text style={{ color: palette.textMuted }}>No open or partial sales.</Text>
           ) : (
-            balance?.open_sales.map((sale) => (
+            (balance?.open_sales ?? []).map((sale) => (
               <Pressable
                 key={sale.id}
                 onPress={() => {

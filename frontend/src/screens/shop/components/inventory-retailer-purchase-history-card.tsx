@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Text, View } from "react-native";
 
 import { Card } from "@/components/ui/card";
-import { type BaseUnit, type RetailerInventoryPurchaseRead } from "@/types/api";
+import { BaseUnit, type RetailerInventoryPurchaseRead } from "@/types/api";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 
 type InventoryRetailerPurchaseHistoryCardProps = {
@@ -13,6 +13,7 @@ type InventoryRetailerPurchaseHistoryCardProps = {
     applied: string;
     deposited: string;
     total: string;
+    birds?: string;
   };
 };
 
@@ -23,6 +24,7 @@ export function InventoryRetailerPurchaseHistoryCard({
 }: InventoryRetailerPurchaseHistoryCardProps) {
   const accentColor = "#0F7642";
   const accentSoft = "#E8F3EB";
+  const birdsLabel = labels.birds ?? "birds";
 
   return (
     <Card className="gap-0 border-border bg-card p-0">
@@ -68,7 +70,9 @@ export function InventoryRetailerPurchaseHistoryCard({
                 {line.item_name}
               </Text>
               <Text className="shrink-0 text-right text-sm font-extrabold text-ink">
-                {formatQuantity(line.quantity)} × {formatCurrency(line.price_per_unit)}
+                {line.bird_count > 0
+                  ? `${formatQuantity(line.quantity)} · ${line.bird_count} ${birdsLabel} × ${formatCurrency(line.price_per_unit)}`
+                  : `${formatQuantity(line.quantity)} × ${formatCurrency(line.price_per_unit)}`}
               </Text>
             </View>
           ))}

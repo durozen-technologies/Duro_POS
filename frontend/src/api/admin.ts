@@ -934,7 +934,11 @@ export async function updateShopInventoryAllocation(shopId: UUID, payload: ShopI
 
 export type InventoryStockAdjustRequest = {
   available_quantity?: string | null;
+  available_bird_count?: number | null;
   used_quantity?: string | null;
+  used_bird_count?: number | null;
+  transfer_quantity?: string | null;
+  transfer_bird_count?: number | null;
   category_id?: string | null;
   occurred_at?: string | null;
 };
@@ -952,7 +956,8 @@ export async function adminSetShopInventoryStock(
 }
 
 export type RetailerStockAdjustRequest = {
-  retailer_used_quantity: string;
+  retailer_used_quantity?: string | null;
+  retailer_used_bird_count?: number | null;
   category_id?: string | null;
   retailer_id?: string | null;
   occurred_at?: string | null;

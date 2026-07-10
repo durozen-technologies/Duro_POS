@@ -32,6 +32,7 @@ class TransferShopRead(ORMModel):
 class InventoryTransferCreate(BaseModel):
     transfer_shop_id: UUID
     quantity: Decimal = Field(gt=0)
+    bird_count: int = Field(default=0, ge=0)
     occurred_at: datetime | None = None
 
 
@@ -41,6 +42,7 @@ class InventoryTransferRead(ORMModel):
     transfer_shop_id: UUID
     inventory_item_id: UUID
     quantity: Decimal
+    bird_count: int = 0
     unit: BaseUnit
     occurred_at: datetime
     created_at: datetime

@@ -78,7 +78,7 @@ export function AdminRetailerPurchasesTab({
           <Text style={{ color: palette.textMuted, fontSize: 13 }}>
             Deposited to wallet {formatCurrency(purchase.amount_deposited_to_wallet)}
           </Text>
-          {purchase.lines.map((line) => (
+          {(purchase.lines ?? []).map((line) => (
             <View
               key={line.id}
               style={{

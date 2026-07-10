@@ -89,6 +89,14 @@ def _total_retailer_inventory_used(item: OverallReportInventoryItem) -> Decimal:
     return sum((_decimal(entry.used_stock) for entry in item.retailer_data), Decimal("0"))
 
 
+def _total_retailer_inventory_used_bird_count(item: OverallReportInventoryItem) -> int:
+    return sum(entry.used_stock_bird_count for entry in item.retailer_data)
+
+
+def _bird_count_text(value: int) -> str:
+    return str(value)
+
+
 def _total_retailer_billing_value(
     billing_row: OverallReportBillingItem | None,
     field: str,
@@ -276,6 +284,24 @@ async def _overall_report_inventory_items(
                 ),
                 0,
             ).label("transfer_stock"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (transfer_before_start, InventoryTransfer.bird_count),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("opening_transferred_bird"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (transfer_in_period, InventoryTransfer.bird_count),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("transfer_stock_bird"),
         )
         .where(InventoryTransfer.source_shop_id == shop_id)
         .group_by(InventoryTransfer.inventory_item_id)
@@ -344,6 +370,66 @@ async def _overall_report_inventory_items(
                 ),
                 0,
             ).label("used_stock"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                before_start,
+                                InventoryMovement.movement_type == InventoryMovementType.ADD,
+                            ),
+                            InventoryMovement.bird_count,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("opening_added_bird"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                before_start,
+                                InventoryMovement.movement_type == InventoryMovementType.USE,
+                            ),
+                            InventoryMovement.bird_count,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("opening_used_bird"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                in_period,
+                                InventoryMovement.movement_type == InventoryMovementType.ADD,
+                            ),
+                            InventoryMovement.bird_count,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("adding_stock_bird"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                in_period,
+                                InventoryMovement.movement_type == InventoryMovementType.USE,
+                            ),
+                            InventoryMovement.bird_count,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("used_stock_bird"),
         )
         .where(InventoryMovement.shop_id == shop_id)
         .group_by(InventoryMovement.inventory_item_id)
@@ -362,10 +448,20 @@ async def _overall_report_inventory_items(
                 func.coalesce(stock_totals.c.opening_used, 0).label("opening_used"),
                 func.coalesce(stock_totals.c.adding_stock, 0).label("adding_stock"),
                 func.coalesce(stock_totals.c.used_stock, 0).label("used_stock"),
+                func.coalesce(stock_totals.c.opening_added_bird, 0).label("opening_added_bird"),
+                func.coalesce(stock_totals.c.opening_used_bird, 0).label("opening_used_bird"),
+                func.coalesce(stock_totals.c.adding_stock_bird, 0).label("adding_stock_bird"),
+                func.coalesce(stock_totals.c.used_stock_bird, 0).label("used_stock_bird"),
                 func.coalesce(transfer_totals.c.opening_transferred, 0).label(
                     "opening_transferred"
                 ),
                 func.coalesce(transfer_totals.c.transfer_stock, 0).label("transfer_stock"),
+                func.coalesce(transfer_totals.c.opening_transferred_bird, 0).label(
+                    "opening_transferred_bird"
+                ),
+                func.coalesce(transfer_totals.c.transfer_stock_bird, 0).label(
+                    "transfer_stock_bird"
+                ),
             )
             .select_from(ShopInventoryAllocation)
             .join(InventoryItem, InventoryItem.id == ShopInventoryAllocation.inventory_item_id)
@@ -396,10 +492,19 @@ async def _overall_report_inventory_items(
             - _decimal(row.opening_used)
             - _decimal(row.opening_transferred)
         )
+        old_stock_bird_count = (
+            int(row.opening_added_bird or 0)
+            - int(row.opening_used_bird or 0)
+            - int(row.opening_transferred_bird or 0)
+        )
         adding_stock = _decimal(row.adding_stock)
+        adding_stock_bird_count = int(row.adding_stock_bird or 0)
         total_available_stock = old_stock + adding_stock
+        total_available_stock_bird_count = old_stock_bird_count + adding_stock_bird_count
         used_stock = _decimal(row.used_stock)
+        used_stock_bird_count = int(row.used_stock_bird or 0)
         transfer_stock = _decimal(row.transfer_stock)
+        transfer_stock_bird_count = int(row.transfer_stock_bird or 0)
         purchase_rate = _decimal(row.purchase_rate) if row.purchase_rate is not None else None
         purchase_amount = (
             (used_stock * purchase_rate) if purchase_rate is not None else Decimal("0")
@@ -416,6 +521,14 @@ async def _overall_report_inventory_items(
             used_stock=used_stock,
             transfer_stock=transfer_stock,
             remaining_stock=total_available_stock - used_stock - transfer_stock,
+            old_stock_bird_count=old_stock_bird_count,
+            adding_stock_bird_count=adding_stock_bird_count,
+            total_available_stock_bird_count=total_available_stock_bird_count,
+            used_stock_bird_count=used_stock_bird_count,
+            transfer_stock_bird_count=transfer_stock_bird_count,
+            remaining_stock_bird_count=total_available_stock_bird_count
+            - used_stock_bird_count
+            - transfer_stock_bird_count,
             purchase_rate=purchase_rate,
             purchase_amount=purchase_amount,
         )
@@ -425,7 +538,10 @@ async def _overall_report_inventory_items(
             select(
                 RetailerInventoryUsage.inventory_item_id,
                 RetailerInventoryUsage.retailer_id,
-                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("used_stock")
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("used_stock"),
+                func.coalesce(func.sum(RetailerInventoryUsage.bird_count), 0).label(
+                    "used_stock_bird"
+                ),
             )
             .where(
                 RetailerInventoryUsage.shop_id == shop_id,
@@ -437,25 +553,41 @@ async def _overall_report_inventory_items(
         )
         ru_rows = (await db.execute(retailer_used_stock_query)).all()
         ru_dict: dict[UUID, dict[UUID, Decimal]] = {}
+        ru_bird_dict: dict[UUID, dict[UUID, int]] = {}
         for ru in ru_rows:
             ru_dict.setdefault(ru.inventory_item_id, {})[ru.retailer_id] = _decimal(ru.used_stock)
-        
+            ru_bird_dict.setdefault(ru.inventory_item_id, {})[ru.retailer_id] = int(
+                ru.used_stock_bird or 0
+            )
+
         for item_id, item in items.items():
             r_data_list = []
             for r in retailers:
                 used = ru_dict.get(item_id, {}).get(r.id, Decimal("0"))
+                used_bird = ru_bird_dict.get(item_id, {}).get(r.id, 0)
                 r_data_list.append(
-                    OverallReportInventoryRetailerData(retailer_id=r.id, used_stock=used)
+                    OverallReportInventoryRetailerData(
+                        retailer_id=r.id,
+                        used_stock=used,
+                        used_stock_bird_count=used_bird,
+                    )
                 )
             item.retailer_data = r_data_list
 
     for item in items.values():
         total_retailer_used = _total_retailer_inventory_used(item)
+        total_retailer_used_bird = _total_retailer_inventory_used_bird_count(item)
         item.remaining_stock = (
             item.total_available_stock
             - item.used_stock
             - total_retailer_used
             - item.transfer_stock
+        )
+        item.remaining_stock_bird_count = (
+            item.total_available_stock_bird_count
+            - item.used_stock_bird_count
+            - total_retailer_used_bird
+            - item.transfer_stock_bird_count
         )
         if item.purchase_rate is not None:
             item.purchase_amount = (
@@ -993,14 +1125,23 @@ def _over_report_sheet_rows(
                 printed_date,
                 inv_display_name if is_first else "",
                 _quantity_with_unit(item.old_stock, item.unit) if is_first else "",
+                _bird_count_text(item.old_stock_bird_count) if is_first else "",
                 _quantity_with_unit(item.adding_stock, item.unit) if is_first else "",
+                _bird_count_text(item.adding_stock_bird_count) if is_first else "",
                 _quantity_with_unit(item.total_available_stock, item.unit) if is_first else "",
+                _bird_count_text(item.total_available_stock_bird_count) if is_first else "",
                 _used_stock_breakdown_text(used_row, item.unit),
+                _bird_count_text(item.used_stock_bird_count) if is_first else "",
                 _quantity_with_unit(_total_retailer_inventory_used(item), item.unit)
                 if is_first
                 else "",
+                _bird_count_text(_total_retailer_inventory_used_bird_count(item))
+                if is_first
+                else "",
                 _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
+                _bird_count_text(item.transfer_stock_bird_count) if is_first else "",
                 _quantity_with_unit(item.remaining_stock, item.unit),
+                _bird_count_text(item.remaining_stock_bird_count),
                 _money(item.purchase_rate) if is_first and item.purchase_rate is not None else "",
                 _money(item.purchase_amount) if is_first else "",
                 billing_display_name
@@ -1047,8 +1188,15 @@ def _over_report_sheet_rows(
                 "",
                 "",
                 "",
+                "",
+                "",
+                "",
                 f"Total Used\n{_quantity_with_unit(item.used_stock, item.unit)}",
+                _bird_count_text(item.used_stock_bird_count),
                 f"Total Used\n{_quantity_with_unit(_total_retailer_inventory_used(item), item.unit)}",
+                _bird_count_text(_total_retailer_inventory_used_bird_count(item)),
+                "",
+                "",
                 "",
                 "",
                 "",

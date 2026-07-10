@@ -78,6 +78,7 @@ SUMMARY_ITEM_ROWS = 50
 SUMMARY_INVENTORY_ROWS = 100
 FULL_QUERY_BATCH_SIZE = 500
 KG_UNIT_SUFFIX = "(Kg/Unit)"
+COUNT_SUFFIX = "Count"
 _OVER_REPORT_HEADER_LABELS_EN = (
     "Date",
     "Inventory Item",
@@ -126,7 +127,9 @@ _OVER_REPORT_HEADER_LABELS_TA = (
     "மொத்த விற்பனையாளர் பில்லிங் தொகை",
     "வித்தியாச தொகை",
 )
-_KG_UNIT_HEADER_INDICES = frozenset({2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16})
+_SPLIT_STOCK_RAW_INDICES = frozenset({2, 3, 4, 5, 6, 7, 8})
+_KG_UNIT_HEADER_INDICES = frozenset({2, 4, 6, 8, 10, 12, 14, 19, 20, 21, 22, 23})
+_OVER_REPORT_COLUMN_COUNT = 29
 
 
 from app.schemas.admin import OverallReportRetailer
@@ -153,12 +156,22 @@ def get_over_report_sheet_config(
         "right", "right", "right", "right", "right",
     ]
 
-    part1_indices = list(range(11))
-    part2_indices = [0, 1] + list(range(11, 22))
+    part1_indices = list(range(18))
+    part2_indices = [0, 1] + list(range(18, _OVER_REPORT_COLUMN_COUNT))
 
-    def _add_col(label: str, min_width: int, align: str, h_align: str, force_kg: bool = False) -> None:
+    def _add_col(
+        label: str,
+        min_width: int,
+        align: str,
+        h_align: str,
+        *,
+        force_kg: bool = False,
+        force_count: bool = False,
+    ) -> None:
         if force_kg:
             headers.append(f"{label}\n{KG_UNIT_SUFFIX}")
+        elif force_count:
+            headers.append(f"{label}\n{COUNT_SUFFIX}")
         else:
             headers.append(label)
         min_widths.append(min_width)
@@ -166,8 +179,18 @@ def get_over_report_sheet_config(
         h_aligns.append(h_align)
 
     for i in range(22):
-        force_kg = i in _KG_UNIT_HEADER_INDICES
-        _add_col(raw_labels[i], base_min_widths[i], base_aligns[i], "center", force_kg)
+        if i in _SPLIT_STOCK_RAW_INDICES:
+            _add_col(
+                raw_labels[i],
+                base_min_widths[i],
+                base_aligns[i],
+                "center",
+                force_kg=True,
+            )
+            _add_col(raw_labels[i], 38, "right", "center", force_count=True)
+        else:
+            force_kg = i in {12, 13, 14, 15, 16}
+            _add_col(raw_labels[i], base_min_widths[i], base_aligns[i], "center", force_kg=force_kg)
 
     return headers, min_widths, aligns, h_aligns, part1_indices, part2_indices
 

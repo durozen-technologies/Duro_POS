@@ -199,6 +199,8 @@ export interface InventoryCategoryUsageRead {
   available_quantity: string;
   used_quantity: string;
   retailer_used_quantity?: string;
+  used_bird_count?: number;
+  retailer_used_bird_count?: number;
 }
 
 export interface InventoryItemStockRead extends InventoryItemRead {
@@ -210,6 +212,11 @@ export interface InventoryItemStockRead extends InventoryItemRead {
   used_quantity: string;
   transfer_stock?: string;
   retailer_used_quantity?: string;
+  available_bird_count?: number;
+  added_bird_count?: number;
+  used_bird_count?: number;
+  transfer_bird_count?: number;
+  retailer_used_bird_count?: number;
   category_usage: InventoryCategoryUsageRead[];
 }
 
@@ -221,6 +228,9 @@ export interface InventorySummaryRead {
   total_transfer_stock?: string;
   total_used_stock?: string;
   total_retailer_used_stock?: string;
+  total_transfer_bird_count?: number;
+  total_used_bird_count?: number;
+  total_retailer_used_bird_count?: number;
 }
 
 export interface InventoryStockRowsPage {
@@ -235,6 +245,9 @@ export interface InventoryStockRowsPage {
   total_transfer_stock?: string;
   total_used_stock?: string;
   total_retailer_used_stock?: string;
+  total_transfer_bird_count?: number;
+  total_used_bird_count?: number;
+  total_retailer_used_bird_count?: number;
 }
 
 export interface InventoryMovementRead {
@@ -248,6 +261,7 @@ export interface InventoryMovementRead {
   category_name?: string | null;
   movement_type: InventoryMovementType;
   quantity: string;
+  bird_count: number;
   unit: BaseUnit;
   driver_name?: string | null;
   vehicle_number?: string | null;
@@ -263,6 +277,7 @@ export interface InventoryMovementPage {
 
 export interface InventoryAddRequest {
   quantity: string;
+  bird_count: number;
   driver_name: string;
   vehicle_number: string;
   occurred_at?: string | null;
@@ -271,12 +286,14 @@ export interface InventoryAddRequest {
 export interface InventoryUseRequest {
   category_id?: UUID | null;
   quantity: string;
+  bird_count: number;
   occurred_at?: string | null;
 }
 
 export interface InventoryUseSplitLine {
   category_id: UUID;
   quantity: string;
+  bird_count: number;
 }
 
 export interface InventoryUseSplitRequest {
@@ -291,6 +308,7 @@ export interface InventoryTransferRead {
   transfer_shop_id: UUID;
   inventory_item_id: UUID;
   quantity: string;
+  bird_count: number;
   unit: BaseUnit;
   occurred_at: string;
   created_at: string;
@@ -322,6 +340,7 @@ export interface RetailerInventoryUsageLine {
   inventory_item_id: UUID;
   category_id?: UUID | null;
   quantity: string;
+  bird_count: number;
 }
 
 export interface RetailerInventoryUsageBulkCreate {
@@ -342,6 +361,7 @@ export interface RetailerInventoryUsageRead {
   category_id?: UUID | null;
   category_name?: string | null;
   quantity: string;
+  bird_count: number;
   unit: BaseUnit;
   occurred_at: string;
   created_at: string;
@@ -364,6 +384,7 @@ export interface RetailerInventoryUsageBulkResult {
 export interface RetailerInventoryPurchaseLineInput {
   inventory_item_id: UUID;
   quantity: string;
+  bird_count: number;
   price_per_unit: string;
 }
 
@@ -379,6 +400,7 @@ export interface RetailerInventoryPurchaseLineRead {
   inventory_item_id: UUID;
   item_name: string;
   quantity: string;
+  bird_count: number;
   price_per_unit: string;
   line_total: string;
 }
@@ -1085,6 +1107,7 @@ export interface TransferShopRead {
 export interface InventoryTransferCreate {
   transfer_shop_id: UUID;
   quantity: string;
+  bird_count: number;
   occurred_at?: string | null;
 }
 

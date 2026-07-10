@@ -1,10 +1,11 @@
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from app.core.timezone import ist_day_bounds, ist_midnight
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.timezone import ist_day_bounds, ist_midnight
 
 from ..models import (
     AuditLog,
@@ -24,9 +25,11 @@ from ..schemas.transfer import (
 )
 from ..services.tenant_query import resolve_organization_id
 from .inventory import (
-    _available_quantity_at,
+    _bird_availability_for_transaction,
     _get_allocated_inventory_item_for_shop,
+    _quantity_availability_for_transaction,
     _resolve_inventory_actor,
+    _validate_bird_count_ceiling,
 )
 from .inventory_backdate import prepare_inventory_occurred_at
 
@@ -193,14 +196,31 @@ async def create_inventory_transfer(
     validate_inventory_quantity_for_unit(item.base_unit, payload.quantity)
 
     # 5. Check available stock
-    available_quantity = await _available_quantity_at(
-        db, source_shop.id, item.id, as_of=occurred_at
+    available_quantity = await _quantity_availability_for_transaction(
+        db,
+        source_shop.id,
+        item.id,
+        raw_occurred_at=payload.occurred_at,
+        occurred_at=occurred_at,
     )
     if payload.quantity > available_quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Transfer quantity exceeds available stock",
         )
+    added_bird_count, available_bird_count = await _bird_availability_for_transaction(
+        db,
+        source_shop.id,
+        item.id,
+        raw_occurred_at=payload.occurred_at,
+        occurred_at=occurred_at,
+    )
+    _validate_bird_count_ceiling(
+        item,
+        payload.bird_count,
+        available_bird_count=available_bird_count,
+        added_bird_count=added_bird_count,
+    )
 
     # 6. Create transfer record
     transfer = InventoryTransfer(
@@ -208,6 +228,7 @@ async def create_inventory_transfer(
         transfer_shop_id=transfer_shop.id,
         inventory_item_id=item.id,
         quantity=payload.quantity,
+        bird_count=payload.bird_count,
         unit=item.base_unit,
         occurred_at=occurred_at,
     )

@@ -358,6 +358,7 @@ class OverallReportRetailer(BaseModel):
 class OverallReportInventoryRetailerData(BaseModel):
     retailer_id: UUID
     used_stock: Decimal = Decimal("0")
+    used_stock_bird_count: int = 0
 
 
 class OverallReportBillingRetailerData(BaseModel):
@@ -404,6 +405,12 @@ class OverallReportInventoryItem(BaseModel):
     used_stock: Decimal = Decimal("0")
     transfer_stock: Decimal = Decimal("0")
     remaining_stock: Decimal = Decimal("0")
+    old_stock_bird_count: int = 0
+    adding_stock_bird_count: int = 0
+    total_available_stock_bird_count: int = 0
+    used_stock_bird_count: int = 0
+    transfer_stock_bird_count: int = 0
+    remaining_stock_bird_count: int = 0
     sales_quantity: Decimal = Decimal("0")
     assumption_quantity: Decimal = Decimal("0")
     difference_quantity: Decimal = Decimal("0")

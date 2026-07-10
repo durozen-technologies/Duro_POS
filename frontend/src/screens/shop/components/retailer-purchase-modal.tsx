@@ -62,6 +62,14 @@ function parsePositiveDraft(value: string) {
   return parsed.greaterThan(0) ? parsed : null;
 }
 
+function parseBirdCountDraft(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed || !/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  return Number.parseInt(trimmed, 10);
+}
+
 export function RetailerPurchaseModal({
   visible,
   items,
@@ -75,6 +83,7 @@ export function RetailerPurchaseModal({
   const [selectedItemId, setSelectedItemId] = useState<UUID | null>(null);
   const [itemPickerOpen, setItemPickerOpen] = useState(false);
   const [quantity, setQuantity] = useState("");
+  const [birdCount, setBirdCount] = useState("");
   const [pricePerUnit, setPricePerUnit] = useState("");
   const [creditBalance, setCreditBalance] = useState<string | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
@@ -99,6 +108,7 @@ export function RetailerPurchaseModal({
     setSelectedItemId(null);
     setItemPickerOpen(false);
     setQuantity("");
+    setBirdCount("");
     setPricePerUnit("");
     setCreditBalance(null);
     setSaving(false);
@@ -182,6 +192,12 @@ export function RetailerPurchaseModal({
       Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.retailerPurchaseWholeUnits"));
       return;
     }
+    const resolvedBirdCount =
+      selectedItem.base_unit === BaseUnit.KG ? parseBirdCountDraft(birdCount) ?? -1 : 0;
+    if (selectedItem.base_unit === BaseUnit.KG && resolvedBirdCount < 0) {
+      Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." }));
+      return;
+    }
     setSaving(true);
     try {
       const purchase = await createShopRetailerInventoryPurchase({
@@ -190,6 +206,7 @@ export function RetailerPurchaseModal({
           {
             inventory_item_id: selectedItem.id,
             quantity: quantityValue.toFixed(selectedItem.base_unit === BaseUnit.UNIT ? 0 : 3),
+            bird_count: resolvedBirdCount,
             price_per_unit: priceValue.toFixed(2),
           },
         ],
@@ -310,6 +327,16 @@ export function RetailerPurchaseModal({
                       : t("common.exampleUnits")
                   }
                 />
+
+                {selectedItem?.base_unit === BaseUnit.KG ? (
+                  <TextField
+                    label={t("common.birdCount", { defaultValue: "Bird count" })}
+                    keyboardType="number-pad"
+                    value={birdCount}
+                    onChangeText={setBirdCount}
+                    placeholder="0"
+                  />
+                ) : null}
 
                 <TextField
                   label={t("inventory.retailerPurchasePricePerUnit")}
