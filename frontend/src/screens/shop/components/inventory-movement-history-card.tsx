@@ -1,10 +1,11 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { StyleSheet, Text, View } from "react-native";
+﻿import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { StyleSheet, View } from "react-native";
 
 import { Card } from "@/components/ui/card";
 import { BaseUnit, InventoryMovementType } from "@/types/api";
 import type { GroupedInventoryMovement } from "@/utils/group-inventory-movements";
 import { formatDateTime } from "@/utils/format";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type InventoryMovementHistoryCardProps = {
   entry: GroupedInventoryMovement;
@@ -61,7 +62,7 @@ export function InventoryMovementHistoryCard({
   const recordedLabel = movementRecordedLabel(entry.occurred_at, entry.created_at, labels.recordedAt);
   const vehicleNumber = movementTextValue(entry.vehicle_number);
   const driverName = movementTextValue(entry.driver_name);
-  const birdsLabel = labels.birds ?? "birds";
+  const birdsLabel = labels.birds ?? "Count";
   const quantityLabel =
     entry.unit === BaseUnit.KG && entry.total_bird_count > 0
       ? `${formatQuantity(entry.total_quantity, entry.unit)} · ${entry.total_bird_count} ${birdsLabel}`

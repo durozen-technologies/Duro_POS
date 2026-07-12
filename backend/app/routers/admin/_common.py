@@ -59,7 +59,7 @@ from app.schemas.admin import (
     ShopUpdate,
 )
 from app.services.admin._credentials import verify_tenant_admin_credentials
-from app.schemas.billing import BillDetailBatchRequest, BillRead
+from app.schemas.billing import BillDetailBatchRequest, BillEditRequest, BillRead
 from app.schemas.expenses import (
     ExpenseEntryPage,
     ExpenseEntryRead,
@@ -238,6 +238,7 @@ from app.services.pricing import (
     get_shop_price_history,
     upsert_shop_daily_price,
 )
+from app.services.billing import cancel_shop_bill, edit_shop_bill
 from app.services.reports import (
     build_overall_report,
     generate_admin_report_pdf,
@@ -247,6 +248,7 @@ from app.services.storage import delete_item_image
 from app.services.transfer import (
     create_inventory_transfer,
     create_transfer_shop,
+    delete_transfer_shop,
     list_inventory_transfers,
     list_transfer_shops,
     update_transfer_shop,

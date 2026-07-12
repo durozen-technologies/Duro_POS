@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, View } from "react-native";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { commitRetailerSale, fetchShopRetailerWallet, previewRetailerSale } from "@/api/retailer-sales";
@@ -21,6 +21,7 @@ import { getRetailerCartTotal, useRetailerCartStore } from "@/store/retailer-car
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type FormValues = { walletAmount: string; cashAmount: string; upiAmount: string };
 

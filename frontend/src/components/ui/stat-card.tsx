@@ -1,6 +1,7 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
 
 import { Card } from "@/components/ui/card";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type StatCardProps = {
   label: string;

@@ -1,7 +1,8 @@
 import { type ComponentProps } from "react";
-import { Text, TextInput, View } from "react-native";
+import { TextInput, View } from "react-native";
 
 import { cn } from "@/utils/cn";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type TextFieldProps = ComponentProps<typeof TextInput> & {
   label: string;

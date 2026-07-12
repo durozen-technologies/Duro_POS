@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Keyboard, Text, View } from "react-native";
+import { Keyboard, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
 import { useShopTranslation } from "@/hooks/use-shop-translation";
 import { cn } from "@/utils/cn";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type CartActionBarProps = {
   total: string;

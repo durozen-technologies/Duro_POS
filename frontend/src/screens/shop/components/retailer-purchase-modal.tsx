@@ -1,16 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 
 import { createShopRetailerInventoryPurchase } from "@/api/retailer-inventory";
 import { fetchShopRetailers } from "@/api/retailers";
@@ -32,6 +22,7 @@ import {
 } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 const PICKER_PALETTE = {
   border: "#D8CCB6",
@@ -82,6 +73,7 @@ export function RetailerPurchaseModal({
   const [selectedRetailerId, setSelectedRetailerId] = useState<UUID | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<UUID | null>(null);
   const [itemPickerOpen, setItemPickerOpen] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("");
   const [birdCount, setBirdCount] = useState("");
   const [pricePerUnit, setPricePerUnit] = useState("");
@@ -110,6 +102,7 @@ export function RetailerPurchaseModal({
     setQuantity("");
     setBirdCount("");
     setPricePerUnit("");
+    setPurchaseError(null);
     setCreditBalance(null);
     setSaving(false);
   }, []);
@@ -148,6 +141,10 @@ export function RetailerPurchaseModal({
   }, [resetForm, t, visible]);
 
   useEffect(() => {
+    setPurchaseError(null);
+  }, [selectedRetailerId, selectedItemId, quantity, birdCount, pricePerUnit]);
+
+  useEffect(() => {
     if (!visible || !selectedRetailerId) {
       setCreditBalance(null);
       return;
@@ -177,25 +174,25 @@ export function RetailerPurchaseModal({
 
   async function handleSave() {
     if (!selectedRetailerId) {
-      Alert.alert(t("inventory.retailerPurchaseSelectRetailer"));
+      setPurchaseError(t("inventory.retailerPurchaseSelectRetailer"));
       return;
     }
     if (!selectedItem) {
-      Alert.alert(t("inventory.retailerPurchaseSelectItem"));
+      setPurchaseError(t("inventory.retailerPurchaseSelectItem"));
       return;
     }
     if (!quantityValue || !priceValue || !lineTotal) {
-      Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.retailerPurchaseInvalidLine"));
+      setPurchaseError(t("inventory.retailerPurchaseInvalidLine"));
       return;
     }
     if (selectedItem.base_unit === BaseUnit.UNIT && !quantityValue.modulo(1).equals(0)) {
-      Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.retailerPurchaseWholeUnits"));
+      setPurchaseError(t("inventory.retailerPurchaseWholeUnits"));
       return;
     }
     const resolvedBirdCount =
       selectedItem.base_unit === BaseUnit.KG ? parseBirdCountDraft(birdCount) ?? -1 : 0;
     if (selectedItem.base_unit === BaseUnit.KG && resolvedBirdCount < 0) {
-      Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." }));
+      setPurchaseError(t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." }));
       return;
     }
     setSaving(true);
@@ -221,21 +218,28 @@ export function RetailerPurchaseModal({
       onSaved(purchase);
       handleClose();
     } catch (error) {
-      Alert.alert(t("inventory.saveFailedTitle"), formatApiErrorMessage(error));
+      setPurchaseError(formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <View className="flex-1 justify-end" style={{ backgroundColor: PICKER_PALETTE.overlay }}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={handleClose}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        className="flex-1" 
+        style={{ backgroundColor: PICKER_PALETTE.overlay }}
+      >
+        <ScrollView 
+          contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingVertical: 24 }} 
+          keyboardShouldPersistTaps="handled"
+        >
           <View
-            className="max-h-[92%] rounded-t-3xl border border-border bg-card px-4 pb-6 pt-4"
+            className="rounded-3xl border border-border bg-card px-4 pb-6 pt-4 shadow-xl mx-4"
             style={{ borderColor: PICKER_PALETTE.border }}
           >
-            <View className="mb-4 flex-row items-center justify-between">
+          <View className="mb-4 flex-row items-center justify-between">
               <Text className="text-lg font-extrabold text-ink">
                 {t("inventory.retailerPurchaseTitle")}
               </Text>
@@ -244,7 +248,6 @@ export function RetailerPurchaseModal({
               </Pressable>
             </View>
 
-            <ScrollView className="max-h-[70vh]" keyboardShouldPersistTaps="handled">
               <View className="gap-4">
                 <RetailerPicker
                   retailers={retailers}
@@ -357,9 +360,16 @@ export function RetailerPurchaseModal({
                   </View>
                 ) : null}
               </View>
-            </ScrollView>
 
             <View className="mt-4 gap-2">
+              {purchaseError ? (
+                <View className="mb-2 flex-row items-center rounded-lg border border-[#9F4335]/30 bg-[#FFF2EF] px-3 py-2.5">
+                  <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#9F4335" />
+                  <Text className="ml-2 flex-1 text-sm font-semibold leading-tight text-[#9F4335]">
+                    {purchaseError}
+                  </Text>
+                </View>
+              ) : null}
               <Button
                 label={saving ? t("inventory.saving") : t("inventory.retailerPurchaseSubmit")}
                 onPress={() => void handleSave()}
@@ -368,8 +378,8 @@ export function RetailerPurchaseModal({
               <Button label={t("action.cancel")} variant="secondary" onPress={handleClose} />
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

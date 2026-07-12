@@ -84,6 +84,8 @@ class RetailerInventoryUsage(Base, BaseModelMixin):
         UUID_SQL_TYPE, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
     adjustment_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    retailer_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
+    shop_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
 
     shop = relationship("Shop")
     retailer = relationship("Retailer")
@@ -144,6 +146,8 @@ class RetailerInventoryPurchase(Base, BaseModelMixin):
     voided_by_user_id: Mapped[UUID | None] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
+    retailer_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
+    shop_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
 
     shop = relationship("Shop")
     retailer = relationship("Retailer")

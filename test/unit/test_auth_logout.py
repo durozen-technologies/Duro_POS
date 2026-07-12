@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from app.auth.dependencies import _validate_token_claims
 from app.core.security import create_access_token_for_user
 from app.models import User, UserRole
-from app.services.session_invalidation import invalidate_user_sessions
+from app.services.auth import logout_user
 from test.support import AsyncSessionAdapter, BackendTestCase
 
 
@@ -34,8 +34,7 @@ class AuthLogoutTests(BackendTestCase):
                 session.add(user)
                 session.commit()
                 session.refresh(user)
-                await invalidate_user_sessions(user)
-                session.commit()
+                await logout_user(adapter, user)
                 session.refresh(user)
 
             bumped_payload = {"perm_version": user.permissions_version, "org_id": None}

@@ -1,23 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  AccessibilityInfo,
-  Alert,
-  FlatList,
-  LayoutAnimation,
-  Platform,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  UIManager,
-  View,
-} from "react-native";
+import { AccessibilityInfo, Alert, FlatList, LayoutAnimation, Platform, Pressable, RefreshControl, StyleSheet, UIManager, View } from "react-native";
 
 import { fetchShopBills } from "@/api/billing";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
-import { ShopDateRangeFilter } from "@/components/shop/date-range-filter";
 import { ShopHeaderActions } from "@/components/shop-header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -35,6 +22,7 @@ import {
   type ExpenseHistoryFilterDraft,
 } from "@/utils/expense-history-filters";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 const isNewArchitecture = Boolean(
   (globalThis as typeof globalThis & { nativeFabricUIManager?: unknown }).nativeFabricUIManager
@@ -252,43 +240,44 @@ const BillRow = memo(function BillRow({ bill, onPress, t }: BillRowProps) {
       accessibilityRole="button"
       accessibilityLabel={`${bill.bill_no}, ${formatCurrency(bill.grand_total)}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.billRow, pressed ? styles.billRowPressed : null]}
+      className="mb-3 overflow-hidden rounded-card border border-border bg-card p-4 active:bg-surface"
     >
-      <View style={styles.billTopRow}>
-        <View style={{ flexDirection: "row", gap: 12, flex: 1, minWidth: 0 }}>
-          <View style={styles.billIconWrap}>
-            <MaterialCommunityIcons name="receipt-text-outline" size={22} color={appTheme.accent} />
+      <View className="flex-row items-center justify-between gap-3">
+        <View className="flex-1 min-w-0 flex-row items-center gap-3">
+          <View className="h-10 w-10 items-center justify-center rounded-control bg-accentSoft">
+            <MaterialCommunityIcons name="receipt-text-outline" size={20} color="#0F7642" />
           </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.billNo} numberOfLines={1}>
+          <View className="flex-1 min-w-0 justify-center">
+            <Text className="text-base font-semibold text-ink" numberOfLines={1}>
               {bill.bill_no}
             </Text>
-            <Text style={styles.billMeta}>{formatDateTime(bill.created_at)}</Text>
+            <Text className="mt-0.5 text-sm text-muted">{formatDateTime(bill.created_at)}</Text>
             {bill.created_by_name ? (
-              <Text style={styles.billMeta} numberOfLines={1}>
+              <Text className="mt-0.5 text-sm text-muted" numberOfLines={1}>
                 {t("bills.createdBy")}: {bill.created_by_name}
               </Text>
             ) : null}
           </View>
         </View>
-        <View style={{ alignItems: "flex-end", gap: 8 }}>
-          <Text style={styles.billTotal}>{formatCurrency(bill.grand_total)}</Text>
+        <View className="items-end gap-1.5">
+          <Text className="text-lg font-bold text-ink">{formatCurrency(bill.grand_total)}</Text>
           <StatusPill
             label={receiptStatusLabel(bill.receipt_status, t)}
             tone={receiptStatusTone(bill.receipt_status)}
           />
         </View>
+        <MaterialCommunityIcons name="chevron-right" size={24} color="#A3A3A3" className="ml-1" />
       </View>
 
-      <View style={styles.metaGrid}>
-        <View style={styles.metaPill}>
-          <MaterialCommunityIcons name="cash" size={14} color={appTheme.accent} />
-          <Text style={styles.metaPillText}>{bill.payment_method}</Text>
+      <View className="mt-3 flex-row flex-wrap items-center gap-2 border-t border-border/70 pt-3">
+        <View className="flex-row items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 border border-border/50">
+          <MaterialCommunityIcons name="cash" size={14} color="#0F7642" />
+          <Text className="text-xs font-bold text-ink">{bill.payment_method}</Text>
         </View>
-        <View style={styles.metaPill}>
-          <MaterialCommunityIcons name="package-variant-closed" size={14} color={appTheme.muted} />
-          <Text style={styles.metaPillText}>
-            Items: {bill.total_items} · Quantity(Kg/Units): {bill.total_quantity}
+        <View className="flex-row items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 border border-border/50">
+          <MaterialCommunityIcons name="package-variant-closed" size={14} color="#4B6356" />
+          <Text className="text-xs font-bold text-ink">
+            Items: {bill.total_items} · Qty: {bill.total_quantity}
           </Text>
         </View>
       </View>
@@ -470,15 +459,6 @@ export function ShopBillsScreen({ navigation }: ShopBillsScreenProps) {
   const listHeader = useMemo(
     () => (
       <View style={styles.filterSection}>
-        <ShopDateRangeFilter
-          filter={dateFilter}
-          range={dateRange}
-          onChange={(next) => {
-            setDateFilter(next);
-            setPage(1);
-          }}
-          t={t}
-        />
 
         <View style={styles.summaryStrip}>
           <MaterialCommunityIcons name="file-document-multiple-outline" size={22} color={appTheme.accent} />

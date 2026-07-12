@@ -1,4 +1,10 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime
+from uuid import UUID
+
+from fastapi import HTTPException, status
+from sqlalchemy import and_, case, cast, func, null, or_, select, union_all
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timezone import (
     ist_day_bounds,
@@ -8,13 +14,6 @@ from app.core.timezone import (
     ist_year_bounds,
     today_ist,
 )
-from uuid import UUID
-
-from fastapi import HTTPException, status
-from sqlalchemy import and_, case, cast, func, null, or_, select, union_all
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db.storage import (
     build_item_image_path,
     build_item_image_thumb_path,
@@ -24,8 +23,10 @@ from app.models import (
     BillItem,
     DailyPrice,
     Item,
+    RetailerItemPrice,
     Shop,
     ShopItemAllocation,
+    ShopRetailerItemAllocation,
 )
 from app.schemas.admin import (
     AdminItemRowsPage,
@@ -1219,33 +1220,69 @@ async def list_catalogue_item_rows(
     q: str | None = None,
     active: bool | None = None,
     limit: int = 100,
+    cursor_group: int | None = None,
     cursor_sort_order: int | None = None,
     cursor_name: str | None = None,
     cursor_id: UUID | None = None,
 ) -> AdminItemRowsPage:
+    active_group_expr = case((Item.is_active.is_(True), 0), else_=1)
     sort_name_expr = func.lower(Item.name)
     query = _catalogue_rows_query(organization_id, q, active)
-    cursor_condition = _cursor_filter(
-        Item.sort_order,
-        sort_name_expr,
-        cursor_sort_order,
-        cursor_name,
-        cursor_id,
-    )
-    if cursor_condition is not None:
-        query = query.where(cursor_condition)
+    if cursor_group is not None and cursor_name is not None and cursor_id is not None:
+        if cursor_sort_order is None:
+            query = query.where(
+                or_(
+                    active_group_expr > cursor_group,
+                    and_(
+                        active_group_expr == cursor_group,
+                        sort_name_expr > cursor_name.lower(),
+                    ),
+                    and_(
+                        active_group_expr == cursor_group,
+                        sort_name_expr == cursor_name.lower(),
+                        Item.id > cursor_id,
+                    ),
+                )
+            )
+        else:
+            query = query.where(
+                or_(
+                    active_group_expr > cursor_group,
+                    and_(
+                        active_group_expr == cursor_group,
+                        Item.sort_order > cursor_sort_order,
+                    ),
+                    and_(
+                        active_group_expr == cursor_group,
+                        Item.sort_order == cursor_sort_order,
+                        sort_name_expr > cursor_name.lower(),
+                    ),
+                    and_(
+                        active_group_expr == cursor_group,
+                        Item.sort_order == cursor_sort_order,
+                        sort_name_expr == cursor_name.lower(),
+                        Item.id > cursor_id,
+                    ),
+                )
+            )
 
     rows = await db.execute(
-        query.order_by(Item.sort_order.asc(), sort_name_expr.asc(), Item.id.asc()).limit(limit + 1)
+        query.order_by(
+            active_group_expr.asc(),
+            Item.sort_order.asc(),
+            sort_name_expr.asc(),
+            Item.id.asc(),
+        ).limit(limit + 1)
     )
     result_rows = rows.all()
     page_rows = result_rows[:limit]
     has_more = len(result_rows) > limit
     items = [_catalogue_row_to_shop_item(row) for row in page_rows]
 
-    next_cursor_sort_order = next_cursor_name = next_cursor_id = None
+    next_cursor_group = next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if has_more and page_rows:
         last_row = page_rows[-1]
+        next_cursor_group = 0 if last_row.is_active else 1
         next_cursor_sort_order = last_row.sort_order
         next_cursor_name = last_row.name.lower()
         next_cursor_id = last_row.id
@@ -1254,6 +1291,7 @@ async def list_catalogue_item_rows(
         items=items,
         limit=limit,
         has_more=has_more,
+        next_cursor_group=next_cursor_group,
         next_cursor_sort_order=next_cursor_sort_order,
         next_cursor_name=next_cursor_name,
         next_cursor_id=next_cursor_id,
@@ -1566,6 +1604,8 @@ async def get_catalogue_item(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
+    allocated_shop_names = await allocated_shop_names_for_item(db, item_id)
+
     return ShopItemRead(
         id=row.id,
         shop_id=None,
@@ -1605,6 +1645,7 @@ async def get_catalogue_item(
         bill_count=int(row.bill_count or 0),
         price_count=int(row.price_count or 0),
         allocated_shop_count=int(row.allocated_shop_count or 0),
+        allocated_shop_names=allocated_shop_names,
     )
 
 
@@ -1738,6 +1779,68 @@ async def allocate_catalogue_items(
         allocated_count=allocated_count,
         already_allocated_count=len(unique_item_ids) - allocated_count,
     )
+
+
+async def allocated_shop_names_for_item(db: AsyncSession, item_id: UUID) -> list[str]:
+    rows = (
+        await db.scalars(
+            select(Shop.name)
+            .join(ShopItemAllocation, ShopItemAllocation.shop_id == Shop.id)
+            .where(ShopItemAllocation.item_id == item_id)
+            .order_by(Shop.name.asc())
+        )
+    ).all()
+    return list(rows)
+
+
+async def remove_catalogue_item_from_all_shop_billing(
+    db: AsyncSession,
+    item_id: UUID,
+) -> list[str]:
+    shop_names = await allocated_shop_names_for_item(db, item_id)
+    if not shop_names:
+        return []
+
+    retailer_price_rows = (
+        await db.scalars(select(RetailerItemPrice).where(RetailerItemPrice.item_id == item_id))
+    ).all()
+    for row in retailer_price_rows:
+        await db.delete(row)
+
+    retailer_catalog_rows = (
+        await db.scalars(
+            select(ShopRetailerItemAllocation).where(
+                ShopRetailerItemAllocation.item_id == item_id
+            )
+        )
+    ).all()
+    for row in retailer_catalog_rows:
+        await db.delete(row)
+
+    allocation_rows = (
+        await db.scalars(
+            select(ShopItemAllocation).where(ShopItemAllocation.item_id == item_id)
+        )
+    ).all()
+    for row in allocation_rows:
+        _record_item_event(
+            db,
+            item_id=item_id,
+            shop_id=row.shop_id,
+            event_type="allocation.deleted",
+            before={
+                "shop_id": str(row.shop_id),
+                "item_id": str(item_id),
+                "display_name": row.display_name,
+                "tamil_name": row.tamil_name,
+                "is_active": row.is_active,
+                "sort_order": row.sort_order,
+                "custom_attributes": dict(row.custom_attributes or {}),
+            },
+        )
+        await db.delete(row)
+
+    return shop_names
 
 
 async def deallocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItemRead:

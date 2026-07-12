@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
 
 import { createDateTimeFormat } from "@/utils/format";
 import { toDateInputValue } from "@/utils/expense-history-filters";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type CalendarIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
 
@@ -171,12 +172,11 @@ export function CalendarDatePickerModal({
   const selectedLabel = selectedDate ? selectedBannerFormatter.format(selectedDate) : null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
 
-          {/* Header: title + selected date + close */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Text numberOfLines={1} style={[styles.title, { color: colors.textPrimary }]}>
@@ -197,7 +197,6 @@ export function CalendarDatePickerModal({
             </Pressable>
           </View>
 
-          {/* Month nav — matches dashboard calendarHeader */}
           <View style={styles.monthHeader}>
             <Pressable
               accessibilityRole="button"
@@ -223,7 +222,6 @@ export function CalendarDatePickerModal({
             </Pressable>
           </View>
 
-          {/* Weekday labels */}
           <View style={styles.weekdayGrid}>
             {dayLabels.map((dayLabel, index) => (
               <Text key={`${dayLabel}-${index}`} style={[styles.weekdayLabel, { color: colors.textMuted }]}>
@@ -232,7 +230,6 @@ export function CalendarDatePickerModal({
             ))}
           </View>
 
-          {/* Day grid */}
           <View style={styles.dayGrid}>
             {calendarCells.map((cell) => {
               const isSelected = cell.value === selectedValue;
@@ -321,18 +318,21 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
-    padding: 18,
+    justifyContent: "flex-end",
+    padding: 16,
   },
   sheet: {
     width: "100%",
     maxWidth: 420,
-    borderRadius: 12,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     borderWidth: 1,
     overflow: "hidden",
     paddingHorizontal: 12,
     paddingTop: 14,
-    paddingBottom: 12,
+    paddingBottom: 24,
     gap: 12,
   },
   header: {

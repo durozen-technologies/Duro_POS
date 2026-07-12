@@ -189,6 +189,18 @@ export function useAdminDashboardAnalytics({
     () => visibleShopRows.reduce((sum, row) => sum.plus(money(row.expenseUpiTotal)), money(0)),
     [visibleShopRows],
   );
+  const totalExpense = useMemo(
+    () => totalExpenseCash.plus(totalExpenseUpi),
+    [totalExpenseCash, totalExpenseUpi],
+  );
+  const totalPurchase = useMemo(
+    () => visibleShopRows.reduce((sum, row) => sum.plus(money(row.purchaseTotal)), money(0)),
+    [visibleShopRows],
+  );
+  const totalRemainingBalance = useMemo(
+    () => totalRevenue.minus(totalExpense).minus(totalPurchase),
+    [totalExpense, totalPurchase, totalRevenue],
+  );
   const remainingCash = useMemo(() => totalCash.minus(totalExpenseCash), [totalCash, totalExpenseCash]);
   const remainingUpi = useMemo(() => totalUpi.minus(totalExpenseUpi), [totalExpenseUpi, totalUpi]);
 
@@ -328,7 +340,7 @@ export function useAdminDashboardAnalytics({
         icon: "wallet-outline",
         accent: palette.success,
         accentSoft: palette.successSoft,
-        sparklineLabel: "Cash share",
+        sparklineLabel: "Cash Share",
         sparklineValues: metricSparklineValues.cash,
       },
       {
@@ -336,7 +348,7 @@ export function useAdminDashboardAnalytics({
         label: "UPI Collection",
         value: totalUpi.toNumber(),
         formatter: (value: number) => formatCurrency(value),
-        note: `${Math.max(0, 100 - cashShare).toFixed(0)}% digital mix`,
+        note: `${Math.max(0, 100 - cashShare).toFixed(0)}% Digital Mix`,
         noteIcon: "qrcode-scan",
         icon: "qrcode-scan",
         accent: palette.upi,
@@ -349,7 +361,7 @@ export function useAdminDashboardAnalytics({
         label: "Remaining Cash",
         value: remainingCash.toNumber(),
         formatter: (value: number) => formatCurrency(value),
-        note: `Cash collected - cash expenses`,
+        note: `Cash collected - Cash Expenses`,
         noteIcon: "cash-minus",
         icon: "wallet-plus-outline",
         accent: palette.success,
@@ -362,13 +374,26 @@ export function useAdminDashboardAnalytics({
         label: "Remaining UPI",
         value: remainingUpi.toNumber(),
         formatter: (value: number) => formatCurrency(value),
-        note: `UPI collected - UPI expenses`,
+        note: `UPI Collected - UPI Expenses`,
         noteIcon: "qrcode-minus",
         icon: "qrcode",
         accent: palette.upi,
         accentSoft: palette.upiSoft,
         sparklineLabel: "Net UPI",
         sparklineValues: [remainingUpi.toNumber()],
+      },
+      {
+        key: "remaining-balance",
+        label: "Total Remaining Balance",
+        value: totalRemainingBalance.toNumber(),
+        formatter: (value: number) => formatCurrency(value),
+        note: `Revenue - Expenses - Purchase`,
+        noteIcon: "scale-balance",
+        icon: "scale-balance",
+        accent: palette.analytics,
+        accentSoft: palette.analyticsSoft,
+        sparklineLabel: "Net balance",
+        sparklineValues: [totalRemainingBalance.toNumber()],
       },
     ],
     [
@@ -394,6 +419,7 @@ export function useAdminDashboardAnalytics({
       totalUpi,
       remainingCash,
       remainingUpi,
+      totalRemainingBalance,
       visibleBillCount,
     ],
   );

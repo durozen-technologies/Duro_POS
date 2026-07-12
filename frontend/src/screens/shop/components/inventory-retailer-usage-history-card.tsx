@@ -1,10 +1,11 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Text, View } from "react-native";
+﻿import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { View } from "react-native";
 
 import { Card } from "@/components/ui/card";
 import { BaseUnit } from "@/types/api";
 import { formatDateTime } from "@/utils/format";
 import type { GroupedRetailerInventoryUsage } from "@/utils/group-retailer-inventory-usages";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type InventoryRetailerUsageHistoryCardProps = {
   entry: GroupedRetailerInventoryUsage;
@@ -27,7 +28,7 @@ export function InventoryRetailerUsageHistoryCard({
 }: InventoryRetailerUsageHistoryCardProps) {
   const accentColor = "#B45309";
   const accentSoft = "#FFF7ED";
-  const birdsLabel = labels.birds ?? "birds";
+  const birdsLabel = labels.birds ?? "Count";
   const quantityLabel =
     entry.unit === BaseUnit.KG && entry.total_bird_count > 0
       ? `${formatQuantity(entry.total_quantity, entry.unit)} · ${entry.total_bird_count} ${birdsLabel}`
@@ -59,6 +60,11 @@ export function InventoryRetailerUsageHistoryCard({
           <Text className="text-xs font-semibold text-muted">
             {labels.retailer}: {entry.retailer_name ?? "—"}
           </Text>
+          {entry.shop_name ? (
+            <Text className="text-xs font-semibold text-muted" numberOfLines={1}>
+              {entry.shop_name}
+            </Text>
+          ) : null}
           <Text className="text-xs font-semibold text-muted">{formatDateTime(entry.occurred_at)}</Text>
           {entry.created_by_name ? (
             <Text className="text-xs font-semibold text-muted">

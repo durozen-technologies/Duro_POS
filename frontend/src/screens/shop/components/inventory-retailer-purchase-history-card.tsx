@@ -1,9 +1,10 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Text, View } from "react-native";
+﻿import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { View } from "react-native";
 
 import { Card } from "@/components/ui/card";
 import { BaseUnit, type RetailerInventoryPurchaseRead } from "@/types/api";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type InventoryRetailerPurchaseHistoryCardProps = {
   purchase: RetailerInventoryPurchaseRead;
@@ -24,7 +25,7 @@ export function InventoryRetailerPurchaseHistoryCard({
 }: InventoryRetailerPurchaseHistoryCardProps) {
   const accentColor = "#0F7642";
   const accentSoft = "#E8F3EB";
-  const birdsLabel = labels.birds ?? "birds";
+  const birdsLabel = labels.birds ?? "Count";
 
   return (
     <Card className="gap-0 border-border bg-card p-0">
@@ -46,6 +47,11 @@ export function InventoryRetailerPurchaseHistoryCard({
               </Text>
             </View>
           </View>
+          {purchase.shop_name ? (
+            <Text className="text-xs font-semibold text-muted" numberOfLines={1}>
+              {purchase.shop_name}
+            </Text>
+          ) : null}
           <Text className="text-sm font-extrabold text-ink">
             {formatCurrency(purchase.total_amount)}
           </Text>

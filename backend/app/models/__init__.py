@@ -41,6 +41,7 @@ from .retailer import (
     RetailerSale,
     RetailerSaleItem,
     RetailerSaleReceipt,
+    RetailerWalletPayout,
     ShopRetailerAllocation,
     ShopRetailerItemAllocation,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "RetailerSale",
     "RetailerSaleItem",
     "RetailerSaleReceipt",
+    "RetailerWalletPayout",
     "RetailerReceiptType",
     "RetailerSaleStatus",
     "MonthlyRetailerSaleSequence",

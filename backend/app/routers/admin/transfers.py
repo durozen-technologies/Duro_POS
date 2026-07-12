@@ -1,3 +1,4 @@
+from decimal import Decimal
 from app.routers.admin._common import *
 from app.routers.admin._params import *
 
@@ -47,6 +48,19 @@ async def admin_update_transfer_shop(
     return await update_transfer_shop(db, transfer_shop_id, payload, user_id=user.id)
 
 
+@router.delete(
+    "/transfer-shops/{transfer_shop_id}",
+    status_code=204,
+    summary="Delete Transfer Shop",
+)
+async def admin_delete_transfer_shop(
+    transfer_shop_id: UUID,
+    db: DBSession,
+    user: User = Depends(get_current_user),
+) -> None:
+    await delete_transfer_shop(db, transfer_shop_id, user_id=user.id)
+
+
 @router.get(
     "/inventory/transfers",
     response_model=InventoryTransferPage,
@@ -60,6 +74,9 @@ async def admin_list_inventory_transfers(
     reference_date: ReferenceDateParam = None,
     range_start_date: RangeStartDateParam = None,
     range_end_date: RangeEndDateParam = None,
+    q: str | None = None,
+    unit: str | None = None,
+    quantity: Decimal | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> InventoryTransferPage:
@@ -71,6 +88,9 @@ async def admin_list_inventory_transfers(
         reference_date=reference_date,
         range_start_date=range_start_date,
         range_end_date=range_end_date,
+        q=q,
+        unit=unit,
+        quantity=quantity,
         limit=limit,
         offset=offset,
     )

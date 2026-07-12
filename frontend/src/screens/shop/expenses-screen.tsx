@@ -1,21 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TextInput,
-  ScrollView,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, StyleSheet, TextInput, ScrollView, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toApiError, formatApiErrorMessage } from "@/api/client";
@@ -51,6 +37,7 @@ import {
 } from "@/utils/expense-history-filters";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type CursorState = {
   sortOrder: number | null;

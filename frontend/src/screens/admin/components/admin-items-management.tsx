@@ -33,6 +33,7 @@ import { adminElevation, adminRadii, adminSpacing, type ThemePalette } from "../
 import {
   AdminItemWorkspace,
   ItemScope,
+  PriceStatus,
 } from "../admin-items-model";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -820,6 +821,14 @@ export const ItemRow = memo(function ItemRow({
           <Text numberOfLines={1} style={[styles.itemMeta, { color: palette.textMuted }]}>
             {unitLabel} · {categoryLabel}
           </Text>
+          <View style={styles.itemStatusRow}>
+            <StatusPill
+              label={item.is_active ? "Active" : "Inactive"}
+              icon={item.is_active ? "check-circle-outline" : "pause-circle-outline"}
+              tone={item.is_active ? "success" : "warning"}
+              palette={palette}
+            />
+          </View>
         </View>
       </View>
       <View style={actionsPlacement === "side" ? styles.rowActionsSide : styles.rowActions}>
@@ -1252,6 +1261,7 @@ const PriceRow = memo(function PriceRow({
   const imageUri = getItemThumbnailUri(item);
   const thumbnailRadius = Math.round(thumbnailSize * 0.24);
   const thumbnailIconSize = Math.round(thumbnailSize * 0.43);
+  const updatedToday = item.price_status === PriceStatus.Current;
   return (
     <View style={[styles.priceRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
       <ItemThumbnail
@@ -1273,6 +1283,29 @@ const PriceRow = memo(function PriceRow({
         <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
           {item.base_unit.toUpperCase()}
         </Text>
+        <View
+          style={[
+            styles.priceStatusPill,
+            {
+              backgroundColor: updatedToday ? palette.inventorySoft : palette.dangerSoft,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.priceStatusDot,
+              { backgroundColor: updatedToday ? palette.inventoryStrong : palette.danger },
+            ]}
+          />
+          <Text
+            style={[
+              styles.priceStatusText,
+              { color: updatedToday ? palette.inventoryStrong : palette.danger },
+            ]}
+          >
+            {updatedToday ? "Updated today" : "Needs update"}
+          </Text>
+        </View>
       </View>
       <View style={styles.priceEdit}>
         <Input
@@ -2196,6 +2229,10 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: "700",
   },
+  itemStatusRow: {
+    marginTop: 6,
+    alignSelf: "flex-start",
+  },
   pill: {
     maxWidth: 168,
     minHeight: 24,
@@ -2280,6 +2317,26 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 4,
+  },
+  priceStatusPill: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 2,
+  },
+  priceStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+  },
+  priceStatusText: {
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0,
   },
   priceEdit: {
     width: 116,

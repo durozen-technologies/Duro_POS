@@ -3,12 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from app.core.timezone import today_ist
-
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timezone import today_ist
 from app.db.tenant_schema import is_postgres_session, tenant_schema_scope
 from app.models import Bill, Organization, Shop
 from app.schemas.admin import AnalyticsPeriod
@@ -19,6 +18,7 @@ from app.schemas.super_admin.analytics import (
     SuperAdminBillingSummary,
 )
 from app.services.admin.catalogue import _get_period_bounds
+from app.services.billing import bill_counts_toward_sales_clause
 
 
 async def _list_branch_bill_counts(
@@ -46,6 +46,7 @@ async def _list_branch_bill_counts(
                 Bill.shop_id == Shop.id,
                 Bill.created_at >= start,
                 Bill.created_at < end,
+                bill_counts_toward_sales_clause(),
             ),
         )
         .where(*shop_filters)
@@ -75,6 +76,7 @@ async def _count_bills_for_window(
         Shop.organization_id == organization_id,
         Bill.created_at >= start,
         Bill.created_at < end,
+        bill_counts_toward_sales_clause(),
     ]
     if shop_id is not None:
         filters.append(Shop.id == shop_id)

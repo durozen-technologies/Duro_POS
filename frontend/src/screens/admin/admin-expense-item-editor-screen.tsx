@@ -10,6 +10,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -46,6 +47,7 @@ export function AdminExpenseItemEditorScreen() {
   const [tamilNameDraft, setTamilNameDraft] = useState(editingItem?.tamil_name ?? "");
   const [activeDraft, setActiveDraft] = useState(editingItem?.is_active ?? true);
   const [savingItem, setSavingItem] = useState(false);
+  const [deletingItem, setDeletingItem] = useState(false);
 
   const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
@@ -173,6 +175,27 @@ export function AdminExpenseItemEditorScreen() {
     navigation
   ]);
 
+  const handleDelete = useCallback(() => {
+    if (!editingItem) return;
+    Alert.alert("Delete Expense Item", `Are you sure you want to delete ${editingItem.name}?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          setDeletingItem(true);
+          try {
+            await deleteExpenseItem(editingItem.id);
+            navigation.goBack();
+          } catch (error) {
+            Alert.alert("Delete failed", formatApiErrorMessage(error, "Unable to delete expense item."));
+            setDeletingItem(false);
+          }
+        },
+      },
+    ]);
+  }, [editingItem, navigation]);
+
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
       <StatusBar style="light" />
@@ -256,26 +279,65 @@ export function AdminExpenseItemEditorScreen() {
               </View>
             </View>
 
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityState={{ checked: activeDraft }}
-              onPress={() => setActiveDraft((current) => !current)}
-              style={[styles.switchRow, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}
-            >
-              <View style={[styles.switchIcon, { backgroundColor: activeDraft ? palette.successSoft : palette.dangerSoft }]}>
-                <MaterialCommunityIcons
-                  name={activeDraft ? "check-circle-outline" : "pause-circle-outline"}
-                  size={18}
-                  color={activeDraft ? palette.success : palette.danger}
-                />
-              </View>
-              <View style={styles.rowBody}>
-                <Text style={[styles.switchTitle, { color: palette.textPrimary }]}>Active</Text>
-                <Text style={[styles.switchSubtitle, { color: palette.textMuted }]}>
-                  Inactive expense items cannot be allocated to branches.
-                </Text>
-              </View>
-            </Pressable>
+            {editingItem && (
+              <>
+                <View style={[styles.switchRow, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+                  <View style={styles.rowBody}>
+                    <Text style={[styles.switchTitle, { color: palette.textPrimary }]}>Active</Text>
+                    <Text style={[styles.switchSubtitle, { color: palette.textMuted }]}>
+                      Inactive expense items cannot be allocated to branches.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={activeDraft}
+                    onValueChange={setActiveDraft}
+                    trackColor={{ false: palette.border, true: palette.cash }}
+                    thumbColor={Platform.OS === "ios" ? undefined : palette.card}
+                  />
+                </View>
+
+                <View style={[styles.deleteSection, { borderTopColor: palette.border }]}>
+                  <Text style={[styles.deleteSectionLabel, { color: palette.textMuted }]}>
+                    Danger zone
+                  </Text>
+                  
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={handleDelete}
+                    disabled={!editingItem.can_delete || savingItem || deletingItem}
+                    style={[
+                      styles.deleteButton,
+                      {
+                        backgroundColor: !editingItem.can_delete ? palette.surfaceMuted : palette.dangerSoft,
+                        borderColor: !editingItem.can_delete ? palette.border : palette.danger,
+                        opacity: (!editingItem.can_delete || savingItem || deletingItem) ? 0.6 : 1,
+                      }
+                    ]}
+                  >
+                    {deletingItem ? (
+                      <ActivityIndicator color={palette.danger} size="small" />
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons name="trash-can-outline" size={16} color={!editingItem.can_delete ? palette.textMuted : palette.danger} />
+                        <Text style={[styles.deleteButtonText, { color: !editingItem.can_delete ? palette.textMuted : palette.danger }]}>
+                          Delete item
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  {!editingItem.can_delete ? (
+                    <Text style={[styles.deleteBlockedText, { color: palette.warning }]}>
+                      Cannot Delete - has Billing History.
+                    </Text>
+                  ) : (
+                    <Text style={[styles.deleteHintText, { color: palette.textMuted }]}>
+                      Only expense items without entry history can be deleted.
+                    </Text>
+                  )}
+                </View>
+              </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -402,5 +464,40 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+  },
+  deleteSection: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    gap: 10,
+  },
+  deleteSectionLabel: {
+    fontSize: 12,
+    fontFamily: "Inter-SemiBold",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  deleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  deleteButtonText: {
+    fontSize: 14,
+    fontFamily: "Inter-Bold",
+  },
+  deleteBlockedText: {
+    fontSize: 13,
+    fontFamily: "Inter-Medium",
+    lineHeight: 18,
+  },
+  deleteHintText: {
+    fontSize: 13,
+    fontFamily: "Inter-Regular",
+    lineHeight: 18,
   },
 });

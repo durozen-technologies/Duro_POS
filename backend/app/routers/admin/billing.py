@@ -70,3 +70,34 @@ async def bill_detail(
 ) -> BillRead:
     """Full bill detail including line items, payment breakdown, and receipt."""
     return await get_bill_by_id(db, bill_id, _require_org_id(current_user))
+
+
+@router.patch(
+    "/bills/{bill_id}",
+    response_model=BillRead,
+    response_model_exclude_unset=True,
+    summary="Edit shop bill (admin, 24h window)",
+)
+async def edit_bill(
+    bill_id: UUID,
+    payload: BillEditRequest,
+    db: DBSession,
+    current_user: AdminUserDep = None,
+) -> BillRead:
+    return await edit_shop_bill(
+        db, current_user, bill_id, _require_org_id(current_user), payload
+    )
+
+
+@router.post(
+    "/bills/{bill_id}/cancel",
+    response_model=BillRead,
+    response_model_exclude_unset=True,
+    summary="Cancel shop bill (admin, 24h window)",
+)
+async def cancel_bill(
+    bill_id: UUID,
+    db: DBSession,
+    current_user: AdminUserDep = None,
+) -> BillRead:
+    return await cancel_shop_bill(db, current_user, bill_id, _require_org_id(current_user))

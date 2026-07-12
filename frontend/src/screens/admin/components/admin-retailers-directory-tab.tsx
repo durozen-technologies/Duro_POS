@@ -27,14 +27,16 @@ import {
   ActionButton,
   usePressAnimation,
 } from "./admin-dashboard-primitives";
+import { AdminRetailerStatementModal } from "./admin-retailer-statement-modal";
 
 type RetailerRowProps = {
   item: RetailerRead;
   onPress: (item: RetailerRead) => void;
+  onShare: (item: RetailerRead) => void;
   palette: ThemePalette;
 };
 
-const RetailerRow = memo(function RetailerRow({ item, onPress, palette }: RetailerRowProps) {
+const RetailerRow = memo(function RetailerRow({ item, onPress, onShare, palette }: RetailerRowProps) {
   const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
   const statusBg = item.is_active ? palette.successSoft : palette.surfaceMuted;
   const statusFg = item.is_active ? palette.success : palette.textMuted;
@@ -68,9 +70,16 @@ const RetailerRow = memo(function RetailerRow({ item, onPress, palette }: Retail
             <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
               {item.name}
             </Text>
-            {item.phone ? (
+            {item.shop_name ? (
+              <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                {item.shop_name}
+              </Text>
+            ) : null}
+            {(item.phone || item.alternate_phone) ? (
               <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 2 }]} numberOfLines={1}>
-                {item.phone}
+                {item.phone ? `Mob: ${item.phone}` : ""}
+                {item.phone && item.alternate_phone ? " | " : ""}
+                {item.alternate_phone ? `Alt: ${item.alternate_phone}` : ""}
               </Text>
             ) : null}
             {(item.branch_names ?? []).length > 0 ? (
@@ -88,10 +97,34 @@ const RetailerRow = memo(function RetailerRow({ item, onPress, palette }: Retail
               </Text>
             ) : null}
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
-            <Text style={[adminTypography.badge, { color: statusFg }]}>
-              {item.is_active ? "Active" : "Paused"}
-            </Text>
+          <View style={{ alignItems: "flex-end", gap: 12, width: "16%" }}>
+            <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+              <Text style={[adminTypography.badge, { color: statusFg }]}>
+                {item.is_active ? "Active" : "Paused"}
+              </Text>
+            </View>
+            {hasBalance ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Share Statement"
+                onPress={(e) => {
+                  e.stopPropagation();
+                  triggerHaptic();
+                  onShare(item);
+                }}
+                style={{
+                  backgroundColor: palette.surfaceMuted,
+                  borderColor: palette.border,
+                  borderWidth: 1,
+                  borderRadius: adminRadii.icon,
+                  padding: 8,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <MaterialCommunityIcons name="share-variant" size={16} color={palette.textPrimary} />
+              </Pressable>
+            ) : null}
           </View>
         </View>
       </Animated.View>
@@ -115,6 +148,7 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
   onCreateRetailer,
 }: AdminRetailersDirectoryTabProps) {
   const [retailers, setRetailers] = useState<RetailerRead[]>([]);
+  const [statementRetailer, setStatementRetailer] = useState<RetailerRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +165,15 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
         active: activeOnly ? true : undefined,
         page_size: 100,
       });
-      setRetailers(page.items);
+      const items = page.items || [];
+      items.sort((a, b) => {
+        if (a.is_active && !b.is_active) return -1;
+        if (!a.is_active && b.is_active) return 1;
+        const balA = Number(a.outstanding_balance ?? 0);
+        const balB = Number(b.outstanding_balance ?? 0);
+        return balB - balA;
+      });
+      setRetailers(items);
       setError(null);
     } catch (err) {
       setError(formatApiErrorMessage(err));
@@ -233,10 +275,23 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
             />
           }
           renderItem={({ item }) => (
-            <RetailerRow item={item} onPress={onOpenRetailer} palette={palette} />
+            <RetailerRow 
+              item={item} 
+              onPress={onOpenRetailer} 
+              onShare={setStatementRetailer}
+              palette={palette} 
+            />
           )}
         />
       )}
+      {statementRetailer ? (
+        <AdminRetailerStatementModal
+          visible={!!statementRetailer}
+          retailer={statementRetailer}
+          palette={palette}
+          onClose={() => setStatementRetailer(null)}
+        />
+      ) : null}
     </View>
   );
 });

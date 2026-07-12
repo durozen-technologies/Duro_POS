@@ -18,6 +18,7 @@ import { fetchAllOrganizationRows, fetchAuditLogRows, type AuditLogRead } from "
 import type { AppStackParamList } from "@/navigation/types";
 import { hasAuthToken, skipUnlessAuthed } from "@/store/auth-store";
 import type { UUID } from "@/types/api";
+import { isAuthSessionError } from "@/utils/auth-errors";
 import { formatDateTime } from "@/utils/format";
 
 import { SUPER_ADMIN_REFRESH_TINT, SuperAdminRefreshButton } from "./super-admin-refresh-button";

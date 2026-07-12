@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchShops } from "@/api/admin";
-import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { formatApiErrorMessage } from "@/api/client";
 import {
   fetchRetailerItemAllocations,
   fetchRetailers,
@@ -27,12 +27,13 @@ import { CalendarDatePickerModal } from "@/components/ui/calendar-date-picker";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type {
+  PriceHistoryEntry,
   RetailerItemAllocationRead,
   RetailerRead,
   ShopRead,
   UUID,
 } from "@/types/api";
-import { createDateTimeFormat } from "@/utils/format";
+import { createDateTimeFormat, formatCurrency, todayDateValue } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
@@ -50,6 +51,14 @@ type PriceDraft = {
   price_per_unit: string;
   saved_price_per_unit: string;
   billing_price?: string | null;
+};
+
+type SavePreviewRow = {
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name?: string | null;
+  base_unit?: string | null;
+  price_per_unit: string;
 };
 
 type AdminRetailersPricesTabProps = {
@@ -72,6 +81,17 @@ function savedPriceFromItem(item: RetailerItemAllocationRead): string {
   return item.price_per_unit ? normalizePrice(String(item.price_per_unit)) : "";
 }
 
+function previewPrice(value: string): string {
+  return normalizePrice(value) || "0.00";
+}
+
+function isRetailerPriceUpdatedToday(
+  priceHistory: PriceHistoryEntry[] | null | undefined,
+  today = todayDateValue(),
+): boolean {
+  return priceHistory?.[0]?.effective_date === today;
+}
+
 const retailerPriceDateFormatter = createDateTimeFormat({
   day: "2-digit",
   month: "short",
@@ -82,11 +102,11 @@ function formatHistoryDate(dateString: string): string {
   return retailerPriceDateFormatter.format(new Date(dateString));
 }
 
-const PriceItemRow = memo(function PriceItemRow({ 
-  item, 
-  draft, 
-  isHistoricalDate, 
-  palette, 
+const PriceItemRow = memo(function PriceItemRow({
+  item,
+  draft,
+  isHistoricalDate,
+  palette,
   updatePrice,
   saveRow,
   isSaving,
@@ -101,7 +121,7 @@ const PriceItemRow = memo(function PriceItemRow({
 }) {
   const inputRef = useRef<TextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
-  
+
   const currentNormalized = item.price_per_unit ? normalizePrice(String(draft.price_per_unit)) : normalizePrice(String(draft.price_per_unit));
   const isDirty = currentNormalized !== draft.saved_price_per_unit && currentNormalized !== "";
   const showSave = isFocused || isDirty;
@@ -110,6 +130,8 @@ const PriceItemRow = memo(function PriceItemRow({
     image_thumb_path: item.image_thumb_path,
     image_path: item.image_path,
   });
+  const updatedToday = isRetailerPriceUpdatedToday(item.price_history);
+  const showPriceStatus = !isHistoricalDate && Boolean(draft.saved_price_per_unit);
 
   return (
     <View
@@ -144,105 +166,134 @@ const PriceItemRow = memo(function PriceItemRow({
             {item.item_tamil_name}
           </Text>
         ) : null}
-        
+
         <Text style={[adminTypography.body, { color: palette.textPrimary, marginTop: 4, fontWeight: '600', opacity: 0.8 }]}>
           {draft.base_unit ? draft.base_unit.toUpperCase() : ''}
         </Text>
 
-        {item.price_history?.[0]?.effective_date === new Date().toISOString().split("T")[0] && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#d1fae5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start', marginTop: 8, gap: 4 }}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10b981' }} />
-            <Text style={[adminTypography.caption, { color: '#10b981', fontWeight: 'bold' }]}>Updated today</Text>
+        {showPriceStatus ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              backgroundColor: updatedToday ? "#d1fae5" : "#fee2e2",
+              paddingHorizontal: 8,
+              paddingVertical: 4,
+              borderRadius: 12,
+              alignSelf: "flex-start",
+              marginTop: 8,
+              gap: 4,
+            }}
+          >
+            <View
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: updatedToday ? "#10b981" : "#ef4444",
+              }}
+            />
+            <Text
+              style={[
+                adminTypography.caption,
+                {
+                  color: updatedToday ? "#10b981" : "#ef4444",
+                  fontWeight: "bold",
+                },
+              ]}
+            >
+              {updatedToday ? "Updated today" : "Needs update"}
+            </Text>
           </View>
-        )}
+        ) : null}
       </View>
 
       <View style={{
-          backgroundColor: palette.surfaceMuted,
-          borderRadius: 16,
-          padding: 12,
-          alignItems: 'center',
-          minWidth: 120,
+        backgroundColor: palette.surfaceMuted,
+        borderRadius: 16,
+        padding: 12,
+        alignItems: 'center',
+        minWidth: 120,
       }}>
-          <Text style={[adminTypography.caption, { color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '700' }]}>RATE</Text>
-          <View style={{ 
-            flexDirection: 'row', 
-            alignItems: 'flex-end', 
-            marginTop: 4,
-            borderBottomWidth: isFocused ? 2 : 0,
-            borderBottomColor: palette.primary,
-            paddingBottom: isFocused ? 0 : 2,
-          }}>
-            <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary, fontWeight: '800', paddingBottom: 1 }]}>₹</Text>
-            <TextInput
-                ref={inputRef}
-                value={draft.price_per_unit}
-                onChangeText={(value) => updatePrice(item.item_id, value)}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                onSubmitEditing={() => saveRow(draft)}
-                returnKeyType="done"
-                keyboardType="decimal-pad"
-                placeholder={isHistoricalDate ? "-" : "0"}
-                placeholderTextColor={palette.textMuted}
-                editable={!isHistoricalDate}
-                style={[
-                  adminTypography.bodyStrong,
-                  {
-                    color: palette.textPrimary,
-                    fontWeight: '800',
-                    padding: 0,
-                    margin: 0,
-                    minWidth: 44,
-                    textAlign: 'center',
-                    opacity: isHistoricalDate ? 0.6 : 1,
-                  }
-                ]}
-            />
-            <Text style={[adminTypography.body, { color: palette.textPrimary, paddingBottom: 2, fontWeight: '700' }]}>/{draft.base_unit ? draft.base_unit.toLowerCase() : 'kg'}</Text>
-          </View>
-          
-          {!isHistoricalDate && (
-            <Pressable 
-              disabled={isSaving}
-              onPress={() => {
-                if (showSave) {
-                  inputRef.current?.blur();
-                  saveRow(draft);
-                } else {
-                  inputRef.current?.focus();
-                }
-              }}
-              style={({ pressed }) => [
-                {
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 4,
-                  marginTop: 10,
-                  backgroundColor: pressed ? palette.surfaceMuted : 'transparent',
-                  borderWidth: 1,
-                  borderColor: showSave ? palette.primary : palette.border,
-                  paddingHorizontal: 12,
-                  paddingVertical: 5,
-                  borderRadius: 16,
-                  opacity: isSaving ? 0.7 : 1,
-                }
-              ]}
-            >
-              {isSaving ? (
-                <ActivityIndicator size="small" color={showSave ? palette.primary : palette.textPrimary} />
-              ) : (
-                <MaterialCommunityIcons 
-                  name={showSave ? "check" : "pencil-outline"} 
-                  size={14} 
-                  color={showSave ? palette.primary : palette.textPrimary} 
-                />
-              )}
-              <Text style={[adminTypography.caption, { color: showSave ? palette.primary : palette.textPrimary, fontWeight: '700' }]}>
-                {isSaving ? "Saving..." : (showSave ? "Save" : "Edit")}
-              </Text>
-            </Pressable>
-          )}
+        <Text style={[adminTypography.caption, { color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '700' }]}>RATE</Text>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'flex-end',
+          marginTop: 4,
+          borderBottomWidth: isFocused ? 2 : 0,
+          borderBottomColor: palette.primary,
+          paddingBottom: isFocused ? 0 : 2,
+        }}>
+          <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary, fontWeight: '800', paddingBottom: 1 }]}>₹</Text>
+          <TextInput
+            ref={inputRef}
+            value={draft.price_per_unit}
+            onChangeText={(value) => updatePrice(item.item_id, value)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            onSubmitEditing={() => saveRow(draft)}
+            returnKeyType="done"
+            keyboardType="decimal-pad"
+            placeholder={isHistoricalDate ? "-" : "0"}
+            placeholderTextColor={palette.textMuted}
+            editable={!isHistoricalDate}
+            style={[
+              adminTypography.bodyStrong,
+              {
+                color: palette.textPrimary,
+                fontWeight: '800',
+                padding: 0,
+                margin: 0,
+                minWidth: 44,
+                textAlign: 'center',
+                opacity: isHistoricalDate ? 0.6 : 1,
+              }
+            ]}
+          />
+          <Text style={[adminTypography.body, { color: palette.textPrimary, paddingBottom: 2, fontWeight: '700' }]}>/{draft.base_unit ? draft.base_unit.toLowerCase() : 'kg'}</Text>
+        </View>
+
+        {!isHistoricalDate && (
+          <Pressable
+            disabled={isSaving}
+            onPress={() => {
+              if (showSave) {
+                inputRef.current?.blur();
+                saveRow(draft);
+              } else {
+                inputRef.current?.focus();
+              }
+            }}
+            style={({ pressed }) => [
+              {
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                marginTop: 10,
+                backgroundColor: pressed ? palette.surfaceMuted : 'transparent',
+                borderWidth: 1,
+                borderColor: showSave ? palette.primary : palette.border,
+                paddingHorizontal: 12,
+                paddingVertical: 5,
+                borderRadius: 16,
+                opacity: isSaving ? 0.7 : 1,
+              }
+            ]}
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color={showSave ? palette.primary : palette.textPrimary} />
+            ) : (
+              <MaterialCommunityIcons
+                name={showSave ? "check" : "pencil-outline"}
+                size={14}
+                color={showSave ? palette.primary : palette.textPrimary}
+              />
+            )}
+            <Text style={[adminTypography.caption, { color: showSave ? palette.primary : palette.textPrimary, fontWeight: '700' }]}>
+              {isSaving ? "Saving..." : (showSave ? "Save" : "Edit")}
+            </Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -274,6 +325,9 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState<SavePreviewRow[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 250);
 
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -288,9 +342,20 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
 
   const isHistoricalDate = useMemo(() => {
     if (!selectedDate) return false;
-    const formattedToday = new Date().toISOString().split("T")[0];
-    return selectedDate !== formattedToday;
+    return selectedDate !== todayDateValue();
   }, [selectedDate]);
+
+  const priceUpdateSummary = useMemo(() => {
+    if (isHistoricalDate) {
+      return null;
+    }
+    const pricedItems = catalogueItems.filter((item) => savedPriceFromItem(item));
+    const updatedTodayCount = pricedItems.filter((item) =>
+      isRetailerPriceUpdatedToday(item.price_history),
+    ).length;
+    const needsUpdateCount = pricedItems.length - updatedTodayCount;
+    return { updatedTodayCount, needsUpdateCount, pricedItems: pricedItems.length };
+  }, [catalogueItems, isHistoricalDate]);
 
   const selectedBranch = useMemo(
     () => branches.find((row) => row.id === selectedShopId) ?? null,
@@ -446,6 +511,51 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
     });
   }, []);
 
+  const applySavedPrices = useCallback(
+    (savedItems: { item_id: UUID; price_per_unit: string }[]) => {
+      if (savedItems.length === 0) {
+        return;
+      }
+      const savedMap = new Map(savedItems.map((row) => [row.item_id, row.price_per_unit]));
+      setDrafts((current) => {
+        const next = new Map(current);
+        for (const [itemId, price] of savedMap.entries()) {
+          const row = next.get(itemId);
+          if (row) {
+            next.set(itemId, {
+              ...row,
+              price_per_unit: price,
+              saved_price_per_unit: price,
+            });
+          }
+        }
+        return next;
+      });
+      setCatalogueItems((current) =>
+        current.map((item) => {
+          const savedPrice = savedMap.get(item.item_id);
+          if (!savedPrice) {
+            return item;
+          }
+          const today = todayDateValue();
+          return {
+            ...item,
+            is_allocated: true,
+            price_per_unit: savedPrice,
+            price_history: [
+              {
+                effective_date: today,
+                price_per_unit: savedPrice,
+              },
+              ...(item.price_history?.filter((entry) => entry.effective_date !== today) || []),
+            ],
+          };
+        }),
+      );
+    },
+    [],
+  );
+
   const saveRow = useCallback(
     async (draft: PriceDraft) => {
       if (!selectedShopId || !selectedRetailerId) return;
@@ -468,123 +578,91 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
         });
         triggerHaptic();
 
-        setDrafts((current) => {
-          const next = new Map(current);
-          const row = next.get(draft.item_id);
-          if (row) {
-            next.set(draft.item_id, {
-              ...row,
-              price_per_unit: nextPrice,
-              saved_price_per_unit: nextPrice,
-            });
-          }
-          return next;
-        });
-        setCatalogueItems((current) =>
-          current.map((item) =>
-            item.item_id === draft.item_id
-              ? {
-                  ...item,
-                  is_allocated: true,
-                  price_per_unit: nextPrice,
-                  price_history: [
-                    {
-                      effective_date: new Date().toISOString().split("T")[0],
-                      price_per_unit: nextPrice,
-                    },
-                    ...(item.price_history?.filter(
-                      (h) => h.effective_date !== new Date().toISOString().split("T")[0],
-                    ) || []),
-                  ],
-                }
-              : item,
-          ),
-        );
+        applySavedPrices([{ item_id: draft.item_id, price_per_unit: nextPrice }]);
       } catch (err) {
         Alert.alert("Save failed", formatApiErrorMessage(err));
       } finally {
         setSavingItemId(null);
       }
     },
-    [selectedRetailerId, selectedShopId],
+    [applySavedPrices, selectedRetailerId, selectedShopId],
   );
 
   const saveAllChanges = useCallback(async () => {
     if (!selectedShopId || !selectedRetailerId) return;
-    
-    const changedItems: { item_id: UUID; price_per_unit: string }[] = [];
-    
-    for (const [itemId, draft] of drafts.entries()) {
-      const nextPrice = normalizePrice(draft.price_per_unit);
-      if (nextPrice && nextPrice !== draft.saved_price_per_unit) {
-        changedItems.push({
-          item_id: itemId,
-          price_per_unit: nextPrice,
-        });
-      }
-    }
-    
-    if (changedItems.length === 0) {
-      Alert.alert("No changes", "There are no new prices to save.");
+    if (isHistoricalDate) {
+      Alert.alert("Read only", "Switch to Today before saving retailer prices.");
       return;
     }
-    
+
+    setLoadingPreview(true);
+    try {
+      const response = await fetchRetailerItemAllocations(selectedRetailerId, selectedShopId, {
+        limit: 500,
+      });
+      const rows: SavePreviewRow[] = response.items.map((item) => {
+        const draft = drafts.get(item.item_id);
+        const rawPrice = draft?.price_per_unit ?? savedPriceFromItem(item);
+        return {
+          item_id: item.item_id,
+          item_name: item.item_name,
+          item_tamil_name: item.item_tamil_name,
+          base_unit: item.base_unit,
+          price_per_unit: previewPrice(rawPrice),
+        };
+      });
+      if (rows.length === 0) {
+        Alert.alert("No items", "Allocate branch items before saving retailer prices.");
+        return;
+      }
+      setPreviewRows(rows);
+      setPreviewOpen(true);
+    } catch (err) {
+      Alert.alert("Unable to prepare preview", formatApiErrorMessage(err));
+    } finally {
+      setLoadingPreview(false);
+    }
+  }, [drafts, isHistoricalDate, selectedRetailerId, selectedShopId]);
+
+  const confirmSaveAllChanges = useCallback(async () => {
+    if (!selectedShopId || !selectedRetailerId) return;
+
+    const itemsToSave = previewRows
+      .filter((row) => Number(row.price_per_unit) > 0)
+      .map((row) => ({
+        item_id: row.item_id,
+        price_per_unit: row.price_per_unit,
+      }));
+
+    if (itemsToSave.length === 0) {
+      Alert.alert("No prices to save", "Set at least one item price above 0 before saving.");
+      return;
+    }
+
     setSavingAll(true);
     try {
       await Promise.all(
-        changedItems.map(item => 
+        itemsToSave.map((item) =>
           updateRetailerItemAllocation(selectedRetailerId, selectedShopId, item.item_id, {
             price_per_unit: item.price_per_unit,
             is_active: true,
-          })
-        )
+          }),
+        ),
       );
-      
+
       triggerHaptic();
-      
-      setDrafts(current => {
-        const next = new Map(current);
-        for (const item of changedItems) {
-          const row = next.get(item.item_id);
-          if (row) {
-             next.set(item.item_id, {
-               ...row,
-               price_per_unit: item.price_per_unit,
-               saved_price_per_unit: item.price_per_unit,
-             });
-          }
-        }
-        return next;
-      });
-      
-      setCatalogueItems(current => 
-        current.map(item => {
-          const changed = changedItems.find(c => c.item_id === item.item_id);
-          if (changed) {
-            return {
-              ...item,
-              is_allocated: true,
-              price_per_unit: changed.price_per_unit,
-              price_history: [
-                {
-                   effective_date: new Date().toISOString().split("T")[0],
-                   price_per_unit: changed.price_per_unit,
-                },
-                ...(item.price_history?.filter(
-                   (h) => h.effective_date !== new Date().toISOString().split("T")[0],
-                ) || []),
-              ],
-            };
-          }
-          return item;
-        })
+      setPreviewOpen(false);
+      await loadItems(true);
+      Alert.alert(
+        "Prices saved",
+        `Updated today's prices for ${itemsToSave.length} item${itemsToSave.length === 1 ? "" : "s"}.`,
       );
     } catch (err) {
       Alert.alert("Save failed", formatApiErrorMessage(err));
     } finally {
       setSavingAll(false);
     }
-  }, [selectedShopId, selectedRetailerId, drafts]);
+  }, [loadItems, previewRows, selectedRetailerId, selectedShopId]);
 
   const renderBranchPicker = () => (
     <Modal visible={branchPickerOpen} transparent animationType="fade" onRequestClose={() => setBranchPickerOpen(false)}>
@@ -781,7 +859,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
             onPress={() =>
               Alert.alert(
                 "Daily retailer prices",
-                "All branch-allocated items appear here. Set wholesale prices per retailer each day. Save only updates rows you changed — unchanged prices stay as shown.",
+                "Set wholesale prices for each item, then tap Save to preview all branch items. Unset prices appear as 0 in the preview. Confirming saves today's prices for this retailer.",
               )
             }
             style={{
@@ -829,7 +907,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
               <Pressable
                 accessibilityRole="button"
                 onPress={() => void saveAllChanges()}
-                disabled={savingAll}
+                disabled={savingAll || loadingPreview || isHistoricalDate}
                 style={{
                   flex: 1.2,
                   flexDirection: "row",
@@ -839,9 +917,10 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                   height: 48,
                   borderRadius: adminRadii.control,
                   backgroundColor: palette.primary,
+                  opacity: savingAll || loadingPreview || isHistoricalDate ? 0.72 : 1,
                 }}
               >
-                {savingAll ? (
+                {savingAll || loadingPreview ? (
                   <ActivityIndicator size="small" color={palette.card} />
                 ) : (
                   <>
@@ -851,6 +930,15 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                 )}
               </Pressable>
             </View>
+            {!isHistoricalDate ? (
+              <Text style={[adminTypography.caption, { color: palette.textMuted, zIndex: 1 }]}>
+                {priceUpdateSummary && priceUpdateSummary.pricedItems > 0
+                  ? priceUpdateSummary.needsUpdateCount > 0
+                    ? `${priceUpdateSummary.needsUpdateCount} item${priceUpdateSummary.needsUpdateCount === 1 ? "" : "s"} need today's price. Tap Save to confirm all branch items.`
+                    : `All ${priceUpdateSummary.updatedTodayCount} priced item${priceUpdateSummary.updatedTodayCount === 1 ? "" : "s"} updated today.`
+                  : "Set wholesale prices for each item, then tap Save to confirm today's rates."}
+              </Text>
+            ) : null}
             <View style={{ zIndex: 1 }}>
               <SearchField
                 value={search}
@@ -915,12 +1003,12 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                 if (!draft) return null;
 
                 return (
-                  <PriceItemRow 
-                    item={item} 
-                    draft={draft} 
-                    isHistoricalDate={isHistoricalDate} 
-                    palette={palette} 
-                    updatePrice={updatePrice} 
+                  <PriceItemRow
+                    item={item}
+                    draft={draft}
+                    isHistoricalDate={isHistoricalDate}
+                    palette={palette}
+                    updatePrice={updatePrice}
                     saveRow={saveRow}
                     isSaving={savingItemId === item.item_id}
                   />
@@ -953,6 +1041,100 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
         }}
         title="Select Date"
       />
+
+      <Modal
+        visible={previewOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!savingAll) {
+            setPreviewOpen(false);
+          }
+        }}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => {
+            if (!savingAll) {
+              setPreviewOpen(false);
+            }
+          }}
+        >
+          <Pressable
+            style={[styles.previewSheet, { backgroundColor: palette.card, borderColor: palette.border }]}
+            onPress={() => undefined}
+          >
+            <Text style={[adminTypography.section, { color: palette.textPrimary }]}>
+              Save today's prices
+            </Text>
+            <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 4 }]}>
+              {selectedRetailer?.name ?? "Retailer"} · {selectedBranch?.name ?? "Branch"}
+            </Text>
+            <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 8 }]}>
+              Review all branch items below. Unset prices are shown as {formatCurrency("0")}.
+            </Text>
+
+            <FlatList
+              data={previewRows}
+              keyExtractor={(item) => item.item_id}
+              style={{ maxHeight: 360, marginTop: adminSpacing.sm }}
+              ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+              renderItem={({ item }) => (
+                <View
+                  style={[
+                    styles.previewRow,
+                    { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
+                  ]}
+                >
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]} numberOfLines={1}>
+                      {item.item_name}
+                    </Text>
+                    {item.item_tamil_name ? (
+                      <Text style={[adminTypography.caption, { color: palette.primary, marginTop: 2 }]} numberOfLines={1}>
+                        {item.item_tamil_name}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]}>
+                    {formatCurrency(item.price_per_unit)}
+                    {item.base_unit ? `/${item.base_unit.toLowerCase()}` : ""}
+                  </Text>
+                </View>
+              )}
+            />
+
+            <View style={styles.previewActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={savingAll}
+                onPress={() => setPreviewOpen(false)}
+                style={[
+                  styles.previewButton,
+                  { borderColor: palette.border, backgroundColor: palette.surfaceMuted },
+                ]}
+              >
+                <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={savingAll}
+                onPress={() => void confirmSaveAllChanges()}
+                style={[
+                  styles.previewButton,
+                  { borderColor: palette.primary, backgroundColor: palette.primary },
+                ]}
+              >
+                {savingAll ? (
+                  <ActivityIndicator size="small" color={palette.card} />
+                ) : (
+                  <Text style={{ color: palette.card, fontWeight: "700" }}>Update today</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 });
@@ -1039,5 +1221,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     marginBottom: 8,
+  },
+  previewSheet: {
+    borderWidth: 1,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.md,
+    maxHeight: "85%",
+  },
+  previewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: adminRadii.control,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  previewActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: adminSpacing.md,
+  },
+  previewButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: adminRadii.control,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

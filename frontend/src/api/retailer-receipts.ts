@@ -3,12 +3,18 @@ import { getLocalizedItemName } from "@/hooks/use-shop-translation";
 import type { ShopLanguage } from "@/store/shop-language-store";
 import {
   RetailerReceiptType,
+  RetailerSaleStatus,
   type RetailerPaymentRead,
   type RetailerSaleRead,
   type RetailerSaleReceiptRead,
   type UUID,
 } from "@/types/api";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
+import {
+  buildRetailerReceiptPartyText,
+  pickRetailerShareReceipt,
+  retailerReceiptPartyLabels,
+} from "@/utils/retailer-sale";
 
 export const RETAILER_RECEIPT_PROVIDER = "Durozen Technologies pvt. Ltd.";
 
@@ -58,11 +64,61 @@ function retailerBalanceSummary(
   };
 }
 
+function aggregateRetailerPaymentTotals(sale: RetailerSaleRead): RetailerPaymentRead {
+  const totals = sale.payments.reduce(
+    (acc, payment) => ({
+      cash_amount: acc.cash_amount + Number(payment.cash_amount),
+      upi_amount: acc.upi_amount + Number(payment.upi_amount),
+      wallet_amount: acc.wallet_amount + Number(payment.wallet_amount ?? 0),
+      total_paid: acc.total_paid + Number(payment.total_paid),
+    }),
+    { cash_amount: 0, upi_amount: 0, wallet_amount: 0, total_paid: 0 },
+  );
+
+  const anchor = sale.payments.at(-1) ?? sale.payments[0];
+  if (!anchor) {
+    throw new Error("Payment for receipt not found");
+  }
+
+  return {
+    ...anchor,
+    cash_amount: totals.cash_amount.toFixed(2),
+    upi_amount: totals.upi_amount.toFixed(2),
+    wallet_amount: totals.wallet_amount.toFixed(2),
+    total_paid: totals.total_paid.toFixed(2),
+  };
+}
+
+type RetailerSaleInvoiceBuildOptions = {
+  useCurrentSaleBalances?: boolean;
+  retailerOutstandingBalance?: string;
+};
+
+function shareBalanceSummary(
+  sale: RetailerSaleRead,
+  retailerOutstandingBalance: string,
+) {
+  const outstanding = Math.max(0, Number(retailerOutstandingBalance));
+  const billDue =
+    sale.status === RetailerSaleStatus.SETTLED
+      ? 0
+      : Math.max(0, Number(sale.balance_due));
+  const openingBalance = Math.max(0, outstanding - billDue).toFixed(2);
+  const currentBillBalance = billDue.toFixed(2);
+  const totalBalance = outstanding.toFixed(2);
+  return {
+    openingBalance,
+    currentBillBalance,
+    totalBalance,
+    settled: billDue <= 0,
+  };
+}
+
 function receiptLabels() {
   return {
     saleInvoice: "Sale Invoice",
     paymentReceipt: "Payment Receipt",
-    purchaser: "Purchaser",
+    ...retailerReceiptPartyLabels(),
     saleNo: "Sale No",
     saleDate: "Sale Date",
     receiptNo: "Receipt",
@@ -101,8 +157,11 @@ function organizationName(sale: RetailerSaleRead) {
   return sale.organization_name.split("\n")[0]?.trim() || sale.organization_name;
 }
 
-function retailerPurchaserHtml(retailerName: string, labels: ReturnType<typeof receiptLabels>) {
-  return `<span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(retailerName)}</span>`;
+function retailerPurchaserHtml(sale: RetailerSaleRead, labels: ReturnType<typeof receiptLabels>) {
+  const party = buildRetailerReceiptPartyText(sale.retailer_name, sale.shop_name, labels);
+  return `
+        <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(sale.retailer_name)}</span>
+        <span class="bill-meta-shop"><strong>${labels.shopName}:</strong> ${escapeHtml(sale.shop_name)}</span>`;
 }
 
 function retailerBillMetaHtml(
@@ -113,7 +172,7 @@ function retailerBillMetaHtml(
 ) {
   return `
       <div class="bill-meta">
-        ${retailerPurchaserHtml(sale.retailer_name, labels)}
+        ${retailerPurchaserHtml(sale, labels)}
         <span><strong>${labels.receiptNo}:</strong> ${escapeHtml(receipt.receipt_number)}</span>
         <span class="bill-meta-primary"><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(receipt.printed_at))}</span>
         <div class="balance-divider"></div>
@@ -274,33 +333,64 @@ export function buildRetailerSaleInvoiceHtml(
   sale: RetailerSaleRead,
   receipt: RetailerSaleReceiptRead,
   language?: ShopLanguage,
+  options?: RetailerSaleInvoiceBuildOptions,
 ) {
   const labels = receiptLabels();
   const payment =
-    findPayment(sale, receipt.retailer_payment_id) ?? sale.payments[0];
+    findPayment(sale, receipt.retailer_payment_id) ?? sale.payments.at(-1) ?? sale.payments[0];
   if (!payment) {
     throw new Error("Payment for receipt not found");
   }
-  const paidAmount = payment.total_paid;
-  const balances = retailerBalanceSummary(sale, receipt, payment);
-  const { openingBalance, currentBillBalance, totalBalance } = balances;
-  const settled = Number(currentBillBalance) <= 0;
+
+  let paidAmount: string;
+  let openingBalance: string;
+  let currentBillBalance: string;
+  let totalBalance: string;
+  let settled: boolean;
+  let displayPayment: RetailerPaymentRead;
+
+  if (options?.useCurrentSaleBalances) {
+    paidAmount = Number(sale.amount_paid_total).toFixed(2);
+    displayPayment = aggregateRetailerPaymentTotals(sale);
+
+    if (options.retailerOutstandingBalance !== undefined) {
+      const summary = shareBalanceSummary(sale, options.retailerOutstandingBalance);
+      openingBalance = summary.openingBalance;
+      currentBillBalance = summary.currentBillBalance;
+      totalBalance = summary.totalBalance;
+      settled = summary.settled;
+    } else {
+      openingBalance = openingBalanceForReceipt(receipt);
+      currentBillBalance = Number(sale.balance_due).toFixed(2);
+      totalBalance = totalBalanceAmount(openingBalance, currentBillBalance);
+      settled = Number(sale.balance_due) <= 0;
+    }
+  } else {
+    paidAmount = payment.total_paid;
+    const balances = retailerBalanceSummary(sale, receipt, payment);
+    openingBalance = balances.openingBalance;
+    currentBillBalance = balances.currentBillBalance;
+    totalBalance = balances.totalBalance;
+    settled = Number(currentBillBalance) <= 0;
+    displayPayment = payment;
+  }
   const itemRows = saleItemRowsHtml(sale, language);
 
   const orgName = organizationName(sale);
+  const party = buildRetailerReceiptPartyText(sale.retailer_name, sale.shop_name, labels);
   const exportPayload = {
     companyName: formatReceiptHeaderName(orgName),
     shopName: formatReceiptHeaderName(sale.shop_name),
     billText: `${labels.saleNo}: ${sale.sale_no}`,
-    purchaserText: `${labels.purchaser}: ${sale.retailer_name}`,
+    purchaserText: party.combinedText,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
     cashLabel: labels.cash,
-    cashValue: formatReceiptCurrency(payment.cash_amount),
+    cashValue: formatReceiptCurrency(displayPayment.cash_amount),
     upiLabel: labels.upi,
-    upiValue: formatReceiptCurrency(payment.upi_amount),
+    upiValue: formatReceiptCurrency(displayPayment.upi_amount),
     walletLabel: labels.wallet,
-    walletValue: formatReceiptCurrency(payment.wallet_amount ?? "0"),
+    walletValue: formatReceiptCurrency(displayPayment.wallet_amount ?? "0"),
     totalLabel: labels.grandTotal,
     totalValue: `Rs. ${formatReceiptCurrency(sale.total_amount)}`,
     ...paymentSummaryExportFields(
@@ -325,7 +415,7 @@ export function buildRetailerSaleInvoiceHtml(
       <div class="payment-divider"></div>
       ${retailerTotalsTableHtml(
         labels,
-        payment,
+        displayPayment,
         sale,
         labels.paidAmount,
         paidAmount,
@@ -354,11 +444,12 @@ export function buildRetailerBalancePaymentHtml(
   const itemRows = saleItemRowsHtml(sale, language);
 
   const orgName = organizationName(sale);
+  const party = buildRetailerReceiptPartyText(sale.retailer_name, sale.shop_name, labels);
   const exportPayload = {
     companyName: formatReceiptHeaderName(orgName),
     shopName: formatReceiptHeaderName(sale.shop_name),
     billText: `${labels.receiptNo}: ${receipt.receipt_number}`,
-    purchaserText: `${labels.purchaser}: ${sale.retailer_name}`,
+    purchaserText: party.combinedText,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
     cashLabel: labels.cash,
@@ -416,4 +507,19 @@ export function buildRetailerReceiptHtml(
     return buildRetailerBalancePaymentHtml(sale, receipt, language);
   }
   return buildRetailerSaleInvoiceHtml(sale, receipt, language);
+}
+
+export function buildRetailerShareReceiptHtml(
+  sale: RetailerSaleRead,
+  retailerOutstandingBalance: string,
+  language?: ShopLanguage,
+) {
+  const receipt = pickRetailerShareReceipt(sale);
+  if (!receipt) {
+    throw new Error("No receipt available for this sale");
+  }
+  return buildRetailerSaleInvoiceHtml(sale, receipt, language, {
+    useCurrentSaleBalances: true,
+    retailerOutstandingBalance,
+  });
 }

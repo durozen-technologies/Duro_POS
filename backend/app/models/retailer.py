@@ -31,7 +31,10 @@ class Retailer(Base, BaseModelMixin):
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    shop_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    alternate_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
@@ -188,6 +191,8 @@ class RetailerSale(Base, BaseModelMixin):
     shop_id: Mapped[UUID] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("shops.id"), index=True, nullable=False
     )
+    retailer_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
+    shop_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     amount_paid_total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     balance_due: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
@@ -328,6 +333,34 @@ class RetailerSaleReceipt(Base):
 
     sale = relationship("RetailerSale", back_populates="receipts")
     payment = relationship("RetailerPayment", back_populates="receipt")
+
+
+class RetailerWalletPayout(Base, BaseModelMixin):
+    __tablename__ = "retailer_wallet_payouts"
+    __table_args__ = (
+        Index(
+            "ix_retailer_wallet_payouts_retailer_id_created_at",
+            "retailer_id",
+            desc("created_at"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    retailer_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("retailers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    cash_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    upi_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    total_paid: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    credit_balance_before: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    credit_balance_after: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    recorded_by_user_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("users.id"), index=True, nullable=False
+    )
+
+    retailer = relationship("Retailer")
+    recorded_by = relationship("User")
 
 
 class MonthlyRetailerSaleSequence(Base):

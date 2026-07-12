@@ -6,6 +6,8 @@ import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } 
 
 import {
 
+  Alert,
+
   FlatList,
 
   Modal,
@@ -26,7 +28,7 @@ import {
 
 
 
-import { fetchAllAdminRetailerSales, fetchAllRetailers } from "@/api/retailers";
+import { fetchAllAdminRetailerSales, fetchAllRetailers, cancelAdminRetailerSale } from "@/api/retailers";
 
 import { formatApiErrorMessage } from "@/api/client";
 
@@ -96,6 +98,10 @@ import {
 
 } from "./admin-dashboard-primitives";
 
+import { AdminRetailerSaleActionRow } from "./admin-retailer-sale-action-row";
+
+import { AdminRetailerSaleEditModal } from "./admin-retailer-sale-edit-modal";
+
 
 
 type SalesFilter = "pending" | "paid";
@@ -125,6 +131,10 @@ type SaleRowProps = {
   palette: ThemePalette;
 
   onPress: () => void;
+
+  onEdit: () => void;
+
+  onCancel: () => void;
 
 };
 
@@ -516,25 +526,27 @@ const SalesFilterModal = memo(function SalesFilterModal({
 
 
 
-const SaleRow = memo(function SaleRow({ sale, filter, palette, onPress }: SaleRowProps) {
+const SaleRow = memo(function SaleRow({ sale, filter, palette, onPress, onEdit, onCancel }: SaleRowProps) {
   const pending = filter === "pending";
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => {
-        triggerHaptic();
-        onPress();
-      }}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.saleCard,
         {
           borderColor: palette.border,
           backgroundColor: palette.card,
-          opacity: pressed ? 0.9 : 1,
-        }
+        },
       ]}
     >
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          triggerHaptic();
+          onPress();
+        }}
+        style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
+      >
       <View style={[styles.saleHeader, { borderBottomColor: palette.border, backgroundColor: 'transparent' }]}>
         <View style={styles.saleHeaderText}>
           <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary, fontSize: 16 }]} numberOfLines={1}>
@@ -542,6 +554,9 @@ const SaleRow = memo(function SaleRow({ sale, filter, palette, onPress }: SaleRo
           </Text>
           <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary, marginTop: 4 }]} numberOfLines={1}>
             {sale.retailer_name}
+          </Text>
+          <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 2 }]} numberOfLines={1}>
+            {sale.shop_name}
           </Text>
           <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 2 }]}>
             {formatDateTime(sale.created_at)}
@@ -584,7 +599,14 @@ const SaleRow = memo(function SaleRow({ sale, filter, palette, onPress }: SaleRo
           </View>
         )}
       </View>
-    </Pressable>
+      </Pressable>
+      <AdminRetailerSaleActionRow
+        sale={sale}
+        palette={palette}
+        onEdit={onEdit}
+        onCancel={onCancel}
+      />
+    </View>
   );
 });
 
@@ -627,6 +649,10 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
   const [retailersLoading, setRetailersLoading] = useState(false);
 
   const [calendarTarget, setCalendarTarget] = useState<"date" | "start" | "end" | null>(null);
+
+  const [editSale, setEditSale] = useState<RetailerSaleRead | null>(null);
+
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
 
 
@@ -672,7 +698,11 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
       const rows = sortRetailerSalesByNo(
 
-        (await fetchAllAdminRetailerSales()).filter((sale) => sale.status !== RetailerSaleStatus.VOID),
+        (await fetchAllAdminRetailerSales()).filter(
+          (sale) =>
+            sale.status !== RetailerSaleStatus.VOID &&
+            sale.status !== RetailerSaleStatus.CANCELLED,
+        ),
 
       );
 
@@ -755,6 +785,41 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
   }, [filterModalOpen, loadRetailers]);
 
 
+
+  const handleCancelSale = useCallback((sale: RetailerSaleRead) => {
+    Alert.alert(
+      "Cancel bill?",
+      `Cancel ${formatRetailerSaleNoDisplay(sale.sale_no)}? This cannot be undone.`,
+      [
+        { text: "Keep bill", style: "cancel" },
+        {
+          text: "Cancel bill",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await cancelAdminRetailerSale(sale.id);
+                await load(true);
+              } catch (err) {
+                Alert.alert("Cancel failed", formatApiErrorMessage(err));
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [load]);
+
+  const handleSaleSaved = useCallback(
+    (updated: RetailerSaleRead) => {
+      setSales((current) =>
+        sortRetailerSalesByNo(
+          current.map((row) => (row.id === updated.id ? updated : row)),
+        ),
+      );
+    },
+    [],
+  );
 
   const pendingSales = useMemo(() => sales.filter(isPendingRetailerSale), [sales]);
 
@@ -1153,6 +1218,13 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
             onPress={() => onOpenSale(item.id)}
 
+            onEdit={() => {
+              setEditSale(item);
+              setEditModalOpen(true);
+            }}
+
+            onCancel={() => handleCancelSale(item)}
+
           />
 
         )}
@@ -1241,6 +1313,17 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
         onClose={() => setCalendarTarget(null)}
 
+      />
+
+      <AdminRetailerSaleEditModal
+        visible={editModalOpen}
+        sale={editSale}
+        palette={palette}
+        onClose={() => {
+          setEditModalOpen(false);
+          setEditSale(null);
+        }}
+        onSaved={handleSaleSaved}
       />
 
     </View>

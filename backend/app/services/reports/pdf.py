@@ -22,6 +22,7 @@ from reportlab.pdfgen.canvas import Canvas
 from sqlalchemy import and_, case, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timezone import to_ist
 from app.models import (
     BaseUnit,
     Bill,
@@ -41,6 +42,7 @@ from app.models import (
     RetailerSale,
     Shop,
     ShopInventoryAllocation,
+    ShopRetailerAllocation,
     TransferShop,
 )
 from app.schemas.admin import (
@@ -48,8 +50,8 @@ from app.schemas.admin import (
     AdminReportSection,
     AnalyticsPeriod,
 )
-from app.core.timezone import to_ist
-from app.services.admin import _get_period_bounds
+from app.services.admin.catalogue import _get_period_bounds
+from app.services.billing import bill_counts_toward_sales_clause
 from app.services.retailer_sale_number import format_retailer_sale_bill_no
 from app.services.tenant_query import list_organization_shops
 
@@ -127,12 +129,12 @@ _OVER_REPORT_HEADER_LABELS_TA = (
     "மொத்த விற்பனையாளர் பில்லிங் தொகை",
     "வித்தியாச தொகை",
 )
-_SPLIT_STOCK_RAW_INDICES = frozenset({2, 3, 4, 5, 6, 7, 8})
-_KG_UNIT_HEADER_INDICES = frozenset({2, 4, 6, 8, 10, 12, 14, 19, 20, 21, 22, 23})
-_OVER_REPORT_COLUMN_COUNT = 29
+_KG_UNIT_HEADER_INDICES = frozenset({12, 13, 14, 15, 16})
+_OVER_REPORT_COLUMN_COUNT = 22
 
 
 from app.schemas.admin import OverallReportRetailer
+
 
 def get_over_report_sheet_config(
     use_tamil: bool, retailers: list[OverallReportRetailer] | None = None
@@ -146,18 +148,13 @@ def get_over_report_sheet_config(
     h_aligns: list[str] = []
 
     base_min_widths = [
-        46, 58, 50, 50, 50, 68, 64, 52, 48, 52, 58,
+        46, 58, 72, 72, 72, 76, 72, 68, 68, 52, 58,
         62, 58, 72, 58, 72, 56, 64, 76, 64, 80, 64,
     ]
-    base_aligns = [
-        "center", "left",
-        "right", "right", "right", "left", "right", "right", "right", "right", "right",
-        "left", "right", "right", "right", "right", "right",
-        "right", "right", "right", "right", "right",
-    ]
+    base_aligns = ["left"] * _OVER_REPORT_COLUMN_COUNT
 
-    part1_indices = list(range(18))
-    part2_indices = [0, 1] + list(range(18, _OVER_REPORT_COLUMN_COUNT))
+    part1_indices = list(range(11))
+    part2_indices = [0, 1] + list(range(11, _OVER_REPORT_COLUMN_COUNT))
 
     def _add_col(
         label: str,
@@ -166,31 +163,18 @@ def get_over_report_sheet_config(
         h_align: str,
         *,
         force_kg: bool = False,
-        force_count: bool = False,
     ) -> None:
         if force_kg:
             headers.append(f"{label}\n{KG_UNIT_SUFFIX}")
-        elif force_count:
-            headers.append(f"{label}\n{COUNT_SUFFIX}")
         else:
             headers.append(label)
         min_widths.append(min_width)
         aligns.append(align)
         h_aligns.append(h_align)
 
-    for i in range(22):
-        if i in _SPLIT_STOCK_RAW_INDICES:
-            _add_col(
-                raw_labels[i],
-                base_min_widths[i],
-                base_aligns[i],
-                "center",
-                force_kg=True,
-            )
-            _add_col(raw_labels[i], 38, "right", "center", force_count=True)
-        else:
-            force_kg = i in {12, 13, 14, 15, 16}
-            _add_col(raw_labels[i], base_min_widths[i], base_aligns[i], "center", force_kg=force_kg)
+    for i in range(_OVER_REPORT_COLUMN_COUNT):
+        force_kg = i in _KG_UNIT_HEADER_INDICES
+        _add_col(raw_labels[i], base_min_widths[i], base_aligns[i], "center", force_kg=force_kg)
 
     return headers, min_widths, aligns, h_aligns, part1_indices, part2_indices
 
@@ -576,6 +560,47 @@ class PdfReportWriter:
 
         self._y = y - 4
 
+    def split_financial_summary(
+        self,
+        left_title: str,
+        left_metrics: list[tuple[str, str]],
+        right_metrics: list[tuple[str, str]],
+    ) -> None:
+        self._current_table = None
+        self._current_table_is_sheet = False
+        self._page_has_content = True
+
+        row_count = max(len(right_metrics), len(left_metrics) + 1)
+        block_height = row_count * 16 + 10
+        self._ensure_space(block_height, repeat_table_header=False)
+        self._page_has_content = True
+
+        left_x = self._margin
+        left_value_x = self._margin + self._available_width * 0.42
+        right_label_x = self._width - 220
+        y = self._y - 16
+        self._set_fill(self._text)
+
+        for index in range(row_count):
+            if index == 0 and left_title:
+                self._canvas.setFont(self._font_bold, 9)
+                self._canvas.drawString(left_x, y, left_title)
+            elif index > 0 and index - 1 < len(left_metrics):
+                label, value = left_metrics[index - 1]
+                self._canvas.setFont(self._font_bold, 9)
+                self._canvas.drawString(left_x, y, label)
+                self._canvas.drawRightString(left_value_x, y, value)
+
+            if index < len(right_metrics):
+                label, value = right_metrics[index]
+                self._canvas.setFont(self._font_bold, 9)
+                self._canvas.drawString(right_label_x, y, label)
+                self._canvas.drawRightString(self._width - self._margin, y, value)
+
+            y -= 16
+
+        self._y = y - 4
+
     def table(
         self,
         headers: list[str],
@@ -874,7 +899,7 @@ class PdfReportWriter:
         self._canvas.line(self._margin, 34, self._width - self._margin, 34)
         self._canvas.setFont(self._font_regular, 7)
         self._set_fill(self._muted)
-        self._canvas.drawString(self._margin, 22, "Billing System Admin Report")
+        self._canvas.drawString(self._margin, 22, " ")
         self._canvas.drawRightString(
             self._width - self._margin,
             22,
@@ -1018,6 +1043,21 @@ def _money(value: object) -> str:
     return f"Rs. {_decimal(value).quantize(Decimal('0.01'))}"
 
 
+def _over_report_money(value: object | None) -> str:
+    if value is None:
+        return ""
+    amount = _decimal(value).quantize(Decimal("0.01"))
+    if amount == 0:
+        return "-"
+    return f"₹{amount}"
+
+
+def _over_report_quantity_with_unit(value: object, unit: object) -> str:
+    if _decimal(value) == 0:
+        return "-"
+    return _quantity_with_unit(value, unit)
+
+
 def _unit_value(unit: object) -> str:
     value = str(getattr(unit, "value", unit)).lower()
     if value == BaseUnit.KG.value:
@@ -1054,7 +1094,11 @@ def _ist_date_text(value: datetime | None) -> str:
 
 
 def _bill_filters(context: ReportContext) -> list[object]:
-    filters: list[object] = [Bill.created_at >= context.start, Bill.created_at < context.end]
+    filters: list[object] = [
+        Bill.created_at >= context.start,
+        Bill.created_at < context.end,
+        bill_counts_toward_sales_clause(),
+    ]
     scoped_shop_ids = context.scoped_shop_ids
     if scoped_shop_ids:
         filters.append(Bill.shop_id.in_(scoped_shop_ids))
@@ -1764,6 +1808,32 @@ def _format_retailer_item_qty(quantity: Decimal, unit: str) -> str:
     return f"{qty:g} Units"
 
 
+async def _retailer_wallet_balances_for_report(
+    db: AsyncSession,
+    context: ReportContext,
+) -> list[tuple[str, str]]:
+    scoped_shop_ids = context.scoped_shop_ids
+    scoped_retailer_ids = context.scoped_retailer_ids
+
+    query = select(Retailer.name, Retailer.credit_balance).order_by(Retailer.name)
+    if scoped_retailer_ids:
+        query = query.where(Retailer.id.in_(scoped_retailer_ids))
+    elif scoped_shop_ids:
+        query = (
+            query.join(ShopRetailerAllocation, ShopRetailerAllocation.retailer_id == Retailer.id)
+            .where(
+                ShopRetailerAllocation.shop_id.in_(scoped_shop_ids),
+                ShopRetailerAllocation.is_active == True,
+            )
+            .distinct()
+        )
+    else:
+        return []
+
+    rows = (await db.execute(query)).all()
+    return [(row.name, _money(row.credit_balance)) for row in rows]
+
+
 async def _write_retailers_section(
     db: AsyncSession,
     writer: PdfReportWriter,
@@ -1802,20 +1872,23 @@ async def _write_retailers_section(
             RetailerPayment.retailer_sale_id.label("sale_id"),
             func.coalesce(func.sum(RetailerPayment.cash_amount), 0).label("cash_total"),
             func.coalesce(func.sum(RetailerPayment.upi_amount), 0).label("upi_total"),
+            func.coalesce(func.sum(RetailerPayment.wallet_amount), 0).label("wallet_total"),
         )
         .group_by(RetailerPayment.retailer_sale_id)
         .subquery()
     )
 
-    widths = [48, 42, 58, 78, 52, 40, 45, 40, 45, 38, 37]
+    widths = [40, 36, 48, 48, 64, 42, 32, 34, 34, 36, 34, 32, 32]
     alignments = [
         "left",
         "left",
         "left",
         "left",
+        "left",
         "right",
         "right",
         "right",
+        "center",
         "right",
         "right",
         "right",
@@ -1825,10 +1898,12 @@ async def _write_retailers_section(
         "Bill No",
         "Date",
         "Retailer",
+        "Shop Name",
         "Items",
         "Kg/Units",
         "Price",
         "Amount",
+        "Wallet Credit",
         "Paid",
         "Balance",
         "Cash",
@@ -1841,13 +1916,20 @@ async def _write_retailers_section(
                 RetailerSale.id,
                 RetailerSale.sale_no,
                 RetailerSale.created_at,
-                Retailer.name.label("retailer_name"),
-                Shop.name.label("shop_name"),
+                func.coalesce(
+                    func.nullif(RetailerSale.retailer_name, ""),
+                    Retailer.name,
+                ).label("retailer_name"),
+                func.coalesce(
+                    func.nullif(RetailerSale.shop_name, ""),
+                    Shop.name,
+                ).label("shop_name"),
                 RetailerSale.total_amount,
                 RetailerSale.amount_paid_total,
                 RetailerSale.balance_due,
                 func.coalesce(cash_subq.c.cash_total, 0).label("cash_total"),
                 func.coalesce(cash_subq.c.upi_total, 0).label("upi_total"),
+                func.coalesce(cash_subq.c.wallet_total, 0).label("wallet_total"),
             )
             .join(Retailer, Retailer.id == RetailerSale.retailer_id)
             .join(Shop, Shop.id == RetailerSale.shop_id)
@@ -1880,6 +1962,7 @@ async def _write_retailers_section(
 
     total_balance = Decimal("0.00")
     total_paid = Decimal("0.00")
+    total_wallet_credit = Decimal("0.00")
     total_kg = Decimal("0.000")
     total_unit = Decimal("0.000")
     table_rows: list[list[object]] = []
@@ -1887,6 +1970,7 @@ async def _write_retailers_section(
     for row in rows:
         total_balance += row.balance_due
         total_paid += row.amount_paid_total
+        total_wallet_credit += row.wallet_total
 
         row_items = items_by_sale[row.id]
         for item in row_items:
@@ -1898,6 +1982,7 @@ async def _write_retailers_section(
         bill_no = format_retailer_sale_bill_no(row.sale_no)
         bill_date = _ist_date_text(row.created_at)
         bill_amount = _money(row.total_amount)
+        bill_wallet = _money(row.wallet_total)
         bill_paid = _money(row.amount_paid_total)
         bill_balance = _money(row.balance_due)
         bill_cash = _money(row.cash_total)
@@ -1909,10 +1994,12 @@ async def _write_retailers_section(
                     bill_no,
                     bill_date,
                     row.retailer_name,
+                    row.shop_name,
                     "-",
                     "-",
                     "-",
                     bill_amount,
+                    bill_wallet,
                     bill_paid,
                     bill_balance,
                     bill_cash,
@@ -1929,10 +2016,12 @@ async def _write_retailers_section(
                     bill_no if is_first else "",
                     bill_date if is_first else "",
                     row.retailer_name if is_first else "",
+                    row.shop_name if is_first else "",
                     item.item_name or "-",
                     _format_retailer_item_qty(item.quantity, item.unit.value),
                     _money(item.price_per_unit),
                     bill_amount if is_last else "",
+                    bill_wallet if is_last else "",
                     bill_paid if is_last else "",
                     bill_balance if is_last else "",
                     bill_cash if is_last else "",
@@ -1942,13 +2031,17 @@ async def _write_retailers_section(
 
     writer.sheet_table(headers, table_rows, widths, alignments, bold_borders=True)
 
-    writer.financial_summary(
+    wallet_balances = await _retailer_wallet_balances_for_report(db, context)
+    writer.split_financial_summary(
+        "Current Wallet Credit",
+        wallet_balances,
         [
             ("Total Kg", f"{float(total_kg):g} Kg"),
             ("Total Unit", f"{float(total_unit):g} Units"),
+            ("Total Wallet Credit", _money(total_wallet_credit)),
             ("Total Paid", _money(total_paid)),
             ("Total Balance", _money(total_balance)),
-        ]
+        ],
     )
 
 

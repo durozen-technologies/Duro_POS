@@ -27,6 +27,7 @@ from app.models import (
     RetailerPayment,
     RetailerSale,
     RetailerSaleItem,
+    RetailerSaleStatus,
     ShopInventoryAllocation,
     ShopRetailerAllocation,
 )
@@ -34,15 +35,16 @@ from app.schemas.admin import (
     AdminReportDetailLevel,
     AnalyticsPeriod,
     OverallReportBillingItem,
+    OverallReportBillingRetailerData,
     OverallReportInventoryItem,
+    OverallReportInventoryRetailerData,
     OverallReportRead,
+    OverallReportRetailer,
     OverallReportStatement,
     OverallReportUnitSummary,
     OverallReportUsedStockBreakdown,
-    OverallReportRetailer,
-    OverallReportInventoryRetailerData,
-    OverallReportBillingRetailerData,
 )
+from app.services.billing import bill_counts_toward_sales_clause
 from app.services.reports.pdf import *  # noqa: F403
 from app.services.reports.pdf import (
     OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF,
@@ -54,7 +56,8 @@ from app.services.reports.pdf import (
     _fpdf_over_report_sheet_widths,
     _has_tamil_text,
     _inventory_category_labels_by_item_id,
-    _money,
+    _over_report_money,
+    _over_report_quantity_with_unit,
     _quantity_with_unit,
     _register_fpdf_fonts,
     _report_branch_header,
@@ -93,8 +96,42 @@ def _total_retailer_inventory_used_bird_count(item: OverallReportInventoryItem) 
     return sum(entry.used_stock_bird_count for entry in item.retailer_data)
 
 
-def _bird_count_text(value: int) -> str:
-    return str(value)
+_STOCK_CELL_SEPARATOR = "------------"
+
+
+def _stock_quantity_line(value: object, unit: BaseUnit) -> str:
+    if _decimal(value) == 0:
+        return "-"
+    return _quantity_with_unit(value, unit)
+
+
+def _stock_count_line(value: int) -> str:
+    if value == 0:
+        return "- Count"
+    return f"{value} Count"
+
+
+def _combined_stock_text(quantity: object, unit: BaseUnit, bird_count: int) -> str:
+    return (
+        f"{_stock_quantity_line(quantity, unit)}\n"
+        f"{_STOCK_CELL_SEPARATOR}\n"
+        f"{_stock_count_line(bird_count)}"
+    )
+
+
+def _combined_used_stock_text(
+    breakdown: list[OverallReportUsedStockBreakdown],
+    unit: BaseUnit,
+    bird_count: int,
+) -> str:
+    parts: list[str] = []
+    for row in breakdown:
+        if parts:
+            parts.append("")
+        parts.append(row.label)
+        parts.append(_stock_quantity_line(row.quantity, unit))
+    parts.extend([_STOCK_CELL_SEPARATOR, _stock_count_line(bird_count)])
+    return "\n".join(parts)
 
 
 def _total_retailer_billing_value(
@@ -599,6 +636,56 @@ async def _overall_report_inventory_items(
     return items
 
 
+async def compute_shop_purchase_amounts(
+    db: AsyncSession,
+    *,
+    start: datetime,
+    end: datetime,
+    shop_ids: list[UUID],
+) -> dict[UUID, Decimal]:
+    """Return COGS (purchase amount) per shop for the requested window.
+
+    Matches Overall Report logic: (used stock + transfers + retailer usage)
+    multiplied by each item's purchase rate.
+    """
+    if not shop_ids:
+        return {}
+
+    context = ReportContext(
+        sections=["over_report"],
+        detail_level="summary",
+        period="date",
+        start=start,
+        end=end,
+        shops=[(shop_id, "") for shop_id in shop_ids],
+        shop_ids=tuple(shop_ids),
+        organization_id=shop_ids[0],
+        organization_name="",
+    )
+    amounts: dict[UUID, Decimal] = {}
+    for shop_id in shop_ids:
+        active_retailers_query = (
+            select(Retailer.id, Retailer.name)
+            .join(ShopRetailerAllocation)
+            .where(
+                ShopRetailerAllocation.shop_id == shop_id,
+                ShopRetailerAllocation.is_active == True,
+                Retailer.is_active == True,
+            )
+            .order_by(Retailer.name)
+        )
+        retailers = [
+            OverallReportRetailer(id=row.id, name=row.name)
+            for row in (await db.execute(active_retailers_query)).all()
+        ]
+        inventory_items = await _overall_report_inventory_items(db, context, shop_id, retailers)
+        amounts[shop_id] = sum(
+            (_decimal(item.purchase_amount) for item in inventory_items.values()),
+            Decimal("0"),
+        )
+    return amounts
+
+
 async def _populate_overall_report_used_stock_breakdown(
     db: AsyncSession,
     context: ReportContext,
@@ -679,6 +766,7 @@ async def _populate_overall_report_billing_items(
                 RetailerSale.shop_id == shop_id,
                 RetailerSale.created_at >= context.start,
                 RetailerSale.created_at < context.end,
+                RetailerSale.status != RetailerSaleStatus.CANCELLED,
             )
             .group_by(RetailerSale.retailer_id, RetailerSaleItem.item_id)
         )
@@ -740,6 +828,7 @@ async def _populate_overall_report_billing_items(
             Bill.shop_id == shop_id,
             Bill.created_at >= context.start,
             Bill.created_at < context.end,
+            bill_counts_toward_sales_clause(),
         )
         .group_by(BillItem.item_id)
         .subquery()
@@ -1071,14 +1160,14 @@ def _write_over_report_statement(
     if statement.inventory_items:
         writer.financial_summary(
             [
-                ("Total Sales", _money(statement.sales_amount)),
-                ("Total Retailer Paid Amount", _money(statement.retailer_paid_amount)),
-                ("Total Purchase", _money(statement.purchase_amount)),
-                ("Total Expense (Cash)", _money(statement.expense_cash_amount)),
-                ("Total Expense (UPI)", _money(statement.expense_upi_amount)),
-                ("Total Expense Amount", _money(statement.expense_amount)),
-                ("Profit Amount", _money(statement.profit_amount)),
-                ("Retailer Balance Amount", _money(statement.retailer_balance_amount)),
+                ("Total Sales", _over_report_money(statement.sales_amount)),
+                ("Total Retailer Paid Amount", _over_report_money(statement.retailer_paid_amount)),
+                ("Total Purchase", _over_report_money(statement.purchase_amount)),
+                ("Total Expense (Cash)", _over_report_money(statement.expense_cash_amount)),
+                ("Total Expense (UPI)", _over_report_money(statement.expense_upi_amount)),
+                ("Total Expense Amount", _over_report_money(statement.expense_amount)),
+                ("Profit Amount", _over_report_money(statement.profit_amount)),
+                ("Retailer Balance Amount", _over_report_money(statement.retailer_balance_amount)),
             ]
         )
 
@@ -1101,10 +1190,14 @@ def _over_report_sheet_rows(
             )
         ]
         billing_rows = item.billing_items or []
-        row_count = max(1, len(used_rows), len(billing_rows) or 1)
+        used_stock_text = _combined_used_stock_text(
+            used_rows,
+            item.unit,
+            item.used_stock_bird_count,
+        )
+        row_count = max(1, len(billing_rows) or 1)
         for index in range(row_count):
             is_first = index == 0
-            used_row = used_rows[index] if index < len(used_rows) else None
             billing_row = billing_rows[index] if index < len(billing_rows) else None
 
             if billing_row is not None:
@@ -1124,59 +1217,72 @@ def _over_report_sheet_rows(
             row_data = [
                 printed_date,
                 inv_display_name if is_first else "",
-                _quantity_with_unit(item.old_stock, item.unit) if is_first else "",
-                _bird_count_text(item.old_stock_bird_count) if is_first else "",
-                _quantity_with_unit(item.adding_stock, item.unit) if is_first else "",
-                _bird_count_text(item.adding_stock_bird_count) if is_first else "",
-                _quantity_with_unit(item.total_available_stock, item.unit) if is_first else "",
-                _bird_count_text(item.total_available_stock_bird_count) if is_first else "",
-                _used_stock_breakdown_text(used_row, item.unit),
-                _bird_count_text(item.used_stock_bird_count) if is_first else "",
-                _quantity_with_unit(_total_retailer_inventory_used(item), item.unit)
+                _combined_stock_text(item.old_stock, item.unit, item.old_stock_bird_count)
                 if is_first
                 else "",
-                _bird_count_text(_total_retailer_inventory_used_bird_count(item))
+                _combined_stock_text(item.adding_stock, item.unit, item.adding_stock_bird_count)
                 if is_first
                 else "",
-                _quantity_with_unit(item.transfer_stock, item.unit) if is_first else "",
-                _bird_count_text(item.transfer_stock_bird_count) if is_first else "",
-                _quantity_with_unit(item.remaining_stock, item.unit),
-                _bird_count_text(item.remaining_stock_bird_count),
-                _money(item.purchase_rate) if is_first and item.purchase_rate is not None else "",
-                _money(item.purchase_amount) if is_first else "",
+                _combined_stock_text(
+                    item.total_available_stock,
+                    item.unit,
+                    item.total_available_stock_bird_count,
+                )
+                if is_first
+                else "",
+                used_stock_text if is_first else "",
+                _combined_stock_text(
+                    _total_retailer_inventory_used(item),
+                    item.unit,
+                    _total_retailer_inventory_used_bird_count(item),
+                )
+                if is_first
+                else "",
+                _combined_stock_text(item.transfer_stock, item.unit, item.transfer_stock_bird_count)
+                if is_first
+                else "",
+                _combined_stock_text(
+                    item.remaining_stock,
+                    item.unit,
+                    item.remaining_stock_bird_count,
+                ),
+                _over_report_money(item.purchase_rate)
+                if is_first and item.purchase_rate is not None
+                else "",
+                _over_report_money(item.purchase_amount) if is_first else "",
                 billing_display_name
                 if billing_row is not None
                 else ("No mapped billing sales" if is_first and not billing_rows else ""),
-                _quantity_with_unit(billing_row.assumption_quantity, billing_row.unit)
+                _over_report_quantity_with_unit(billing_row.assumption_quantity, billing_row.unit)
                 if billing_row is not None
                 else "",
-                _quantity_with_unit(
+                _over_report_quantity_with_unit(
                     _total_retailer_billing_value(billing_row, "assumption_quantity"),
                     billing_row.unit,
                 )
                 if billing_row is not None
                 else "",
-                _quantity_with_unit(billing_row.sales_quantity, billing_row.unit)
+                _over_report_quantity_with_unit(billing_row.sales_quantity, billing_row.unit)
                 if billing_row is not None
                 else "",
-                _quantity_with_unit(
+                _over_report_quantity_with_unit(
                     _total_retailer_billing_value(billing_row, "sales_quantity"),
                     billing_row.unit,
                 )
                 if billing_row is not None
                 else "",
-                _quantity_with_unit(billing_row.difference_quantity, billing_row.unit)
+                _over_report_quantity_with_unit(billing_row.difference_quantity, billing_row.unit)
                 if billing_row is not None
                 else "",
-                _money(billing_row.assumption_amount) if billing_row is not None else "",
-                _money(_total_retailer_billing_value(billing_row, "assumption_amount"))
+                _over_report_money(billing_row.assumption_amount) if billing_row is not None else "",
+                _over_report_money(_total_retailer_billing_value(billing_row, "assumption_amount"))
                 if billing_row is not None
                 else "",
-                _money(billing_row.sales_amount) if billing_row is not None else "",
-                _money(_total_retailer_billing_value(billing_row, "sales_amount"))
+                _over_report_money(billing_row.sales_amount) if billing_row is not None else "",
+                _over_report_money(_total_retailer_billing_value(billing_row, "sales_amount"))
                 if billing_row is not None
                 else "",
-                _money(billing_row.difference_amount) if billing_row is not None else "",
+                _over_report_money(billing_row.difference_amount) if billing_row is not None else "",
             ]
 
             rows.append(row_data)
@@ -1188,49 +1294,33 @@ def _over_report_sheet_rows(
                 "",
                 "",
                 "",
-                "",
-                "",
-                "",
-                f"Total Used\n{_quantity_with_unit(item.used_stock, item.unit)}",
-                _bird_count_text(item.used_stock_bird_count),
-                f"Total Used\n{_quantity_with_unit(_total_retailer_inventory_used(item), item.unit)}",
-                _bird_count_text(_total_retailer_inventory_used_bird_count(item)),
-                "",
-                "",
+                f"Total Used\n{_combined_stock_text(item.used_stock, item.unit, item.used_stock_bird_count)}",
+                f"Total Used\n{_combined_stock_text(_total_retailer_inventory_used(item), item.unit, _total_retailer_inventory_used_bird_count(item))}",
                 "",
                 "",
                 "",
                 "",
                 "Subtotal",
-                _quantity_with_unit(item.assumption_quantity, item.unit),
-                _quantity_with_unit(
+                _over_report_quantity_with_unit(item.assumption_quantity, item.unit),
+                _over_report_quantity_with_unit(
                     _item_total_retailer_billing_value(item, "assumption_quantity"),
                     item.unit,
                 ),
-                _quantity_with_unit(item.sales_quantity, item.unit),
-                _quantity_with_unit(
+                _over_report_quantity_with_unit(item.sales_quantity, item.unit),
+                _over_report_quantity_with_unit(
                     _item_total_retailer_billing_value(item, "sales_quantity"),
                     item.unit,
                 ),
-                _quantity_with_unit(item.difference_quantity, item.unit),
-                _money(item.assumption_amount),
-                _money(_item_total_retailer_billing_value(item, "assumption_amount")),
-                _money(item.sales_amount),
-                _money(_item_total_retailer_billing_value(item, "sales_amount")),
-                _money(item.difference_amount),
+                _over_report_quantity_with_unit(item.difference_quantity, item.unit),
+                _over_report_money(item.assumption_amount),
+                _over_report_money(_item_total_retailer_billing_value(item, "assumption_amount")),
+                _over_report_money(item.sales_amount),
+                _over_report_money(_item_total_retailer_billing_value(item, "sales_amount")),
+                _over_report_money(item.difference_amount),
             ]
             rows.append(row_data)
 
     return rows
-
-
-def _used_stock_breakdown_text(
-    row: OverallReportUsedStockBreakdown | None,
-    unit: BaseUnit,
-) -> str:
-    if row is None:
-        return ""
-    return f"{row.label}\n{_quantity_with_unit(row.quantity, unit)}"
 
 
 def _statement_table_date(statement: OverallReportStatement) -> str:
@@ -1591,7 +1681,10 @@ def _fpdf_draw_row(
 
         align_code = "C" if is_header else (align[0].upper() if align else "L")
         block_height = line_height * len(lines)
-        y_offset = padding + (row_height - padding * 2 - block_height) / 2
+        if is_header:
+            y_offset = padding + (row_height - padding * 2 - block_height) / 2
+        else:
+            y_offset = padding
         for idx, line in enumerate(lines):
             _fpdf_set_cell_font(
                 pdf,
@@ -1650,12 +1743,12 @@ def _fpdf_draw_day_summary_card(
     pdf.set_font("NotoSans", size=12)
 
     summary_rows = [
-        ("Total Sales", _money(sales)),
-        ("Total Retailer Paid Amount", _money(retailer_paid)),
-        ("Total Purchase", _money(purchase)),
-        ("Total Expense Amount", _money(expense)),
-        ("Profit Amount", _money(profit)),
-        ("Retailer Balance Amount", _money(retailer_balance)),
+        ("Total Sales", _over_report_money(sales)),
+        ("Total Retailer Paid Amount", _over_report_money(retailer_paid)),
+        ("Total Purchase", _over_report_money(purchase)),
+        ("Total Expense Amount", _over_report_money(expense)),
+        ("Profit Amount", _over_report_money(profit)),
+        ("Retailer Balance Amount", _over_report_money(retailer_balance)),
     ]
     y = y_start + 28
     for label, value in summary_rows:
@@ -1701,12 +1794,12 @@ def _fpdf_draw_grand_total_summary(
     pdf.set_xy(x_start + 10, y_start + 10)
     pdf.set_font("NotoSans", size=12)
     summary_rows = [
-        ("Total Sales", _money(total_sales)),
-        ("Total Retailer Paid Amount", _money(total_retailer_paid)),
-        ("Total Purchase", _money(total_purchase)),
-        ("Total Expense Amount", _money(total_expense)),
-        ("Profit Amount", _money(total_profit)),
-        ("Retailer Balance Amount", _money(total_retailer_balance)),
+        ("Total Sales", _over_report_money(total_sales)),
+        ("Total Retailer Paid Amount", _over_report_money(total_retailer_paid)),
+        ("Total Purchase", _over_report_money(total_purchase)),
+        ("Total Expense Amount", _over_report_money(total_expense)),
+        ("Profit Amount", _over_report_money(total_profit)),
+        ("Retailer Balance Amount", _over_report_money(total_retailer_balance)),
     ]
     y = y_start + 10
     for label, value in summary_rows:

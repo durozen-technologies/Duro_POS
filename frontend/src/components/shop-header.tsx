@@ -14,6 +14,7 @@ type ShopHeaderActionsProps = {
   onRetailers?: () => void;
   onBills?: () => void;
   onPrinter?: () => void;
+  showMenu?: boolean;
 };
 
 export const ShopHeaderActions = memo(function ShopHeaderActions({
@@ -25,6 +26,7 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
   onRetailers,
   onBills,
   onPrinter,
+  showMenu = false,
 }: ShopHeaderActionsProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { language, t, toggleLanguage } = useShopTranslation();
@@ -68,55 +70,69 @@ export const ShopHeaderActions = memo(function ShopHeaderActions({
         className="min-h-10 min-w-[76px] px-2"
         textClassName="text-[11px] leading-6"
       />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Menu"
-        accessibilityState={{ expanded: menuOpen }}
-        onPress={() => setMenuOpen(true)}
-        className="min-h-10 min-w-[70px] flex-row items-center justify-center gap-1 rounded-control border border-border bg-card px-2.5"
-      >
-        <MaterialCommunityIcons name="menu" size={18} color="#0F7642" />
-        <Text className="text-[11px] font-semibold leading-6 text-ink">Menu</Text>
-      </Pressable>
+      {showMenu ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Menu"
+            accessibilityState={{ expanded: menuOpen }}
+            onPress={() => setMenuOpen(true)}
+            className="min-h-10 min-w-[70px] flex-row items-center justify-center gap-1 rounded-control border border-border bg-card px-2.5"
+          >
+            <MaterialCommunityIcons name="menu" size={18} color="#0F7642" />
+            <Text className="text-[11px] font-semibold leading-6 text-ink">Menu</Text>
+          </Pressable>
 
-      <Modal transparent visible={menuOpen} animationType="fade" onRequestClose={closeMenu}>
-        <TouchableWithoutFeedback onPress={closeMenu}>
-          <View className="flex-1 bg-black/20">
-            <TouchableWithoutFeedback>
-              <View className="absolute right-5 top-16 w-[320px] overflow-hidden rounded-card border border-border bg-card shadow-float">
-                <MenuItem
-                  icon="warehouse"
-                  label={t("inventory.title")}
-                  onPress={() => handleMenuAction(onInventory)}
-                />
-                <MenuItem
-                  icon="store-outline"
-                  label={t("retailers.title")}
-                  onPress={() => handleMenuAction(onRetailers)}
-                />
-                <MenuItem
-                  icon="receipt-text-outline"
-                  label={t("bills.title")}
-                  onPress={() => handleMenuAction(onBills)}
-                />
-                <MenuItem
-                  icon="cash-minus"
-                  label={t("expenses.title")}
-                  onPress={() => handleMenuAction(onExpenses)}
-                />
-                <MenuItem
-                  icon="printer-outline"
-                  label={t("header.printerSetup")}
-                  onPress={() => handleMenuAction(onPrinter)}
-                />
-                <View className="border-t border-border p-4">
-                  <Button label={t("action.logout")} onPress={() => handleMenuAction(onLogout)} variant="danger" />
-                </View>
+          <Modal transparent visible={menuOpen} animationType="fade" onRequestClose={closeMenu}>
+            <TouchableWithoutFeedback onPress={closeMenu}>
+              <View className="flex-1 bg-black/20">
+                <TouchableWithoutFeedback>
+                  <View className="absolute right-5 top-16 w-[320px] overflow-hidden rounded-card border border-border bg-card shadow-float">
+                    <MenuItem
+                      icon="warehouse"
+                      label={t("inventory.title")}
+                      onPress={() => handleMenuAction(onInventory)}
+                    />
+                    <MenuItem
+                      icon="store-outline"
+                      label={t("retailers.title")}
+                      onPress={() => handleMenuAction(onRetailers)}
+                    />
+                    <MenuItem
+                      icon="receipt-text-outline"
+                      label={t("bills.title")}
+                      onPress={() => handleMenuAction(onBills)}
+                    />
+                    <MenuItem
+                      icon="cash-minus"
+                      label={t("expenses.title")}
+                      onPress={() => handleMenuAction(onExpenses)}
+                    />
+                    <MenuItem
+                      icon="printer-outline"
+                      label={t("header.printerSetup")}
+                      onPress={() => handleMenuAction(onPrinter)}
+                    />
+                    <View className="border-t border-border p-4">
+                      <Button label={t("action.logout")} onPress={() => handleMenuAction(onLogout)} variant="danger" />
+                    </View>
+                  </View>
+                </TouchableWithoutFeedback>
               </View>
             </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+          </Modal>
+        </>
+      ) : onPrinter ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("header.printerSetup")}
+          onPress={onPrinter}
+          className="min-h-10 min-w-[70px] flex-row items-center justify-center gap-1 rounded-control border border-border bg-card px-2.5"
+        >
+          <MaterialCommunityIcons name="printer-outline" size={18} color="#0F7642" />
+          <Text className="text-[11px] font-semibold leading-6 text-ink">Printer</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 });

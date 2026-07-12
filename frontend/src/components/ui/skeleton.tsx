@@ -1,16 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  AccessibilityInfo,
-  Animated,
-  Easing,
-  StyleSheet,
-  Text,
-  View,
-  type DimensionValue,
-  type ViewStyle,
-} from "react-native";
+import { AccessibilityInfo, Animated, Easing, StyleSheet, View, type DimensionValue, type ViewStyle } from "react-native";
 
 import { appTheme } from "@/constants/theme";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 export type SkeletonTone = {
   base?: string;

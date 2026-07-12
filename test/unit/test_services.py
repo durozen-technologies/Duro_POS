@@ -132,33 +132,26 @@ class ServiceUnitTests(BackendTestCase):
                 [
                     "16/06/2026",
                     "Chicken Stock",
-                    "10 Kg",
-                    "8",
-                    "5 Kg",
-                    "4",
-                    "15 Kg",
-                    "12",
-                    "Kitchen Use\n4 Kg",
-                    "3",
-                    "2 Kg",
-                    "1",
-                    "0 Kg",
-                    "0",
-                    "11 Kg",
-                    "8",
-                    "Rs. 50.00",
-                    "Rs. 200.00",
+                    "10 Kg\n------------\n8 Count",
+                    "5 Kg\n------------\n4 Count",
+                    "15 Kg\n------------\n12 Count",
+                    "Kitchen Use\n4 Kg\n\nDead\n1 Kg\n------------\n3 Count",
+                    "2 Kg\n------------\n1 Count",
+                    "-\n------------\n- Count",
+                    "11 Kg\n------------\n8 Count",
+                    "₹50.00",
+                    "₹200.00",
                     "Chicken",
                     "3 Kg",
                     "1 Kg",
                     "2 Kg",
                     "1 Kg",
                     "1 Kg",
-                    "Rs. 100.00",
-                    "Rs. 50.00",
-                    "Rs. 200.00",
-                    "Rs. 100.00",
-                    "Rs. 100.00",
+                    "₹100.00",
+                    "₹50.00",
+                    "₹200.00",
+                    "₹100.00",
+                    "₹100.00",
                 ],
             ]
             widths = _over_report_sheet_widths(
@@ -217,9 +210,9 @@ class ServiceUnitTests(BackendTestCase):
         for row in rows:
             self.assertEqual(len(row), len(headers))
         subtotal_row = rows[-1]
-        self.assertEqual(subtotal_row[16], "")
-        self.assertEqual(subtotal_row[17], "")
-        self.assertEqual(subtotal_row[18], "Subtotal")
+        self.assertEqual(subtotal_row[9], "")
+        self.assertEqual(subtotal_row[10], "")
+        self.assertEqual(subtotal_row[11], "Subtotal")
 
     def test_over_report_accounts_for_inventory_transfers(self) -> None:
         _actor, shop = self.run_async(
@@ -859,11 +852,11 @@ class ServiceUnitTests(BackendTestCase):
                     self.assertIn("Chicken Without", text_content)
                     self.assertIn("3 Unit", text_content)
                     self.assertIn("No mapped billing Items", text_content)
-                    self.assertIn("Rs. 936.00", text_content)
-                    self.assertIn("Rs. 250.00", text_content)
-                    self.assertIn("Rs. 25.00", text_content)
-                    self.assertIn("Rs. 60.00", text_content)
-                    self.assertIn("Rs. 264.00", text_content)
+                    self.assertIn("₹936.00", text_content)
+                    self.assertIn("₹250.00", text_content)
+                    self.assertIn("₹25.00", text_content)
+                    self.assertIn("₹60.00", text_content)
+                    self.assertIn("₹264.00", text_content)
                 finally:
                     report.file.close()
 
@@ -1960,6 +1953,7 @@ class ServiceUnitTests(BackendTestCase):
                 self.assertTrue(first_page.has_more)
                 self.assertTrue(first_page.items[0].allocated)
                 self.assertEqual(first_page.items[0].available_quantity, Decimal("4.000"))
+                self.assertIsNotNone(first_page.items[0].stock_last_updated_at)
                 self.assertEqual(first_page.items[0].category_ids, [category.id])
                 self.assertFalse(first_page.items[1].allocation_active)
 
@@ -3214,6 +3208,76 @@ class ServiceUnitTests(BackendTestCase):
                 self.assertEqual(
                     await _available_quantity_at(db, current_shop.id, item.id, as_of=datetime.now(UTC)),
                     Decimal("20.000"),
+                )
+
+        self.run_async(scenario())
+
+    def test_delete_inventory_category_blocked_by_retailer_usage_history(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db = AsyncSessionAdapter(session)
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                category = await create_inventory_category(db, InventoryCategoryCreate(name="Used Cat"))
+                spare_category = await create_inventory_category(
+                    db, InventoryCategoryCreate(name="Spare Cat")
+                )
+                item = await create_inventory_management_item(
+                    db,
+                    InventoryItemCreate(
+                        name="Retailer Stock Item",
+                        tamil_name="சரக்கு",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        category_ids=[category.id],
+                    ),
+                )
+                await allocate_shop_inventory_items(db, current_shop, [item.id])
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("20"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
+                )
+                retailer = await create_retailer(db, RetailerCreate(name="Corner Shop"))
+                await sync_retailer_branch_allocations(db, retailer.id, [current_shop.id])
+                await record_retailer_inventory_usages_bulk(
+                    db,
+                    current_shop,
+                    RetailerInventoryUsageBulkCreate(
+                        retailer_id=retailer.id,
+                        lines=[
+                            RetailerInventoryUsageLine(
+                                inventory_item_id=item.id,
+                                category_id=category.id,
+                                quantity=Decimal("1"),
+                            )
+                        ],
+                    ),
+                    actor=_actor,
+                )
+                await update_inventory_management_item(
+                    db,
+                    item.id,
+                    InventoryItemUpdate(
+                        name=item.name,
+                        tamil_name=item.tamil_name,
+                        unit_type=item.unit_type,
+                        base_unit=item.base_unit,
+                        category_ids=[spare_category.id],
+                    ),
+                )
+                with self.assertRaises(HTTPException) as blocked_ctx:
+                    await delete_inventory_category(db, category.id)
+                self.assertEqual(blocked_ctx.exception.status_code, 409)
+                self.assertEqual(
+                    blocked_ctx.exception.detail,
+                    "Cannot delete an inventory category with retailer usage history",
                 )
 
         self.run_async(scenario())

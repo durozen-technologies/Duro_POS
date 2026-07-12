@@ -178,6 +178,56 @@ def _ensure_public_receipt_status_enum(connection: Connection) -> None:
     )
 
 
+def _ensure_public_billstatus_cancelled_enum(connection: Connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    exists = connection.execute(
+        text(
+            """
+            SELECT 1
+            FROM pg_enum e
+            JOIN pg_type t ON e.enumtypid = t.oid
+            JOIN pg_namespace n ON t.typnamespace = n.oid
+            WHERE n.nspname = 'public'
+              AND t.typname = 'billstatus'
+              AND e.enumlabel = 'CANCELLED'
+            """
+        )
+    ).scalar_one_or_none()
+    if exists is not None:
+        return
+    bind = connection.engine
+    with bind.connect().execution_options(isolation_level="AUTOCOMMIT") as autocommit_conn:
+        autocommit_conn.execute(
+            text("ALTER TYPE billstatus ADD VALUE IF NOT EXISTS 'CANCELLED'")
+        )
+
+
+def _ensure_public_retailer_sale_status_cancelled_enum(connection: Connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    exists = connection.execute(
+        text(
+            """
+            SELECT 1
+            FROM pg_enum e
+            JOIN pg_type t ON e.enumtypid = t.oid
+            JOIN pg_namespace n ON t.typnamespace = n.oid
+            WHERE n.nspname = 'public'
+              AND t.typname = 'retailersalestatus'
+              AND e.enumlabel = 'cancelled'
+            """
+        )
+    ).scalar_one_or_none()
+    if exists is not None:
+        return
+    bind = connection.engine
+    with bind.connect().execution_options(isolation_level="AUTOCOMMIT") as autocommit_conn:
+        autocommit_conn.execute(
+            text("ALTER TYPE retailersalestatus ADD VALUE IF NOT EXISTS 'cancelled'")
+        )
+
+
 def _ensure_public_retailer_inventory_purchase_status_enum(connection: Connection) -> None:
     if connection.dialect.name != "postgresql":
         return
@@ -207,6 +257,8 @@ def _ensure_public_retailer_inventory_purchase_status_enum(connection: Connectio
 
 def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str) -> None:
     """Idempotent tenant DDL when alembic_version is ahead of the physical schema."""
+    _ensure_public_billstatus_cancelled_enum(connection)
+    _ensure_public_retailer_sale_status_cancelled_enum(connection)
     safe = _safe_schema_name(schema_name)
     connection.execute(text(f'SET search_path TO "{safe}", public'))
     dialect = connection.dialect.name
@@ -504,6 +556,38 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                         "ADD COLUMN credit_balance NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
                     )
                 )
+        if "alternate_phone" not in retailer_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailers "
+                        "ADD COLUMN IF NOT EXISTS alternate_phone VARCHAR(30)"
+                    )
+                )
+            else:
+                connection.execute(
+                    text("ALTER TABLE retailers ADD COLUMN alternate_phone VARCHAR(30)")
+                )
+        if "address" not in retailer_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailers "
+                        "ADD COLUMN IF NOT EXISTS address VARCHAR(500)"
+                    )
+                )
+            else:
+                connection.execute(text("ALTER TABLE retailers ADD COLUMN address VARCHAR(500)"))
+        if "shop_name" not in retailer_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailers "
+                        "ADD COLUMN IF NOT EXISTS shop_name VARCHAR(120)"
+                    )
+                )
+            else:
+                connection.execute(text("ALTER TABLE retailers ADD COLUMN shop_name VARCHAR(120)"))
 
     if "retailer_payments" in table_names:
         payment_columns = {
@@ -590,6 +674,48 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                     )
                 )
 
+    _party_name_tables = (
+        "retailer_sales",
+        "retailer_inventory_purchases",
+        "retailer_inventory_usages",
+    )
+    for table_name in _party_name_tables:
+        if table_name not in table_names:
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name, schema=safe)}
+        if dialect == "postgresql":
+            if "retailer_name" not in columns:
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table_name}" '
+                        "ADD COLUMN IF NOT EXISTS retailer_name VARCHAR(120) "
+                        "NOT NULL DEFAULT ''"
+                    )
+                )
+            if "shop_name" not in columns:
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table_name}" '
+                        "ADD COLUMN IF NOT EXISTS shop_name VARCHAR(120) "
+                        "NOT NULL DEFAULT ''"
+                    )
+                )
+        else:
+            if "retailer_name" not in columns:
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table_name}" '
+                        "ADD COLUMN retailer_name VARCHAR(120) NOT NULL DEFAULT ''"
+                    )
+                )
+            if "shop_name" not in columns:
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table_name}" '
+                        "ADD COLUMN shop_name VARCHAR(120) NOT NULL DEFAULT ''"
+                    )
+                )
+
     _bird_count_tables = (
         "inventory_movements",
         "inventory_movement_splits",
@@ -632,6 +758,8 @@ def create_tenant_tables(connection: Connection, schema_name: str) -> None:
     safe = _safe_schema_name(schema_name)
     inspector = inspect(connection)
     connection.execute(text(f'SET search_path TO "{safe}", public'))
+    _ensure_public_billstatus_cancelled_enum(connection)
+    _ensure_public_retailer_sale_status_cancelled_enum(connection)
     _ensure_public_retailer_inventory_purchase_status_enum(connection)
 
     with _reuse_public_pg_enums(connection):

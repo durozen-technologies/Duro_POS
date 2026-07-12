@@ -8,6 +8,7 @@ import {
   AdminDashboardBootstrap,
   BaseUnit,
   BillRead,
+  BillEditRequest,
   DailyPriceCreate,
   DailyPriceRead,
   DailyPriceUpdate,
@@ -133,6 +134,12 @@ function getUploadResponseMessage(body: unknown) {
   }
   if (typeof record.message === "string") {
     return record.message;
+  }
+  if (record.error && typeof record.error === "object" && !Array.isArray(record.error)) {
+    const errorObj = record.error as Record<string, unknown>;
+    if (typeof errorObj.message === "string" && errorObj.message.trim()) {
+      return errorObj.message;
+    }
   }
   if (typeof record.error === "string") {
     return record.error;
@@ -277,6 +284,16 @@ export async function fetchAdminBillDetails(billIds: UUID[]) {
   const { data } = await apiClient.post<BillRead[]>("/api/v1/admin/bills/details", {
     bill_ids: billIds,
   });
+  return data;
+}
+
+export async function editAdminBill(billId: UUID, payload: BillEditRequest) {
+  const { data } = await apiClient.patch<BillRead>(`/api/v1/admin/bills/${billId}`, payload);
+  return data;
+}
+
+export async function cancelAdminBill(billId: UUID) {
+  const { data } = await apiClient.post<BillRead>(`/api/v1/admin/bills/${billId}/cancel`);
   return data;
 }
 
@@ -588,6 +605,7 @@ export type FetchInventoryItemsParams = {
   cursor_sort_order?: number | null;
   cursor_name?: string | null;
   cursor_id?: UUID | null;
+  cursor_is_active?: boolean | null;
 };
 
 export interface InventoryItemPurchaseRateHistoryRead {
@@ -607,6 +625,7 @@ export async function fetchInventoryItemRows(
       cursor_sort_order: params?.cursor_sort_order ?? undefined,
       cursor_name: params?.cursor_name ?? undefined,
       cursor_id: params?.cursor_id ?? undefined,
+      cursor_is_active: params?.cursor_is_active ?? undefined,
     },
     signal: options.signal,
   });
@@ -1174,6 +1193,10 @@ export async function updateTransferShop(id: UUID, payload: TransferShopUpdate) 
   return data;
 }
 
+export async function deleteTransferShop(id: UUID) {
+  await apiClient.delete(`/api/v1/admin/transfer-shops/${id}`);
+}
+
 export async function fetchInventoryTransfersPage(
   params?: {
     transfer_shop_id?: UUID;
@@ -1181,6 +1204,9 @@ export async function fetchInventoryTransfersPage(
     inventory_item_id?: UUID;
     referenceDate?: string;
     range?: AnalyticsDateRange;
+    q?: string;
+    unit?: string;
+    quantity?: number | string;
     limit?: number;
     offset?: number;
   },
@@ -1194,6 +1220,9 @@ export async function fetchInventoryTransfersPage(
       reference_date: params?.referenceDate ?? undefined,
       range_start_date: params?.range?.startDate ?? undefined,
       range_end_date: params?.range?.endDate ?? undefined,
+      q: params?.q || undefined,
+      unit: params?.unit || undefined,
+      quantity: params?.quantity || undefined,
       limit: params?.limit ?? 100,
       offset: params?.offset ?? 0,
     },

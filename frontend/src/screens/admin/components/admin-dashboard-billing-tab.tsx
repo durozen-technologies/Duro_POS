@@ -11,7 +11,8 @@ import {
   View,
 } from "react-native";
 
-import type { UUID } from "@/types/api";
+import type { AdminBillSummary, UUID } from "@/types/api";
+import { BillStatus } from "@/types/api";
 
 import { type ThemePalette } from "../admin-dashboard-theme";
 import type { BillingSection } from "../hooks/use-admin-dashboard-view-model";
@@ -21,6 +22,7 @@ import {
   TabSectionHeader,
   usePressAnimation,
 } from "./admin-dashboard-primitives";
+import { AdminShopBillActionRow } from "./admin-shop-bill-action-row";
 
 type AdminBillingTabProps = {
   dashboardError: string | null;
@@ -37,6 +39,8 @@ type AdminBillingTabProps = {
   printingAll: boolean;
   onRefresh: () => void;
   onOpenBill: (billId: UUID) => void;
+  onEditBill: (bill: AdminBillSummary) => void;
+  onCancelBill: (bill: AdminBillSummary) => void;
   onPrintAll: () => void;
   onLoadMore: () => void;
   onBackToSales: () => void;
@@ -92,68 +96,83 @@ function BillCard({
   bill,
   palette,
   onPress,
+  onEdit,
+  onCancel,
 }: {
   bill: BillingItem;
   palette: ThemePalette;
   onPress: () => void;
+  onEdit: () => void;
+  onCancel: () => void;
 }) {
   const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+  const isCancelled = bill.status === BillStatus.CANCELLED;
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Open bill ${bill.bill_no}, ${bill.formattedAmount}`}
-      onPress={onPress}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
+    <View
+      style={[
+        styles.billCard,
+        {
+          backgroundColor: palette.card,
+          borderColor: palette.border,
+        },
+      ]}
     >
-      <Animated.View
-        style={[
-          styles.billCard,
-          {
-            backgroundColor: palette.card,
-            borderColor: palette.border,
-            opacity,
-            transform: [{ scale }],
-          },
-        ]}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open bill ${bill.bill_no}, ${bill.formattedAmount}`}
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
       >
-      <View style={[styles.billIconWrap, { backgroundColor: palette.billingSoft }]}>
-        <MaterialCommunityIcons name="receipt-text-outline" size={20} color={palette.billing} />
-      </View>
+        <Animated.View style={{ opacity, transform: [{ scale }] }}>
+          <View style={styles.billCardContent}>
+            <View style={[styles.billIconWrap, { backgroundColor: palette.billingSoft }]}>
+              <MaterialCommunityIcons name="receipt-text-outline" size={20} color={palette.billing} />
+            </View>
 
-      <View style={styles.billCardBody}>
-        <View style={styles.billCardTopRow}>
-          <View style={styles.billTitleWrap}>
-            <Text style={[styles.billCardNo, { color: palette.textPrimary }]} numberOfLines={1}>
-              {bill.bill_no}
-            </Text>
-            <View style={styles.billMetaRow}>
-              <MaterialCommunityIcons name="clock-outline" size={12} color={palette.textMuted} />
-              <Text style={[styles.billCardDate, { color: palette.textMuted }]} numberOfLines={1}>
-                {bill.formattedDateTime}
-              </Text>
+            <View style={styles.billCardBody}>
+              <View style={styles.billCardTopRow}>
+                <View style={styles.billTitleWrap}>
+                  <View style={styles.billTitleLine}>
+                    <Text style={[styles.billCardNo, { color: palette.textPrimary }]} numberOfLines={1}>
+                      {bill.bill_no}
+                    </Text>
+                    {isCancelled ? (
+                      <View style={[styles.cancelledBadge, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
+                        <Text style={[styles.cancelledBadgeText, { color: palette.danger }]}>Cancelled</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.billMetaRow}>
+                    <MaterialCommunityIcons name="clock-outline" size={12} color={palette.textMuted} />
+                    <Text style={[styles.billCardDate, { color: palette.textMuted }]} numberOfLines={1}>
+                      {bill.formattedDateTime}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.amountPill, { backgroundColor: palette.cashSoft, borderColor: palette.cash }]}>
+                  <Text
+                    style={[styles.billCardAmount, { color: palette.cash }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.76}
+                  >
+                    {bill.formattedAmount}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.billCardBottomRow}>
+                <Text style={[styles.billActionText, { color: palette.billingStrong }]}>Open receipt</Text>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={palette.billing} />
+              </View>
             </View>
           </View>
-          <View style={[styles.amountPill, { backgroundColor: palette.cashSoft, borderColor: palette.cash }]}>
-            <Text
-              style={[styles.billCardAmount, { color: palette.cash }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.76}
-            >
-              {bill.formattedAmount}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.billCardBottomRow}>
-          <Text style={[styles.billActionText, { color: palette.billingStrong }]}>Open receipt</Text>
-          <MaterialCommunityIcons name="chevron-right" size={18} color={palette.billing} />
-        </View>
-      </View>
-      </Animated.View>
-    </Pressable>
+        </Animated.View>
+      </Pressable>
+      <AdminShopBillActionRow bill={bill} palette={palette} onEdit={onEdit} onCancel={onCancel} />
+    </View>
   );
 }
 
@@ -219,6 +238,8 @@ export const AdminBillingTab = memo(function AdminBillingTab({
   printingAll,
   onRefresh,
   onOpenBill,
+  onEditBill,
+  onCancelBill,
   onPrintAll,
   onLoadMore,
   onBackToSales,
@@ -236,7 +257,13 @@ export const AdminBillingTab = memo(function AdminBillingTab({
         </View>
       )}
       renderItem={({ item: bill }) => (
-        <BillCard bill={bill} palette={palette} onPress={() => onOpenBill(bill.bill_id)} />
+        <BillCard
+          bill={bill}
+          palette={palette}
+          onPress={() => onOpenBill(bill.bill_id)}
+          onEdit={() => onEditBill(bill)}
+          onCancel={() => onCancelBill(bill)}
+        />
       )}
       ListHeaderComponent={
         <View style={styles.billingListHeader}>
@@ -454,10 +481,13 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
   },
   billCard: {
-    flexDirection: "row",
     borderWidth: 1,
     borderRadius: 12,
     marginBottom: 12,
+    overflow: "hidden",
+  },
+  billCardContent: {
+    flexDirection: "row",
     padding: 12,
     gap: 12,
     alignItems: "center",
@@ -484,6 +514,24 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 4,
+  },
+  billTitleLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  cancelledBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  cancelledBadgeText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   billCardNo: {
     fontSize: 15,

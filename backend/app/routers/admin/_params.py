@@ -122,6 +122,10 @@ ItemCursorIdParam = Annotated[
     UUID | None,
     Query(description="Pagination cursor item ID from the previous page."),
 ]
+ItemCursorIsActiveParam = Annotated[
+    bool | None,
+    Query(description="Pagination cursor active state from the previous page."),
+]
 CursorCreatedAtParam = Annotated[
     datetime | None,
     Query(description="Pagination cursor timestamp from the previous page."),
@@ -285,6 +289,7 @@ __all__ = [
     "ItemCategoryIdParam",
     "ItemCursorGroupParam",
     "ItemCursorIdParam",
+    "ItemCursorIsActiveParam",
     "ItemCursorNameParam",
     "ItemCursorSortOrderParam",
     "ItemImageUploadOptional",

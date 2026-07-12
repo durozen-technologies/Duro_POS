@@ -5,9 +5,11 @@ from __future__ import annotations
 import unittest
 
 from fastapi import HTTPException
+from sqlalchemy import select
 
-from app.models import BaseUnit, Item, UnitType
+from app.models import BaseUnit, Item, ShopItemAllocation, UnitType
 from app.schemas.admin import ItemMetadataUpdate, ItemUpdate
+from app.services.admin.catalogue import allocate_catalogue_item
 from app.services.admin.shops import delete_item, update_item, update_item_metadata
 from test.support import AsyncSessionAdapter, BackendTestCase
 
@@ -113,6 +115,50 @@ class ItemMetadataScopeTests(BackendTestCase):
                     )
                 self.assertEqual(ctx.exception.status_code, 404)
                 self.assertIn("shop item update", str(ctx.exception.detail).lower())
+
+        self.run_async(scenario())
+
+    def test_deactivating_catalogue_item_removes_shop_billing_allocations(self) -> None:
+        async def scenario() -> None:
+            _user, shop = await self.harness.create_shop_user(username="deact.shop")
+            await self.harness.create_catalogue_items(("Chicken",))
+
+            with self.harness.session_factory() as session:
+                chicken = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
+                )
+                self.assertIsNotNone(chicken)
+                item_id = chicken.id
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                from app.models import Shop
+
+                current_shop = session.scalar(select(Shop).where(Shop.id == shop.id))
+                await allocate_catalogue_item(adapter, current_shop, item_id)
+                allocation = session.scalar(
+                    select(ShopItemAllocation).where(
+                        ShopItemAllocation.shop_id == shop.id,
+                        ShopItemAllocation.item_id == item_id,
+                    )
+                )
+                self.assertIsNotNone(allocation)
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                updated = await update_item_metadata(
+                    adapter,
+                    item_id,
+                    ItemMetadataUpdate(is_active=False),
+                )
+                self.assertFalse(updated.is_active)
+                allocation = session.scalar(
+                    select(ShopItemAllocation).where(
+                        ShopItemAllocation.shop_id == shop.id,
+                        ShopItemAllocation.item_id == item_id,
+                    )
+                )
+                self.assertIsNone(allocation)
 
         self.run_async(scenario())
 

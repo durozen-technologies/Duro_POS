@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, View } from "react-native";
 import { Controller, Control, useForm, useWatch } from "react-hook-form";
 
 import { checkoutBill, patchBillReceiptStatus, previewBill } from "@/api/billing";
@@ -24,6 +24,7 @@ import { usePrinterStore } from "@/store/printer-store";
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type CheckoutFormValues = {
   cashAmount: string;

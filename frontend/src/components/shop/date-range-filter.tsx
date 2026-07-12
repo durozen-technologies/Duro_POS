@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo, useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import {
   CalendarDateField,
@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/calendar-date-picker";
 import { appTheme } from "@/constants/theme";
 import type { ShopTranslationKey } from "@/hooks/use-shop-translation";
+import { ShopText as Text } from "@/components/ui/shop-text";
 import {
   EXPENSE_HISTORY_INTERVAL_OPTIONS,
   type ExpenseHistoryFilterDraft,

@@ -35,6 +35,22 @@ class BillCheckoutCommitRequest(BillCheckoutRequest):
     checkout_token: str = Field(min_length=1)
 
 
+class BillEditPaymentInput(BaseModel):
+    cash_amount: Decimal = Field(ge=0)
+    upi_amount: Decimal = Field(ge=0)
+
+
+class BillEditRequest(BaseModel):
+    items: list[BillItemInput]
+    payment: BillEditPaymentInput
+
+    @model_validator(mode="after")
+    def validate_items(self) -> "BillEditRequest":
+        if not self.items:
+            raise ValueError("At least one bill item is required")
+        return self
+
+
 class BillDetailBatchRequest(BaseModel):
     bill_ids: list[UUID] = Field(min_length=1, max_length=50)
 

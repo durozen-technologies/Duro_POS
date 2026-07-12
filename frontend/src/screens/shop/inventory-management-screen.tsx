@@ -1,23 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-  type ScrollView as ScrollViewType,
-} from "react-native";
+import { ActivityIndicator, Alert, Dimensions, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View, type ScrollView as ScrollViewType } from "react-native";
 
 import { fetchShopRetailerInventoryPurchases } from "@/api/retailer-inventory";
 import {
@@ -75,6 +59,7 @@ import { groupRetailerInventoryUsages } from "@/utils/group-retailer-inventory-u
 import { toDateInputValue } from "@/utils/expense-history-filters";
 import { getItemThumbnailUri } from "@/utils/item-images";
 import type { InventoryManagementScreenProps } from "@/navigation/types";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type MovementMode = InventoryMovementType.ADD | InventoryMovementType.USE | "TRANSFER";
 type MovementHistoryMode = "date" | "range";
@@ -186,7 +171,7 @@ function formatQuantityWithBirds(
   quantity: string | number,
   unit: BaseUnit,
   birdCount?: number,
-  birdsLabel = "birds",
+  birdsLabel = "Count",
   options?: { alwaysShowBirds?: boolean },
 ) {
   const formatted = formatQuantity(quantity, unit);
@@ -248,6 +233,8 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const [birdCount, setBirdCount] = useState("");
   const [driverName, setDriverName] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
+  const [expandedUsages, setExpandedUsages] = useState<Record<string, boolean>>({});
+  const [movementError, setMovementError] = useState<string | null>(null);
   const movementScrollRef = useRef<ScrollViewType>(null);
   const movementScrollOffsetRef = useRef(0);
   const movementQuantityFieldRef = useRef<View | null>(null);
@@ -349,7 +336,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       applied: t("inventory.retailerPurchaseApplied"),
       deposited: t("inventory.retailerPurchaseDeposited"),
       purchaseTotal: t("inventory.retailerPurchaseTotalLabel"),
-      birds: t("inventory.birds", { defaultValue: "birds" }),
+      birds: t("inventory.birds", { defaultValue: "Count" }),
     }),
     [t],
   );
@@ -637,6 +624,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     setCategoryBirdCounts({});
     setMovementCalendarOpen(false);
     setKeyboardInset(0);
+    setMovementError(null);
     keyboardInsetRef.current = 0;
     movementScrollOffsetRef.current = 0;
     movementActiveFieldRef.current = null;
@@ -669,6 +657,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     setTimeout(() => scrollMovementFieldIntoView(field), 80);
     setTimeout(() => scrollMovementFieldIntoView(field), Platform.OS === "android" ? 320 : 180);
   }, [scrollMovementFieldIntoView]);
+
+  useEffect(() => {
+    setMovementError(null);
+  }, [quantity, birdCount, driverName, vehicleNumber, categoryQuantities, categoryBirdCounts, transferShopId]);
 
   useEffect(() => {
     if (!selectedItem) {
@@ -757,6 +749,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       resolvedBirdCount <= effectiveAvailableBirdCount(selectedItem.available_bird_count);
     return {
       splitTotal,
+      splitBirdTotal,
       hasValidTotal,
       canSave: mode === InventoryMovementType.ADD
         ? hasValidTotal &&
@@ -789,30 +782,114 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     if (!selectedItem) {
       return;
     }
+    if (mode === InventoryMovementType.ADD) {
+      if (!quantity.trim()) {
+        setMovementError(t("inventory.quantityRequiredMessage" as any));
+        return;
+      }
+      if (selectedItem.base_unit === BaseUnit.KG && !birdCount.trim()) {
+        setMovementError(t("inventory.birdCountRequiredMessage" as any));
+        return;
+      }
+      const normalizedDriverName = driverName.replace(/\s+/g, " ").trim();
+      if (!normalizedDriverName) {
+        setMovementError(t("inventory.driverNameRequiredMessage" as any));
+        return;
+      }
+      const normalizedVehicleNumber = vehicleNumber.replace(/\s+/g, " ").trim().toUpperCase();
+      if (!normalizedVehicleNumber) {
+        setMovementError(t("inventory.vehicleNumberRequiredMessage" as any));
+        return;
+      }
+      if (normalizedVehicleNumber.length < 2) {
+        setMovementError(t("inventory.vehicleNumberTooShort" as any));
+        return;
+      }
+    }
+
+    if (mode === InventoryMovementType.USE) {
+      if (selectedItem.category_usage.length > 0) {
+        let hasAtLeastOneCategory = false;
+        for (const category of selectedItem.category_usage) {
+          const rawKg = categoryQuantities[category.category_id]?.trim() || "";
+          const catKg = parseQuantityDraft(rawKg);
+          const hasKg = catKg !== null && catKg.greaterThan(0);
+          
+          const rawBirds = categoryBirdCounts[category.category_id]?.trim() || "";
+          const catBirds = parseBirdCountDraft(rawBirds);
+          const hasBirds = catBirds !== null && catBirds > 0;
+          
+          if (hasKg || hasBirds || rawKg !== "" || rawBirds !== "") {
+            hasAtLeastOneCategory = true;
+            if ((hasKg || rawKg !== "") && selectedItem.base_unit === BaseUnit.KG && rawBirds === "") {
+              setMovementError(t("inventory.categoryCountRequiredMessage" as any));
+              return;
+            }
+            if ((hasBirds || rawBirds !== "") && rawKg === "") {
+              setMovementError(t("inventory.categoryWeightRequiredMessage" as any));
+              return;
+            }
+          }
+        }
+        if (!hasAtLeastOneCategory) {
+          setMovementError(t("inventory.categoryRequiredMessage"));
+          return;
+        }
+      } else {
+        const rawKg = quantity.trim();
+        const catKg = parseQuantityDraft(rawKg);
+        const hasKg = catKg !== null && catKg.greaterThan(0);
+        
+        const rawBirds = birdCount.trim();
+        const catBirds = parseBirdCountDraft(rawBirds);
+        const hasBirds = catBirds !== null && catBirds > 0;
+
+        if (selectedItem.base_unit === BaseUnit.KG) {
+           if ((hasKg || rawKg !== "") && rawBirds === "") {
+             setMovementError(t("inventory.birdCountRequiredMessage" as any));
+             return;
+           }
+           if ((hasBirds || rawBirds !== "") && rawKg === "") {
+             setMovementError(t("inventory.quantityRequiredMessage" as any));
+             return;
+           }
+           if (rawKg === "" && rawBirds === "") {
+             setMovementError(t("inventory.quantityRequiredMessage" as any));
+             return;
+           }
+        } else {
+           if (rawKg === "") {
+             setMovementError(t("inventory.quantityRequiredMessage" as any));
+             return;
+           }
+        }
+      }
+    }
+
     const hasCategorySplit = mode === InventoryMovementType.USE && selectedItem.category_usage.length > 0;
     const rawQuantity = hasCategorySplit
       ? splitState.splitTotal.toDecimalPlaces(3).toString()
       : quantity.trim();
     if (!rawQuantity || money(rawQuantity).lessThanOrEqualTo(0)) {
-      Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidQuantityMessage"));
+      setMovementError(t("inventory.invalidQuantityMessage"));
       return;
     }
     if (selectedItem.base_unit === BaseUnit.UNIT && !isWholeQuantity(rawQuantity)) {
-      Alert.alert(t("inventory.invalidQuantityTitle"), t("billing.alertInvalidUnitQuantityMessage", {
+      setMovementError(t("billing.alertInvalidUnitQuantityMessage", {
         itemName: getLocalizedItemName(language, selectedItem.name, selectedItem.tamil_name),
       }));
       return;
     }
     if (mode === InventoryMovementType.USE && !splitState.canSave) {
       if (selectedItem.category_usage.length > 0) {
-        Alert.alert(t("inventory.categoryRequiredTitle"), t("inventory.categoryRequiredMessage"));
+        setMovementError(t("inventory.categoryRequiredMessage"));
       } else if (
         selectedItem.base_unit === BaseUnit.KG &&
         resolveBirdCountForItem(selectedItem, birdCount) < 0
       ) {
-        Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." }));
+        setMovementError(t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." }));
       } else {
-        Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidQuantityMessage"));
+        setMovementError(t("inventory.invalidQuantityMessage"));
       }
       return;
     }
@@ -826,7 +903,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           : resolveBirdCountForItem(selectedItem, birdCount)
         : 0;
     if (selectedItem.base_unit === BaseUnit.KG && resolvedBirdCount < 0) {
-      Alert.alert(t("inventory.invalidQuantityTitle"), t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." }));
+      setMovementError(t("inventory.invalidBirdCountMessage", { defaultValue: "Enter a valid bird count." }));
       return;
     }
     const occurredAt = movementOccurredAtForSave(backdatePolicy, movementDate, movementTime);
@@ -836,16 +913,6 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       if (mode === InventoryMovementType.ADD) {
         const normalizedDriverName = driverName.replace(/\s+/g, " ").trim();
         const normalizedVehicleNumber = vehicleNumber.replace(/\s+/g, " ").trim().toUpperCase();
-        if (!normalizedDriverName || !normalizedVehicleNumber) {
-          Alert.alert(t("inventory.driverVehicleRequiredTitle" as any), t("inventory.driverVehicleRequiredMessage" as any));
-          setSaving(false);
-          return;
-        }
-        if (normalizedVehicleNumber.length < 2) {
-          Alert.alert(t("inventory.driverVehicleRequiredTitle" as any), t("inventory.vehicleNumberTooShort" as any));
-          setSaving(false);
-          return;
-        }
         const result = await addShopInventoryStock(selectedItem.id, {
           quantity: rawQuantity,
           bird_count: resolvedBirdCount,
@@ -861,7 +928,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
         }
       } else if (mode === "TRANSFER") {
         if (!transferShopId) {
-          Alert.alert("Select Destination", "Please select a transfer destination.");
+          setMovementError("Please select a transfer destination.");
           setSaving(false);
           return;
         }
@@ -925,8 +992,9 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       if (inventoryUnavailable) {
         closeMovement();
         void loadInventory(true);
+      } else {
+        setMovementError(apiError.message || t("inventory.saveFailedMessage"));
       }
-      Alert.alert(t("inventory.saveFailedTitle"), apiError.message || t("inventory.saveFailedMessage"));
     } finally {
       setSaving(false);
     }
@@ -945,68 +1013,63 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     );
   }
 
+  const ShopStockQuantityBlock = ({ label, quantity, baseUnit, birdCount, birdsLabel }: { label: string, quantity: string | number, baseUnit: BaseUnit, birdCount?: number, birdsLabel: string }) => {
+    const formatted = formatQuantity(quantity, baseUnit);
+    const parts = formatted.split(" ");
+    const val = parts[0];
+    const unitLabel = parts.slice(1).join(" ");
+    
+    return (
+      <View className="flex-1 min-w-[85px] flex-col py-1 pr-2">
+        <Text className="mb-0.5 text-xs font-semibold text-muted">{label}</Text>
+        <View className="flex-row items-baseline gap-1 flex-wrap">
+          <Text className="text-lg font-bold leading-tight text-ink">{val}</Text>
+          {unitLabel ? <Text className="text-sm font-bold leading-tight text-muted">{unitLabel}</Text> : null}
+          {baseUnit === BaseUnit.KG && birdCount != null ? (
+            <>
+              <Text className="mx-1 text-sm font-bold leading-tight text-muted/60">|</Text>
+              <Text className="text-lg font-bold leading-tight text-ink">{birdCount}</Text>
+              <Text className="text-sm font-semibold leading-tight text-muted">{birdsLabel}</Text>
+            </>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
+
   const renderInventoryRow = ({ item }: { item: InventoryItemStockRead }) => {
     const itemName = getLocalizedItemName(language, item.name, item.tamil_name);
-    const birdsLabel = t("inventory.birds", { defaultValue: "birds" });
+    const birdsLabel = t("inventory.birds", { defaultValue: "Count" });
+    const isExpanded = expandedUsages[item.id] || false;
     return (
       <Card className="gap-4">
-        <View className="flex-row gap-3">
+        <View className="flex-row items-center gap-3">
           <ItemThumbnail
             uri={getItemThumbnailUri(item)}
             recyclingKey={item.id}
-            size={58}
-            borderRadius={14}
+            size={52}
+            borderRadius={12}
             backgroundColor="#F4F7F2"
             icon="warehouse"
             iconColor="#4B6356"
           />
           <View className="min-w-0 flex-1">
-            <Text className="text-base font-extrabold text-ink" numberOfLines={2}>{itemName}</Text>
-            <Text className="mt-1 text-sm font-semibold text-muted">
-              {formatQuantityWithBirds(
-                formatQuantity,
-                item.available_quantity,
-                item.base_unit,
-                item.available_bird_count,
-                birdsLabel,
-              )}{" "}
-              {t("inventory.available")}
-            </Text>
-            <Text className="mt-1 text-xs font-semibold text-muted">
-              {t("inventory.used")}{" "}
-              {formatQuantityWithBirds(
-                formatQuantity,
-                item.used_quantity,
-                item.base_unit,
-                item.used_bird_count,
-                birdsLabel,
-              )}
-            </Text>
-            {transferShops.length > 0 ? (
-              <Text className="mt-0.5 text-xs font-semibold text-muted">
-                {t("inventory.transferStock", { defaultValue: "Transfer stock" })}{" "}
-                {formatQuantityWithBirds(
-                  formatQuantity,
-                  item.transfer_stock ?? "0",
-                  item.base_unit,
-                  item.transfer_bird_count,
-                  birdsLabel,
-                )}
-              </Text>
-            ) : null}
-            <Text className="mt-0.5 text-xs font-semibold text-muted">
-              {t("inventory.retailerStock", { defaultValue: "Retailer stock" })}{" "}
-              {formatQuantityWithBirds(
-                formatQuantity,
-                item.retailer_used_quantity ?? "0",
-                item.base_unit,
-                item.retailer_used_bird_count,
-                birdsLabel,
-              )}
-            </Text>
+            <Text className="text-base font-extrabold text-ink" numberOfLines={1}>{itemName}</Text>
+            <Text className="mt-0.5 text-xs font-bold uppercase text-muted">{item.base_unit}</Text>
           </View>
         </View>
-        <View className="flex-col gap-2">
+
+        <View className="flex-row mb-1">
+          <ShopStockQuantityBlock
+            label={t("inventory.available")}
+            quantity={item.available_quantity}
+            baseUnit={item.base_unit}
+            birdCount={item.available_bird_count}
+            birdsLabel={birdsLabel}
+          />
+        </View>
+
+        <View className="flex-col gap-2 border-b border-border/70 pb-1">
           <View className="flex-row gap-2">
             <Button
               label={t("inventory.addStock")}
@@ -1040,37 +1103,84 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
             />
           </View>
         </View>
-        <View className="gap-2 border-t border-border/70 pt-3">
-          {item.category_usage.map((category) => (
-            <View key={category.category_id} className="flex-row items-center justify-between gap-3">
-              <Text className="min-w-0 flex-1 text-sm font-semibold text-ink" numberOfLines={1}>
-                {category.category_name}
-              </Text>
-              <View className="items-end gap-0.5">
-                <Text className="text-xs font-semibold text-muted">
-                  {t("inventory.used")}{" "}
-                  {formatQuantityWithBirds(
-                    formatQuantity,
-                    category.used_quantity,
-                    item.base_unit,
-                    category.used_bird_count,
-                    birdsLabel,
-                  )}
-                </Text>
-                <Text className="text-xs font-semibold text-muted">
-                  {t("inventory.retailerStock", { defaultValue: "Retailer stock" })}{" "}
-                  {formatQuantityWithBirds(
-                    formatQuantity,
-                    category.retailer_used_quantity ?? "0",
-                    item.base_unit,
-                    category.retailer_used_bird_count,
-                    birdsLabel,
-                  )}
-                </Text>
-              </View>
+
+        <Pressable
+          onPress={() => setExpandedUsages(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+          className="mt-3 min-h-12 flex-row items-center justify-center gap-2 rounded-control border border-border bg-card px-5 active:bg-accentSoft"
+          accessibilityRole="button"
+        >
+          <Text className="text-[15px] font-bold text-ink">
+            {isExpanded ? t("inventory.hideTotalUsage", { defaultValue: "Hide Total Usage" }) : t("inventory.showTotalUsage", { defaultValue: "Show Total Usage" })}
+          </Text>
+          <MaterialCommunityIcons
+            name={isExpanded ? "chevron-up" : "chevron-down"}
+            size={20}
+            color="#244734"
+          />
+        </Pressable>
+
+        {isExpanded ? (
+          <View className="gap-4 pt-1">
+            <View className="flex-row flex-wrap gap-2">
+              {transferShops.length > 0 ? (
+                <ShopStockQuantityBlock
+                  label={t("inventory.transferStock", { defaultValue: "Transfer Stock" })}
+                  quantity={item.transfer_stock ?? "0"}
+                  baseUnit={item.base_unit}
+                  birdCount={item.transfer_bird_count}
+                  birdsLabel={birdsLabel}
+                />
+              ) : null}
+              <ShopStockQuantityBlock
+                label={t("inventory.used")}
+                quantity={item.used_quantity}
+                baseUnit={item.base_unit}
+                birdCount={item.used_bird_count}
+                birdsLabel={birdsLabel}
+              />
+              <ShopStockQuantityBlock
+                label={t("inventory.retailerStock", { defaultValue: "Retailer Stock" })}
+                quantity={item.retailer_used_quantity ?? "0"}
+                baseUnit={item.base_unit}
+                birdCount={item.retailer_used_bird_count}
+                birdsLabel={birdsLabel}
+              />
             </View>
-          ))}
-        </View>
+
+            {item.category_usage.length > 0 ? (
+              <View className="gap-3 border-t border-border/40 pt-3">
+                <Text className="ml-1 text-xs font-semibold uppercase tracking-wide text-muted">
+                  {t("inventory.category")}
+                </Text>
+                <View className="gap-2">
+                  {item.category_usage.map((category, index) => (
+                    <View key={category.category_id} className={`gap-2 py-2 ${index > 0 ? "border-t border-border/20" : ""}`}>
+                      <Text className="text-sm font-bold text-ink">
+                        {category.category_name}
+                      </Text>
+                      <View className="flex-row flex-wrap gap-2">
+                        <ShopStockQuantityBlock
+                          label={t("inventory.used")}
+                          quantity={category.used_quantity}
+                          baseUnit={item.base_unit}
+                          birdCount={category.used_bird_count}
+                          birdsLabel={birdsLabel}
+                        />
+                        <ShopStockQuantityBlock
+                          label={t("inventory.retailerStock", { defaultValue: "Retailer Stock" })}
+                          quantity={category.retailer_used_quantity ?? "0"}
+                          baseUnit={item.base_unit}
+                          birdCount={category.retailer_used_bird_count}
+                          birdsLabel={birdsLabel}
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </Card>
     );
   };
@@ -1082,6 +1192,10 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           <ActivityIndicator color="#244734" />
         </Card>
       ) : null}
+      <Button
+        label={t("inventory.retailerPurchaseTitle")}
+        onPress={() => setPurchaseModalOpen(true)}
+      />
       <View className="w-full items-center">
         <Pressable
           accessibilityRole="button"
@@ -1297,7 +1411,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
 
   return (
     <View className="flex-1 bg-background">
-      <Screen scroll={false}>
+      <Screen scroll={false} contentTopPadding={4}>
         <FlatList
           data={items}
           keyExtractor={(item) => item.id}
@@ -1321,10 +1435,6 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                   </Text>
                 </View>
               ) : null}
-              <Button
-                label={t("inventory.retailerPurchaseTitle")}
-                onPress={() => setPurchaseModalOpen(true)}
-              />
             </>
           )}
           ListEmptyComponent={
@@ -1430,7 +1540,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                             selectedItem.available_quantity,
                             selectedItem.base_unit,
                             effectiveAvailableBirdCount(selectedItem.available_bird_count),
-                            t("inventory.birds", { defaultValue: "birds" }),
+                            t("inventory.birds", { defaultValue: "Count" }),
                             { alwaysShowBirds: selectedItem.base_unit === BaseUnit.KG },
                           )}
                         </Text>
@@ -1442,7 +1552,14 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                           {selectedItem.base_unit === BaseUnit.KG ? t("inventory.totalToUseKg", { defaultValue: "Total to use (kg)" }) : t("inventory.totalToUseUnits", { defaultValue: "Total to use (units)" })}
                         </Text>
                         <Text className="mt-1 text-3xl font-bold text-ink" style={{ fontVariant: ["tabular-nums"] }}>
-                          {formatQuantity(splitState.splitTotal.toString(), selectedItem.base_unit)}
+                          {formatQuantityWithBirds(
+                            formatQuantity,
+                            splitState.splitTotal.toString(),
+                            selectedItem.base_unit,
+                            splitState.splitBirdTotal,
+                            t("inventory.birds", { defaultValue: "Count" }),
+                            { alwaysShowBirds: selectedItem.base_unit === BaseUnit.KG }
+                          )}
                         </Text>
                       </View>
                     ) : (
@@ -1525,82 +1642,90 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                       </View>
                     )}
                     {mode === InventoryMovementType.USE && selectedItem.category_usage.length > 0 ? (
-                      <View className="gap-2">
-                        <View className="flex-row items-center justify-between gap-3">
-                          <Text className="text-[11px] font-semibold uppercase text-muted">{t("inventory.category")}</Text>
-                          <Text className="text-[11px] font-semibold uppercase text-muted">
-                            {selectedItem.base_unit === BaseUnit.KG
-                              ? `${t("inventory.quantity", { defaultValue: "Quantity" })} / ${t("common.birdCount", { defaultValue: "Bird count" })}`
-                              : t("inventory.quantity", { defaultValue: "Quantity" })}
-                          </Text>
-                        </View>
-                        <View className="gap-2">
+                      <View className="gap-3 pt-2">
+                        <Text className="ml-1 text-[11px] font-semibold uppercase tracking-[1px] text-muted">
+                          {t("inventory.category")}
+                        </Text>
+                        <View className="gap-3">
                           {selectedItem.category_usage.map((category) => (
                             <View
                               key={category.category_id}
                               ref={(node) => {
                                 movementCategoryFieldRefs.current[category.category_id] = node;
                               }}
-                              className="min-h-[62px] flex-row items-center gap-3 rounded-control border border-border bg-surface px-3 py-2"
+                              className="gap-3 rounded-2xl border border-border bg-surface px-4 py-3"
                             >
-                              <View className="min-w-0 flex-1">
-                                <Text className="text-sm font-semibold text-ink" numberOfLines={1}>
+                              <View className="gap-1 mb-2">
+                                <Text className="text-base font-bold text-ink">
                                   {category.category_name}
                                 </Text>
-                                <Text className="mt-0.5 text-xs font-semibold text-muted">
+                                <Text className="text-xs font-semibold text-muted">
                                   {t("inventory.used")}{" "}
                                   {formatQuantityWithBirds(
                                     formatQuantity,
                                     category.used_quantity,
                                     selectedItem.base_unit,
                                     category.used_bird_count,
-                                    t("inventory.birds", { defaultValue: "birds" }),
+                                    t("inventory.birds", { defaultValue: "Count" }),
                                   )}
                                 </Text>
                               </View>
-                              <View className="flex-row items-center gap-2">
-                                <View className="h-14 w-28 flex-row items-center rounded-control border border-border bg-card px-3">
-                                  <TextInput
-                                    keyboardType="decimal-pad"
-                                    placeholder={selectedItem.base_unit === BaseUnit.KG ? t("common.exampleKg") : t("common.exampleUnits")}
-                                    placeholderTextColor="#95A293"
-                                    value={categoryQuantities[category.category_id] ?? ""}
-                                    onChangeText={(nextQuantity) =>
-                                      setCategoryQuantities((current) => ({
-                                        ...current,
-                                        [category.category_id]: nextQuantity,
-                                      }))
-                                    }
-                                    onFocus={() => focusMovementField(movementCategoryFieldRefs.current[category.category_id])}
-                                    selectTextOnFocus={false}
-                                    autoCorrect={false}
-                                    underlineColorAndroid="transparent"
-                                    selectionColor="#244734"
-                                    cursorColor="#244734"
-                                    className="min-w-0 flex-1 text-center text-xl font-bold text-ink"
-                                  />
-                                  <Text className="ml-2 text-xs font-semibold uppercase text-muted">{selectedItem.base_unit}</Text>
-                                </View>
-                                {selectedItem.base_unit === BaseUnit.KG ? (
-                                  <View className="h-14 w-20 flex-row items-center rounded-control border border-border bg-card px-2">
+                              <View className="flex-row items-center gap-3">
+                                <View className="flex-1 gap-1.5">
+                                  <Text className="ml-1 text-[11px] font-bold uppercase text-muted">
+                                    {selectedItem.base_unit}
+                                  </Text>
+                                  <View className="h-12 flex-row items-center rounded-xl border border-border bg-card px-3 shadow-sm shadow-black/5">
                                     <TextInput
-                                      keyboardType="number-pad"
-                                      placeholder="0"
+                                      keyboardType="decimal-pad"
+                                      placeholder={selectedItem.base_unit === BaseUnit.KG ? t("common.exampleKg") : t("common.exampleUnits")}
                                       placeholderTextColor="#95A293"
-                                      value={categoryBirdCounts[category.category_id] ?? ""}
-                                      onChangeText={(nextBirdCount) =>
-                                        setCategoryBirdCounts((current) => ({
+                                      value={categoryQuantities[category.category_id] ?? ""}
+                                      onChangeText={(nextQuantity) =>
+                                        setCategoryQuantities((current) => ({
                                           ...current,
-                                          [category.category_id]: nextBirdCount,
+                                          [category.category_id]: nextQuantity,
                                         }))
                                       }
+                                      onFocus={() => focusMovementField(movementCategoryFieldRefs.current[category.category_id])}
                                       selectTextOnFocus={false}
                                       autoCorrect={false}
                                       underlineColorAndroid="transparent"
                                       selectionColor="#244734"
                                       cursorColor="#244734"
-                                      className="min-w-0 flex-1 text-center text-xl font-bold text-ink"
+                                      textAlignVertical="center"
+                                      className="min-w-0 flex-1 py-0 text-center text-xl font-bold text-ink"
+                                      style={{ includeFontPadding: false }}
                                     />
+                                  </View>
+                                </View>
+                                {selectedItem.base_unit === BaseUnit.KG ? (
+                                  <View className="flex-1 gap-1.5">
+                                    <Text className="ml-1 text-[11px] font-bold uppercase text-muted">
+                                      {t("inventory.birds", { defaultValue: "Count" })}
+                                    </Text>
+                                    <View className="h-12 flex-row items-center rounded-xl border border-border bg-card px-3 shadow-sm shadow-black/5">
+                                      <TextInput
+                                        keyboardType="number-pad"
+                                        placeholder="0"
+                                        placeholderTextColor="#95A293"
+                                        value={categoryBirdCounts[category.category_id] ?? ""}
+                                        onChangeText={(nextBirdCount) =>
+                                          setCategoryBirdCounts((current) => ({
+                                            ...current,
+                                            [category.category_id]: nextBirdCount,
+                                          }))
+                                        }
+                                        selectTextOnFocus={false}
+                                        autoCorrect={false}
+                                        underlineColorAndroid="transparent"
+                                        selectionColor="#244734"
+                                        cursorColor="#244734"
+                                        textAlignVertical="center"
+                                        className="min-w-0 flex-1 py-0 text-center text-xl font-bold text-ink"
+                                        style={{ includeFontPadding: false }}
+                                      />
+                                    </View>
                                   </View>
                                 ) : null}
                               </View>
@@ -1610,13 +1735,20 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                       </View>
                     ) : null}
 
+                    {movementError ? (
+                      <View className="mb-2 flex-row items-center rounded-lg border border-[#9F4335]/30 bg-[#FFF2EF] px-3 py-2.5">
+                        <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#9F4335" />
+                        <Text className="ml-2 flex-1 text-sm font-semibold leading-tight text-[#9F4335]">
+                          {movementError}
+                        </Text>
+                      </View>
+                    ) : null}
                     <View className="flex-row gap-2 pt-1">
                       <Button label={t("action.cancel")} onPress={closeMovement} variant="secondary" className="flex-1" />
                       <Button
                         label={saving ? t("inventory.saving") : t("inventory.save")}
                         onPress={() => void saveMovement()}
                         loading={saving}
-                        disabled={!splitState.canSave}
                         className="flex-1"
                       />
                     </View>

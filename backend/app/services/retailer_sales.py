@@ -9,7 +9,7 @@ import hmac
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
@@ -30,7 +30,6 @@ from app.models import (
     MonthlyRetailerSaleSequence,
     Organization,
     Retailer,
-    RetailerItemPrice,
     RetailerPayment,
     RetailerReceiptType,
     RetailerSale,
@@ -42,6 +41,7 @@ from app.models import (
     ShopRetailerItemAllocation,
     User,
 )
+from app.models.enums import BaseUnit
 from app.schemas.retailers import (
     RetailerCatalogItemRead,
     RetailerPaymentCreate,
@@ -49,6 +49,7 @@ from app.schemas.retailers import (
     RetailerPaymentRecordResponse,
     RetailerSaleCheckoutCommitRequest,
     RetailerSaleCheckoutRequest,
+    RetailerSaleEditRequest,
     RetailerSaleLineRead,
     RetailerSalePage,
     RetailerSalePreviewRead,
@@ -58,12 +59,28 @@ from app.schemas.retailers import (
 )
 from app.services.retailer_receipt_number import balance_receipt_number, invoice_receipt_number
 from app.services.retailer_sale_number import retailer_sale_no_from_sequence
-from app.services.retailers import is_retailer_allocated_to_shop
+from app.services.retailers import (
+    is_retailer_allocated_to_shop,
+    retailer_item_prices_as_of_subquery,
+)
 
 logger = logging.getLogger(__name__)
 
 TWOPLACES = Decimal("0.01")
 CHECKOUT_TOKEN_MAX_AGE_SECONDS = 15 * 60
+ADMIN_SALE_MODIFICATION_WINDOW = timedelta(hours=24)
+
+
+def _resolved_party_name(stored: str | None, live_name: str | None) -> str:
+    if stored:
+        return stored
+    return live_name or ""
+
+
+def _retailer_shop_snapshot_name(retailer: Retailer) -> str:
+    if retailer.shop_name is None:
+        return ""
+    return retailer.shop_name.strip()
 
 
 @dataclass(frozen=True)
@@ -396,11 +413,14 @@ async def _prepare_retailer_checkout(
     await _get_active_retailer(db, payload.retailer_id, shop=shop)
     item_ids = [line.item_id for line in payload.items]
 
+    price_as_of = retailer_item_prices_as_of_subquery(
+        payload.retailer_id, shop.id, func.current_date()
+    )
     price_rows = (
         await db.execute(
             select(
-                RetailerItemPrice.item_id,
-                RetailerItemPrice.price_per_unit,
+                price_as_of.c.item_id,
+                price_as_of.c.price_per_unit,
                 Item.name,
                 Item.tamil_name,
                 Item.unit_type,
@@ -408,7 +428,7 @@ async def _prepare_retailer_checkout(
                 ShopItemAllocation.display_name,
                 ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
             )
-            .join(Item, Item.id == RetailerItemPrice.item_id)
+            .join(Item, Item.id == price_as_of.c.item_id)
             .join(
                 ShopRetailerItemAllocation,
                 and_(
@@ -425,11 +445,9 @@ async def _prepare_retailer_checkout(
                 ),
             )
             .where(
-                RetailerItemPrice.retailer_id == payload.retailer_id,
-                RetailerItemPrice.shop_id == shop.id,
-                RetailerItemPrice.item_id.in_(item_ids),
-                RetailerItemPrice.effective_date == func.current_date(),
-                RetailerItemPrice.is_active.is_(True),
+                price_as_of.c.item_id.in_(item_ids),
+                price_as_of.c.rn == 1,
+                price_as_of.c.is_active.is_(True),
                 Item.is_active.is_(True),
             )
         )
@@ -577,9 +595,12 @@ async def _sale_to_read(db: AsyncSession, sale: RetailerSale) -> RetailerSaleRea
         id=sale.id,
         sale_no=sale.sale_no,
         retailer_id=sale.retailer_id,
-        retailer_name=retailer.name if retailer else "",
+        retailer_name=_resolved_party_name(sale.retailer_name, retailer.name if retailer else None),
         shop_id=sale.shop_id,
-        shop_name=shop.name if shop else "",
+        shop_name=_resolved_party_name(
+            sale.shop_name,
+            _retailer_shop_snapshot_name(retailer) if retailer else None,
+        ),
         organization_name=org_name,
         total_amount=sale.total_amount,
         amount_paid_total=sale.amount_paid_total,
@@ -611,11 +632,14 @@ async def get_retailer_catalog(
     db: AsyncSession, shop: Shop, retailer_id: UUID
 ) -> list[RetailerCatalogItemRead]:
     await _get_active_retailer(db, retailer_id, shop=shop)
+    price_as_of = retailer_item_prices_as_of_subquery(
+        retailer_id, shop.id, func.current_date()
+    )
     rows = (
         await db.execute(
             select(
-                RetailerItemPrice.item_id,
-                RetailerItemPrice.price_per_unit,
+                price_as_of.c.item_id,
+                price_as_of.c.price_per_unit,
                 Item.name,
                 Item.tamil_name,
                 Item.unit_type,
@@ -626,7 +650,7 @@ async def get_retailer_catalog(
                 Item.image_thumbnail_content_type,
                 ShopItemAllocation.display_name,
             )
-            .join(Item, Item.id == RetailerItemPrice.item_id)
+            .join(Item, Item.id == price_as_of.c.item_id)
             .join(
                 ShopRetailerItemAllocation,
                 and_(
@@ -643,10 +667,8 @@ async def get_retailer_catalog(
                 ),
             )
             .where(
-                RetailerItemPrice.retailer_id == retailer_id,
-                RetailerItemPrice.shop_id == shop.id,
-                RetailerItemPrice.effective_date == func.current_date(),
-                RetailerItemPrice.is_active.is_(True),
+                price_as_of.c.rn == 1,
+                price_as_of.c.is_active.is_(True),
                 Item.is_active.is_(True),
             )
             .order_by(Item.sort_order.asc(), Item.name.asc())
@@ -720,7 +742,7 @@ async def preview_retailer_sale(
         retailer_id=payload.retailer_id,
         retailer_name=retailer.name,
         shop_id=shop.id,
-        shop_name=shop.name,
+        shop_name=_retailer_shop_snapshot_name(retailer),
         organization_name=org_name,
         total_amount=prepared.total_amount,
         amount_paid_total=prepared.total_paid,
@@ -784,10 +806,13 @@ async def create_retailer_sale(
 
     await _sync_printed_sale_sequence(db, month_str, sequence)
     sale_status = _sale_status(prepared.total_amount, prepared.total_paid)
+    retailer = await _get_active_retailer(db, payload.retailer_id, shop=shop)
     sale = RetailerSale(
         sale_no=sale_no,
         retailer_id=payload.retailer_id,
         shop_id=shop.id,
+        retailer_name=retailer.name,
+        shop_name=_retailer_shop_snapshot_name(retailer),
         total_amount=prepared.total_amount,
         amount_paid_total=prepared.total_paid,
         balance_due=prepared.balance_due,
@@ -896,6 +921,8 @@ async def record_retailer_payment(
         raise HTTPException(status_code=409, detail="Sale is already settled")
     if sale.status == RetailerSaleStatus.VOID:
         raise HTTPException(status_code=409, detail="Sale is void")
+    if sale.status == RetailerSaleStatus.CANCELLED:
+        raise HTTPException(status_code=409, detail="Sale is cancelled")
 
     cash_amount = _round_money(payload.payment.cash_amount)
     upi_amount = _round_money(payload.payment.upi_amount)
@@ -1103,3 +1130,228 @@ async def get_retailer_sale_receipt(
         if receipt.id == receipt_id:
             return _receipt_to_read(receipt, payment_totals=payment_totals)
     raise HTTPException(status_code=404, detail="Receipt not found")
+
+
+def _sale_created_at_utc(created_at: datetime) -> datetime:
+    if created_at.tzinfo is None:
+        return created_at.replace(tzinfo=UTC)
+    return created_at.astimezone(UTC)
+
+
+def _assert_sale_within_admin_modification_window(sale: RetailerSale) -> None:
+    age = datetime.now(UTC) - _sale_created_at_utc(sale.created_at)
+    if age >= ADMIN_SALE_MODIFICATION_WINDOW:
+        raise HTTPException(
+            status_code=409,
+            detail="Bill can only be modified within 24 hours of creation",
+        )
+
+
+def _assert_sale_admin_modifiable(sale: RetailerSale) -> None:
+    if sale.status == RetailerSaleStatus.CANCELLED:
+        raise HTTPException(status_code=409, detail="Bill is already cancelled")
+    if sale.status == RetailerSaleStatus.VOID:
+        raise HTTPException(status_code=409, detail="Bill is void")
+    _assert_sale_within_admin_modification_window(sale)
+    if any(payment.retailer_inventory_purchase_id for payment in sale.payments):
+        raise HTTPException(
+            status_code=409,
+            detail="Bills settled from inventory purchase cannot be modified",
+        )
+
+
+def _prepare_retailer_sale_edit_lines(
+    sale: RetailerSale,
+    payload: RetailerSaleEditRequest,
+) -> list[PreparedRetailerLine]:
+    existing_by_item = {line.item_id: line for line in sale.items}
+    payload_item_ids = {line.item_id for line in payload.items}
+    if set(existing_by_item) != payload_item_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Edited items must match the original bill items",
+        )
+
+    lines: list[PreparedRetailerLine] = []
+    total_amount = Decimal("0.00")
+    for line_input in payload.items:
+        existing = existing_by_item[line_input.item_id]
+        item_name = (existing.item_name or "").strip()
+        if existing.item_base_unit == BaseUnit.UNIT and line_input.quantity != line_input.quantity.to_integral_value():
+            raise HTTPException(
+                status_code=422,
+                detail=f"{item_name or 'Item'} only accepts integer unit quantities",
+            )
+        price_per_unit = _round_money(existing.price_per_unit)
+        line_total = _round_money(price_per_unit * line_input.quantity)
+        total_amount += line_total
+        lines.append(
+            PreparedRetailerLine(
+                item_id=existing.item_id,
+                item_name=item_name,
+                item_tamil_name=existing.item_tamil_name,
+                item_unit_type=existing.item_unit_type,
+                item_base_unit=existing.item_base_unit,
+                quantity=line_input.quantity,
+                unit=existing.unit,
+                price_per_unit=price_per_unit,
+                line_total=line_total,
+            )
+        )
+
+    return lines
+
+
+async def cancel_retailer_sale(
+    db: AsyncSession,
+    user: User,
+    sale_id: UUID,
+) -> RetailerSaleRead:
+    sale = await db.scalar(
+        select(RetailerSale).options(*_sale_load_options()).where(RetailerSale.id == sale_id)
+    )
+    if sale is None:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    _assert_sale_admin_modifiable(sale)
+
+    sale.status = RetailerSaleStatus.CANCELLED
+    shop = sale.shop or await db.get(Shop, sale.shop_id)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            organization_id=shop.organization_id if shop else None,
+            shop_id=sale.shop_id,
+            action="retailer_sale.cancelled",
+            entity_type="retailer_sale",
+            entity_id=sale.id,
+            details={"sale_no": sale.sale_no},
+        )
+    )
+    await db.commit()
+    await db.refresh(sale, attribute_names=["items", "payments", "receipts", "retailer", "shop", "status"])
+    return await _sale_to_read(db, sale)
+
+
+async def edit_retailer_sale(
+    db: AsyncSession,
+    user: User,
+    sale_id: UUID,
+    payload: RetailerSaleEditRequest,
+) -> RetailerSaleRead:
+    sale = await db.scalar(
+        select(RetailerSale).options(*_sale_load_options()).where(RetailerSale.id == sale_id)
+    )
+    if sale is None:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    _assert_sale_admin_modifiable(sale)
+
+    lines = _prepare_retailer_sale_edit_lines(sale, payload)
+    total_amount = _round_money(sum((line.line_total for line in lines), Decimal("0.00")))
+    cash_amount = _round_money(payload.payment.cash_amount)
+    upi_amount = _round_money(payload.payment.upi_amount)
+    wallet_amount = _round_money(payload.payment.wallet_amount)
+    total_paid = _round_money(cash_amount + upi_amount + wallet_amount)
+    if total_paid <= 0:
+        raise HTTPException(status_code=422, detail="At least some payment is required")
+    if total_paid > total_amount:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Payment exceeds bill total ({total_amount})",
+        )
+
+    invoice_receipt = next(
+        (
+            receipt
+            for receipt in sale.receipts
+            if receipt.receipt_type == RetailerReceiptType.SALE_INVOICE
+        ),
+        None,
+    )
+    if invoice_receipt is None:
+        raise HTTPException(status_code=409, detail="Sale invoice receipt not found")
+
+    for payment in list(sale.payments):
+        await _credit_retailer_wallet(db, sale.retailer_id, payment.wallet_amount)
+
+    invoice_payment = next(
+        (payment for payment in sale.payments if payment.id == invoice_receipt.retailer_payment_id),
+        None,
+    )
+    if invoice_payment is None:
+        raise HTTPException(status_code=409, detail="Sale invoice payment not found")
+    for payment in list(sale.payments):
+        if payment.id == invoice_payment.id:
+            continue
+        receipt = payment.receipt
+        if receipt is not None:
+            await db.delete(receipt)
+        await db.delete(payment)
+
+    for item in list(sale.items):
+        await db.delete(item)
+    await db.flush()
+
+    sale.items = [
+        RetailerSaleItem(
+            item_id=line.item_id,
+            item_name=line.item_name,
+            item_tamil_name=line.item_tamil_name,
+            item_unit_type=line.item_unit_type,
+            item_base_unit=line.item_base_unit,
+            quantity=line.quantity,
+            unit=line.unit,
+            price_per_unit=line.price_per_unit,
+            line_total=line.line_total,
+        )
+        for line in lines
+    ]
+
+    invoice_payment.cash_amount = cash_amount
+    invoice_payment.upi_amount = upi_amount
+    invoice_payment.wallet_amount = wallet_amount
+    invoice_payment.total_paid = total_paid
+    invoice_payment.recorded_by_user_id = user.id
+    invoice_payment.paid_at = datetime.now(UTC)
+
+    await _debit_retailer_wallet(db, sale.retailer_id, wallet_amount)
+
+    sale.total_amount = total_amount
+    sale.amount_paid_total = total_paid
+    sale.balance_due = _round_money(total_amount - total_paid)
+    sale.status = _sale_status(total_amount, total_paid)
+
+    shop = sale.shop or await db.get(Shop, sale.shop_id)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            organization_id=shop.organization_id if shop else None,
+            shop_id=sale.shop_id,
+            action="retailer_sale.edited",
+            entity_type="retailer_sale",
+            entity_id=sale.id,
+            details={
+                "sale_no": sale.sale_no,
+                "total_amount": str(total_amount),
+                "cash_amount": str(cash_amount),
+                "upi_amount": str(upi_amount),
+                "wallet_amount": str(wallet_amount),
+                "balance_due": str(sale.balance_due),
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(
+        sale,
+        attribute_names=[
+            "items",
+            "payments",
+            "receipts",
+            "retailer",
+            "shop",
+            "total_amount",
+            "amount_paid_total",
+            "balance_due",
+            "status",
+        ],
+    )
+    return await _sale_to_read(db, sale)

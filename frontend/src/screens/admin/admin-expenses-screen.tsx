@@ -74,6 +74,8 @@ import {
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { AdminTextField } from "@/screens/admin/components/admin-text-field";
 import { useAdminTheme } from "./use-admin-theme";
+import { CalendarDateField, CalendarDatePickerModal } from "@/components/ui/calendar-date-picker";
+import { TimePickerField, TimePickerModal } from "@/components/ui/time-picker";
 
 type ExpenseTab = "items" | "allocation" | "history";
 type ExpoImagePickerModule = typeof import("expo-image-picker");
@@ -1214,13 +1216,6 @@ function ExpenseItemRow({
         </Text>
         <View style={styles.expenseItemActionGroup}>
           <IconButton label="Edit expense item" icon="pencil-outline" tone={palette.cash} onPress={() => onEdit(item)} />
-          <IconButton
-            label="Delete expense item"
-            icon="trash-can-outline"
-            tone={palette.danger}
-            disabled={!item.can_delete}
-            onPress={() => onDelete(item)}
-          />
         </View>
       </View>
     </View>
@@ -1396,7 +1391,9 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
   const [editingHistoryEntry, setEditingHistoryEntry] = useState<ExpenseEntryRead | null>(null);
   const [historyAmountDraft, setHistoryAmountDraft] = useState("");
   const [historyDateDraft, setHistoryDateDraft] = useState("");
+  const [historyDatePickerOpen, setHistoryDatePickerOpen] = useState(false);
   const [historyTimeDraft, setHistoryTimeDraft] = useState("");
+  const [historyTimePickerOpen, setHistoryTimePickerOpen] = useState(false);
   const [historyNoteDraft, setHistoryNoteDraft] = useState("");
   const [savingHistoryEntry, setSavingHistoryEntry] = useState(false);
   const [historyBusyId, setHistoryBusyId] = useState<UUID | null>(null);
@@ -2070,6 +2067,13 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
     </View>
   );
 
+  const sortedItemRows = useMemo(() => {
+    return [...itemRows].sort((a, b) => {
+      if (a.is_active === b.is_active) return 0;
+      return a.is_active ? -1 : 1;
+    });
+  }, [itemRows]);
+
   const content = (() => {
     if (activeTab === "items") {
       if (itemsLoading && itemRows.length === 0) {
@@ -2077,7 +2081,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       }
       return (
         <FlatList
-          data={itemRows}
+          data={sortedItemRows}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <ExpenseItemRow item={item} palette={palette} onEdit={openEditEditor} onDelete={confirmDeleteItem} />
@@ -2242,19 +2246,17 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
                   palette={palette}
                   keyboardType="decimal-pad"
                 />
-                <AdminTextField
+                <CalendarDateField
                   label="Spent date"
                   value={historyDateDraft}
-                  onChangeText={setHistoryDateDraft}
-                  placeholder="YYYY-MM-DD"
-                  palette={palette}
+                  colors={palette}
+                  onPress={() => setHistoryDatePickerOpen(true)}
                 />
-                <AdminTextField
+                <TimePickerField
                   label="Spent time"
                   value={historyTimeDraft}
-                  onChangeText={setHistoryTimeDraft}
-                  placeholder="HH:MM"
-                  palette={palette}
+                  colors={palette}
+                  onPress={() => setHistoryTimePickerOpen(true)}
                 />
                 <AdminTextField
                   label="Note"
@@ -2280,6 +2282,30 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <CalendarDatePickerModal
+        visible={historyDatePickerOpen}
+        title="Select spent date"
+        value={historyDateDraft}
+        colors={palette}
+        onSelect={(date) => {
+          setHistoryDateDraft(date);
+          setHistoryDatePickerOpen(false);
+        }}
+        onClose={() => setHistoryDatePickerOpen(false)}
+      />
+
+      <TimePickerModal
+        visible={historyTimePickerOpen}
+        title="Select spent time"
+        value={historyTimeDraft}
+        colors={palette}
+        onSelect={(time) => {
+          setHistoryTimeDraft(time);
+          setHistoryTimePickerOpen(false);
+        }}
+        onClose={() => setHistoryTimePickerOpen(false)}
+      />
     </SafeAreaView>
   );
 }

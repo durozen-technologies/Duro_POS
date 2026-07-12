@@ -1,17 +1,18 @@
 import { apiClient } from "@/api/client";
-import type {
-  RetailerCatalogItemRead,
-  RetailerPaymentCreate,
-  RetailerPaymentRecordResponse,
-  RetailerSaleCheckoutCommitRequest,
-  RetailerSaleCheckoutRequest,
-  RetailerSalePage,
-  RetailerSalePreviewRead,
-  RetailerSaleRead,
-  RetailerSaleReceiptPage,
-  RetailerSaleReceiptRead,
-  RetailerWalletRead,
-  UUID,
+import {
+  RetailerSaleStatus,
+  type RetailerCatalogItemRead,
+  type RetailerPaymentCreate,
+  type RetailerPaymentRecordResponse,
+  type RetailerSaleCheckoutCommitRequest,
+  type RetailerSaleCheckoutRequest,
+  type RetailerSalePage,
+  type RetailerSalePreviewRead,
+  type RetailerSaleRead,
+  type RetailerSaleReceiptPage,
+  type RetailerSaleReceiptRead,
+  type RetailerWalletRead,
+  type UUID,
 } from "@/types/api";
 
 export async function fetchRetailerCatalog(retailerId: UUID) {
@@ -77,6 +78,36 @@ export async function fetchAllShopRetailerSales() {
   } while (items.length < total);
 
   return items;
+}
+
+export async function fetchShopRetailerOutstandingBalance(retailerId: UUID): Promise<string> {
+  const pageSize = 100;
+  let page = 1;
+  let total = 0;
+  let outstanding = 0;
+
+  do {
+    const response = await fetchShopRetailerSales({
+      retailer_id: retailerId,
+      page,
+      page_size: pageSize,
+    });
+    if (response.items.length === 0) {
+      break;
+    }
+    for (const sale of response.items) {
+      if (
+        sale.status === RetailerSaleStatus.OPEN ||
+        sale.status === RetailerSaleStatus.PARTIAL
+      ) {
+        outstanding += Number(sale.balance_due);
+      }
+    }
+    total = response.total;
+    page += 1;
+  } while ((page - 1) * pageSize < total);
+
+  return outstanding.toFixed(2);
 }
 
 export async function fetchShopRetailerSale(saleId: UUID) {

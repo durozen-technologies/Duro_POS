@@ -7,10 +7,25 @@ from sqlalchemy import select
 
 from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
 
-from app.models import BaseUnit, Retailer, RetailerPayment, RetailerSale, RetailerSaleStatus, UnitType
+from app.models import (
+    BaseUnit,
+    Retailer,
+    RetailerInventoryPurchase,
+    RetailerInventoryUsage,
+    RetailerPayment,
+    RetailerSale,
+    RetailerSaleStatus,
+    Shop,
+    UnitType,
+)
 from app.schemas.billing import CheckoutPaymentInput
-from app.schemas.inventory import InventoryItemCreate
-from app.schemas.retailer_inventory import RetailerInventoryPurchaseCreate, RetailerInventoryPurchaseLineInput
+from app.schemas.inventory import InventoryAddRequest, InventoryItemCreate
+from app.schemas.retailer_inventory import (
+    RetailerInventoryPurchaseCreate,
+    RetailerInventoryPurchaseLineInput,
+    RetailerInventoryUsageBulkCreate,
+    RetailerInventoryUsageLine,
+)
 from app.schemas.retailers import (
     RetailerCreate,
     RetailerItemPriceInput,
@@ -19,9 +34,15 @@ from app.schemas.retailers import (
     RetailerSaleItemInput,
 )
 from app.services.admin.catalogue import allocate_catalogue_item
-from app.services.inventory import allocate_shop_inventory_items, create_inventory_item
+from app.services.inventory import (
+    add_shop_inventory_stock,
+    allocate_shop_inventory_items,
+    create_inventory_item,
+)
+from app.services.retailer_inventory import list_retailer_inventory_usages, record_retailer_inventory_usages_bulk
 from app.services.retailer_inventory_purchases import (
     create_retailer_inventory_purchase,
+    list_retailer_inventory_purchases,
     void_retailer_inventory_purchase,
 )
 from app.services.retailer_sales import create_retailer_sale, preview_retailer_sale
@@ -41,7 +62,7 @@ class RetailerInventoryPurchaseIntegrationTests(BackendTestCase):
         username: str = "ml1",
     ):
         db = AsyncSessionAdapter(session)
-        from app.models import Item, Shop, User
+        from app.models import Item, User
 
         shop_user = session.scalar(select(User).where(User.username == username))
         current_shop = session.scalar(select(Shop).where(Shop.owner_user_id == shop_user.id))
@@ -49,7 +70,7 @@ class RetailerInventoryPurchaseIntegrationTests(BackendTestCase):
             select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
         )
         await allocate_catalogue_item(db, current_shop, chicken.id)
-        retailer = await create_retailer(db, RetailerCreate(name="Wholesale Co"))
+        retailer = await create_retailer(db, RetailerCreate(name="Wholesale Co", shop_name="Corner Meat Shop"))
         await sync_retailer_branch_allocations(db, retailer.id, [current_shop.id])
         await sync_shop_retailer_item_catalog(db, current_shop.id, [chicken.id])
         await sync_retailer_item_prices(
@@ -268,5 +289,113 @@ class RetailerInventoryPurchaseIntegrationTests(BackendTestCase):
                         purchase.id,
                         actor=shop_user,
                     )
+
+        self.run_async(scenario())
+
+    def test_purchase_party_names_are_snapshotted_and_survive_renames(self) -> None:
+        _actor, _shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, _chicken, inventory_item = (
+                    await self._prepare_shop_retailer_with_inventory(session)
+                )
+                original_retailer_name = retailer.name
+                original_shop_name = retailer.shop_name
+
+                purchase = await create_retailer_inventory_purchase(
+                    db,
+                    current_shop,
+                    RetailerInventoryPurchaseCreate(
+                        retailer_id=retailer.id,
+                        lines=[
+                            RetailerInventoryPurchaseLineInput(
+                                inventory_item_id=inventory_item.id,
+                                quantity=Decimal("2"),
+                                price_per_unit=Decimal("100.00"),
+                            )
+                        ],
+                    ),
+                    actor=shop_user,
+                )
+
+                purchase_row = session.get(RetailerInventoryPurchase, purchase.id)
+                self.assertEqual(purchase_row.retailer_name, original_retailer_name)
+                self.assertEqual(purchase_row.shop_name, original_shop_name)
+
+                retailer_row = session.get(Retailer, retailer.id)
+                retailer_row.name = "Renamed Retailer"
+                retailer_row.shop_name = "Renamed Shop"
+                session.commit()
+
+                listed = await list_retailer_inventory_purchases(
+                    db,
+                    shop_id=current_shop.id,
+                    retailer_id=retailer.id,
+                )
+                listed_purchase = next(row for row in listed.items if row.id == purchase.id)
+                self.assertEqual(listed_purchase.retailer_name, original_retailer_name)
+                self.assertEqual(listed_purchase.shop_name, original_shop_name)
+
+        self.run_async(scenario())
+
+    def test_usage_party_names_are_snapshotted_and_survive_renames(self) -> None:
+        _actor, _shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, _chicken, inventory_item = (
+                    await self._prepare_shop_retailer_with_inventory(session)
+                )
+                await add_shop_inventory_stock(
+                    db,
+                    current_shop,
+                    inventory_item.id,
+                    InventoryAddRequest(
+                        quantity=Decimal("10"),
+                        driver_name="Driver",
+                        vehicle_number="TN01AB1234",
+                    ),
+                    actor=shop_user,
+                )
+                original_retailer_name = retailer.name
+                original_shop_name = retailer.shop_name
+
+                result = await record_retailer_inventory_usages_bulk(
+                    db,
+                    current_shop,
+                    RetailerInventoryUsageBulkCreate(
+                        retailer_id=retailer.id,
+                        lines=[
+                            RetailerInventoryUsageLine(
+                                inventory_item_id=inventory_item.id,
+                                category_id=None,
+                                quantity=Decimal("1"),
+                            )
+                        ],
+                    ),
+                    actor=shop_user,
+                )
+                usage_id = result.usages[0].id
+
+                usage_row = session.get(RetailerInventoryUsage, usage_id)
+                self.assertEqual(usage_row.retailer_name, original_retailer_name)
+                self.assertEqual(usage_row.shop_name, original_shop_name)
+
+                retailer_row = session.get(Retailer, retailer.id)
+                retailer_row.name = "Renamed Retailer"
+                retailer_row.shop_name = "Renamed Shop"
+                session.commit()
+
+                listed = await list_retailer_inventory_usages(
+                    db,
+                    shop_id=current_shop.id,
+                    retailer_id=retailer.id,
+                )
+                listed_usage = next(row for row in listed.items if row.id == usage_id)
+                self.assertEqual(listed_usage.retailer_name, original_retailer_name)
+                self.assertEqual(listed_usage.shop_name, original_shop_name)
 
         self.run_async(scenario())

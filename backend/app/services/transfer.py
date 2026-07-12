@@ -1,3 +1,4 @@
+from decimal import Decimal
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -38,11 +39,37 @@ from .inventory_backdate import prepare_inventory_occurred_at
 # =====================================================================
 
 
+def _transfer_shop_to_read(shop: TransferShop, *, has_history: bool) -> TransferShopRead:
+    return TransferShopRead(
+        id=shop.id,
+        name=shop.name,
+        tamil_name=shop.tamil_name,
+        is_active=shop.is_active,
+        has_history=has_history,
+        created_at=shop.created_at,
+        updated_at=shop.updated_at,
+    )
+
+
+async def _transfer_shop_has_history(db: AsyncSession, transfer_shop_id: UUID) -> bool:
+    return bool(
+        await db.scalar(
+            select(
+                select(InventoryTransfer.id)
+                .where(InventoryTransfer.transfer_shop_id == transfer_shop_id)
+                .limit(1)
+                .exists()
+            )
+        )
+    )
+
+
 async def get_transfer_shop(db: AsyncSession, transfer_shop_id: UUID) -> TransferShopRead:
     shop = await db.scalar(select(TransferShop).where(TransferShop.id == transfer_shop_id))
     if shop is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer shop not found")
-    return TransferShopRead.model_validate(shop)
+    has_history = await _transfer_shop_has_history(db, transfer_shop_id)
+    return _transfer_shop_to_read(shop, has_history=has_history)
 
 
 async def list_transfer_shops(
@@ -51,7 +78,13 @@ async def list_transfer_shops(
     q: str | None = None,
     active: bool | None = None,
 ) -> list[TransferShopRead]:
-    query = select(TransferShop)
+    has_history_expr = (
+        select(InventoryTransfer.id)
+        .where(InventoryTransfer.transfer_shop_id == TransferShop.id)
+        .limit(1)
+        .exists()
+    ).label("has_history")
+    query = select(TransferShop, has_history_expr)
     if active is not None:
         query = query.where(TransferShop.is_active == active)
     if q is not None and q.strip():
@@ -62,9 +95,11 @@ async def list_transfer_shops(
                 func.lower(TransferShop.tamil_name).like(search),
             )
         )
-    query = query.order_by(func.lower(TransferShop.name), TransferShop.id)
-    shops = (await db.scalars(query)).all()
-    return [TransferShopRead.model_validate(shop) for shop in shops]
+    query = query.order_by(desc(TransferShop.is_active), func.lower(TransferShop.name), TransferShop.id)
+    rows = (await db.execute(query)).all()
+    return [
+        _transfer_shop_to_read(shop, has_history=bool(has_history)) for shop, has_history in rows
+    ]
 
 
 async def create_transfer_shop(
@@ -94,7 +129,7 @@ async def create_transfer_shop(
 
     await db.commit()
     await db.refresh(shop)
-    return TransferShopRead.model_validate(shop)
+    return _transfer_shop_to_read(shop, has_history=False)
 
 
 async def update_transfer_shop(
@@ -132,7 +167,35 @@ async def update_transfer_shop(
         await db.commit()
         await db.refresh(shop)
 
-    return TransferShopRead.model_validate(shop)
+    has_history = await _transfer_shop_has_history(db, transfer_shop_id)
+    return _transfer_shop_to_read(shop, has_history=has_history)
+
+
+async def delete_transfer_shop(
+    db: AsyncSession, transfer_shop_id: UUID, user_id: UUID
+) -> None:
+    shop = await db.scalar(
+        select(TransferShop).where(TransferShop.id == transfer_shop_id).with_for_update()
+    )
+    if shop is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer shop not found")
+
+    if await _transfer_shop_has_history(db, transfer_shop_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete transfer shop with transfer history",
+        )
+
+    audit_log = AuditLog(
+        user_id=user_id,
+        action="transfer_shop_deleted",
+        entity_type="transfer_shop",
+        entity_id=shop.id,
+        details={"name": shop.name, "tamil_name": shop.tamil_name},
+    )
+    db.add(audit_log)
+    await db.delete(shop)
+    await db.commit()
 
 
 # =====================================================================
@@ -271,6 +334,9 @@ async def list_inventory_transfers(
     reference_date: date | None = None,
     range_start_date: date | None = None,
     range_end_date: date | None = None,
+    q: str | None = None,
+    unit: str | None = None,
+    quantity: Decimal | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> InventoryTransferPage:
@@ -280,6 +346,20 @@ async def list_inventory_transfers(
         .join(TransferShop, InventoryTransfer.transfer_shop_id == TransferShop.id)
         .join(InventoryItem, InventoryTransfer.inventory_item_id == InventoryItem.id)
     )
+
+    if q:
+        search = f"%{q.strip().lower()}%"
+        query = query.where(
+            or_(
+                func.lower(InventoryItem.name).like(search),
+                func.lower(InventoryItem.tamil_name).like(search),
+                func.lower(Shop.name).like(search)
+            )
+        )
+    if unit:
+        query = query.where(InventoryTransfer.unit == unit)
+    if quantity is not None:
+        query = query.where(InventoryTransfer.quantity == quantity)
 
     if transfer_shop_id is not None:
         query = query.where(InventoryTransfer.transfer_shop_id == transfer_shop_id)

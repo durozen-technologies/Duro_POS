@@ -12,11 +12,14 @@ import type {
   RetailerPaymentCreate,
   RetailerPaymentRecordResponse,
   RetailerRead,
+  RetailerSaleEditRequest,
   RetailerSalePage,
   RetailerSaleRead,
   RetailerSaleReceiptPage,
   RetailerSaleReceiptRead,
   RetailerUpdate,
+  RetailerWalletPayoutCreate,
+  RetailerWalletPayoutRead,
   UUID,
 } from "@/types/api";
 
@@ -65,6 +68,10 @@ export async function updateRetailer(retailerId: UUID, payload: RetailerUpdate) 
     payload,
   );
   return data;
+}
+
+export async function deleteRetailer(retailerId: UUID) {
+  await apiClient.delete(`/api/v1/admin/retailers/${retailerId}`);
 }
 
 export async function fetchShopRetailerCatalog(
@@ -172,6 +179,17 @@ export async function fetchRetailerBalance(retailerId: UUID) {
   return data;
 }
 
+export async function recordRetailerWalletPayout(
+  retailerId: UUID,
+  payload: RetailerWalletPayoutCreate,
+) {
+  const { data } = await apiClient.post<RetailerWalletPayoutRead>(
+    `/api/v1/admin/retailers/${retailerId}/wallet-payouts`,
+    payload,
+  );
+  return data;
+}
+
 export async function fetchRetailerBranchAllocations(retailerId: UUID) {
   const { data } = await apiClient.get<RetailerBranchAllocationRead[]>(
     `/api/v1/admin/retailers/${retailerId}/branches`,
@@ -230,6 +248,21 @@ export async function fetchAllAdminRetailerSales(params?: {
 export async function fetchAdminRetailerSale(saleId: UUID) {
   const { data } = await apiClient.get<RetailerSaleRead>(
     `/api/v1/admin/retailer-sales/${saleId}`,
+  );
+  return data;
+}
+
+export async function editAdminRetailerSale(saleId: UUID, payload: RetailerSaleEditRequest) {
+  const { data } = await apiClient.patch<RetailerSaleRead>(
+    `/api/v1/admin/retailer-sales/${saleId}`,
+    payload,
+  );
+  return data;
+}
+
+export async function cancelAdminRetailerSale(saleId: UUID) {
+  const { data } = await apiClient.post<RetailerSaleRead>(
+    `/api/v1/admin/retailer-sales/${saleId}/cancel`,
   );
   return data;
 }

@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
 from app.core.security import get_password_hash
-from app.services.session_invalidation import invalidate_user_sessions
 from app.db.storage import (
     delete_item_image_storage,
     save_item_image_upload,
@@ -47,6 +46,7 @@ from app.services.admin._shared import (
     _resolve_item_category,
     _shop_to_read,
 )
+from app.services.session_invalidation import invalidate_user_sessions
 from app.services.super_admin.organizations import assert_organization_can_add_branch
 from app.services.tenant_query import resolve_organization_id
 from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
@@ -403,6 +403,11 @@ async def update_item(
     if not configuration_changed and image is None and not should_remove_image:
         return _item_to_read(item)
 
+    if shop_id is None and item.is_active and not payload.is_active:
+        from app.services.admin.catalogue import remove_catalogue_item_from_all_shop_billing
+
+        await remove_catalogue_item_from_all_shop_billing(db, item_id)
+
     previous_image_object_key = item.image_object_key
     previous_thumbnail_object_key = item.image_thumbnail_object_key
     uploaded_image_object_key: str | None = None
@@ -564,6 +569,11 @@ async def update_item_metadata(
     )
     if not configuration_changed:
         return _item_to_read(item)
+
+    if shop_id is None and item.is_active and not next_is_active:
+        from app.services.admin.catalogue import remove_catalogue_item_from_all_shop_billing
+
+        await remove_catalogue_item_from_all_shop_billing(db, item_id)
 
     item.name = next_name
     item.tamil_name = next_tamil_name

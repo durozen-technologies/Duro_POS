@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
-import { FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Input, XStack, YStack } from "tamagui";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { type TransferShopRead, type UUID } from "@/types/api";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 

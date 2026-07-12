@@ -11,28 +11,35 @@ from .common import ORMModel
 
 class RetailerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    shop_name: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=30)
-    notes: str | None = Field(default=None, max_length=500)
+    alternate_phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=500)
     is_active: bool = True
 
 
 class RetailerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
+    shop_name: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=30)
-    notes: str | None = Field(default=None, max_length=500)
+    alternate_phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=500)
     is_active: bool | None = None
 
 
 class RetailerRead(ORMModel):
     id: UUID
     name: str
+    shop_name: str | None = None
     phone: str | None = None
-    notes: str | None = None
+    alternate_phone: str | None = None
+    address: str | None = None
     is_active: bool
     credit_balance: Decimal = Decimal("0.00")
     allocated_shop_count: int = 0
     outstanding_balance: Decimal = Decimal("0.00")
     branch_names: list[str] = []
+    can_delete: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -257,3 +264,45 @@ class RetailerSalePage(BaseModel):
 
 class RetailerPaymentCreate(BaseModel):
     payment: CheckoutPaymentInput
+
+
+class RetailerSaleAdminPaymentInput(BaseModel):
+    cash_amount: Decimal = Field(ge=0)
+    upi_amount: Decimal = Field(ge=0)
+    wallet_amount: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class RetailerSaleEditRequest(BaseModel):
+    items: list[RetailerSaleItemInput]
+    payment: RetailerSaleAdminPaymentInput
+
+    @model_validator(mode="after")
+    def validate_items(self) -> "RetailerSaleEditRequest":
+        if not self.items:
+            raise ValueError("At least one bill item is required")
+        return self
+
+
+class RetailerWalletPayoutCreate(BaseModel):
+    cash_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    upi_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    notes: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_amounts(self) -> "RetailerWalletPayoutCreate":
+        if self.cash_amount + self.upi_amount <= 0:
+            raise ValueError("At least one of cash or UPI amount is required")
+        return self
+
+
+class RetailerWalletPayoutRead(ORMModel):
+    id: UUID
+    retailer_id: UUID
+    cash_amount: Decimal
+    upi_amount: Decimal
+    total_paid: Decimal
+    credit_balance_before: Decimal
+    credit_balance_after: Decimal
+    notes: str | None = None
+    recorded_by_user_id: UUID
+    created_at: datetime

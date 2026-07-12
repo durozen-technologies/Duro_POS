@@ -25,6 +25,7 @@ class TransferShopRead(ORMModel):
     name: str
     tamil_name: str
     is_active: bool
+    has_history: bool = False
     created_at: datetime
     updated_at: datetime
 

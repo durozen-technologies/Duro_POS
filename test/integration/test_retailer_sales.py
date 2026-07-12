@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -9,21 +9,25 @@ from sqlalchemy import select
 
 from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
 
-from app.models import Item, Retailer, RetailerReceiptType, RetailerSaleStatus, Shop, User
+from app.models import Item, Retailer, RetailerItemPrice, RetailerReceiptType, RetailerSale, RetailerSaleStatus, Shop, User
 from app.schemas.billing import CheckoutPaymentInput
 from app.schemas.retailers import (
     RetailerCreate,
     RetailerItemPriceInput,
     RetailerPaymentCreate,
+    RetailerSaleAdminPaymentInput,
     RetailerSaleCheckoutCommitRequest,
     RetailerSaleCheckoutRequest,
+    RetailerSaleEditRequest,
     RetailerSaleItemInput,
 )
 from app.services.admin.catalogue import allocate_catalogue_item
 from app.services.reports import generate_admin_report_pdf
 from app.services.retailer_sale_number import format_retailer_sale_bill_no
 from app.services.retailer_sales import (
+    cancel_retailer_sale,
     create_retailer_sale,
+    edit_retailer_sale,
     get_retailer_sale,
     preview_retailer_sale,
     record_retailer_payment,
@@ -54,7 +58,7 @@ class RetailerSalesIntegrationTests(BackendTestCase):
         )
         duck = session.scalar(select(Item).where(Item.name == "Duck", Item.shop_id.is_(None)))
         await allocate_catalogue_item(db, current_shop, chicken.id)
-        retailer = await create_retailer(db, RetailerCreate(name="Wholesale Co"))
+        retailer = await create_retailer(db, RetailerCreate(name="Wholesale Co", shop_name="Corner Meat Shop"))
         await sync_retailer_branch_allocations(db, retailer.id, [current_shop.id])
         await sync_shop_retailer_item_catalog(db, current_shop.id, [chicken.id])
         await sync_retailer_item_prices(
@@ -137,6 +141,44 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 )
                 self.assertEqual(len(allocated_only.items), 2)
                 self.assertTrue(all(row.is_allocated for row in allocated_only.items))
+
+        self.run_async(scenario())
+
+    def test_retailer_prices_carry_forward_from_previous_day(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, _shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                yesterday = date.today() - timedelta(days=1)
+                existing_price = session.scalar(
+                    select(RetailerItemPrice).where(
+                        RetailerItemPrice.retailer_id == retailer.id,
+                        RetailerItemPrice.shop_id == current_shop.id,
+                        RetailerItemPrice.item_id == chicken.id,
+                    )
+                )
+                self.assertIsNotNone(existing_price)
+                existing_price.effective_date = yesterday
+                existing_price.price_per_unit = Decimal("142.50")
+                session.commit()
+
+                listing = await list_retailer_item_allocations(
+                    db, retailer.id, shop_id=current_shop.id
+                )
+                chicken_row = next(row for row in listing.items if row.item_id == chicken.id)
+                self.assertTrue(chicken_row.is_allocated)
+                self.assertEqual(chicken_row.price_per_unit, Decimal("142.50"))
+
+                prices = await list_retailer_item_prices(
+                    db, retailer.id, shop_id=current_shop.id
+                )
+                self.assertEqual(len(prices), 1)
+                self.assertEqual(prices[0].price_per_unit, Decimal("142.50"))
+                self.assertEqual(prices[0].effective_date, yesterday)
 
         self.run_async(scenario())
 
@@ -580,6 +622,104 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 session.refresh(retailer_row)
                 self.assertEqual(retailer_row.credit_balance, Decimal("200.00"))
 
+                today = datetime.now(UTC).date()
+                report = await generate_admin_report_pdf(
+                    db,
+                    sections=["retailers"],
+                    period="range",
+                    range_start_date=today - timedelta(days=1),
+                    range_end_date=today + timedelta(days=1),
+                    shop_ids=[current_shop.id],
+                    organization_id=current_shop.organization_id,
+                )
+                try:
+                    from pypdf import PdfReader
+
+                    data = report.file.read()
+                    text = " ".join(
+                        "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages).split()
+                    )
+                    self.assertIn("Wallet Credit", text)
+                    self.assertIn("Total Wallet Credit", text)
+                    self.assertIn("Current Wallet Credit", text)
+                    self.assertIn("200.00", text)
+                finally:
+                    report.file.close()
+
+        self.run_async(scenario())
+
+    def test_sale_party_names_are_snapshotted_and_survive_renames(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                original_retailer_name = retailer.name
+                original_shop_name = retailer.shop_name
+
+                payload = RetailerSaleCheckoutRequest(
+                    retailer_id=retailer.id,
+                    items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    payment=CheckoutPaymentInput(
+                        cash_amount=Decimal("100.00"),
+                        upi_amount=Decimal("0.00"),
+                    ),
+                )
+                preview = await preview_retailer_sale(db, current_shop, shop_user, payload)
+                sale_read = await create_retailer_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    RetailerSaleCheckoutCommitRequest(
+                        retailer_id=payload.retailer_id,
+                        items=payload.items,
+                        payment=payload.payment,
+                        checkout_token=preview.checkout_token,
+                    ),
+                )
+
+                sale_row = session.get(RetailerSale, sale_read.id)
+                self.assertEqual(sale_row.retailer_name, original_retailer_name)
+                self.assertEqual(sale_row.shop_name, original_shop_name)
+
+                retailer_row = session.get(Retailer, retailer.id)
+                retailer_row.name = "Renamed Retailer"
+                retailer_row.shop_name = "Renamed Shop"
+                session.commit()
+
+                refreshed = await get_retailer_sale(db, sale_read.id, shop_id=current_shop.id)
+                self.assertEqual(refreshed.retailer_name, original_retailer_name)
+                self.assertEqual(refreshed.shop_name, original_shop_name)
+
+                today = datetime.now(UTC).date()
+                report = await generate_admin_report_pdf(
+                    db,
+                    sections=["retailers"],
+                    period="range",
+                    range_start_date=today - timedelta(days=1),
+                    range_end_date=today + timedelta(days=1),
+                    shop_ids=[current_shop.id],
+                    organization_id=current_shop.organization_id,
+                )
+                try:
+                    from pypdf import PdfReader
+
+                    data = report.file.read()
+                    text = " ".join(
+                        "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages).split()
+                    )
+                    bill_no = format_retailer_sale_bill_no(sale_read.sale_no)
+                    sale_row_text = text.split(bill_no, 1)[1].split("Current Wallet Credit", 1)[0]
+                    self.assertIn(original_retailer_name, sale_row_text)
+                    self.assertIn(original_shop_name, sale_row_text)
+                    self.assertNotIn("Renamed Retailer", sale_row_text)
+                    self.assertNotIn("Renamed Shop", sale_row_text)
+                finally:
+                    report.file.close()
+
         self.run_async(scenario())
 
     def test_wallet_payment_rejects_insufficient_credit(self) -> None:
@@ -618,5 +758,122 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                         ),
                     )
                 self.assertEqual(ctx.exception.status_code, 422)
+
+        self.run_async(scenario())
+
+    async def _create_settled_sale(self, session):
+        db, shop_user, current_shop, retailer, chicken, _duck = await self._prepare_shop_retailer(
+            session
+        )
+        payload = RetailerSaleCheckoutRequest(
+            retailer_id=retailer.id,
+            items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("2"))],
+            payment=CheckoutPaymentInput(
+                cash_amount=Decimal("200.00"),
+                upi_amount=Decimal("0.00"),
+            ),
+        )
+        preview = await preview_retailer_sale(db, current_shop, shop_user, payload)
+        sale = await create_retailer_sale(
+            db,
+            current_shop,
+            shop_user,
+            RetailerSaleCheckoutCommitRequest(
+                retailer_id=payload.retailer_id,
+                items=payload.items,
+                payment=payload.payment,
+                checkout_token=preview.checkout_token,
+            ),
+        )
+        return db, shop_user, current_shop, retailer, chicken, sale
+
+    def test_admin_cancel_sale_within_24_hours(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, _current_shop, _retailer, _chicken, sale = (
+                    await self._create_settled_sale(session)
+                )
+                cancelled = await cancel_retailer_sale(db, shop_user, sale.id)
+                self.assertEqual(cancelled.status, RetailerSaleStatus.CANCELLED)
+
+        self.run_async(scenario())
+
+    def test_admin_cancel_sale_rejects_after_24_hours(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, _current_shop, _retailer, _chicken, sale = (
+                    await self._create_settled_sale(session)
+                )
+                row = session.get(RetailerSale, sale.id)
+                row.created_at = datetime.now(UTC) - timedelta(hours=25)
+                await db.commit()
+                with self.assertRaises(HTTPException) as ctx:
+                    await cancel_retailer_sale(db, shop_user, sale.id)
+                self.assertEqual(ctx.exception.status_code, 409)
+
+        self.run_async(scenario())
+
+    def test_admin_edit_sale_updates_items_and_payment(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, _current_shop, _retailer, chicken, sale = (
+                    await self._create_settled_sale(session)
+                )
+                edited = await edit_retailer_sale(
+                    db,
+                    shop_user,
+                    sale.id,
+                    RetailerSaleEditRequest(
+                        items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("3"))],
+                        payment=RetailerSaleAdminPaymentInput(
+                            cash_amount=Decimal("150.00"),
+                            upi_amount=Decimal("150.00"),
+                        ),
+                    ),
+                )
+                self.assertEqual(edited.status, RetailerSaleStatus.SETTLED)
+                self.assertEqual(edited.total_amount, Decimal("300.00"))
+                self.assertEqual(edited.balance_due, Decimal("0.00"))
+                self.assertEqual(len(edited.payments), 1)
+                self.assertEqual(edited.payments[0].cash_amount, Decimal("150.00"))
+                self.assertEqual(edited.payments[0].upi_amount, Decimal("150.00"))
+                self.assertEqual(edited.items[0].quantity, Decimal("3"))
+
+        self.run_async(scenario())
+
+    def test_admin_edit_sale_allows_partial_payment(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, _current_shop, _retailer, chicken, sale = (
+                    await self._create_settled_sale(session)
+                )
+                edited = await edit_retailer_sale(
+                    db,
+                    shop_user,
+                    sale.id,
+                    RetailerSaleEditRequest(
+                        items=[RetailerSaleItemInput(item_id=chicken.id, quantity=Decimal("3"))],
+                        payment=RetailerSaleAdminPaymentInput(
+                            cash_amount=Decimal("100.00"),
+                            upi_amount=Decimal("0.00"),
+                            wallet_amount=Decimal("0.00"),
+                        ),
+                    ),
+                )
+                self.assertEqual(edited.status, RetailerSaleStatus.PARTIAL)
+                self.assertEqual(edited.total_amount, Decimal("300.00"))
+                self.assertEqual(edited.balance_due, Decimal("200.00"))
 
         self.run_async(scenario())

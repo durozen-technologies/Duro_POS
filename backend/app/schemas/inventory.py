@@ -103,6 +103,7 @@ class InventoryItemRowsPage(BaseModel):
     next_cursor_sort_order: int | None = None
     next_cursor_name: str | None = None
     next_cursor_id: UUID | None = None
+    next_cursor_is_active: bool | None = None
 
 
 class InventoryItemCounts(BaseModel):
@@ -160,6 +161,7 @@ class InventoryItemStockRead(InventoryItemRead):
     used_bird_count: int = 0
     transfer_bird_count: int = 0
     retailer_used_bird_count: int = 0
+    stock_last_updated_at: datetime | None = None
     category_usage: list[InventoryCategoryUsageRead] = Field(default_factory=list)
 
 

@@ -66,6 +66,7 @@ async def get_inventory_item_rows(
     cursor_sort_order: ItemCursorSortOrderParam = None,
     cursor_name: ItemCursorNameParam = None,
     cursor_id: ItemCursorIdParam = None,
+    cursor_is_active: ItemCursorIsActiveParam = None,
 ) -> InventoryItemRowsPage:
     return await list_inventory_item_rows(
         db,
@@ -75,6 +76,7 @@ async def get_inventory_item_rows(
         cursor_sort_order=cursor_sort_order,
         cursor_name=cursor_name,
         cursor_id=cursor_id,
+        cursor_is_active=cursor_is_active,
     )
 
 

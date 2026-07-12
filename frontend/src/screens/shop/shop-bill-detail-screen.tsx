@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useLayoutEffect, useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, View } from "react-native";
 
 import {
   fetchShopBill,
@@ -25,6 +25,7 @@ import {
 import type { BillRead, ReceiptStatus } from "@/types/api";
 import { usePrinterStore } from "@/store/printer-store";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 function receiptStatusLabel(status: ReceiptStatus, t: ReturnType<typeof useShopTranslation>["t"]) {
   switch (status) {

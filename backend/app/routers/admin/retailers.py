@@ -24,24 +24,31 @@ from app.schemas.retailers import (
     RetailerPaymentCreate,
     RetailerPaymentRecordResponse,
     RetailerRead,
+    RetailerSaleEditRequest,
     RetailerSalePage,
     RetailerSaleRead,
     RetailerSaleReceiptPage,
     RetailerSaleReceiptRead,
     RetailerUpdate,
+    RetailerWalletPayoutCreate,
+    RetailerWalletPayoutRead,
     ShopRetailerCatalogSync,
 )
 from app.services.retailer_inventory_purchases import list_retailer_inventory_purchases
 from app.services.retailer_sales import (
+    cancel_retailer_sale,
+    edit_retailer_sale,
     get_retailer_sale,
     get_retailer_sale_receipt,
     list_retailer_sale_receipts,
     list_retailer_sales,
     record_retailer_payment,
 )
+from app.services.retailer_wallet_payouts import record_retailer_wallet_payout
 from app.services.retailers import (
     bulk_allocate_retailer_items,
     create_retailer,
+    delete_retailer,
     delete_retailer_item_allocation,
     get_retailer_balance,
     list_retailer_branch_allocations,
@@ -104,6 +111,19 @@ async def admin_update_retailer(
     db: DBSession,
 ) -> RetailerRead:
     return await update_retailer(db, retailer_id, payload)
+
+
+@router.delete(
+    "/retailers/{retailer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Delete retailer",
+)
+async def admin_delete_retailer(
+    retailer_id: UUID,
+    db: DBSession,
+) -> None:
+    await delete_retailer(db, retailer_id)
 
 
 @router.get(
@@ -257,6 +277,22 @@ async def admin_retailer_balance(
     return await get_retailer_balance(db, retailer_id)
 
 
+@router.post(
+    "/retailers/{retailer_id}/wallet-payouts",
+    response_model=RetailerWalletPayoutRead,
+    status_code=201,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Record wallet credit payout to retailer",
+)
+async def admin_record_retailer_wallet_payout(
+    retailer_id: UUID,
+    payload: RetailerWalletPayoutCreate,
+    db: DBSession,
+    ctx: Annotated[TenantContext, Depends(require_permission(RETAILERS_MANAGE))],
+) -> RetailerWalletPayoutRead:
+    return await record_retailer_wallet_payout(db, ctx.actor, retailer_id, payload)
+
+
 @router.get(
     "/retailers/{retailer_id}/inventory-purchases",
     response_model=RetailerInventoryPurchasePage,
@@ -337,6 +373,35 @@ async def admin_get_retailer_sale(
     db: DBSession,
 ) -> RetailerSaleRead:
     return await get_retailer_sale(db, sale_id)
+
+
+@router.patch(
+    "/retailer-sales/{sale_id}",
+    response_model=RetailerSaleRead,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Edit retailer sale (admin, 24h window)",
+)
+async def admin_edit_retailer_sale(
+    sale_id: UUID,
+    payload: RetailerSaleEditRequest,
+    db: DBSession,
+    ctx: Annotated[TenantContext, Depends(require_permission(RETAILERS_MANAGE))],
+) -> RetailerSaleRead:
+    return await edit_retailer_sale(db, ctx.actor, sale_id, payload)
+
+
+@router.post(
+    "/retailer-sales/{sale_id}/cancel",
+    response_model=RetailerSaleRead,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Cancel retailer sale (admin, 24h window)",
+)
+async def admin_cancel_retailer_sale(
+    sale_id: UUID,
+    db: DBSession,
+    ctx: Annotated[TenantContext, Depends(require_permission(RETAILERS_MANAGE))],
+) -> RetailerSaleRead:
+    return await cancel_retailer_sale(db, ctx.actor, sale_id)
 
 
 @router.post(

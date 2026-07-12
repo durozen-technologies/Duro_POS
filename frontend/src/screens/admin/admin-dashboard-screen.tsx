@@ -21,13 +21,14 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
 
-import { formatApiErrorMessage } from "@/api/client";
+import { formatApiErrorMessage, toApiError } from "@/api/client";
+import { cancelAdminBill } from "@/api/admin";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import type { AdminDashboardScreenProps } from "@/navigation/types";
 import { logout } from "@/store/auth-store";
 import { usePrinterStore } from "@/store/printer-store";
-import { AnalyticsPeriod, type BillRead, type ShopRead, type UUID } from "@/types/api";
+import { AnalyticsPeriod, type AdminBillSummary, type BillRead, type ShopRead, type UUID } from "@/types/api";
 
 import { createDateTimeFormat, formatDateValueInTimeZone, parseCalendarDate, todayDateValue } from "@/utils/format";
 import { adminElevation } from "./admin-dashboard-theme";
@@ -35,6 +36,7 @@ import { useAdminTheme } from "./use-admin-theme";
 import {
   AdminBillingTab,
 } from "./components/admin-dashboard-billing-tab";
+import { AdminShopBillEditModal } from "./components/admin-shop-bill-edit-modal";
 import { AdminPriceActionsFab } from "./components/admin-price-actions-fab";
 import {
   AdminDashboardTab,
@@ -209,6 +211,8 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const [billPreviewLoading, setBillPreviewLoading] = useState(false);
   const [selectedBillPreview, setSelectedBillPreview] = useState<BillRead | null>(null);
   const [printingAll, setPrintingAll] = useState(false);
+  const [editBill, setEditBill] = useState<BillRead | null>(null);
+  const [editBillOpen, setEditBillOpen] = useState(false);
 
   const debouncedItemSearch = useDebouncedValue(itemSearch.trim().toLowerCase());
   const toastAnimation = useRef(new Animated.Value(0)).current;
@@ -695,6 +699,52 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     void openBillPreview(billId);
   }, [openBillPreview]);
 
+  const handleBillEditConflict = useCallback(() => {
+    void loadDashboard(true);
+  }, [loadDashboard]);
+
+  const handleEditBill = useCallback((bill: AdminBillSummary) => {
+    void loadBillDetail(bill.bill_id)
+      .then((detail) => {
+        setEditBill(detail);
+        setEditBillOpen(true);
+      })
+      .catch((error) => {
+        const apiError = toApiError(error);
+        if (apiError.status === 409) {
+          void loadDashboard(true);
+          return;
+        }
+        showToast("error", formatApiErrorMessage(error, "Unable to load bill for editing."));
+      });
+  }, [loadBillDetail, loadDashboard, showToast]);
+
+  const handleCancelBill = useCallback((bill: AdminBillSummary) => {
+    Alert.alert(
+      "Cancel bill?",
+      `Cancel ${bill.bill_no}? This cannot be undone.`,
+      [
+        { text: "Keep bill", style: "cancel" },
+        {
+          text: "Cancel bill",
+          style: "destructive",
+          onPress: () => {
+            void cancelAdminBill(bill.bill_id)
+              .then(() => loadDashboard(true))
+              .catch((error) => {
+                const apiError = toApiError(error);
+                if (apiError.status === 409) {
+                  void loadDashboard(true);
+                  return;
+                }
+                showToast("error", formatApiErrorMessage(error, "Unable to cancel bill."));
+              });
+          },
+        },
+      ],
+    );
+  }, [loadDashboard, showToast]);
+
   const handleStartPrintAllBills = useCallback(() => {
     void handlePrintAllBills();
   }, [handlePrintAllBills]);
@@ -1117,6 +1167,8 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
             printingAll={printingAll}
             onRefresh={handleQuickRefresh}
             onOpenBill={handleOpenBillPreview}
+            onEditBill={handleEditBill}
+            onCancelBill={handleCancelBill}
             onPrintAll={handleStartPrintAllBills}
             onLoadMore={handleLoadMoreBills}
             onBackToSales={handleBackToSales}
@@ -1185,6 +1237,20 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         bottomInset={insets.bottom}
         loading={billPreviewLoading}
         bill={selectedBillPreview}
+      />
+
+      <AdminShopBillEditModal
+        visible={editBillOpen}
+        bill={editBill}
+        palette={palette}
+        onClose={() => {
+          setEditBillOpen(false);
+          setEditBill(null);
+        }}
+        onSaved={() => {
+          void loadDashboard(true);
+        }}
+        onConflict={handleBillEditConflict}
       />
 
       <ShopEditorSheet

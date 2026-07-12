@@ -50,7 +50,8 @@ export function saleMatchesSearchQuery(sale: RetailerSaleRead, searchQuery: stri
   if (!query) {
     return true;
   }
-  return sale.retailer_name.toLowerCase().includes(query);
+  return sale.retailer_name.toLowerCase().includes(query)
+    || sale.shop_name.toLowerCase().includes(query);
 }
 
 export function saleMatchesRetailerSalesFilters(

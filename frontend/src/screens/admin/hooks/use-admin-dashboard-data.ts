@@ -36,6 +36,7 @@ export type ShopDashboardRow = {
   upiTotal: string;
   expenseCashTotal: string;
   expenseUpiTotal: string;
+  purchaseTotal: string;
   billCount: number;
   lastActivityAt: string | null;
   status: ShopOperationalState;
@@ -257,6 +258,7 @@ export function useAdminDashboardData({
             totalSales: item.total_sales,
             expenseCashTotal: item.expense_cash_total ?? "0",
             expenseUpiTotal: item.expense_upi_total ?? "0",
+            purchaseTotal: item.purchase_amount ?? "0",
           },
         ]),
       ),
@@ -286,6 +288,7 @@ export function useAdminDashboardData({
         upiTotal: payment?.upiTotal ?? "0",
         expenseCashTotal: salesByShopId.get(shop.id)?.expenseCashTotal ?? "0",
         expenseUpiTotal: salesByShopId.get(shop.id)?.expenseUpiTotal ?? "0",
+        purchaseTotal: salesByShopId.get(shop.id)?.purchaseTotal ?? "0",
         billCount: billCountByShopId.get(shop.id) ?? 0,
         lastActivityAt,
         status: getShopStatus(shop, lastActivityAt),

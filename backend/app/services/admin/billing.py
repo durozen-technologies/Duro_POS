@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -30,6 +31,8 @@ from app.schemas.admin import (
 from app.schemas.billing import BillRead
 from app.services.admin.catalogue import _bill_to_read, _get_period_bounds
 from app.services.admin.shops import list_shops
+from app.services.billing import bill_counts_toward_sales_clause
+from app.services.reports.queries import compute_shop_purchase_amounts
 from app.services.tenant_query import get_shop_for_tenant_or_404
 
 
@@ -131,7 +134,7 @@ async def get_shop_sales_summary(
         await get_shop_for_tenant_or_404(db, shop_id, organization_id)
 
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
-    filters = [Bill.created_at >= start, Bill.created_at < end]
+    filters = [Bill.created_at >= start, Bill.created_at < end, bill_counts_toward_sales_clause()]
     if shop_id is not None:
         filters.append(Bill.shop_id == shop_id)
 
@@ -191,7 +194,7 @@ async def get_payment_split_summary(
         await get_shop_for_tenant_or_404(db, shop_id, organization_id)
 
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
-    filters = [Bill.created_at >= start, Bill.created_at < end]
+    filters = [Bill.created_at >= start, Bill.created_at < end, bill_counts_toward_sales_clause()]
     if shop_id is not None:
         filters.append(Bill.shop_id == shop_id)
 
@@ -281,6 +284,7 @@ async def get_daily_bills(
     base_filters = [Bill.created_at >= start, Bill.created_at < end]
     if shop_id is not None:
         base_filters.append(Bill.shop_id == shop_id)
+    aggregate_filters = [*base_filters, bill_counts_toward_sales_clause()]
     page_filters = list(base_filters)
     if cursor_created_at is not None:
         page_filters.append(
@@ -307,14 +311,14 @@ async def get_daily_bills(
                 func.max(Bill.created_at).label("last_bill_at"),
             )
             .join(Shop, Shop.id == Bill.shop_id)
-            .where(*base_filters, Shop.organization_id == organization_id)
+            .where(*aggregate_filters, Shop.organization_id == organization_id)
             .group_by(Bill.shop_id)
         )
         bills_result = await db.execute(bills_query)
         largest_result = await db.execute(
             select(Bill, Shop.name)
             .join(Shop, Shop.id == Bill.shop_id)
-            .where(*base_filters, Shop.organization_id == organization_id)
+            .where(*aggregate_filters, Shop.organization_id == organization_id)
             .order_by(Bill.total_amount.desc(), Bill.created_at.desc(), Bill.id.desc())
             .limit(1)
         )
@@ -423,7 +427,7 @@ async def get_item_sales_summary(
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
 
     # Build all filters upfront so the query is constructed in one pass.
-    filters = [Bill.created_at >= start, Bill.created_at < end]
+    filters = [Bill.created_at >= start, Bill.created_at < end, bill_counts_toward_sales_clause()]
     if shop_id is not None:
         filters.append(Bill.shop_id == shop_id)
 
@@ -489,6 +493,7 @@ async def get_dashboard_bootstrap(
     base_filters = [
         Bill.created_at >= start,
         Bill.created_at < end,
+        bill_counts_toward_sales_clause(),
     ]
     if shop_id is not None:
         base_filters.append(Bill.shop_id == shop_id)
@@ -538,6 +543,12 @@ async def get_dashboard_bootstrap(
 
     combined_query = combined_query.group_by(Shop.id, Shop.name).order_by(Shop.name)
     combined_rows = (await db.execute(combined_query)).all()
+    purchase_amounts = await compute_shop_purchase_amounts(
+        db,
+        start=start,
+        end=end,
+        shop_ids=[row.id for row in combined_rows],
+    )
 
     sales_summary = []
     payment_summary = []
@@ -551,6 +562,7 @@ async def get_dashboard_bootstrap(
                 total_sales=row.total_sales,
                 expense_cash_total=row.expense_cash_total,
                 expense_upi_total=row.expense_upi_total,
+                purchase_amount=purchase_amounts.get(row.id, Decimal("0")),
             )
         )
         payment_summary.append(

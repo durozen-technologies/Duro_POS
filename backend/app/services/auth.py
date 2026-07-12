@@ -17,8 +17,9 @@ from app.core.errors import (
     ACCOUNT_DISABLED_BY_SUPER_ADMIN,
     ORGANIZATION_DISABLED_BY_SUPER_ADMIN,
 )
-from app.core.login_rate_limit import enforce_login_rate_limit
 from app.core.logging import log_event
+from app.core.login_rate_limit import enforce_login_rate_limit
+from app.core.redis_cache import evict_user_permission_cache
 from app.core.security import (
     create_access_token_for_user,
     get_password_hash,
@@ -28,6 +29,7 @@ from app.db.tenant_context_var import reset_active_tenant_schema, set_active_ten
 from app.db.tenant_schema import (
     is_postgres_session,
     set_search_path,
+    tenant_router,
     tenant_schema_scope,
 )
 from app.models import (
@@ -41,7 +43,6 @@ from app.models import (
     UserRole,
 )
 from app.models.enums import is_super_admin, is_tenant_admin
-from app.services.session_invalidation import invalidate_user_sessions
 from app.schemas.auth import (
     LoginResponse,
     PasswordResetRequest,
@@ -50,6 +51,7 @@ from app.schemas.auth import (
     UserSession,
     normalize_username,
 )
+from app.services.session_invalidation import invalidate_user_sessions
 from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 
 logger = logging.getLogger(__name__)
@@ -263,9 +265,28 @@ async def _load_tenant_user(
 
 
 async def logout_user(db: AsyncSession, user: User) -> None:
-    await invalidate_user_sessions(user)
-    await db.flush()
-    await db.commit()
+    """Bump permissions_version in the schema where the user row lives."""
+
+    async def _persist_logout() -> None:
+        bound_user = await db.scalar(select(User).where(User.id == user.id).with_for_update())
+        if bound_user is None:
+            await evict_user_permission_cache(user.id, user.permissions_version)
+            return
+        await invalidate_user_sessions(bound_user)
+        await db.flush()
+        await db.commit()
+
+    if user.organization_id is None:
+        await _persist_logout()
+        return
+
+    schema_name = await tenant_router.resolve_schema(db, user.organization_id)
+    if schema_name is None:
+        await evict_user_permission_cache(user.id, user.permissions_version)
+        return
+
+    async with tenant_schema_scope(db, schema_name):
+        await _persist_logout()
 
 
 async def login_user(

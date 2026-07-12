@@ -298,17 +298,24 @@ const RadialAction = memo(function RadialAction({ action, index, palette, progre
       ]}
     >
       <View style={styles.orbitRow} pointerEvents="box-none">
-        <Animated.View
-          style={[
-            styles.labelChip,
-            adminElevation(1),
-            { backgroundColor: palette.card, opacity: labelOpacity, transform: [{ translateX: labelShift }] },
-          ]}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+          onPress={() => onPress(action)}
+          style={({ pressed }) => [pressed ? styles.actionPressed : null]}
         >
-          <Text style={[adminTypography.bodyStrong, styles.actionLabel, { color: palette.textPrimary }]}>
-            {action.label}
-          </Text>
-        </Animated.View>
+          <Animated.View
+            style={[
+              styles.labelChip,
+              adminElevation(1),
+              { backgroundColor: palette.card, opacity: labelOpacity, transform: [{ translateX: labelShift }] },
+            ]}
+          >
+            <Text style={[adminTypography.bodyStrong, styles.actionLabel, { color: palette.textPrimary }]}>
+              {action.label}
+            </Text>
+          </Animated.View>
+        </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={action.label}

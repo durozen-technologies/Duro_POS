@@ -13,6 +13,7 @@ from app.core.ids import uuid7
 from app.core.timezone import ist_midnight
 from app.models import (
     BaseUnit,
+    Retailer,
     RetailerInventoryUsage,
     Shop,
     User,
@@ -43,6 +44,32 @@ from .inventory import (
 )
 
 
+def _resolved_party_name(stored: str | None, live_name: str | None) -> str | None:
+    if stored:
+        return stored
+    return live_name
+
+
+def _retailer_shop_snapshot_name(retailer: Retailer | None) -> str:
+    if retailer is None or retailer.shop_name is None:
+        return ""
+    return retailer.shop_name.strip()
+
+
+async def _retailer_snapshot_name(db: AsyncSession, retailer_id: UUID | None) -> str:
+    if retailer_id is None:
+        return ""
+    retailer = await db.get(Retailer, retailer_id)
+    return retailer.name if retailer is not None else ""
+
+
+async def _retailer_shop_snapshot_name_for_id(db: AsyncSession, retailer_id: UUID | None) -> str:
+    if retailer_id is None:
+        return ""
+    retailer = await db.get(Retailer, retailer_id)
+    return _retailer_shop_snapshot_name(retailer)
+
+
 def _usage_to_read(usage: RetailerInventoryUsage) -> RetailerInventoryUsageRead:
     item = usage.item
     category = usage.category
@@ -52,9 +79,15 @@ def _usage_to_read(usage: RetailerInventoryUsage) -> RetailerInventoryUsageRead:
     return RetailerInventoryUsageRead(
         id=usage.id,
         shop_id=usage.shop_id,
-        shop_name=shop.name if shop is not None else None,
+        shop_name=_resolved_party_name(
+            usage.shop_name,
+            _retailer_shop_snapshot_name(retailer),
+        ),
         retailer_id=usage.retailer_id,
-        retailer_name=retailer.name if retailer is not None else None,
+        retailer_name=_resolved_party_name(
+            usage.retailer_name,
+            retailer.name if retailer is not None else None,
+        ),
         inventory_item_id=usage.inventory_item_id,
         inventory_item_name=item.name if item is not None else "",
         inventory_item_tamil_name=item.tamil_name if item is not None else None,
@@ -139,6 +172,8 @@ async def record_retailer_inventory_usages_bulk(
 ) -> RetailerInventoryUsageBulkResult:
     await ensure_retailer_at_shop(db, retailer_id=payload.retailer_id, shop_id=shop.id)
     occurred_at = await _prepare_occurred_at(db, actor=actor, shop=shop, raw=payload.occurred_at)
+    retailer_name = await _retailer_snapshot_name(db, payload.retailer_id)
+    shop_name = await _retailer_shop_snapshot_name_for_id(db, payload.retailer_id)
 
     lines_by_item: dict[UUID, list] = {}
     for line in payload.lines:
@@ -203,6 +238,8 @@ async def record_retailer_inventory_usages_bulk(
                 id=uuid7(),
                 shop_id=shop.id,
                 retailer_id=payload.retailer_id,
+                retailer_name=retailer_name,
+                shop_name=shop_name,
                 inventory_item_id=item.id,
                 category_id=line.category_id,
                 quantity=quantity,
@@ -294,11 +331,15 @@ async def admin_set_retailer_inventory_stock(
             await ensure_retailer_at_shop(
                 db, retailer_id=payload.retailer_id, shop_id=shop.id
             )
+        retailer_name = await _retailer_snapshot_name(db, payload.retailer_id)
+        shop_name = await _retailer_shop_snapshot_name_for_id(db, payload.retailer_id)
         adjustment_reason = payload.adjustment_reason
         if delta != ZERO:
             usage = RetailerInventoryUsage(
                 shop_id=shop.id,
                 retailer_id=payload.retailer_id,
+                retailer_name=retailer_name,
+                shop_name=shop_name,
                 inventory_item_id=item_id,
                 category_id=payload.category_id,
                 quantity=delta,
@@ -317,6 +358,8 @@ async def admin_set_retailer_inventory_stock(
                     RetailerInventoryUsage(
                         shop_id=shop.id,
                         retailer_id=payload.retailer_id,
+                        retailer_name=retailer_name,
+                        shop_name=shop_name,
                         inventory_item_id=item_id,
                         category_id=payload.category_id,
                         quantity=trace,
@@ -330,6 +373,8 @@ async def admin_set_retailer_inventory_stock(
                     RetailerInventoryUsage(
                         shop_id=shop.id,
                         retailer_id=payload.retailer_id,
+                        retailer_name=retailer_name,
+                        shop_name=shop_name,
                         inventory_item_id=item_id,
                         category_id=payload.category_id,
                         quantity=-trace,
@@ -344,6 +389,8 @@ async def admin_set_retailer_inventory_stock(
                     RetailerInventoryUsage(
                         shop_id=shop.id,
                         retailer_id=payload.retailer_id,
+                        retailer_name=retailer_name,
+                        shop_name=shop_name,
                         inventory_item_id=item_id,
                         category_id=payload.category_id,
                         quantity=trace,
@@ -357,6 +404,8 @@ async def admin_set_retailer_inventory_stock(
                     RetailerInventoryUsage(
                         shop_id=shop.id,
                         retailer_id=payload.retailer_id,
+                        retailer_name=retailer_name,
+                        shop_name=shop_name,
                         inventory_item_id=item_id,
                         category_id=payload.category_id,
                         quantity=-trace,

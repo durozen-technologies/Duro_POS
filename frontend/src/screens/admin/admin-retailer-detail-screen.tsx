@@ -16,16 +16,20 @@ import { fetchRetailerBalance, fetchRetailerBranchAllocations } from "@/api/reta
 import { formatApiErrorMessage } from "@/api/client";
 import type { AdminRetailerDetailScreenProps } from "@/navigation/types";
 import type { RetailerBalanceRead, RetailerInventoryPurchaseRead } from "@/types/api";
-import { formatCurrency, formatDateTime } from "@/utils/format";
+import { money } from "@/utils/decimal";
+import { formatCurrency } from "@/utils/format";
 
 import { adminRadii } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import { EmptyStateCard } from "./components/admin-dashboard-primitives";
 import { AdminHeaderActions } from "./components/admin-header-actions";
+import { AdminRetailerBillsTab } from "./components/admin-retailer-bills-tab";
 import { AdminRetailerPurchasesTab } from "./components/admin-retailer-purchases-tab";
+import { AdminRetailerStatementModal } from "./components/admin-retailer-statement-modal";
+import { AdminRetailerWalletPayoutModal } from "./components/admin-retailer-wallet-payout-modal";
 import { useAdminTheme } from "./use-admin-theme";
 
-type DetailTab = "overview" | "purchases";
+type DetailTab = "overview" | "bills" | "purchases";
 
 export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDetailScreenProps) {
   const retailer = route.params.retailer;
@@ -39,6 +43,11 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
   const [allocatedShopCount, setAllocatedShopCount] = useState(retailer.allocated_shop_count ?? 0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [statementModalOpen, setStatementModalOpen] = useState(false);
+  const [walletPayoutModalOpen, setWalletPayoutModalOpen] = useState(false);
+  const canShareStatement = money(balance?.outstanding_balance ?? 0).gt(0);
+  const canPayOutWallet = money(balance?.credit_balance ?? 0).gt(0);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -71,10 +80,11 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
   }, [retailer.id]);
 
   const load = useCallback(async () => {
+    setRefreshNonce((value) => value + 1);
     await Promise.all([loadOverview(), loadPurchases()]);
   }, [loadOverview, loadPurchases]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(useCallback(() => { void loadOverview(); void loadPurchases(); }, [loadOverview, loadPurchases]));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.background }} edges={["left", "right"]}>
@@ -95,9 +105,16 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
         <Pressable onPress={() => navigation.goBack()}>
           <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
-        <Text style={{ flex: 1, fontSize: 20, fontWeight: "900", color: palette.onShell }}>
-          {retailer.name}
-        </Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontSize: 20, fontWeight: "900", color: palette.onShell }} numberOfLines={1}>
+            {retailer.name}
+          </Text>
+          {retailer.shop_name ? (
+            <Text style={{ color: palette.onShellMuted, marginTop: 2, fontSize: 13 }} numberOfLines={1}>
+              {retailer.shop_name}
+            </Text>
+          ) : null}
+        </View>
         <AdminHeaderActions onRefresh={() => load()} refreshing={loading || purchasesLoading} />
       </View>
       <View
@@ -111,7 +128,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
           backgroundColor: palette.background,
         }}
       >
-        {(["overview", "purchases"] as const).map((tab) => {
+        {(["overview", "bills", "purchases"] as const).map((tab) => {
           const selected = activeTab === tab;
           return (
             <Pressable
@@ -134,16 +151,25 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 style={{
                   color: selected ? palette.primary : palette.textMuted,
                   fontWeight: "800",
-                  fontSize: 13,
+                  fontSize: 12,
                 }}
               >
-                {tab === "overview" ? "Overview" : "Inventory Purchases"}
+                {tab === "overview" ? "Overview" : tab === "bills" ? "Bills" : "Purchases"}
               </Text>
             </Pressable>
           );
         })}
       </View>
-      {activeTab === "purchases" ? (
+      {activeTab === "bills" ? (
+        <View style={{ flex: 1, padding: 16 }}>
+          <AdminRetailerBillsTab
+            retailerId={retailer.id}
+            palette={palette}
+            refreshNonce={refreshNonce}
+            onOpenSale={(saleId) => navigation.navigate("AdminRetailerSaleDetail", { saleId })}
+          />
+        </View>
+      ) : activeTab === "purchases" ? (
         <ScrollView contentContainerStyle={{ padding: 16 }}>
           <AdminRetailerPurchasesTab
             purchases={purchases}
@@ -187,6 +213,27 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
             <Text style={{ color: palette.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 6 }}>
               {formatCurrency(balance?.credit_balance ?? "0")}
             </Text>
+            <Pressable
+              onPress={() => {
+                if (!canPayOutWallet) {
+                  return;
+                }
+                triggerHaptic();
+                setWalletPayoutModalOpen(true);
+              }}
+              disabled={!canPayOutWallet}
+              style={{
+                marginTop: 10,
+                alignSelf: "flex-start",
+                borderRadius: adminRadii.control,
+                backgroundColor: palette.success,
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                opacity: canPayOutWallet ? 1 : 0.55,
+              }}
+            >
+              <Text style={{ color: "#ffffff", fontWeight: "700", fontSize: 13 }}>Pay out credit</Text>
+            </Pressable>
           </View>
           <View style={{ flexDirection: "row", gap: 12 }}>
             <Pressable
@@ -233,50 +280,75 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
               </Text>
             </Pressable>
           </View>
-          <Text style={{ color: palette.textPrimary, fontWeight: "700", marginTop: 8 }}>Open sales</Text>
-          {(balance?.open_sales ?? []).length === 0 ? (
-            <Text style={{ color: palette.textMuted }}>No open or partial sales.</Text>
-          ) : (
-            (balance?.open_sales ?? []).map((sale) => (
-              <Pressable
-                key={sale.id}
-                onPress={() => {
-                  triggerHaptic();
-                  navigation.navigate("AdminRetailerSaleDetail", { saleId: sale.id });
-                }}
-                style={{
-                  borderRadius: adminRadii.card,
-                  borderWidth: 1,
-                  borderColor: palette.border,
-                  backgroundColor: palette.card,
-                  padding: 12,
-                  marginBottom: 8,
-                }}
-              >
-                <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{sale.sale_no}</Text>
-                <Text style={{ color: palette.textMuted, marginTop: 4 }}>
-                  {sale.shop_name} · {formatDateTime(sale.created_at)}
-                </Text>
-                <Text
-                  style={{
-                    alignSelf: "flex-start",
-                    marginTop: 6,
-                    color: palette.textMuted,
-                    fontSize: 11,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {sale.status}
-                </Text>
-                <Text style={{ color: palette.warning, marginTop: 6, fontWeight: "700" }}>
-                  Balance {formatCurrency(sale.balance_due)}
-                </Text>
-              </Pressable>
-            ))
-          )}
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <Pressable
+              onPress={() => {
+                if (!canShareStatement) {
+                  return;
+                }
+                triggerHaptic();
+                setStatementModalOpen(true);
+              }}
+              disabled={!canShareStatement}
+              style={{
+                flex: 1,
+                borderRadius: adminRadii.card,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.card,
+                padding: 14,
+                opacity: canShareStatement ? 1 : 0.55,
+              }}
+            >
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Share Statement</Text>
+              <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
+                {canShareStatement
+                  ? "PDF statement with outstanding bills only"
+                  : "No outstanding balance to share"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                triggerHaptic();
+                setActiveTab("bills");
+              }}
+              style={{
+                flex: 1,
+                borderRadius: adminRadii.card,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.card,
+                padding: 14,
+              }}
+            >
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>View bills</Text>
+              <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
+                Pending and fully paid retailer bills
+              </Text>
+            </Pressable>
+          </View>
         </ScrollView>
       )}
+      <AdminRetailerStatementModal
+        visible={statementModalOpen}
+        retailer={retailer}
+        palette={palette}
+        onClose={() => setStatementModalOpen(false)}
+      />
+      <AdminRetailerWalletPayoutModal
+        visible={walletPayoutModalOpen}
+        retailer={retailer}
+        creditBalance={balance?.credit_balance ?? "0"}
+        palette={palette}
+        onClose={() => setWalletPayoutModalOpen(false)}
+        onSaved={(creditBalanceAfter) => {
+          setBalance((current) =>
+            current
+              ? { ...current, credit_balance: creditBalanceAfter }
+              : current,
+          );
+        }}
+      />
     </SafeAreaView>
   );
 }

@@ -21,6 +21,7 @@ from app.core.timezone import ist_month_key
 from app.db.tenant_context_var import get_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import set_search_path, tenant_router
 from app.models import (
+    AuditLog,
     Bill,
     BillItem,
     BillStatus,
@@ -38,11 +39,13 @@ from app.models import (
     ShopItemAllocation,
     User,
 )
+from app.models.enums import BaseUnit
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutPreviewRead,
     BillCheckoutRequest,
     BillCreateResult,
+    BillEditRequest,
     BillLineRead,
     BillRead,
     BillReceiptStatusUpdate,
@@ -57,6 +60,13 @@ TWOPLACES = Decimal("0.01")
 THREEPLACES = Decimal("0.001")
 CHECKOUT_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60
 CHECKOUT_SNAPSHOT_TTL = timedelta(hours=24)
+ADMIN_BILL_MODIFICATION_WINDOW = timedelta(hours=24)
+ACTIVE_BILL_STATUSES = (BillStatus.PAID, BillStatus.PENDING_PAYMENT)
+
+
+def bill_counts_toward_sales_clause():
+    """Exclude cancelled bills from sales/dashboard aggregates."""
+    return Bill.status.in_(ACTIVE_BILL_STATUSES)
 
 
 @dataclass(frozen=True)
@@ -791,3 +801,183 @@ async def begin_bill_reprint(db: AsyncSession, shop: Shop, bill_id: UUID) -> Bil
     bill.receipt.print_attempts += 1
     await db.commit()
     return await _bill_read_for_shop(db, shop, bill_id)
+
+
+def _bill_created_at_utc(created_at: datetime) -> datetime:
+    if created_at.tzinfo is None:
+        return created_at.replace(tzinfo=UTC)
+    return created_at.astimezone(UTC)
+
+
+def _assert_bill_within_admin_modification_window(bill: Bill) -> None:
+    age = datetime.now(UTC) - _bill_created_at_utc(bill.created_at)
+    if age >= ADMIN_BILL_MODIFICATION_WINDOW:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bill can only be modified within 24 hours of creation",
+        )
+
+
+def _assert_bill_admin_modifiable(bill: Bill) -> None:
+    if bill.status == BillStatus.CANCELLED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bill is already cancelled")
+    _assert_bill_within_admin_modification_window(bill)
+
+
+def _prepare_bill_edit_lines(
+    bill: Bill,
+    payload: BillEditRequest,
+) -> list[PreparedBillLine]:
+    existing_by_item = {line.item_id: line for line in bill.items}
+    payload_item_ids = {line.item_id for line in payload.items}
+    if set(existing_by_item) != payload_item_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Edited items must match the original bill items",
+        )
+
+    lines: list[PreparedBillLine] = []
+    for line_input in payload.items:
+        existing = existing_by_item[line_input.item_id]
+        item_name = (existing.item_name or "").strip()
+        if (
+            existing.item_base_unit == BaseUnit.UNIT
+            and line_input.quantity != line_input.quantity.to_integral_value()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"{item_name or 'Item'} only accepts integer unit quantities",
+            )
+        price_per_unit = _round_money(existing.price_per_unit)
+        line_total = _round_money(price_per_unit * line_input.quantity)
+        lines.append(
+            PreparedBillLine(
+                item_id=existing.item_id,
+                item_name=item_name,
+                item_tamil_name=existing.item_tamil_name,
+                item_unit_type=existing.item_unit_type,
+                item_base_unit=existing.item_base_unit,
+                quantity=line_input.quantity,
+                unit=existing.unit,
+                price_per_unit=price_per_unit,
+                line_total=line_total,
+            )
+        )
+
+    return lines
+
+
+async def _load_bill_for_admin(
+    db: AsyncSession,
+    bill_id: UUID,
+    organization_id: UUID,
+) -> Bill:
+    result = await db.execute(
+        select(Bill)
+        .join(Shop, Shop.id == Bill.shop_id)
+        .options(
+            selectinload(Bill.items).selectinload(BillItem.item),
+            selectinload(Bill.payment),
+            selectinload(Bill.receipt),
+            selectinload(Bill.shop).selectinload(Shop.organization),
+        )
+        .where(Bill.id == bill_id, Shop.organization_id == organization_id)
+    )
+    bill = result.scalar_one_or_none()
+    if bill is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bill not found")
+    if bill.payment is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bill payment not found")
+    return bill
+
+
+async def cancel_shop_bill(
+    db: AsyncSession,
+    user: User,
+    bill_id: UUID,
+    organization_id: UUID,
+) -> BillRead:
+    bill = await _load_bill_for_admin(db, bill_id, organization_id)
+    _assert_bill_admin_modifiable(bill)
+
+    bill.status = BillStatus.CANCELLED
+    shop = bill.shop or await db.get(Shop, bill.shop_id)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            organization_id=shop.organization_id if shop else None,
+            shop_id=bill.shop_id,
+            action="bill.cancelled",
+            entity_type="bill",
+            entity_id=bill.id,
+            details={"bill_no": bill.bill_no},
+        )
+    )
+    await db.commit()
+    return _bill_to_read(bill)
+
+
+async def edit_shop_bill(
+    db: AsyncSession,
+    user: User,
+    bill_id: UUID,
+    organization_id: UUID,
+    payload: BillEditRequest,
+) -> BillRead:
+    bill = await _load_bill_for_admin(db, bill_id, organization_id)
+    _assert_bill_admin_modifiable(bill)
+
+    lines = _prepare_bill_edit_lines(bill, payload)
+    total_amount = _round_money(sum((line.line_total for line in lines), Decimal("0.00")))
+    cash_amount = _round_money(payload.payment.cash_amount)
+    upi_amount = _round_money(payload.payment.upi_amount)
+    total_paid = _round_money(cash_amount + upi_amount)
+    balance = _round_money(total_amount - total_paid)
+
+    if total_paid < total_amount:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Payment pending. Balance: {balance}",
+        )
+    if total_paid > total_amount:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Payment exceeds total amount. Receipt remains blocked until corrected",
+        )
+
+    existing_by_item = {line.item_id: line for line in bill.items}
+    for prepared in lines:
+        existing = existing_by_item[prepared.item_id]
+        existing.quantity = prepared.quantity
+        existing.line_total = prepared.line_total
+
+    bill.total_amount = total_amount
+    bill.item_count = len(lines)
+    bill.total_quantity = sum((line.quantity for line in lines), Decimal("0"))
+
+    payment = bill.payment
+    payment.cash_amount = cash_amount
+    payment.upi_amount = upi_amount
+    payment.total_paid = total_paid
+    payment.balance = Decimal("0.00")
+    payment.is_settled = True
+
+    shop = bill.shop or await db.get(Shop, bill.shop_id)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            organization_id=shop.organization_id if shop else None,
+            shop_id=bill.shop_id,
+            action="bill.edited",
+            entity_type="bill",
+            entity_id=bill.id,
+            details={
+                "bill_no": bill.bill_no,
+                "total_amount": str(total_amount),
+                "cash_amount": str(cash_amount),
+                "upi_amount": str(upi_amount),
+            },
+        )
+    )
+    await db.commit()
+    return _bill_to_read(bill)

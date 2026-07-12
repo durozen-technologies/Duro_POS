@@ -5,7 +5,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 
 import { AdminConfirmDeleteModal, type ConfirmDeleteCredentials } from "./components/admin-confirm-delete-modal";
 import { useAuthStore } from "@/store/auth-store";
@@ -839,11 +839,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     } catch (requestError) {
       triggerHaptic();
       const message = getRequestErrorMessage(requestError, "Unable to save item.");
-      if (hasImageChange) {
-        setImageError(message);
-      } else {
-        setSaveError(message);
-      }
+      setSaveError(message);
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -854,6 +850,39 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     triggerHaptic();
     setSaveError("Fix the highlighted fields before saving.");
   });
+
+  const handleActiveToggle = useCallback(
+    (nextValue: boolean) => {
+      if (nextValue) {
+        setValue("isActive", true, { shouldDirty: true, shouldValidate: true });
+        return;
+      }
+      const shopNames = item?.allocated_shop_names ?? [];
+      const hasMappedBranches =
+        usesCatalogueEndpoint && (shopNames.length > 0 || (item?.allocated_shop_count ?? 0) > 0);
+      if (!hasMappedBranches) {
+        setValue("isActive", false, { shouldDirty: true, shouldValidate: true });
+        return;
+      }
+      const branchLines = shopNames.length > 0
+        ? shopNames.map((name) => `• ${name}`).join("\n")
+        : `• ${item?.allocated_shop_count ?? 0} mapped branch(es)`;
+      Alert.alert(
+        "Deactivate item?",
+        `This item will be removed from billing at these branches and will no longer be available:\n\n${branchLines}`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Deactivate",
+            style: "destructive",
+            onPress: () =>
+              setValue("isActive", false, { shouldDirty: true, shouldValidate: true }),
+          },
+        ],
+      );
+    },
+    [item, setValue, usesCatalogueEndpoint],
+  );
 
   const saveItem = useCallback(() => {
     if (saveDisabled || savingRef.current || deletingRef.current) {
@@ -1112,6 +1141,30 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             </>
           ) : null}
 
+          <View
+            style={[
+              styles.activeToggleRow,
+              { borderColor: palette.border, backgroundColor: palette.card },
+            ]}
+          >
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>
+                {isActive ? "Active" : "Inactive"}
+              </Text>
+              <Text style={[styles.sectionHint, { color: palette.textMuted }]}>
+                {isActive
+                  ? "Item is available for billing where allocated."
+                  : "Inactive items are hidden from billing."}
+              </Text>
+            </View>
+            <Switch
+              value={isActive}
+              onValueChange={handleActiveToggle}
+              trackColor={{ false: palette.border, true: palette.primarySoft }}
+              thumbColor={isActive ? palette.primary : palette.textMuted}
+            />
+          </View>
+
           <XStack gap={adminSpacing.sm}>
             <EditorButton label="Cancel" icon="close-circle-outline" onPress={() => navigation.goBack()} palette={palette} flex tone="warning" active />
             <EditorButton
@@ -1128,13 +1181,19 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           </XStack>
           {canDeleteItem ? (
             <EditorButton
-              label={deleting ? "Deleting..." : "Delete item"}
+              label={
+                item?.can_delete === false
+                  ? "Cannot delete - has billing history"
+                  : deleting
+                    ? "Deleting..."
+                    : "Delete item"
+              }
               icon="trash-can-outline"
               onPress={openDeleteConfirm}
               palette={palette}
               tone="danger"
-              active
-              disabled={saving || deleting}
+              active={item?.can_delete !== false}
+              disabled={saving || deleting || item?.can_delete === false}
               loading={deleting}
             />
           ) : null}
@@ -1696,6 +1755,14 @@ const styles = StyleSheet.create({
   },
   sectionHint: {
     ...adminTypography.body,
+  },
+  activeToggleRow: {
+    borderWidth: 1,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: adminSpacing.sm,
   },
   imageMessage: {
     ...adminTypography.bodyStrong,

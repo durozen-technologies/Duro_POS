@@ -50,6 +50,7 @@ export enum ItemScope {
 export enum BillStatus {
   PENDING_PAYMENT = "pending_payment",
   PAID = "paid",
+  CANCELLED = "cancelled",
 }
 
 export interface UserSession {
@@ -172,6 +173,7 @@ export interface InventoryItemRowsPage {
   next_cursor_sort_order?: number | null;
   next_cursor_name?: string | null;
   next_cursor_id?: UUID | null;
+  next_cursor_is_active?: boolean | null;
 }
 
 export interface InventoryItemCounts {
@@ -217,6 +219,7 @@ export interface InventoryItemStockRead extends InventoryItemRead {
   used_bird_count?: number;
   transfer_bird_count?: number;
   retailer_used_bird_count?: number;
+  stock_last_updated_at?: string | null;
   category_usage: InventoryCategoryUsageRead[];
 }
 
@@ -672,6 +675,7 @@ export interface ShopItemRead extends ItemRead {
   bill_count: number;
   price_count: number;
   allocated_shop_count: number;
+  allocated_shop_names?: string[];
 }
 
 export interface ShopItemCounts {
@@ -757,6 +761,16 @@ export interface BillCheckoutRequest {
 
 export interface BillCheckoutCommitRequest extends BillCheckoutRequest {
   checkout_token: string;
+}
+
+export interface BillEditPaymentInput {
+  cash_amount: string;
+  upi_amount: string;
+}
+
+export interface BillEditRequest {
+  items: BillItemInput[];
+  payment: BillEditPaymentInput;
 }
 
 export interface BillLineRead {
@@ -889,6 +903,7 @@ export interface ShopSalesSummary {
   total_sales: string;
   expense_cash_total?: string;
   expense_upi_total?: string;
+  purchase_amount?: string;
 }
 
 export interface PaymentSplitSummary {
@@ -1100,6 +1115,7 @@ export interface TransferShopRead {
   name: string;
   tamil_name: string;
   is_active: boolean;
+  has_history: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1116,17 +1132,21 @@ export enum RetailerSaleStatus {
   PARTIAL = "partial",
   SETTLED = "settled",
   VOID = "void",
+  CANCELLED = "cancelled",
 }
 
 export interface RetailerRead {
   id: UUID;
   name: string;
+  shop_name?: string | null;
   phone?: string | null;
-  notes?: string | null;
+  alternate_phone?: string | null;
+  address?: string | null;
   is_active: boolean;
   allocated_shop_count?: number;
   outstanding_balance?: string | null;
   branch_names?: string[];
+  can_delete?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1156,15 +1176,19 @@ export interface RetailerPage {
 
 export interface RetailerCreate {
   name: string;
+  shop_name?: string | null;
   phone?: string | null;
-  notes?: string | null;
+  alternate_phone?: string | null;
+  address?: string | null;
   is_active?: boolean;
 }
 
 export interface RetailerUpdate {
   name?: string | null;
+  shop_name?: string | null;
   phone?: string | null;
-  notes?: string | null;
+  alternate_phone?: string | null;
+  address?: string | null;
   is_active?: boolean | null;
 }
 
@@ -1257,6 +1281,25 @@ export interface RetailerWalletRead {
   retailer_id: UUID;
   retailer_name: string;
   credit_balance: string;
+}
+
+export interface RetailerWalletPayoutCreate {
+  cash_amount: string;
+  upi_amount: string;
+  notes?: string | null;
+}
+
+export interface RetailerWalletPayoutRead {
+  id: UUID;
+  retailer_id: UUID;
+  cash_amount: string;
+  upi_amount: string;
+  total_paid: string;
+  credit_balance_before: string;
+  credit_balance_after: string;
+  notes?: string | null;
+  recorded_by_user_id: UUID;
+  created_at: string;
 }
 
 export interface RetailerSaleLineRead {
@@ -1356,4 +1399,15 @@ export interface RetailerSaleCheckoutCommitRequest extends RetailerSaleCheckoutR
 
 export interface RetailerPaymentCreate {
   payment: CheckoutPaymentInput;
+}
+
+export interface RetailerSaleAdminPaymentInput {
+  cash_amount: string;
+  upi_amount: string;
+  wallet_amount?: string;
+}
+
+export interface RetailerSaleEditRequest {
+  items: RetailerSaleItemInput[];
+  payment: RetailerSaleAdminPaymentInput;
 }

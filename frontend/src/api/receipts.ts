@@ -62,6 +62,9 @@ function formatReceiptOrganizationName(organizationName: string, language?: Shop
 export const RECEIPT_EXPORT_WEBVIEW_SCRIPT =
   "window.__EXPORT_RECEIPT_IMAGE__ && window.__EXPORT_RECEIPT_IMAGE__(); true;";
 
+export const RECEIPT_SHARE_EXPORT_WEBVIEW_SCRIPT =
+  "window.__EXPORT_RECEIPT_SHARE_IMAGE__ && window.__EXPORT_RECEIPT_SHARE_IMAGE__(); true;";
+
 function buildReceiptImageExportScript() {
   return `
         <script>
@@ -719,6 +722,27 @@ function buildReceiptImageExportScript() {
               return canvas;
             }
 
+            function renderReceiptToShareCanvas(payload) {
+              var marginTop = 24;
+              var marginLeft = 20;
+              var marginRight = 20;
+              var scale = 2;
+              var receiptCanvas = renderReceiptToCanvas(payload);
+              var outputCanvas = document.createElement("canvas");
+              outputCanvas.width = receiptCanvas.width + (marginLeft + marginRight) * scale;
+              outputCanvas.height = receiptCanvas.height + marginTop * scale;
+
+              var outputContext = outputCanvas.getContext("2d");
+              if (!outputContext) {
+                throw new Error("Canvas context is unavailable.");
+              }
+
+              outputContext.fillStyle = "#FFFFFF";
+              outputContext.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+              outputContext.drawImage(receiptCanvas, marginLeft * scale, marginTop * scale);
+              return outputCanvas;
+            }
+
             window.__EXPORT_RECEIPT_IMAGE__ = async function () {
               try {
                 await waitForFonts();
@@ -726,6 +750,25 @@ function buildReceiptImageExportScript() {
                 var canvas = renderReceiptToCanvas(payload);
                 var base64Chunks = sliceCanvasToBase64Chunks(canvas);
                 postMessage({ type: "receipt-export", payload: base64Chunks });
+              } catch (error) {
+                postMessage({
+                  type: "receipt-export-error",
+                  payload: error instanceof Error ? error.message : String(error),
+                });
+              }
+            };
+
+            window.__EXPORT_RECEIPT_SHARE_IMAGE__ = async function () {
+              try {
+                await waitForFonts();
+                var payload = loadReceiptExportPayload();
+                var canvas = renderReceiptToShareCanvas(payload);
+                postMessage({
+                  type: "receipt-share-export",
+                  payload: canvas
+                    .toDataURL("image/png")
+                    .replace(/^data:image\\/png;base64,/, ""),
+                });
               } catch (error) {
                 postMessage({
                   type: "receipt-export-error",
@@ -885,6 +928,11 @@ export function buildReceiptHtmlMarkup(
             font-weight: 800;
             line-height: 1.15;
           }
+          .bill-meta-shop {
+            font-size: 19px;
+            font-weight: 800;
+            line-height: 1.15;
+          }
           .bill-meta-primary {
             font-size: 19px;
             font-weight: 800;
@@ -1018,6 +1066,7 @@ export function buildReceiptHtmlMarkup(
             .header-sub  { font-size: 17px; }
             .bill-meta          { font-size: 13px; }
             .bill-meta-purchaser { font-size: 20px; }
+            .bill-meta-shop { font-size: 17px; }
             .bill-meta-primary  { font-size: 17px; }
             .item-name   { font-size: 16px; }
             .item-qty    { font-size: 17px; }
@@ -1246,7 +1295,7 @@ export function retailerSaleToBillRead(
     bill_no: sale.sale_no,
     shop_id: sale.shop_id,
     shop_name: sale.shop_name,
-    organization_name: `${sale.organization_name}\nRetailer Sale · ${sale.retailer_name}`,
+    organization_name: `${sale.organization_name}\nRetailer Sale · ${sale.retailer_name}\n${sale.shop_name}`,
     total_amount: sale.total_amount,
     status:
       Number(balanceAtInvoice) === 0 ? BillStatus.PAID : BillStatus.PENDING_PAYMENT,

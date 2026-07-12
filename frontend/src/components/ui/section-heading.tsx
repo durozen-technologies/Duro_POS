@@ -1,6 +1,7 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
 
 import { cn } from "@/utils/cn";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type SectionHeadingProps = {
   title: string;

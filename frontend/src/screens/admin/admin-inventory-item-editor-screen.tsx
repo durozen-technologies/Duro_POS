@@ -535,6 +535,17 @@ export function AdminInventoryItemEditorScreen({
               <ActionButton label="Cancel" icon="close-circle-outline" palette={palette} onPress={() => navigation.goBack()} />
               <ActionButton label={saving ? "Saving" : "Save"} icon="content-save-outline" palette={palette} tone="primary" active loading={saving} onPress={() => void saveItem()} />
             </View>
+            {isEdit ? (
+              <ActionButton
+                label="Cannot delete - has billing history"
+                icon="trash-can-outline"
+                palette={palette}
+                tone="danger"
+                active={false}
+                disabled={true}
+                onPress={() => {}}
+              />
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -698,6 +709,7 @@ function ActionButton({
   tone,
   active = false,
   loading = false,
+  disabled = false,
   onPress,
 }: {
   label: string;
@@ -706,6 +718,7 @@ function ActionButton({
   tone?: "primary" | "neutral" | "danger" | "success" | "warning" | "info";
   active?: boolean;
   loading?: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   let fg = active ? palette.onPrimary : palette.textPrimary;
@@ -734,13 +747,15 @@ function ActionButton({
     border = palette.primary;
   }
 
+  const isActuallyDisabled = loading || disabled;
+
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: loading }}
-      disabled={loading}
+      accessibilityState={{ disabled: isActuallyDisabled }}
+      disabled={isActuallyDisabled}
       onPress={onPress}
-      style={[styles.actionButton, { borderColor: border, backgroundColor: bg, opacity: loading ? 0.65 : 1 }]}
+      style={[styles.actionButton, { borderColor: border, backgroundColor: bg, opacity: isActuallyDisabled ? 0.65 : 1 }]}
     >
       <MaterialCommunityIcons name={icon} size={16} color={fg} />
       <Text numberOfLines={1} style={[styles.actionText, { color: fg }]}>{loading ? "..." : label}</Text>

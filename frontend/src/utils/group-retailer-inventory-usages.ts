@@ -14,6 +14,7 @@ export type GroupedRetailerInventoryUsage = {
   inventory_item_tamil_name?: string | null;
   retailer_id?: UUID | null;
   retailer_name?: string | null;
+  shop_name?: string | null;
   unit: BaseUnit;
   occurred_at: string;
   created_at: string;
@@ -61,6 +62,7 @@ export function groupRetailerInventoryUsages(
       inventory_item_tamil_name: head.inventory_item_tamil_name,
       retailer_id: head.retailer_id,
       retailer_name: head.retailer_name,
+      shop_name: head.shop_name,
       unit: head.unit,
       occurred_at: head.occurred_at,
       created_at: head.created_at,

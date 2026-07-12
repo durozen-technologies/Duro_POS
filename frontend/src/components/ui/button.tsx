@@ -1,8 +1,9 @@
 import * as Haptics from "expo-haptics";
 import { memo } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { cn } from "@/utils/cn";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type ButtonProps = {
   label: string;

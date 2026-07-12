@@ -125,7 +125,7 @@ export function RetailerPicker({
     return retailers.filter(
       (retailer) =>
         retailer.name.toLowerCase().includes(normalized) ||
-        (retailer.phone && retailer.phone.includes(normalized)),
+        (retailer.shop_name && retailer.shop_name.toLowerCase().includes(normalized)),
     );
   }, [query, retailers]);
 
@@ -206,7 +206,7 @@ export function RetailerPicker({
                         {item.name}
                       </Text>
                       <Text numberOfLines={1} style={[styles.shopOptionTamilText, { color: palette.textSecondary }]}>
-                        {item.phone || "No phone"}
+                        {item.shop_name || "No shop name"}
                       </Text>
                     </View>
                   </Pressable>

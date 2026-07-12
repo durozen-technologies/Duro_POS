@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { memo, useCallback, useLayoutEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, Pressable, TextInput, View } from "react-native";
 
 import { fetchRetailerCatalog } from "@/api/retailer-sales";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
@@ -28,6 +28,7 @@ import { BaseUnit, type RetailerCatalogItemRead, type UUID } from "@/types/api";
 import { money, toQuantityString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
 import { getItemThumbnailUri, prefetchItemThumbnails } from "@/utils/item-images";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type CatalogCardProps = {
   item: RetailerCatalogItemRead;

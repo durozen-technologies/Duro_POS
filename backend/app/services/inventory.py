@@ -37,6 +37,7 @@ from app.models import (
     TransferShop,
     User,
 )
+from app.models.inventory import InventoryMovementSplit
 from app.schemas.inventory import (
     InventoryAddRequest,
     InventoryBillingItemMappingRead,
@@ -588,6 +589,26 @@ async def delete_inventory_category(db: AsyncSession, category_id: UUID) -> None
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete an inventory category with movement history",
         )
+    has_movement_splits = await db.scalar(
+        select(InventoryMovementSplit.id)
+        .where(InventoryMovementSplit.category_id == category_id)
+        .limit(1)
+    )
+    if has_movement_splits is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete an inventory category with movement history",
+        )
+    has_retailer_usage = await db.scalar(
+        select(RetailerInventoryUsage.id)
+        .where(RetailerInventoryUsage.category_id == category_id)
+        .limit(1)
+    )
+    if has_retailer_usage is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete an inventory category with retailer usage history",
+        )
     await db.delete(category)
     await db.commit()
 
@@ -656,10 +677,35 @@ def _inventory_item_cursor_filter(
     cursor_sort_order: int | None,
     cursor_name: str | None,
     cursor_id: UUID | None,
+    cursor_is_active: bool | None = None,
 ):
     if cursor_name is None or cursor_id is None:
         return None
     sort_name_expr = func.lower(InventoryItem.name)
+    
+    if cursor_is_active is not None:
+        if cursor_sort_order is None:
+            cursor_sort_order = 0
+            
+        return or_(
+            and_(InventoryItem.is_active.is_(False), cursor_is_active is True),
+            and_(
+                InventoryItem.is_active.is_(cursor_is_active),
+                InventoryItem.sort_order > cursor_sort_order,
+            ),
+            and_(
+                InventoryItem.is_active.is_(cursor_is_active),
+                InventoryItem.sort_order == cursor_sort_order,
+                sort_name_expr > cursor_name.lower(),
+            ),
+            and_(
+                InventoryItem.is_active.is_(cursor_is_active),
+                InventoryItem.sort_order == cursor_sort_order,
+                sort_name_expr == cursor_name.lower(),
+                InventoryItem.id > cursor_id,
+            ),
+        )
+
     if cursor_sort_order is None:
         return or_(
             sort_name_expr > cursor_name.lower(),
@@ -793,12 +839,14 @@ async def list_inventory_item_rows(
     cursor_sort_order: int | None = None,
     cursor_name: str | None = None,
     cursor_id: UUID | None = None,
+    cursor_is_active: bool | None = None,
 ) -> InventoryItemRowsPage:
     query = _inventory_items_row_query(q=q, active=active)
     cursor_condition = _inventory_item_cursor_filter(
         cursor_sort_order,
         cursor_name,
         cursor_id,
+        cursor_is_active,
     )
     if cursor_condition is not None:
         query = query.where(cursor_condition)
@@ -806,6 +854,7 @@ async def list_inventory_item_rows(
     rows = (
         await db.execute(
             query.order_by(
+                InventoryItem.is_active.desc(),
                 InventoryItem.sort_order,
                 func.lower(InventoryItem.name),
                 InventoryItem.id,
@@ -818,12 +867,13 @@ async def list_inventory_item_rows(
     categories_by_item_id = await _categories_by_inventory_item_id(db, item_ids)
     item_mappings_by_item_id = await _billing_mappings_by_inventory_item_id(db, item_ids)
 
-    next_cursor_sort_order = next_cursor_name = next_cursor_id = None
+    next_cursor_sort_order = next_cursor_name = next_cursor_id = next_cursor_is_active = None
     if has_more and page_rows:
         last_row = page_rows[-1]
         next_cursor_sort_order = last_row.sort_order
         next_cursor_name = last_row.name.lower()
         next_cursor_id = last_row.id
+        next_cursor_is_active = last_row.is_active
 
     return InventoryItemRowsPage(
         items=[
@@ -839,6 +889,7 @@ async def list_inventory_item_rows(
         next_cursor_sort_order=next_cursor_sort_order,
         next_cursor_name=next_cursor_name,
         next_cursor_id=next_cursor_id,
+        next_cursor_is_active=next_cursor_is_active,
     )
 
 
@@ -1445,6 +1496,75 @@ async def _retailer_usage_totals(
     return item_totals, category_totals, item_bird_totals, category_bird_totals
 
 
+async def _stock_last_updated_at_by_item_id(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+) -> dict[UUID, datetime | None]:
+    unique_item_ids = list(dict.fromkeys(item_ids))
+    if not unique_item_ids:
+        return {}
+
+    last_updated: dict[UUID, datetime | None] = dict.fromkeys(unique_item_ids)
+
+    def _apply_rows(rows: list[object]) -> None:
+        for row in rows:
+            item_id = row.inventory_item_id
+            occurred_at = row.last_at
+            if occurred_at is None:
+                continue
+            current = last_updated.get(item_id)
+            if current is None or occurred_at > current:
+                last_updated[item_id] = occurred_at
+
+    movement_rows = (
+        await db.execute(
+            select(
+                InventoryMovement.inventory_item_id,
+                func.max(InventoryMovement.occurred_at).label("last_at"),
+            )
+            .where(
+                InventoryMovement.shop_id == shop_id,
+                InventoryMovement.inventory_item_id.in_(unique_item_ids),
+            )
+            .group_by(InventoryMovement.inventory_item_id)
+        )
+    ).all()
+    _apply_rows(movement_rows)
+
+    usage_rows = (
+        await db.execute(
+            select(
+                RetailerInventoryUsage.inventory_item_id,
+                func.max(RetailerInventoryUsage.occurred_at).label("last_at"),
+            )
+            .where(
+                RetailerInventoryUsage.shop_id == shop_id,
+                RetailerInventoryUsage.inventory_item_id.in_(unique_item_ids),
+            )
+            .group_by(RetailerInventoryUsage.inventory_item_id)
+        )
+    ).all()
+    _apply_rows(usage_rows)
+
+    transfer_rows = (
+        await db.execute(
+            select(
+                InventoryTransfer.inventory_item_id,
+                func.max(InventoryTransfer.occurred_at).label("last_at"),
+            )
+            .where(
+                InventoryTransfer.source_shop_id == shop_id,
+                InventoryTransfer.inventory_item_id.in_(unique_item_ids),
+            )
+            .group_by(InventoryTransfer.inventory_item_id)
+        )
+    ).all()
+    _apply_rows(transfer_rows)
+
+    return last_updated
+
+
 def _stock_item_from_inventory_item(
     item: InventoryItem,
     *,
@@ -1463,6 +1583,7 @@ def _stock_item_from_inventory_item(
     category_retailer_used: dict[tuple[UUID, UUID], Decimal] | None = None,
     category_used_bird: dict[tuple[UUID, UUID], int] | None = None,
     category_retailer_used_bird: dict[tuple[UUID, UUID], int] | None = None,
+    stock_last_updated_at: datetime | None = None,
 ) -> InventoryItemStockRead:
     """Build a stock read object.
 
@@ -1518,6 +1639,7 @@ def _stock_item_from_inventory_item(
         used_bird_count=used_bird_count,
         transfer_bird_count=transfer_bird_count,
         retailer_used_bird_count=retailer_used_bird_count,
+        stock_last_updated_at=stock_last_updated_at,
         category_usage=category_usage,
     )
 
@@ -1608,6 +1730,7 @@ async def get_inventory_summary(
         retailer_used_today_bird,
         category_retailer_used_today_bird,
     ) = await _retailer_usage_totals(db, shop.id, item_ids, used_since=date.today())
+    stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, item_ids)
     stock_items = [
         _stock_item_from_inventory_item(
             item,
@@ -1634,6 +1757,7 @@ async def get_inventory_summary(
             category_retailer_used=category_retailer_used_today,
             category_used_bird=category_used_today_bird,
             category_retailer_used_bird=category_retailer_used_today_bird,
+            stock_last_updated_at=stock_last_updated.get(item.id),
         )
         for item in items
     ]
@@ -1811,6 +1935,8 @@ async def list_inventory_stock_rows(
         category_retailer_used_today_bird,
     ) = await _retailer_usage_totals(db, shop.id, item_ids, used_since=date.today())
 
+    stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, item_ids)
+
     stock_items = [
         _stock_item_from_inventory_item(
             item,
@@ -1839,6 +1965,7 @@ async def list_inventory_stock_rows(
             category_retailer_used=category_retailer_used_today,
             category_used_bird=category_used_today_bird,
             category_retailer_used_bird=category_retailer_used_today_bird,
+            stock_last_updated_at=stock_last_updated.get(item.id),
         )
         for item, allocation in page_rows
     ]
@@ -2221,6 +2348,7 @@ async def _stock_item_for_shop_inventory_item(
         transferred_display_bird = transferred_alltime_bird
         retailer_used_display_bird = retailer_used_alltime_bird
         category_retailer_used_display_bird = category_retailer_used_alltime_bird
+    stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, [item.id])
     return _stock_item_from_inventory_item(
         item,
         allocation=allocation,
@@ -2246,6 +2374,7 @@ async def _stock_item_for_shop_inventory_item(
         category_retailer_used=category_retailer_used_display,
         category_used_bird=category_used_display_bird,
         category_retailer_used_bird=category_retailer_used_display_bird,
+        stock_last_updated_at=stock_last_updated.get(item.id),
     )
 
 

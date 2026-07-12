@@ -47,6 +47,7 @@ class ItemAssumptionStatus(str, Enum):
 class BillStatus(str, Enum):
     PENDING_PAYMENT = "pending_payment"
     PAID = "paid"
+    CANCELLED = "cancelled"
 
 
 class ReceiptStatus(str, Enum):
@@ -65,6 +66,7 @@ class RetailerSaleStatus(str, Enum):
     PARTIAL = "partial"
     SETTLED = "settled"
     VOID = "void"
+    CANCELLED = "cancelled"
 
 
 class RetailerReceiptType(str, Enum):

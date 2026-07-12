@@ -140,9 +140,8 @@ export function AdminRetailerSaleDetailScreen({
               {sale.sale_no}
             </Text>
             <Text style={{ color: palette.textMuted }}>{formatDateTime(sale.created_at)}</Text>
-            <Text style={{ color: palette.textMuted }}>
-              {sale.retailer_name} · {sale.shop_name}
-            </Text>
+            <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{sale.retailer_name}</Text>
+            <Text style={{ color: palette.textMuted }}>{sale.shop_name}</Text>
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
               <Text style={{ color: palette.textMuted }}>Total</Text>
               <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>

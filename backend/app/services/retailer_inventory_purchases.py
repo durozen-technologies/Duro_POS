@@ -58,15 +58,23 @@ async def _lock_retailer(db: AsyncSession, retailer_id: UUID) -> Retailer:
     return retailer
 
 
+def _retailer_shop_snapshot_name(retailer: Retailer) -> str:
+    if retailer.shop_name is None:
+        return ""
+    return retailer.shop_name.strip()
+
+
 def _purchase_to_read(purchase: RetailerInventoryPurchase) -> RetailerInventoryPurchaseRead:
     retailer = purchase.retailer
     shop = purchase.shop
     return RetailerInventoryPurchaseRead(
         id=purchase.id,
         shop_id=purchase.shop_id,
-        shop_name=shop.name if shop is not None else None,
+        shop_name=purchase.shop_name or (
+            _retailer_shop_snapshot_name(retailer) if retailer is not None else None
+        ),
         retailer_id=purchase.retailer_id,
-        retailer_name=retailer.name if retailer is not None else None,
+        retailer_name=purchase.retailer_name or (retailer.name if retailer is not None else None),
         total_amount=purchase.total_amount,
         amount_applied_to_outstanding=purchase.amount_applied_to_outstanding,
         amount_deposited_to_wallet=purchase.amount_deposited_to_wallet,
@@ -125,6 +133,8 @@ async def create_retailer_inventory_purchase(
         id=uuid7(),
         shop_id=shop.id,
         retailer_id=payload.retailer_id,
+        retailer_name=retailer.name,
+        shop_name=_retailer_shop_snapshot_name(retailer),
         total_amount=total_amount,
         amount_applied_to_outstanding=Decimal("0.00"),
         amount_deposited_to_wallet=Decimal("0.00"),

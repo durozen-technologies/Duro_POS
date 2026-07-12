@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useLayoutEffect, useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, View } from "react-native";
 import { Controller, useForm } from "react-hook-form";
 
 import { fetchShopRetailerSale, fetchShopRetailerWallet, recordShopRetailerPayment } from "@/api/retailer-sales";
@@ -28,6 +28,7 @@ import {
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
 import { formatRetailerSaleNoDisplay } from "@/utils/retailer-sale";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type FormValues = { walletAmount: string; cashAmount: string; upiAmount: string };
 
@@ -205,7 +206,8 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
                 {formatRetailerSaleNoDisplay(sale.sale_no)}
               </Text>
               <Text className="text-sm text-muted">{formatDateTime(sale.created_at)}</Text>
-              <Text className="text-sm text-muted">{sale.retailer_name}</Text>
+              <Text className="text-sm font-semibold text-ink">{sale.retailer_name}</Text>
+              <Text className="text-sm text-muted">{sale.shop_name}</Text>
             </View>
             <StatusPill
               label={saleStatusLabel(sale.status, t)}

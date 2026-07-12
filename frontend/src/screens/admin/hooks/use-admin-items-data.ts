@@ -283,6 +283,7 @@ function useRowFirstItemPage({
     try {
       const page = await fetchRowsPage({
         ...paramsRef.current,
+        cursor_group: state.cursor.group,
         cursor_sort_order: state.cursor.sortOrder,
         cursor_name: state.cursor.name,
         cursor_id: state.cursor.id,

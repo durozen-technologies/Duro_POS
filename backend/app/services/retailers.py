@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +50,7 @@ def _retailer_to_read(
     allocated_shop_count: int | None = None,
     outstanding_balance: Decimal | None = None,
     branch_names: list[str] | None = None,
+    can_delete: bool | None = None,
 ) -> RetailerRead:
     data = RetailerRead.model_validate(retailer)
     updates: dict = {}
@@ -59,7 +60,17 @@ def _retailer_to_read(
         updates["outstanding_balance"] = outstanding_balance
     if branch_names is not None:
         updates["branch_names"] = branch_names
+    if can_delete is not None:
+        updates["can_delete"] = can_delete
     return data.model_copy(update=updates) if updates else data
+
+
+async def retailer_has_billing_history(db: AsyncSession, retailer_id: UUID) -> bool:
+    return bool(
+        await db.scalar(
+            select(select(RetailerSale.id).where(RetailerSale.retailer_id == retailer_id).exists())
+        )
+    )
 
 
 async def list_retailers(
@@ -82,6 +93,8 @@ async def list_retailers(
             or_(
                 func.lower(Retailer.name).like(pattern),
                 func.lower(func.coalesce(Retailer.phone, "")).like(pattern),
+                func.lower(func.coalesce(Retailer.alternate_phone, "")).like(pattern),
+                func.lower(func.coalesce(Retailer.address, "")).like(pattern),
             )
         )
 
@@ -133,16 +146,24 @@ async def list_retailers(
         .subquery()
     )
 
+    billed_retailers_sub = (
+        select(RetailerSale.retailer_id.label("retailer_id"))
+        .group_by(RetailerSale.retailer_id)
+        .subquery()
+    )
+
     query = (
         select(
             Retailer,
             allocation_count.c.allocated_shop_count,
             balance_sub.c.outstanding_balance,
             branch_names_sub.c.branch_names,
+            billed_retailers_sub.c.retailer_id.is_(None).label("can_delete"),
         )
         .outerjoin(allocation_count, allocation_count.c.retailer_id == Retailer.id)
         .outerjoin(balance_sub, balance_sub.c.retailer_id == Retailer.id)
         .outerjoin(branch_names_sub, branch_names_sub.c.retailer_id == Retailer.id)
+        .outerjoin(billed_retailers_sub, billed_retailers_sub.c.retailer_id == Retailer.id)
         .order_by(Retailer.name.asc(), Retailer.id.asc())
     )
     if shop_id is not None:
@@ -166,8 +187,9 @@ async def list_retailers(
                 branch_names=(
                     [n.strip() for n in str(bnames).split(",") if n.strip()] if bnames else []
                 ),
+                can_delete=bool(can_delete),
             )
-            for retailer, alloc_count, balance, bnames in rows
+            for retailer, alloc_count, balance, bnames, can_delete in rows
         ],
         total=total,
         page=page,
@@ -181,8 +203,10 @@ async def create_retailer(db: AsyncSession, payload: RetailerCreate) -> Retailer
         raise HTTPException(status_code=422, detail="Retailer name is required")
     retailer = Retailer(
         name=name,
+        shop_name=payload.shop_name.strip() if payload.shop_name else None,
         phone=payload.phone.strip() if payload.phone else None,
-        notes=payload.notes.strip() if payload.notes else None,
+        alternate_phone=payload.alternate_phone.strip() if payload.alternate_phone else None,
+        address=payload.address.strip() if payload.address else None,
         is_active=payload.is_active,
     )
     db.add(retailer)
@@ -211,16 +235,32 @@ async def update_retailer(
         if not name:
             raise HTTPException(status_code=422, detail="Retailer name is required")
         retailer.name = name
+    if payload.shop_name is not None:
+        retailer.shop_name = payload.shop_name.strip() or None
     if payload.phone is not None:
         retailer.phone = payload.phone.strip() or None
-    if payload.notes is not None:
-        retailer.notes = payload.notes.strip() or None
+    if payload.alternate_phone is not None:
+        retailer.alternate_phone = payload.alternate_phone.strip() or None
+    if payload.address is not None:
+        retailer.address = payload.address.strip() or None
     if payload.is_active is not None:
         retailer.is_active = payload.is_active
     retailer.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(retailer)
-    return _retailer_to_read(retailer)
+    can_delete = not await retailer_has_billing_history(db, retailer_id)
+    return _retailer_to_read(retailer, can_delete=can_delete)
+
+
+async def delete_retailer(db: AsyncSession, retailer_id: UUID) -> None:
+    retailer = await get_retailer_or_404(db, retailer_id)
+    if await retailer_has_billing_history(db, retailer_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a retailer that already has billing history",
+        )
+    await db.delete(retailer)
+    await db.commit()
 
 
 async def get_shop_or_404(db: AsyncSession, shop_id: UUID) -> Shop:
@@ -277,6 +317,38 @@ def _shop_latest_billing_prices_subquery(shop_id: UUID):
             .label("rn"),
         )
         .where(DailyPrice.shop_id == shop_id)
+        .subquery()
+    )
+
+
+def retailer_item_prices_as_of_subquery(
+    retailer_id: UUID,
+    shop_id: UUID,
+    target_date,
+):
+    """Latest retailer item price on or before target_date (carry-forward daily prices)."""
+    return (
+        select(
+            RetailerItemPrice.id.label("id"),
+            RetailerItemPrice.item_id.label("item_id"),
+            RetailerItemPrice.price_per_unit.label("price_per_unit"),
+            RetailerItemPrice.effective_date.label("effective_date"),
+            RetailerItemPrice.is_active.label("is_active"),
+            func.row_number()
+            .over(
+                partition_by=RetailerItemPrice.item_id,
+                order_by=(
+                    RetailerItemPrice.effective_date.desc(),
+                    RetailerItemPrice.id.desc(),
+                ),
+            )
+            .label("rn"),
+        )
+        .where(
+            RetailerItemPrice.retailer_id == retailer_id,
+            RetailerItemPrice.shop_id == shop_id,
+            RetailerItemPrice.effective_date <= target_date,
+        )
         .subquery()
     )
 
@@ -516,29 +588,36 @@ async def list_retailer_item_prices(
     shop_id: UUID,
 ) -> list[RetailerItemPriceRead]:
     await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
+    price_as_of = retailer_item_prices_as_of_subquery(
+        retailer_id, shop_id, func.current_date()
+    )
     rows = (
         await db.execute(
-            select(RetailerItemPrice, Item.name, Item.tamil_name)
-            .join(Item, Item.id == RetailerItemPrice.item_id)
-            .where(
-                RetailerItemPrice.retailer_id == retailer_id,
-                RetailerItemPrice.shop_id == shop_id,
-                RetailerItemPrice.effective_date == func.current_date(),
+            select(
+                price_as_of.c.id,
+                price_as_of.c.item_id,
+                price_as_of.c.price_per_unit,
+                price_as_of.c.effective_date,
+                price_as_of.c.is_active,
+                Item.name,
+                Item.tamil_name,
             )
+            .join(Item, Item.id == price_as_of.c.item_id)
+            .where(price_as_of.c.rn == 1)
             .order_by(Item.sort_order.asc(), Item.name.asc())
         )
     ).all()
     return [
         RetailerItemPriceRead(
-            id=price.id,
-            item_id=price.item_id,
+            id=price_id,
+            item_id=item_id,
             item_name=item_name,
             item_tamil_name=item_tamil_name,
-            price_per_unit=price.price_per_unit,
-            effective_date=price.effective_date,
-            is_active=price.is_active,
+            price_per_unit=price_per_unit,
+            effective_date=effective_date,
+            is_active=is_active,
         )
-        for price, item_name, item_tamil_name in rows
+        for price_id, item_id, price_per_unit, effective_date, is_active, item_name, item_tamil_name in rows
     ]
 
 
@@ -619,15 +698,17 @@ async def list_retailer_item_allocations(
     await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
     limit = min(max(limit, 1), 500)
     latest_prices = _shop_latest_billing_prices_subquery(shop_id)
-    is_allocated_expr = RetailerItemPrice.id.is_not(None)
-
     target_date = effective_date if effective_date is not None else func.current_date()
+    price_as_of = retailer_item_prices_as_of_subquery(retailer_id, shop_id, target_date)
+    is_allocated_expr = price_as_of.c.id.is_not(None)
 
     query = (
         select(
             Item,
             ShopItemAllocation,
-            RetailerItemPrice,
+            price_as_of.c.id.label("price_id"),
+            price_as_of.c.price_per_unit.label("price_per_unit"),
+            price_as_of.c.is_active.label("price_is_active"),
             latest_prices.c.price_per_unit.label("billing_price"),
         )
         .join(
@@ -646,13 +727,8 @@ async def list_retailer_item_allocations(
             ),
         )
         .outerjoin(
-            RetailerItemPrice,
-            and_(
-                RetailerItemPrice.item_id == Item.id,
-                RetailerItemPrice.retailer_id == retailer_id,
-                RetailerItemPrice.shop_id == shop_id,
-                RetailerItemPrice.effective_date == target_date,
-            ),
+            price_as_of,
+            and_(price_as_of.c.item_id == Item.id, price_as_of.c.rn == 1),
         )
         .outerjoin(
             latest_prices,
@@ -708,13 +784,13 @@ async def list_retailer_item_allocations(
             item,
             billing_allocation,
             billing_price=billing_price,
-            is_allocated=price_row is not None,
-            retailer_item_price_id=price_row.id if price_row else None,
-            price_per_unit=price_row.price_per_unit if price_row else None,
-            allocation_is_active=price_row.is_active if price_row else None,
+            is_allocated=price_id is not None,
+            retailer_item_price_id=price_id,
+            price_per_unit=price_per_unit,
+            allocation_is_active=price_is_active,
             price_history=price_history_map.get(item.id, []),
         )
-        for item, billing_allocation, price_row, billing_price in rows
+        for item, billing_allocation, price_id, price_per_unit, price_is_active, billing_price in rows
     ]
     allocated_count = sum(1 for row in items if row.is_allocated)
     return RetailerItemAllocationListRead(
@@ -867,16 +943,15 @@ async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerB
     retailer = await get_retailer_or_404(db, retailer_id)
     sales = (
         await db.execute(
-            select(RetailerSale, Shop.name)
-            .join(Shop, Shop.id == RetailerSale.shop_id)
+            select(RetailerSale)
             .where(
                 RetailerSale.retailer_id == retailer_id,
                 RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
             )
             .order_by(RetailerSale.created_at.desc())
         )
-    ).all()
-    outstanding = sum((sale.balance_due for sale, _ in sales), Decimal("0.00"))
+    ).scalars().all()
+    outstanding = sum((sale.balance_due for sale in sales), Decimal("0.00"))
     return RetailerBalanceRead(
         retailer_id=retailer.id,
         retailer_name=retailer.name,
@@ -887,14 +962,14 @@ async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerB
                 id=sale.id,
                 sale_no=sale.sale_no,
                 shop_id=sale.shop_id,
-                shop_name=shop_name,
+                shop_name=sale.shop_name,
                 total_amount=sale.total_amount,
                 amount_paid_total=sale.amount_paid_total,
                 balance_due=sale.balance_due,
                 status=sale.status,
                 created_at=sale.created_at,
             )
-            for sale, shop_name in sales
+            for sale in sales
         ],
     )
 

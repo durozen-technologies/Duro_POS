@@ -1,19 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Alert,
-  Dimensions,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-  type ScrollView as ScrollViewType,
-} from "react-native";
+import { Alert, Dimensions, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View, type ScrollView as ScrollViewType } from "react-native";
 
 import { fetchShopInventoryStockItem, recordShopRetailerInventoryUsages } from "@/api/inventory";
 import { fetchShopRetailers } from "@/api/retailers";
@@ -33,6 +20,7 @@ import {
   type UUID,
 } from "@/types/api";
 import { money } from "@/utils/decimal";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 const PICKER_PALETTE = {
   border: "#D8CCB6",
@@ -87,7 +75,7 @@ function formatQuantityWithBirds(
   quantity: string | number,
   unit: BaseUnit,
   birdCount?: number,
-  birdsLabel = "birds",
+  birdsLabel = "Count",
 ) {
   const formatted = formatQuantity(quantity, unit);
   if (unit === BaseUnit.KG && birdCount != null) {
@@ -409,7 +397,7 @@ export function RetailerStockModal({
           // keep current snapshot
         }
       }
-      Alert.alert(t("inventory.saveFailedTitle"), formatApiErrorMessage(error));
+      Alert.alert(t("inventory.saveFailedTitle", { defaultValue: "Inventory update failed" }), formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -491,7 +479,7 @@ export function RetailerStockModal({
                           activeItem.available_quantity,
                           activeItem.base_unit,
                           effectiveAvailableBirdCount(activeItem.available_bird_count),
-                          t("inventory.birds", { defaultValue: "birds" }),
+                          t("inventory.birds", { defaultValue: "Count" }),
                         )
                       : formatQuantity(activeItem.available_quantity, activeItem.base_unit)}
                   </Text>
@@ -641,7 +629,12 @@ export function RetailerStockModal({
                 )}
 
                 {validationError && selectedRetailerId && linesToSave.length > 0 ? (
-                  <Text className="text-center text-xs font-semibold text-[#9F4335]">{validationError}</Text>
+                  <View className="my-2 flex-row items-center rounded-lg border border-[#9F4335]/30 bg-[#FFF2EF] px-3 py-2.5">
+                    <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#9F4335" />
+                    <Text className="ml-2 flex-1 text-sm font-semibold leading-tight text-[#9F4335]">
+                      {validationError}
+                    </Text>
+                  </View>
                 ) : null}
 
                 <View className="flex-row gap-2 pt-1">

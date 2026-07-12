@@ -1,6 +1,7 @@
-import { RetailerSaleStatus, type RetailerSaleRead } from "@/types/api";
+import { RetailerSaleStatus, type RetailerSaleRead, type RetailerSaleReceiptRead } from "@/types/api";
 
 const SALE_NO_PATTERN = /^RS-(\d{4})-(\d{2})-(\d{6})$/i;
+export const ADMIN_SALE_MODIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type ParsedRetailerSaleNo = {
   year: number;
@@ -56,6 +57,58 @@ export function isSettledRetailerSale(sale: Pick<RetailerSaleRead, "status">) {
   return sale.status === RetailerSaleStatus.SETTLED;
 }
 
+export function isCancelledRetailerSale(sale: Pick<RetailerSaleRead, "status">) {
+  return sale.status === RetailerSaleStatus.CANCELLED;
+}
+
+export function isSaleWithinAdminModificationWindow(createdAt: string, now = Date.now()) {
+  return now - new Date(createdAt).getTime() < ADMIN_SALE_MODIFICATION_WINDOW_MS;
+}
+
+export function canAdminModifyRetailerSale(sale: RetailerSaleRead) {
+  if (sale.status === RetailerSaleStatus.CANCELLED || sale.status === RetailerSaleStatus.VOID) {
+    return false;
+  }
+  return isSaleWithinAdminModificationWindow(sale.created_at);
+}
+
 export function sortRetailerSalesByNo(sales: RetailerSaleRead[]) {
   return [...sales].sort((left, right) => compareRetailerSaleNos(left.sale_no, right.sale_no));
+}
+
+export function listRetailerSaleReceipts(sale: RetailerSaleRead): RetailerSaleReceiptRead[] {
+  return sale.receipts ?? (sale.receipt ? [sale.receipt] : []);
+}
+
+export function pickRetailerShareReceipt(sale: RetailerSaleRead): RetailerSaleReceiptRead | null {
+  const receipts = listRetailerSaleReceipts(sale);
+  if (receipts.length === 0) {
+    return null;
+  }
+  return [...receipts].sort((left, right) => {
+    const timeDelta = new Date(right.printed_at).getTime() - new Date(left.printed_at).getTime();
+    if (timeDelta !== 0) {
+      return timeDelta;
+    }
+    return right.id.localeCompare(left.id);
+  })[0];
+}
+
+export function retailerReceiptPartyLabels() {
+  return {
+    purchaser: "Purchaser",
+    shopName: "Shop Name",
+  };
+}
+
+export function buildRetailerReceiptPartyText(
+  retailerName: string,
+  shopName: string,
+  labels: ReturnType<typeof retailerReceiptPartyLabels> = retailerReceiptPartyLabels(),
+) {
+  return {
+    purchaserLine: `${labels.purchaser}: ${retailerName}`,
+    shopLine: `${labels.shopName}: ${shopName}`,
+    combinedText: `${labels.purchaser}: ${retailerName}\n${labels.shopName}: ${shopName}`,
+  };
 }

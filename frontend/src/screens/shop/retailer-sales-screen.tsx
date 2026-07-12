@@ -1,20 +1,14 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ComponentProps } from "react";
-import {
-  Alert,
-  FlatList,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
-import { fetchAllShopRetailerSales } from "@/api/retailer-sales";
+import { buildRetailerShareReceiptHtml } from "@/api/retailer-receipts";
+import {
+  fetchAllShopRetailerSales,
+  fetchShopRetailerOutstandingBalance,
+  fetchShopRetailerSale,
+} from "@/api/retailer-sales";
 import { fetchShopRetailers } from "@/api/retailers";
 import { formatApiErrorMessage } from "@/api/client";
 import {
@@ -27,8 +21,10 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Screen } from "@/components/ui/screen";
+import { ShopSegmentedTabs } from "@/components/ui/shop-segmented-tabs";
 import { StatusPill } from "@/components/ui/status-pill";
 import { appTheme } from "@/constants/theme";
+import { useReceiptImageShare } from "@/hooks/use-receipt-image-share";
 import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import { useShopTranslation, type ShopTranslationKey } from "@/hooks/use-shop-translation";
 import type { RetailerSalesScreenProps } from "@/navigation/types";
@@ -43,10 +39,12 @@ import {
   type RetailerSalesDateMode,
   type RetailerSalesFilterDraft,
 } from "@/utils/retailer-sales-filters";
+import { ShopText as Text } from "@/components/ui/shop-text";
 import {
   formatRetailerSaleNoDisplay,
   isPendingRetailerSale,
   isSettledRetailerSale,
+  pickRetailerShareReceipt,
   sortRetailerSalesByNo,
 } from "@/utils/retailer-sale";
 
@@ -65,7 +63,6 @@ function mapRetailersFromSales(sales: RetailerSaleRead[]): RetailerRead[] {
       id: sale.retailer_id,
       name: sale.retailer_name,
       phone: null,
-      notes: null,
       outstanding_balance: sale.balance_due,
       is_active: true,
       branch_names: [],
@@ -83,51 +80,6 @@ const DATE_MODE_OPTIONS: { key: RetailerSalesDateMode; labelKey: ShopTranslation
 ];
 
 const styles = StyleSheet.create({
-  tabBar: {
-    flexDirection: "row",
-    gap: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: appTheme.border,
-    backgroundColor: appTheme.surface,
-    padding: 4,
-  },
-  tab: {
-    minHeight: 44,
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    borderWidth: 0,
-  },
-  tabActive: {
-    backgroundColor: appTheme.card,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  tabLabel: {
-    textAlign: "center",
-    fontSize: 13,
-    fontWeight: "600",
-    color: appTheme.muted,
-  },
-  tabLabelActive: {
-    fontWeight: "700",
-    color: appTheme.text,
-  },
-  tabCount: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: "600",
-    color: appTheme.muted,
-  },
-  tabCountActive: {
-    color: appTheme.accentDeep,
-  },
   searchFilterRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -308,6 +260,20 @@ const styles = StyleSheet.create({
   },
   highlightPaid: {
     backgroundColor: appTheme.successSoft,
+  },
+  shareButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: appTheme.border,
+    paddingVertical: 12,
+  },
+  shareButtonLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: appTheme.accentDeep,
   },
   highlightLabelContainer: {
     flexDirection: "row",
@@ -690,113 +656,110 @@ const SalesFilterModal = memo(function SalesFilterModal({
   );
 });
 
-type SalesTabBarProps = {
-  tab: SalesTab;
-  options: { key: SalesTab; label: string; count: number }[];
-  onChange: (tab: SalesTab) => void;
-};
-
-const SalesTabBar = memo(function SalesTabBar({ tab, options, onChange }: SalesTabBarProps) {
-  return (
-    <View style={styles.tabBar}>
-      {options.map((option) => {
-        const active = tab === option.key;
-        return (
-          <Pressable
-            key={option.key}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            onPress={() => onChange(option.key)}
-            style={({ pressed }) => [styles.tab, active ? styles.tabActive : null, pressed ? { opacity: 0.78 } : null]}
-          >
-            <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]} numberOfLines={2}>
-              {option.label}
-            </Text>
-            <Text style={[styles.tabCount, active ? styles.tabCountActive : null]}>{option.count}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-});
-
 type SaleRowProps = {
   sale: RetailerSaleRead;
   tab: SalesTab;
   onPress: () => void;
+  onShare: () => void;
+  sharing: boolean;
   t: Translate;
 };
 
-const SaleRow = memo(function SaleRow({ sale, tab, onPress, t }: SaleRowProps) {
+const SaleRow = memo(function SaleRow({ sale, tab, onPress, onShare, sharing, t }: SaleRowProps) {
   const pending = tab === "pending";
   const paymentCount = sale.payments.length;
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.saleCard, pressed ? { opacity: 0.9 } : null]}
-    >
-      <View style={styles.saleHeader}>
-        <View style={styles.saleHeaderText}>
-          <Text style={styles.saleNo} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-            {formatRetailerSaleNoDisplay(sale.sale_no)}
-          </Text>
-          <Text style={styles.saleRetailer} numberOfLines={1}>
-            {sale.retailer_name}
-          </Text>
-          <Text style={styles.saleMeta}>{formatDateTime(sale.created_at)}</Text>
-          {!pending && paymentCount > 0 ? (
-            <Text style={styles.saleMeta}>
-              {t("retailers.paymentsCount", { count: String(paymentCount) })} · {t("retailers.lastPayment")}{" "}
-              {formatDateTime(latestPaymentAt(sale))}
+    <View style={styles.saleCard}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [pressed ? { opacity: 0.9 } : null]}
+      >
+        <View style={styles.saleHeader}>
+          <View style={styles.saleHeaderText}>
+            <Text style={styles.saleNo} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+              {formatRetailerSaleNoDisplay(sale.sale_no)}
             </Text>
-          ) : null}
-        </View>
-        <StatusPill label={saleStatusLabel(sale.status, t)} tone={saleStatusTone(sale.status)} />
-      </View>
-
-      <View style={styles.saleBody}>
-        <View style={styles.amountRow}>
-          <Text style={styles.amountLabel}>{t("billing.cartLiveTotal")}</Text>
-          <Text style={styles.amountValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-            {formatCurrency(sale.total_amount)}
-          </Text>
-        </View>
-        <View style={styles.amountRow}>
-          <Text style={styles.amountLabel}>{t("common.paidAmount")}</Text>
-          <Text style={styles.amountValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-            {formatCurrency(sale.amount_paid_total)}
-          </Text>
-        </View>
-        {pending ? (
-          <View style={[styles.highlightRow, styles.highlightPending]}>
-            <View style={styles.highlightLabelContainer}>
-              <MaterialCommunityIcons name="clock-outline" size={16} color={appTheme.warning} />
-              <Text style={[styles.highlightLabel, { color: appTheme.warning }]}>{t("retailers.balanceDue")}</Text>
-            </View>
-            <Text
-              style={[styles.highlightValue, { color: appTheme.warning }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-            >
-              {formatCurrency(sale.balance_due)}
+            <Text style={styles.saleRetailer} numberOfLines={1}>
+              {sale.retailer_name}
             </Text>
+            <Text style={styles.saleMeta} numberOfLines={1}>
+              {sale.shop_name}
+            </Text>
+            <Text style={styles.saleMeta}>{formatDateTime(sale.created_at)}</Text>
+            {!pending && paymentCount > 0 ? (
+              <Text style={styles.saleMeta}>
+                {t("retailers.paymentsCount", { count: String(paymentCount) })} · {t("retailers.lastPayment")}{" "}
+                {formatDateTime(latestPaymentAt(sale))}
+              </Text>
+            ) : null}
           </View>
-        ) : (
-          <View style={[styles.highlightRow, styles.highlightPaid]}>
-            <View style={styles.highlightLabelContainer}>
-              <MaterialCommunityIcons name="check-circle" size={16} color={appTheme.success} />
-              <Text style={[styles.highlightLabel, { color: appTheme.success }]}>{t("retailers.fullySettled")}</Text>
-            </View>
-            <Text style={[styles.highlightValue, { color: appTheme.success }]}>
+          <StatusPill label={saleStatusLabel(sale.status, t)} tone={saleStatusTone(sale.status)} />
+        </View>
+
+        <View style={styles.saleBody}>
+          <View style={styles.amountRow}>
+            <Text style={styles.amountLabel}>{t("billing.cartLiveTotal")}</Text>
+            <Text style={styles.amountValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
               {formatCurrency(sale.total_amount)}
             </Text>
           </View>
+          <View style={styles.amountRow}>
+            <Text style={styles.amountLabel}>{t("common.paidAmount")}</Text>
+            <Text style={styles.amountValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {formatCurrency(sale.amount_paid_total)}
+            </Text>
+          </View>
+          {pending ? (
+            <View style={[styles.highlightRow, styles.highlightPending]}>
+              <View style={styles.highlightLabelContainer}>
+                <MaterialCommunityIcons name="clock-outline" size={16} color={appTheme.warning} />
+                <Text style={[styles.highlightLabel, { color: appTheme.warning }]}>{t("retailers.balanceDue")}</Text>
+              </View>
+              <Text
+                style={[styles.highlightValue, { color: appTheme.warning }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {formatCurrency(sale.balance_due)}
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.highlightRow, styles.highlightPaid]}>
+              <View style={styles.highlightLabelContainer}>
+                <MaterialCommunityIcons name="check-circle" size={16} color={appTheme.success} />
+                <Text style={[styles.highlightLabel, { color: appTheme.success }]}>{t("retailers.fullySettled")}</Text>
+              </View>
+              <Text style={[styles.highlightValue, { color: appTheme.success }]}>
+                {formatCurrency(sale.total_amount)}
+              </Text>
+            </View>
+          )}
+        </View>
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t("retailers.shareReceipt")}
+        disabled={sharing}
+        onPress={onShare}
+        style={({ pressed }) => [
+          styles.shareButton,
+          { opacity: sharing ? 0.7 : pressed ? 0.88 : 1 },
+        ]}
+      >
+        {sharing ? (
+          <ActivityIndicator color={appTheme.accentDeep} size="small" />
+        ) : (
+          <MaterialCommunityIcons name="share-variant" size={18} color={appTheme.accentDeep} />
         )}
-      </View>
-    </Pressable>
+        <Text style={styles.shareButtonLabel}>
+          {sharing ? t("retailers.shareReceiptPreparing") : t("retailers.shareReceipt")}
+        </Text>
+      </Pressable>
+    </View>
   );
 });
 
@@ -833,7 +796,15 @@ const SalesListHeader = memo(function SalesListHeader({
 
   return (
     <View style={{ marginBottom: 16, gap: 12 }}>
-      <SalesTabBar tab={tab} options={tabOptions} onChange={onTabChange} />
+      <ShopSegmentedTabs
+        activeValue={tab}
+        onChange={onTabChange}
+        items={tabOptions.map(opt => ({
+          value: opt.key,
+          label: `${opt.label} (${opt.count})`,
+          icon: opt.icon as any,
+        }))}
+      />
 
       <View style={styles.searchFilterRow}>
         <ShopSearchField
@@ -890,7 +861,9 @@ const SalesListHeader = memo(function SalesListHeader({
 });
 
 export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
-  const { t } = useShopTranslation();
+  const { language, t } = useShopTranslation();
+  const { receiptImageShareBridge, startReceiptImageShare } = useReceiptImageShare();
+  const [sharingSaleId, setSharingSaleId] = useState<string | null>(null);
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -1027,8 +1000,8 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
 
   const tabOptions = useMemo(
     () => [
-      { key: "pending" as const, label: t("retailers.tabPending"), count: pendingSales.length },
-      { key: "paid" as const, label: t("retailers.tabPaid"), count: paidSales.length },
+      { key: "pending" as const, label: t("retailers.tabPending"), count: pendingSales.length, icon: "clock-outline" },
+      { key: "paid" as const, label: t("retailers.tabPaid"), count: paidSales.length, icon: "check-decagram-outline" },
     ],
     [paidSales.length, pendingSales.length, t],
   );
@@ -1110,6 +1083,31 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
     [navigation],
   );
 
+  const shareSaleReceipt = useCallback(
+    async (saleId: string, retailerId: string) => {
+      setSharingSaleId(saleId);
+      try {
+        const [sale, outstandingBalance] = await Promise.all([
+          fetchShopRetailerSale(saleId),
+          fetchShopRetailerOutstandingBalance(retailerId),
+        ]);
+        if (!pickRetailerShareReceipt(sale)) {
+          Alert.alert(t("retailers.shareReceiptFailed"), t("retailers.receiptUnavailable"));
+          return;
+        }
+        await startReceiptImageShare(
+          buildRetailerShareReceiptHtml(sale, outstandingBalance, language),
+          `${t("retailers.shareReceipt")} ${sale.sale_no}`,
+        );
+      } catch (error) {
+        Alert.alert(t("retailers.shareReceiptFailed"), formatApiErrorMessage(error));
+      } finally {
+        setSharingSaleId(null);
+      }
+    },
+    [language, startReceiptImageShare, t],
+  );
+
   if (loading && sales.length === 0) {
     return <LoadingState label={t("retailers.loadingSales")} />;
   }
@@ -1148,7 +1146,14 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
           }
           contentContainerStyle={{ paddingBottom: 24, flexGrow: visibleSales.length === 0 ? 1 : undefined }}
           renderItem={({ item }) => (
-            <SaleRow sale={item} tab={tab} t={t} onPress={() => handleSalePress(item.id)} />
+            <SaleRow
+              sale={item}
+              tab={tab}
+              t={t}
+              sharing={sharingSaleId === item.id}
+              onPress={() => handleSalePress(item.id)}
+              onShare={() => void shareSaleReceipt(item.id, item.retailer_id)}
+            />
           )}
         />
       </Screen>
@@ -1194,6 +1199,7 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
         onSelect={handleCalendarSelect}
         onClose={() => setCalendarTarget(null)}
       />
+      {receiptImageShareBridge}
     </View>
   );
 }

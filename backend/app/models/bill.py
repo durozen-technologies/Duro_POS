@@ -35,7 +35,14 @@ class Bill(Base, BaseModelMixin):
         Numeric(10, 3), nullable=False, default=Decimal("0"), server_default="0"
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    status: Mapped[BillStatus] = mapped_column(SqlEnum(BillStatus), nullable=False)
+    status: Mapped[BillStatus] = mapped_column(
+        SqlEnum(
+            BillStatus,
+            name="billstatus",
+            values_callable=lambda enum: [member.name for member in enum],
+        ),
+        nullable=False,
+    )
 
     shop = relationship("Shop", back_populates="bills")
     items = relationship("BillItem", back_populates="bill", cascade="all, delete-orphan")

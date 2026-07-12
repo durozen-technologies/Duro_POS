@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Pressable, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, View } from "react-native";
 
 import { fetchShopRetailers } from "@/api/retailers";
 import { fetchAllShopRetailerSales } from "@/api/retailer-sales";
@@ -16,6 +16,7 @@ import type { RetailerRead } from "@/types/api";
 import { formatCurrency } from "@/utils/format";
 import { isPendingRetailerSale } from "@/utils/retailer-sale";
 import { money } from "@/utils/decimal";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) {
   const { t } = useShopTranslation();
@@ -127,7 +128,16 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
               }}
             >
               <Text className="text-base font-semibold text-ink">{item.name}</Text>
-              {item.phone ? <Text className="mt-1 text-sm text-muted">{item.phone}</Text> : null}
+              {item.shop_name ? (
+                <Text className="mt-1 text-sm font-medium text-ink">{item.shop_name}</Text>
+              ) : null}
+              {(item.alternate_phone || item.phone) ? (
+                <View className="mt-1 gap-0.5">
+                  {item.phone ? (
+                    <Text className="text-sm text-muted">{item.phone} , {item.alternate_phone}</Text>
+                  ) : null}
+                </View>
+              ) : null}
             </Pressable>
           )}
         />

@@ -250,6 +250,7 @@ class ShopItemRead(ItemRead):
     bill_count: int = 0
     price_count: int = 0
     allocated_shop_count: int = 0
+    allocated_shop_names: list[str] = Field(default_factory=list)
 
 
 class ShopItemAllocationUpdate(BaseModel):
@@ -318,6 +319,7 @@ class ShopSalesSummary(BaseModel):
     total_sales: Decimal
     expense_cash_total: Decimal = Decimal("0")
     expense_upi_total: Decimal = Decimal("0")
+    purchase_amount: Decimal = Decimal("0")
 
 
 class PaymentSplitSummary(BaseModel):

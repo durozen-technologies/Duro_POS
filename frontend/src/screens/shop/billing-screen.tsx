@@ -1,13 +1,5 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  FlatList,
-  ListRenderItem,
-  Pressable,
-  RefreshControl,
-  Text,
-  View,
-} from "react-native";
+import { Alert, FlatList, ListRenderItem, Pressable, RefreshControl, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -42,6 +34,7 @@ import { money, toQuantityString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { getItemThumbnailUri, prefetchItemThumbnails } from "@/utils/item-images";
+import { ShopText as Text } from "@/components/ui/shop-text";
 
 type ProductCardProps = {
   item: ItemPriceRead;
@@ -548,11 +541,13 @@ export function BillingScreen({
     refreshing: loading,
   });
 
+  const headerActionsProps = useMemo(() => ({ ...headerMenu, showMenu: true }), [headerMenu]);
+
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => <ShopHeaderActions {...headerMenu} />,
+      headerRight: () => <ShopHeaderActions {...headerActionsProps} />,
     });
-  }, [headerMenu, navigation]);
+  }, [headerActionsProps, navigation]);
 
   const handleToggleCatalogue = useCallback(() => {
     setCatalogueOpen((current) => !current);
@@ -583,11 +578,10 @@ export function BillingScreen({
               translatedItemNames.get(item.item_id) ??
               item.item_name
             }
-            priceText={`${
-              item.current_price && money(item.current_price).greaterThan(0)
+            priceText={`${item.current_price && money(item.current_price).greaterThan(0)
                 ? formatCurrency(item.current_price)
                 : t("common.pricePending")
-            } / ${formatUnit(item.base_unit)}`}
+              } / ${formatUnit(item.base_unit)}`}
             quantityLabel={quantityLabel}
             quantityPlaceholder={quantityPlaceholder}
             buttonLabel={
