@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/etc/duropos/backup.env}"
+DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-/home/ubuntu/brolier360-pos/.env}"
 LOG_FILE="${LOG_FILE:-/var/log/duropos-backup.log}"
 RETRIES="${RETRIES:-3}"
 TIMESTAMP="$(date +%Y-%m-%d-%H-%M)"
@@ -32,7 +33,7 @@ notify_failure() {
 }
 
 fail() {
-  log "ERROR: $*"
+  echo "[$(date -Iseconds)] ERROR: $*" | tee -a "$LOG_FILE" >&2
   notify_failure
   exit 1
 }
@@ -44,6 +45,18 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 else
   fail "env file not found at $ENV_FILE"
+fi
+
+# ponytail: fallback when backup.env was generated with empty PGPASSWORD (local-shell expansion bug).
+if [[ -z "${PGPASSWORD:-}" && -f "$DEPLOY_ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$DEPLOY_ENV_FILE"
+  set +a
+  PGPASSWORD="${PGPASSWORD:-${POSTGRES_PASSWORD:-}}"
+  PGUSER="${PGUSER:-${POSTGRES_USER:-}}"
+  PGDATABASE="${PGDATABASE:-${POSTGRES_DB:-}}"
+  RUSTFS_DIR="${RUSTFS_DIR:-${RUSTFS_DATA_DIR:-}}"
 fi
 
 : "${PGHOST:?}" "${PGPORT:?}" "${PGUSER:?}" "${PGPASSWORD:?}" "${PGDATABASE:?}"
@@ -115,7 +128,8 @@ done
 [[ "$upload_ok" == true ]] || fail "Upload failed after ${RETRIES} attempts."
 
 log "Verifying upload..."
-rclone check "$ARCHIVE_PATH" "${GDRIVE_DESTINATION}/${ARCHIVE_NAME}" || fail "Upload verification failed."
+rclone check "$(dirname "$ARCHIVE_PATH")" "$GDRIVE_DESTINATION" --include "$ARCHIVE_NAME" \
+  || fail "Upload verification failed."
 
 log "Deleting backups older than ${RETENTION_DAYS}d..."
 rclone delete "$GDRIVE_DESTINATION" --min-age "${RETENTION_DAYS}d" || warn "Retention cleanup failed."
