@@ -18,6 +18,7 @@ import type {
   RetailerSaleReceiptPage,
   RetailerSaleReceiptRead,
   RetailerUpdate,
+  RetailerOutstandingBalanceUpdate,
   RetailerWalletPayoutCreate,
   RetailerWalletPayoutRead,
   UUID,
@@ -175,6 +176,17 @@ export async function deleteRetailerItemAllocation(
 export async function fetchRetailerBalance(retailerId: UUID) {
   const { data } = await apiClient.get<RetailerBalanceRead>(
     `/api/v1/admin/retailers/${retailerId}/balance`,
+  );
+  return data;
+}
+
+export async function updateRetailerOutstandingBalance(
+  retailerId: UUID,
+  payload: RetailerOutstandingBalanceUpdate,
+) {
+  const { data } = await apiClient.patch<RetailerBalanceRead>(
+    `/api/v1/admin/retailers/${retailerId}/outstanding-balance`,
+    payload,
   );
   return data;
 }

@@ -65,6 +65,18 @@ def _retailer_to_read(
     return data.model_copy(update=updates) if updates else data
 
 
+def _quantize_money(amount: Decimal) -> Decimal:
+    return amount.quantize(Decimal("0.01"))
+
+
+def _sales_outstanding(sales: list[RetailerSale]) -> Decimal:
+    return sum((sale.balance_due for sale in sales), Decimal("0.00"))
+
+
+def _total_outstanding(retailer: Retailer, sales_outstanding: Decimal) -> Decimal:
+    return _quantize_money(retailer.opening_balance + sales_outstanding)
+
+
 async def retailer_has_billing_history(db: AsyncSession, retailer_id: UUID) -> bool:
     return bool(
         await db.scalar(
@@ -183,7 +195,9 @@ async def list_retailers(
             _retailer_to_read(
                 retailer,
                 allocated_shop_count=int(alloc_count or 0),
-                outstanding_balance=Decimal(str(balance or "0.00")),
+                outstanding_balance=_quantize_money(
+                    Decimal(str(balance or "0.00")) + retailer.opening_balance
+                ),
                 branch_names=(
                     [n.strip() for n in str(bnames).split(",") if n.strip()] if bnames else []
                 ),
@@ -207,6 +221,7 @@ async def create_retailer(db: AsyncSession, payload: RetailerCreate) -> Retailer
         phone=payload.phone.strip() if payload.phone else None,
         alternate_phone=payload.alternate_phone.strip() if payload.alternate_phone else None,
         address=payload.address.strip() if payload.address else None,
+        opening_balance=_quantize_money(payload.opening_balance),
         is_active=payload.is_active,
     )
     db.add(retailer)
@@ -243,6 +258,8 @@ async def update_retailer(
         retailer.alternate_phone = payload.alternate_phone.strip() or None
     if payload.address is not None:
         retailer.address = payload.address.strip() or None
+    if payload.opening_balance is not None:
+        retailer.opening_balance = _quantize_money(payload.opening_balance)
     if payload.is_active is not None:
         retailer.is_active = payload.is_active
     retailer.updated_at = datetime.now(UTC)
@@ -951,11 +968,12 @@ async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerB
             .order_by(RetailerSale.created_at.desc())
         )
     ).scalars().all()
-    outstanding = sum((sale.balance_due for sale in sales), Decimal("0.00"))
+    sales_outstanding = _sales_outstanding(sales)
     return RetailerBalanceRead(
         retailer_id=retailer.id,
         retailer_name=retailer.name,
-        outstanding_balance=outstanding,
+        outstanding_balance=_total_outstanding(retailer, sales_outstanding),
+        opening_balance=retailer.opening_balance,
         credit_balance=retailer.credit_balance,
         open_sales=[
             RetailerOpenSaleSummary(
@@ -972,6 +990,34 @@ async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerB
             for sale in sales
         ],
     )
+
+
+async def update_retailer_outstanding_balance(
+    db: AsyncSession,
+    retailer_id: UUID,
+    outstanding_balance: Decimal,
+) -> RetailerBalanceRead:
+    retailer = await get_retailer_or_404(db, retailer_id)
+    sales = (
+        await db.execute(
+            select(RetailerSale)
+            .where(
+                RetailerSale.retailer_id == retailer_id,
+                RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+            )
+        )
+    ).scalars().all()
+    sales_outstanding = _sales_outstanding(sales)
+    opening_balance = _quantize_money(outstanding_balance - sales_outstanding)
+    if opening_balance < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Outstanding balance cannot be less than total unpaid bills",
+        )
+    retailer.opening_balance = opening_balance
+    retailer.updated_at = datetime.now(UTC)
+    await db.commit()
+    return await get_retailer_balance(db, retailer_id)
 
 
 async def get_shop_retailer_wallet(

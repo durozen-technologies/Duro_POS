@@ -44,6 +44,11 @@ class Retailer(Base, BaseModelMixin):
         nullable=False,
         server_default=text("0.00"),
     )
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        server_default=text("0.00"),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

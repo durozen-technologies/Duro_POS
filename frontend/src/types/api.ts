@@ -1180,6 +1180,7 @@ export interface RetailerCreate {
   phone?: string | null;
   alternate_phone?: string | null;
   address?: string | null;
+  opening_balance?: string;
   is_active?: boolean;
 }
 
@@ -1189,7 +1190,12 @@ export interface RetailerUpdate {
   phone?: string | null;
   alternate_phone?: string | null;
   address?: string | null;
+  opening_balance?: string | null;
   is_active?: boolean | null;
+}
+
+export interface RetailerOutstandingBalanceUpdate {
+  outstanding_balance: string;
 }
 
 export interface RetailerItemPriceInput {
@@ -1273,6 +1279,7 @@ export interface RetailerBalanceRead {
   retailer_id: UUID;
   retailer_name: string;
   outstanding_balance: string;
+  opening_balance?: string;
   credit_balance?: string;
   open_sales: RetailerOpenSaleSummary[];
 }

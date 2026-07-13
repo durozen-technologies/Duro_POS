@@ -15,6 +15,7 @@ class RetailerCreate(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
     alternate_phone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=500)
+    opening_balance: Decimal = Field(default=Decimal("0.00"), ge=0)
     is_active: bool = True
 
 
@@ -24,7 +25,12 @@ class RetailerUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
     alternate_phone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=500)
+    opening_balance: Decimal | None = Field(default=None, ge=0)
     is_active: bool | None = None
+
+
+class RetailerOutstandingBalanceUpdate(BaseModel):
+    outstanding_balance: Decimal = Field(ge=0)
 
 
 class RetailerRead(ORMModel):
@@ -36,6 +42,7 @@ class RetailerRead(ORMModel):
     address: str | None = None
     is_active: bool
     credit_balance: Decimal = Decimal("0.00")
+    opening_balance: Decimal = Decimal("0.00")
     allocated_shop_count: int = 0
     outstanding_balance: Decimal = Decimal("0.00")
     branch_names: list[str] = []
@@ -156,6 +163,7 @@ class RetailerBalanceRead(BaseModel):
     retailer_id: UUID
     retailer_name: str
     outstanding_balance: Decimal
+    opening_balance: Decimal = Decimal("0.00")
     credit_balance: Decimal = Decimal("0.00")
     open_sales: list[RetailerOpenSaleSummary]
 

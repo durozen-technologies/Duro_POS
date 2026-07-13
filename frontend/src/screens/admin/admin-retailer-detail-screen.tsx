@@ -24,6 +24,7 @@ import { triggerHaptic } from "./admin-dashboard-utils";
 import { EmptyStateCard } from "./components/admin-dashboard-primitives";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { AdminRetailerBillsTab } from "./components/admin-retailer-bills-tab";
+import { AdminRetailerOutstandingBalanceModal } from "./components/admin-retailer-outstanding-balance-modal";
 import { AdminRetailerPurchasesTab } from "./components/admin-retailer-purchases-tab";
 import { AdminRetailerStatementModal } from "./components/admin-retailer-statement-modal";
 import { AdminRetailerWalletPayoutModal } from "./components/admin-retailer-wallet-payout-modal";
@@ -46,6 +47,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [statementModalOpen, setStatementModalOpen] = useState(false);
   const [walletPayoutModalOpen, setWalletPayoutModalOpen] = useState(false);
+  const [outstandingBalanceModalOpen, setOutstandingBalanceModalOpen] = useState(false);
   const canShareStatement = money(balance?.outstanding_balance ?? 0).gt(0);
   const canPayOutWallet = money(balance?.credit_balance ?? 0).gt(0);
 
@@ -204,9 +206,27 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
             <Text style={{ color: palette.textMuted, fontSize: 12, fontWeight: "600" }}>
               OUTSTANDING BALANCE
             </Text>
-            <Text style={{ color: palette.textPrimary, fontSize: 28, fontWeight: "800", marginTop: 6 }}>
-              {formatCurrency(balance?.outstanding_balance ?? "0")}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
+              <Text style={{ color: palette.textPrimary, fontSize: 28, fontWeight: "800", flex: 1 }}>
+                {formatCurrency(balance?.outstanding_balance ?? "0")}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  triggerHaptic();
+                  setOutstandingBalanceModalOpen(true);
+                }}
+                hitSlop={8}
+                style={{
+                  borderRadius: adminRadii.control,
+                  borderWidth: 1,
+                  borderColor: palette.border,
+                  backgroundColor: palette.surfaceMuted,
+                  padding: 8,
+                }}
+              >
+                <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.primary} />
+              </Pressable>
+            </View>
             <Text style={{ color: palette.textMuted, fontSize: 12, fontWeight: "600", marginTop: 14 }}>
               WALLET CREDIT
             </Text>
@@ -345,6 +365,24 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
           setBalance((current) =>
             current
               ? { ...current, credit_balance: creditBalanceAfter }
+              : current,
+          );
+        }}
+      />
+      <AdminRetailerOutstandingBalanceModal
+        visible={outstandingBalanceModalOpen}
+        retailer={retailer}
+        outstandingBalance={balance?.outstanding_balance ?? "0"}
+        palette={palette}
+        onClose={() => setOutstandingBalanceModalOpen(false)}
+        onSaved={(updatedBalance) => {
+          setBalance((current) =>
+            current
+              ? {
+                  ...current,
+                  outstanding_balance: updatedBalance.outstanding_balance,
+                  opening_balance: updatedBalance.opening_balance ?? current.opening_balance,
+                }
               : current,
           );
         }}

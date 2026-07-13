@@ -20,6 +20,7 @@ from app.schemas.retailers import (
     RetailerItemAllocationUpdate,
     RetailerItemPriceRead,
     RetailerItemPriceSync,
+    RetailerOutstandingBalanceUpdate,
     RetailerPage,
     RetailerPaymentCreate,
     RetailerPaymentRecordResponse,
@@ -61,6 +62,7 @@ from app.services.retailers import (
     sync_shop_retailer_item_catalog,
     update_retailer,
     update_retailer_item_allocation,
+    update_retailer_outstanding_balance,
 )
 
 router = APIRouter()
@@ -275,6 +277,24 @@ async def admin_retailer_balance(
     db: DBSession,
 ) -> RetailerBalanceRead:
     return await get_retailer_balance(db, retailer_id)
+
+
+@router.patch(
+    "/retailers/{retailer_id}/outstanding-balance",
+    response_model=RetailerBalanceRead,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Update retailer outstanding balance",
+)
+async def admin_update_retailer_outstanding_balance(
+    retailer_id: UUID,
+    payload: RetailerOutstandingBalanceUpdate,
+    db: DBSession,
+) -> RetailerBalanceRead:
+    return await update_retailer_outstanding_balance(
+        db,
+        retailer_id,
+        payload.outstanding_balance,
+    )
 
 
 @router.post(

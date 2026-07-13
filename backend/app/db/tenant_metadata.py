@@ -588,6 +588,22 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                 )
             else:
                 connection.execute(text("ALTER TABLE retailers ADD COLUMN shop_name VARCHAR(120)"))
+        if "opening_balance" not in retailer_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailers "
+                        "ADD COLUMN IF NOT EXISTS opening_balance NUMERIC(10, 2) "
+                        "NOT NULL DEFAULT 0.00"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE retailers "
+                        "ADD COLUMN opening_balance NUMERIC(10, 2) NOT NULL DEFAULT 0.00"
+                    )
+                )
 
     if "retailer_payments" in table_names:
         payment_columns = {

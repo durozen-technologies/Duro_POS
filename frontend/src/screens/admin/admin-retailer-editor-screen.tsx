@@ -4,14 +4,12 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Switch,
   Text,
   View,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createRetailer, deleteRetailer, updateRetailer } from "@/api/retailers";
@@ -22,6 +20,7 @@ import type { AdminRetailerEditorScreenProps } from "@/navigation/types";
 import { adminRadii } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import { useAdminTheme } from "./use-admin-theme";
+import { money, toMoneyString } from "@/utils/decimal";
 
 export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEditorScreenProps) {
   const { palette } = useAdminTheme();
@@ -32,6 +31,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [alternatePhone, setAlternatePhone] = useState(initial?.alternate_phone ?? "");
   const [address, setAddress] = useState(initial?.address ?? "");
+  const [openingBalance, setOpeningBalance] = useState("");
   const [isActive, setIsActive] = useState(initial?.is_active ?? true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -59,6 +59,10 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
       Alert.alert("Invalid phone", "Enter a valid mobile number.");
       return;
     }
+    if (!initial && openingBalance.trim() && money(openingBalance).lessThan(0)) {
+      Alert.alert("Invalid amount", "Opening balance cannot be negative.");
+      return;
+    }
 
     const payload = {
       name: trimmedName,
@@ -67,6 +71,9 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
       alternate_phone: alternatePhone.trim() || null,
       address: address.trim() || null,
       is_active: isActive,
+      ...(!initial && openingBalance.trim()
+        ? { opening_balance: toMoneyString(openingBalance) }
+        : {}),
     };
     setSaving(true);
     try {
@@ -88,7 +95,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
     } finally {
       setSaving(false);
     }
-  }, [address, alternatePhone, initial, isActive, name, navigation, phone, shopName]);
+  }, [address, alternatePhone, initial, isActive, name, navigation, openingBalance, phone, shopName]);
 
   const confirmDelete = useCallback(() => {
     if (!initial) {
@@ -151,8 +158,12 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
           {initial ? "Edit retailer" : "New retailer"}
         </Text>
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+      <KeyboardAwareScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, gap: 14 }}
+        enableOnAndroid
+        keyboardShouldPersistTaps="handled"
+      >
           <AdminTextField label="Retailer Name *" palette={palette} value={name} onChangeText={setName} />
           <AdminTextField
             label="Shop Name *"
@@ -181,6 +192,16 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
             onChangeText={setAddress}
             multiline
           />
+          {!initial ? (
+            <AdminTextField
+              label="Opening balance (optional)"
+              palette={palette}
+              value={openingBalance}
+              onChangeText={setOpeningBalance}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+            />
+          ) : null}
           {initial ? (
             <View
               style={{
@@ -240,8 +261,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
               )}
             </Pressable>
           ) : null}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

@@ -552,14 +552,16 @@ async def _retailer_opening_balance_excluding_sale(
     *,
     exclude_sale_id: UUID | None = None,
 ) -> Decimal:
+    retailer = await db.get(Retailer, retailer_id)
+    stored_opening = retailer.opening_balance if retailer is not None else Decimal("0.00")
     query = select(func.coalesce(func.sum(RetailerSale.balance_due), Decimal("0.00"))).where(
         RetailerSale.retailer_id == retailer_id,
         RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
     )
     if exclude_sale_id is not None:
         query = query.where(RetailerSale.id != exclude_sale_id)
-    opening = await db.scalar(query)
-    return _round_money(opening or Decimal("0.00"))
+    sales_opening = await db.scalar(query)
+    return _round_money(stored_opening + (sales_opening or Decimal("0.00")))
 
 
 def _sale_load_options():
