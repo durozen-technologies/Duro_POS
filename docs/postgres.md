@@ -81,6 +81,7 @@ DATABASE_URL=postgresql+asyncpg://postgres:root@host.docker.internal:5432/brolie
 - Back up data before risky migrations or major deploys.
 - If the production Postgres container is unhealthy, deploy tries **data-dir permission repair** (`chown 70:70`) and one container recreate. WAL/checkpoint corruption still needs `scripts/postgres-recover.sh` (manual).
 - Recovery helpers live in `scripts/postgres-recover.sh`.
+- Automated production backup flow: `implementations/backup-system.md` and `scripts/backup.sh`.
 
 ## Schema-per-tenant (ADR-003)
 

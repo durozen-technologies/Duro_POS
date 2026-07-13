@@ -120,6 +120,16 @@ wheels/
 db-backup/
 db-backups/
 
+# Production backup (VM secrets live in /etc/duropos/backup.env — never commit)
+backup.env
+backup.env.*
+!backup.env.example
+etc/duropos/
+duropos-backup-*.tar.gz
+postgres.tar
+rustfs.tar
+rclone.conf
+
 # Backend
 backend/.env
 backend/.env.*

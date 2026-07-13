@@ -452,6 +452,7 @@ jobs:
             scripts/deploy-prod.sh
             scripts/pos-logs.sh
             scripts/postgres-recover.sh
+            scripts/backup.sh
             pgbouncer
           )
           if [ "$CHANGED_DEPLOY" = "true" ]; then
@@ -487,7 +488,7 @@ jobs:
             set -euo pipefail
             cd "$DEPLOY_PATH"
             mv -f .env.deploy .env
-            chmod +x scripts/deploy-prod.sh scripts/pos-logs.sh scripts/postgres-recover.sh
+            chmod +x scripts/deploy-prod.sh scripts/pos-logs.sh scripts/postgres-recover.sh scripts/backup.sh
             export DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}"
             export DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN}"
             export DEPLOY_BACKEND="${{ steps.plan.outputs.deploy_backend }}"
