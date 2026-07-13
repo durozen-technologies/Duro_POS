@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import quote, urlparse, urlunparse
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -31,15 +32,41 @@ except ImportError:  # ponytail: tests/dev without redis sdk still run
         raise RuntimeError("redis sdk unavailable")
 
 
+def merge_redis_password_into_url(url: str, password: str | None) -> str:
+    """Embed password in Redis URL when missing (redis_fastapi URL mode only)."""
+    trimmed = url.strip()
+    if not trimmed or not password or not password.strip():
+        return trimmed
+    parsed = urlparse(trimmed)
+    if parsed.password:
+        return trimmed
+    host = parsed.hostname or ""
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    encoded_password = quote(password.strip(), safe="")
+    if parsed.username:
+        netloc = f"{quote(parsed.username, safe='')}:{encoded_password}@{host}"
+    else:
+        netloc = f":{encoded_password}@{host}"
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path or "", parsed.params, parsed.query, parsed.fragment)
+    )
+
+
 def configure_redis_environment() -> None:
     """Push backend/.env Redis settings into os.environ for redis_fastapi."""
     from app.core.config import get_settings
 
     settings = get_settings()
-    if settings.redis_url:
-        os.environ.setdefault("REDIS_URL", settings.redis_url.strip())
+    redis_url = (settings.redis_url or "").strip()
+    if redis_url and settings.redis_password:
+        redis_url = merge_redis_password_into_url(redis_url, settings.redis_password)
+    if redis_url:
+        os.environ["REDIS_URL"] = redis_url
     if settings.redis_prefix:
         os.environ.setdefault("REDIS_PREFIX", settings.redis_prefix.strip())
+    # redis_fastapi ignores KV password when url is set; drop to avoid UserWarning.
+    os.environ.pop("REDIS_PASSWORD", None)
     if CacheBackend is not None:
         get_redis_settings.cache_clear()  # type: ignore[attr-defined]
 

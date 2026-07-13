@@ -129,13 +129,19 @@ def assert_safe_schema_name(schema_name: str) -> str:
     return schema_name
 
 
-async def set_search_path(session: AsyncSession, schema_name: str | None) -> None:
+async def set_search_path(
+    session: AsyncSession,
+    schema_name: str | None,
+    *,
+    repair_drift: bool = True,
+) -> None:
     if not await is_postgres_session(session):
         return
     await session.execute(text("RESET search_path"))
     if schema_name:
         safe = assert_safe_schema_name(schema_name)
-        ensure_tenant_schema_drift_repaired(safe)
+        if repair_drift:
+            ensure_tenant_schema_drift_repaired(safe)
         await session.execute(text(f'SET search_path TO "{safe}", public'))
     else:
         await session.execute(text("SET search_path TO public"))
@@ -262,8 +268,29 @@ def ensure_tenant_schema_drift_repaired(schema_name: str) -> None:
     with _tenant_drift_repair_lock:
         if _tenant_drift_repaired_head.get(safe) == TENANT_MIGRATION_HEAD:
             return
-        repair_tenant_schema_ddl(safe, quiet=True)
-        _tenant_drift_repaired_head[safe] = TENANT_MIGRATION_HEAD
+        from sqlalchemy import create_engine
+
+        url = sync_postgres_database_url(str(get_settings().database_url))
+        engine = create_engine(url, future=True)
+        try:
+            with engine.connect() as conn:
+                if not _tenant_schema_exists(conn, safe):
+                    # Schema CREATE may still be uncommitted on the provisioning session.
+                    return
+                current_revision = _read_tenant_alembic_revision(conn, safe)
+                if current_revision is None and not _tenant_schema_ddl_is_complete(conn, safe):
+                    # Fresh schema — inline provisioning owns DDL (e.g. new organization).
+                    return
+            repair_tenant_schema_ddl(safe, quiet=True)
+            _tenant_drift_repaired_head[safe] = TENANT_MIGRATION_HEAD
+        finally:
+            engine.dispose()
+
+
+def mark_tenant_schema_drift_repaired(schema_name: str) -> None:
+    """Record that a schema was just provisioned or repaired at the current head."""
+    safe = assert_safe_schema_name(schema_name)
+    _tenant_drift_repaired_head[safe] = TENANT_MIGRATION_HEAD
 
 
 def repair_tenant_schema_ddl(schema_name: str, *, quiet: bool = False) -> bool:

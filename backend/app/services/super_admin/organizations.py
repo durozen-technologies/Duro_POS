@@ -12,11 +12,13 @@ from app.auth.permission_codes import TENANT_FULL_ADMIN_PERMISSIONS
 from app.core.errors import BRANCH_LIMIT_REACHED_DETAIL
 from app.core.logging import log_event
 from app.db.database import get_session_local
+from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import (
     assert_safe_schema_name,
     create_tenant_schema,
     derive_schema_name,
     is_postgres_session,
+    mark_tenant_schema_drift_repaired,
     provision_tenant_schema_async,
     set_search_path,
     tenant_schema_scope,
@@ -63,16 +65,21 @@ async def _create_tenant_full_admin_role(
 async def _provision_schema_for_org(db: AsyncSession, org: Organization, schema_name: str) -> None:
     safe_schema = assert_safe_schema_name(schema_name)
     await create_tenant_schema(db, safe_schema)
+    token = set_active_tenant_schema(safe_schema)
     try:
-        async with tenant_schema_scope(db, safe_schema):
-            await provision_tenant_schema_async(db, safe_schema)
-            await _create_tenant_full_admin_role(db, org.id)
+        await set_search_path(db, safe_schema, repair_drift=False)
+        await provision_tenant_schema_async(db, safe_schema)
+        await _create_tenant_full_admin_role(db, org.id)
+        mark_tenant_schema_drift_repaired(safe_schema)
     except Exception:
         from sqlalchemy import text
 
-        await set_search_path(db, None)
+        await set_search_path(db, None, repair_drift=False)
         await db.execute(text(f'DROP SCHEMA IF EXISTS "{safe_schema}" CASCADE'))
         raise
+    finally:
+        reset_active_tenant_schema(token)
+        await set_search_path(db, None, repair_drift=False)
 
 
 def _org_to_read(org: Organization, *, branch_count: int = 0) -> OrganizationRead:

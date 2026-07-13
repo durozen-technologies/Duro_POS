@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     rustfs_connect_timeout_seconds: int = 5
     rustfs_read_timeout_seconds: int = 15
     redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
+    redis_password: str | None = Field(default=None, validation_alias="REDIS_PASSWORD")
     redis_prefix: str = Field(default="brolier360", validation_alias="REDIS_PREFIX")
     redis_permission_cache_ttl: int = Field(
         default=30, validation_alias="REDIS_PERMISSION_CACHE_TTL"
