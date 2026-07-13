@@ -25,9 +25,14 @@ from app.schemas.expenses import (
     ShopExpenseItemRowsPage,
     ShopExpenseItemsOrderRead,
 )
+from app.services.global_image_templates import (
+    apply_global_image_template_selection,
+    build_expense_image_paths_for_row,
+    build_resolved_expense_item_image_paths,
+    get_active_template,
+    load_templates_for_item_rows,
+)
 from app.services.storage import (
-    build_expense_item_image_path,
-    build_expense_item_image_thumb_path,
     delete_item_image_storage,
     save_expense_item_image_upload,
 )
@@ -136,23 +141,22 @@ def _expense_item_to_read(
     *,
     allocated_shop_count: int = 0,
     entry_count: int = 0,
+    template=None,
 ) -> ExpenseItemRead:
+    image_path, image_thumb_path = build_resolved_expense_item_image_paths(item, template)
+    image_content_type = item.image_content_type
+    if image_content_type is None and template is not None and template.is_active:
+        image_content_type = template.image_content_type
     return ExpenseItemRead(
         id=item.id,
         name=item.name,
         tamil_name=item.tamil_name,
         sort_order=item.sort_order,
         is_active=item.is_active,
-        image_path=build_expense_item_image_path(
-            item.id, item.image_object_key, item.image_content_type
-        ),
-        image_thumb_path=build_expense_item_image_thumb_path(
-            item.id,
-            item.image_thumbnail_object_key,
-            item.image_thumbnail_content_type,
-            original_object_key=item.image_object_key,
-        ),
-        image_content_type=item.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=item.global_image_template_id,
         created_at=item.created_at,
         updated_at=item.updated_at,
         allocated_shop_count=allocated_shop_count,
@@ -161,25 +165,22 @@ def _expense_item_to_read(
     )
 
 
-def _shop_expense_item_from_row(row) -> ShopExpenseItemRead:
+def _shop_expense_item_from_row(row, templates_by_id: dict) -> ShopExpenseItemRead:
     allocated_shop_count = int(row.allocated_shop_count or 0)
     entry_count = int(row.entry_count or 0)
+    image_path, image_thumb_path, image_content_type = build_expense_image_paths_for_row(
+        row, templates_by_id
+    )
     return ShopExpenseItemRead(
         id=row.id,
         name=row.name,
         tamil_name=row.tamil_name,
         sort_order=row.sort_order,
         is_active=row.is_active,
-        image_path=build_expense_item_image_path(
-            row.id, row.image_object_key, row.image_content_type
-        ),
-        image_thumb_path=build_expense_item_image_thumb_path(
-            row.id,
-            row.image_thumbnail_object_key,
-            row.image_thumbnail_content_type,
-            original_object_key=row.image_object_key,
-        ),
-        image_content_type=row.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=getattr(row, "global_image_template_id", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
         allocated_shop_count=allocated_shop_count,
@@ -265,11 +266,19 @@ async def list_expense_item_rows(
         )
     ).all()
     page_rows = rows[:limit]
+    expense_items = [row.ExpenseItem for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(expense_items)
     items = [
         _expense_item_to_read(
             row.ExpenseItem,
             allocated_shop_count=row.allocated_shop_count,
             entry_count=row.entry_count,
+            template=(
+                templates_by_id.get(row.ExpenseItem.global_image_template_id)
+                if row.ExpenseItem.global_image_template_id
+                and not row.ExpenseItem.image_object_key
+                else None
+            ),
         )
         for row in page_rows
     ]
@@ -337,7 +346,12 @@ async def count_expense_items(
     )
 
 
-async def get_expense_item(db: AsyncSession, item_id: UUID) -> ExpenseItemRead:
+async def get_expense_item(
+    db: AsyncSession,
+    item_id: UUID,
+    *,
+    platform_db: AsyncSession | None = None,
+) -> ExpenseItemRead:
     item = await db.get(ExpenseItem, item_id)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
@@ -355,13 +369,26 @@ async def get_expense_item(db: AsyncSession, item_id: UUID) -> ExpenseItemRead:
         )
         or 0
     )
+    template = None
+    if item.global_image_template_id and not item.image_object_key and platform_db is not None:
+        template = await get_active_template(platform_db, item.global_image_template_id)
+    elif item.global_image_template_id and not item.image_object_key:
+        templates_by_id = await load_templates_for_item_rows([item])
+        template = templates_by_id.get(item.global_image_template_id)
     return _expense_item_to_read(
-        item, allocated_shop_count=allocated_shop_count, entry_count=entry_count
+        item,
+        allocated_shop_count=allocated_shop_count,
+        entry_count=entry_count,
+        template=template,
     )
 
 
 async def create_expense_item(
-    db: AsyncSession, payload: ExpenseItemCreate, organization_id: UUID | None = None
+    db: AsyncSession,
+    payload: ExpenseItemCreate,
+    organization_id: UUID | None = None,
+    *,
+    platform_db: AsyncSession | None = None,
 ) -> ExpenseItemRead:
     org_id = organization_id or await resolve_organization_id(db)
     name = _normalize_expense_name(payload.name)
@@ -374,13 +401,29 @@ async def create_expense_item(
         organization_id=org_id,
     )
     db.add(item)
+    await db.flush()
+    if payload.global_image_template_id is not None:
+        if platform_db is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Platform database session is required for global image templates",
+            )
+        await apply_global_image_template_selection(
+            item,
+            platform_db=platform_db,
+            global_image_template_id=payload.global_image_template_id,
+        )
     await db.commit()
     await db.refresh(item)
-    return _expense_item_to_read(item)
+    return await get_expense_item(db, item.id, platform_db=platform_db)
 
 
 async def update_expense_item(
-    db: AsyncSession, item_id: UUID, payload: ExpenseItemUpdate
+    db: AsyncSession,
+    item_id: UUID,
+    payload: ExpenseItemUpdate,
+    *,
+    platform_db: AsyncSession | None = None,
 ) -> ExpenseItemRead:
     item = await db.get(ExpenseItem, item_id, with_for_update=True)
     if item is None:
@@ -392,9 +435,25 @@ async def update_expense_item(
     item.tamil_name = _normalize_tamil_name(payload.tamil_name)
     item.sort_order = payload.sort_order
     item.is_active = payload.is_active
+    if "use_global_image_template" in payload.model_fields_set:
+        if payload.use_global_image_template is False:
+            pass
+        elif payload.global_image_template_id is None:
+            item.global_image_template_id = None
+        else:
+            if platform_db is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Platform database session is required for global image templates",
+                )
+            await apply_global_image_template_selection(
+                item,
+                platform_db=platform_db,
+                global_image_template_id=payload.global_image_template_id,
+            )
     await db.commit()
     await db.refresh(item)
-    return await get_expense_item(db, item.id)
+    return await get_expense_item(db, item.id, platform_db=platform_db)
 
 
 async def delete_expense_item(db: AsyncSession, item_id: UUID) -> None:
@@ -476,6 +535,7 @@ def _shop_expense_rows_query(
             ExpenseItem.image_content_type,
             ExpenseItem.image_thumbnail_object_key,
             ExpenseItem.image_thumbnail_content_type,
+            ExpenseItem.global_image_template_id,
             ExpenseItem.created_at,
             ExpenseItem.updated_at,
             ShopExpenseAllocation.id.label("allocation_id"),
@@ -531,7 +591,8 @@ async def list_shop_expense_item_rows(
         )
     ).all()
     page_rows = rows[:limit]
-    items = [_shop_expense_item_from_row(row) for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(page_rows)
+    items = [_shop_expense_item_from_row(row, templates_by_id) for row in page_rows]
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if len(rows) > limit and page_rows:
         last_row = page_rows[-1]
@@ -590,6 +651,7 @@ async def list_shop_expense_candidate_rows(
         )
     ).all()
     page_rows = rows[:limit]
+    templates_by_id = await load_templates_for_item_rows(page_rows)
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if len(rows) > limit and page_rows:
         last_item = page_rows[-1]
@@ -597,7 +659,17 @@ async def list_shop_expense_candidate_rows(
         next_cursor_name = last_item.name.lower()
         next_cursor_id = last_item.id
     return ExpenseItemRowsPage(
-        items=[_expense_item_to_read(item) for item in page_rows],
+        items=[
+            _expense_item_to_read(
+                item,
+                template=(
+                    templates_by_id.get(item.global_image_template_id)
+                    if item.global_image_template_id and not item.image_object_key
+                    else None
+                ),
+            )
+            for item in page_rows
+        ],
         limit=limit,
         has_more=len(rows) > limit,
         next_cursor_sort_order=next_cursor_sort_order,
@@ -618,7 +690,8 @@ async def _get_shop_expense_item_read(
     ).first()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense item not found")
-    return _shop_expense_item_from_row(row)
+    templates_by_id = await load_templates_for_item_rows([row])
+    return _shop_expense_item_from_row(row, templates_by_id)
 
 
 async def _existing_shop_expense_allocation_item_ids(
@@ -864,7 +937,12 @@ def _expense_entry_to_read(
     entry: ExpenseEntry,
     shop_name: str,
     item: ExpenseItem,
+    template=None,
 ) -> ExpenseEntryRead:
+    image_path, image_thumb_path = build_resolved_expense_item_image_paths(item, template)
+    image_content_type = item.image_content_type
+    if image_content_type is None and template is not None and template.is_active:
+        image_content_type = template.image_content_type
     return ExpenseEntryRead(
         id=entry.id,
         shop_id=entry.shop_id,
@@ -872,16 +950,9 @@ def _expense_entry_to_read(
         expense_item_id=entry.expense_item_id,
         expense_name=entry.expense_name,
         expense_tamil_name=entry.expense_tamil_name,
-        image_path=build_expense_item_image_path(
-            item.id, item.image_object_key, item.image_content_type
-        ),
-        image_thumb_path=build_expense_item_image_thumb_path(
-            item.id,
-            item.image_thumbnail_object_key,
-            item.image_thumbnail_content_type,
-            original_object_key=item.image_object_key,
-        ),
-        image_content_type=item.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
         cash_amount=entry.cash_amount,
         upi_amount=entry.upi_amount,
         amount=entry.amount,
@@ -1042,11 +1113,19 @@ async def list_expense_entries(
         )
     ).all()
     page_rows = rows[:limit]
+    expense_items = [row.ExpenseItem for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(expense_items)
     items = [
         _expense_entry_to_read(
             entry=row.ExpenseEntry,
             shop_name=row.shop_name,
             item=row.ExpenseItem,
+            template=(
+                templates_by_id.get(row.ExpenseItem.global_image_template_id)
+                if row.ExpenseItem.global_image_template_id
+                and not row.ExpenseItem.image_object_key
+                else None
+            ),
         )
         for row in page_rows
     ]

@@ -12,8 +12,6 @@ from sqlalchemy.orm import selectinload
 from app.core.ids import uuid7
 from app.core.timezone import ist_midnight
 from app.db.storage import (
-    build_inventory_item_image_path,
-    build_inventory_item_image_thumb_path,
     delete_item_image_storage,
     save_inventory_item_image_upload,
 )
@@ -64,6 +62,14 @@ from app.schemas.inventory import (
     InventoryUseRequest,
     InventoryUseSplitRequest,
     ShopInventoryAllocationBulkRead,
+)
+from app.services.global_image_templates import (
+    apply_global_image_template_selection,
+    build_inventory_image_paths_for_row,
+    build_resolved_inventory_item_image_paths,
+    load_templates_for_item_rows,
+    get_active_template,
+    require_active_template,
 )
 from app.services.tenant_query import resolve_organization_id
 
@@ -148,14 +154,20 @@ def _item_categories(item: InventoryItem) -> list[InventoryCategory]:
     return sorted(categories, key=lambda category: (category.name.lower(), str(category.id)))
 
 
-def _inventory_item_to_read(item: InventoryItem) -> InventoryItemRead:
+def _inventory_item_to_read(
+    item: InventoryItem,
+    *,
+    template=None,
+) -> InventoryItemRead:
     categories = _item_categories(item)
-    return _inventory_item_to_read_with_categories(item, categories)
+    return _inventory_item_to_read_with_categories(item, categories, template=template)
 
 
 def _inventory_item_to_read_with_categories(
     item: InventoryItem,
     categories: list[InventoryCategory],
+    *,
+    template=None,
 ) -> InventoryItemRead:
     sorted_categories = sorted(
         categories, key=lambda category: (category.name.lower(), str(category.id))
@@ -166,6 +178,10 @@ def _inventory_item_to_read_with_categories(
         (mapping for mapping in item_mappings if mapping.inventory_category_id is None),
         None,
     )
+    image_path, image_thumb_path = build_resolved_inventory_item_image_paths(item, template)
+    image_content_type = item.image_content_type
+    if image_content_type is None and template is not None and template.is_active:
+        image_content_type = template.image_content_type
     return InventoryItemRead(
         id=item.id,
         name=item.name,
@@ -189,16 +205,10 @@ def _inventory_item_to_read_with_categories(
         categories=[_category_to_read(category) for category in sorted_categories],
         created_at=item.created_at,
         updated_at=item.updated_at,
-        image_path=build_inventory_item_image_path(
-            item.id, item.image_object_key, item.image_content_type
-        ),
-        image_thumb_path=build_inventory_item_image_thumb_path(
-            item.id,
-            item.image_thumbnail_object_key,
-            item.image_thumbnail_content_type,
-            original_object_key=item.image_object_key,
-        ),
-        image_content_type=item.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=item.global_image_template_id,
     )
 
 
@@ -206,12 +216,16 @@ def _inventory_item_row_to_read(
     row,
     categories_by_item_id: dict[UUID, list[InventoryCategoryRead]],
     item_mappings_by_item_id: dict[UUID, list[InventoryBillingItemMappingRead]],
+    templates_by_id: dict,
 ) -> InventoryItemRead:
     categories = categories_by_item_id.get(row.id, [])
     item_mappings = item_mappings_by_item_id.get(row.id, [])
     item_level_mapping = next(
         (mapping for mapping in item_mappings if mapping.inventory_category_id is None),
         None,
+    )
+    image_path, image_thumb_path, image_content_type = build_inventory_image_paths_for_row(
+        row, templates_by_id
     )
     return InventoryItemRead(
         id=row.id,
@@ -236,16 +250,10 @@ def _inventory_item_row_to_read(
         categories=categories,
         created_at=row.created_at,
         updated_at=row.updated_at,
-        image_path=build_inventory_item_image_path(
-            row.id, row.image_object_key, row.image_content_type
-        ),
-        image_thumb_path=build_inventory_item_image_thumb_path(
-            row.id,
-            row.image_thumbnail_object_key,
-            row.image_thumbnail_content_type,
-            original_object_key=row.image_object_key,
-        ),
-        image_content_type=row.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=getattr(row, "global_image_template_id", None),
     )
 
 
@@ -658,6 +666,7 @@ def _inventory_items_row_query(*, q: str | None = None, active: bool | None = No
         InventoryItem.image_content_type,
         InventoryItem.image_thumbnail_object_key,
         InventoryItem.image_thumbnail_content_type,
+        InventoryItem.global_image_template_id,
     )
     search = q.strip() if q else ""
     if search:
@@ -864,6 +873,7 @@ async def list_inventory_item_rows(
     page_rows = rows[:limit]
     has_more = len(rows) > limit
     item_ids = [row.id for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(page_rows)
     categories_by_item_id = await _categories_by_inventory_item_id(db, item_ids)
     item_mappings_by_item_id = await _billing_mappings_by_inventory_item_id(db, item_ids)
 
@@ -881,6 +891,7 @@ async def list_inventory_item_rows(
                 row,
                 categories_by_item_id,
                 item_mappings_by_item_id,
+                templates_by_id,
             )
             for row in page_rows
         ],
@@ -926,7 +937,12 @@ async def count_inventory_items(
     )
 
 
-async def get_inventory_item(db: AsyncSession, item_id: UUID) -> InventoryItemRead:
+async def get_inventory_item(
+    db: AsyncSession,
+    item_id: UUID,
+    *,
+    platform_db: AsyncSession | None = None,
+) -> InventoryItemRead:
     item = await db.scalar(
         select(InventoryItem)
         .where(InventoryItem.id == item_id)
@@ -944,7 +960,13 @@ async def get_inventory_item(db: AsyncSession, item_id: UUID) -> InventoryItemRe
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
         )
-    return _inventory_item_to_read(item)
+    template = None
+    if item.global_image_template_id and not item.image_object_key and platform_db is not None:
+        template = await get_active_template(platform_db, item.global_image_template_id)
+    elif item.global_image_template_id and not item.image_object_key:
+        templates_by_id = await load_templates_for_item_rows([item])
+        template = templates_by_id.get(item.global_image_template_id)
+    return _inventory_item_to_read(item, template=template)
 
 
 async def create_inventory_item(
@@ -952,6 +974,9 @@ async def create_inventory_item(
     payload: InventoryItemCreate,
     image: UploadFile | None = None,
     organization_id: UUID | None = None,
+    *,
+    global_image_template_id: UUID | None = None,
+    platform_db: AsyncSession | None = None,
 ) -> InventoryItemRead:
     org_id = organization_id or await resolve_organization_id(db)
     item_name = _normalize_inventory_item_name(payload.name)
@@ -988,6 +1013,28 @@ async def create_inventory_item(
             await save_inventory_item_image_upload(db, item, image, commit=False)
             uploaded_image_object_key = item.image_object_key
             uploaded_thumbnail_object_key = item.image_thumbnail_object_key
+        elif global_image_template_id is not None:
+            if platform_db is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Platform database session is required for global image templates",
+                )
+            await apply_global_image_template_selection(
+                item,
+                platform_db=platform_db,
+                global_image_template_id=global_image_template_id,
+            )
+        elif payload.global_image_template_id is not None:
+            if platform_db is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Platform database session is required for global image templates",
+                )
+            await apply_global_image_template_selection(
+                item,
+                platform_db=platform_db,
+                global_image_template_id=payload.global_image_template_id,
+            )
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -1000,7 +1047,7 @@ async def create_inventory_item(
         await db.rollback()
         await delete_item_image_storage(uploaded_image_object_key, uploaded_thumbnail_object_key)
         raise
-    return await get_inventory_item(db, item.id)
+    return await get_inventory_item(db, item.id, platform_db=platform_db)
 
 
 async def update_inventory_item(
@@ -1010,6 +1057,8 @@ async def update_inventory_item(
     image: UploadFile | None = None,
     *,
     remove_image: bool = False,
+    global_image_template_id: UUID | None | object = ...,
+    platform_db: AsyncSession | None = None,
 ) -> InventoryItemRead:
     item = await db.scalar(
         select(InventoryItem)
@@ -1066,8 +1115,15 @@ async def update_inventory_item(
     should_remove_image = (
         remove_image
         and image is None
-        and bool(item.image_object_key or item.image_thumbnail_object_key)
+        and bool(
+            item.image_object_key
+            or item.image_thumbnail_object_key
+            or item.global_image_template_id
+        )
     )
+    template_selection_changed = "use_global_image_template" in payload.model_fields_set
+    if global_image_template_id is not ...:
+        template_selection_changed = True
 
     try:
         item.name = item_name
@@ -1081,6 +1137,7 @@ async def update_inventory_item(
             item.image_content_type = None
             item.image_thumbnail_object_key = None
             item.image_thumbnail_content_type = None
+            item.global_image_template_id = None
         for link in list(item.category_links):
             await db.delete(link)
         await db.flush()
@@ -1091,6 +1148,27 @@ async def update_inventory_item(
             await save_inventory_item_image_upload(db, item, image, commit=False)
             uploaded_image_object_key = item.image_object_key
             uploaded_thumbnail_object_key = item.image_thumbnail_object_key
+        elif template_selection_changed:
+            selected_template_id = (
+                global_image_template_id
+                if global_image_template_id is not ...
+                else payload.global_image_template_id
+            )
+            if payload.use_global_image_template is False:
+                pass
+            elif selected_template_id is None:
+                item.global_image_template_id = None
+            else:
+                if platform_db is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Platform database session is required for global image templates",
+                    )
+                await apply_global_image_template_selection(
+                    item,
+                    platform_db=platform_db,
+                    global_image_template_id=selected_template_id,
+                )
         await db.commit()
         await db.refresh(item)
         if (
@@ -1128,7 +1206,7 @@ async def update_inventory_item(
         ):
             await delete_item_image_storage(uploaded_thumbnail_object_key)
         raise
-    return await get_inventory_item(db, item.id)
+    return await get_inventory_item(db, item.id, platform_db=platform_db)
 
 
 async def update_inventory_item_purchase_rate(

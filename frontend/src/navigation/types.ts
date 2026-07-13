@@ -26,6 +26,7 @@ export type AppStackParamList = {
   SuperAdminOrgEdit: { org: import("@/api/super-admin").OrganizationRead };
   SuperAdminAdmins: undefined;
   SuperAdminAudit: undefined;
+  SuperAdminGlobalImageTemplates: undefined;
   SuperAdminHardDelete: {
     resourceType: "organization" | "tenantAdmin" | "branch";
     resourceId: UUID;

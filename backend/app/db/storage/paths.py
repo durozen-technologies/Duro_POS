@@ -43,6 +43,8 @@ _bucket_init_lock: asyncio.Lock | None = None
 IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 PROXY_IMAGE_CACHE_CONTROL = "public, max-age=3600"
 ImageVariant = Literal["original", "thumb"]
+StorageScope = Literal["tenant", "global"]
+GLOBAL_IMAGE_PREFIX = "global/items"
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,51 @@ def build_item_image_thumb_path(
     if original_object_key:
         return _append_image_cache_query(
             f"{settings.api_v1_prefix}/catalog/items/{item_id}/image?variant=thumb",
+            original_object_key,
+        )
+    return None
+
+
+def build_global_image_template_image_path(
+    template_id: UUID,
+    image_object_key: str | None,
+    image_content_type: str | None = None,
+    *,
+    variant: ImageVariant = "original",
+) -> str | None:
+    if not image_object_key:
+        return None
+    public_url = _build_public_object_url(image_object_key)
+    if public_url:
+        return public_url
+    if variant == "thumb":
+        path = (
+            f"{settings.api_v1_prefix}/catalog/global-image-templates/{template_id}/image"
+            "?variant=thumb"
+        )
+    else:
+        path = f"{settings.api_v1_prefix}/catalog/global-image-templates/{template_id}/image"
+    return _append_image_cache_query(path, image_object_key)
+
+
+def build_global_image_template_image_thumb_path(
+    template_id: UUID,
+    thumbnail_object_key: str | None,
+    thumbnail_content_type: str | None = None,
+    *,
+    original_object_key: str | None = None,
+) -> str | None:
+    if thumbnail_object_key:
+        return build_global_image_template_image_path(
+            template_id,
+            thumbnail_object_key,
+            thumbnail_content_type,
+            variant="thumb",
+        )
+    if original_object_key:
+        return _append_image_cache_query(
+            f"{settings.api_v1_prefix}/catalog/global-image-templates/{template_id}/image"
+            "?variant=thumb",
             original_object_key,
         )
     return None
@@ -362,6 +409,7 @@ async def ensure_bucket_exists() -> None:
                             "Resource": [
                                 f"arn:aws:s3:::{settings.rustfs_bucket_name}/orgs/*",
                                 f"arn:aws:s3:::{settings.rustfs_bucket_name}/items/*",
+                                f"arn:aws:s3:::{settings.rustfs_bucket_name}/global/*",
                                 f"arn:aws:s3:::{settings.rustfs_bucket_name}/inventory-items/*",
                                 f"arn:aws:s3:::{settings.rustfs_bucket_name}/expense-items/*",
                             ],
@@ -413,9 +461,12 @@ def _get_object_key(
     variant: ImageVariant,
     prefix: str = "items",
     organization_id: UUID | None = None,
+    storage_scope: StorageScope = "tenant",
 ) -> str:
     suffix = Path(filename).suffix.lower() or ".bin"
     leaf = f"{prefix}/{item_id}/{variant}/{uuid7().hex}{suffix}"
+    if storage_scope == "global":
+        return leaf
     if organization_id is not None:
         return f"orgs/{organization_id}/{leaf}"
     return leaf
@@ -515,6 +566,7 @@ async def _upload_bytes(
     variant: ImageVariant = "original",
     prefix: str = "items",
     organization_id: UUID | None = None,
+    storage_scope: StorageScope = "tenant",
 ) -> tuple[str, str, str]:
     await ensure_bucket_exists()
     object_key = _get_object_key(
@@ -523,6 +575,7 @@ async def _upload_bytes(
         variant=variant,
         prefix=prefix,
         organization_id=organization_id,
+        storage_scope=storage_scope,
     )
     resolved_content_type = _guess_content_type(filename, content_type)
     client = _get_storage_client()
@@ -542,6 +595,10 @@ async def _upload_bytes(
             f"Endpoint: {settings.rustfs_endpoint_url}, bucket: {settings.rustfs_bucket_name}"
         ) from exc
     return object_key, resolved_content_type, _normalize_etag(response.get("ETag"), object_key)
+
+
+def is_global_template_object_key(object_key: str | None) -> bool:
+    return bool(object_key and object_key.startswith("global/"))
 
 
 async def _delete_object_if_present(object_key: str | None) -> None:

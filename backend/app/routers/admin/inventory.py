@@ -117,11 +117,13 @@ async def create_admin_inventory_management_item(
     base_unit: Annotated[BaseUnit, Form()],
     tamil_name: Annotated[str, Form(min_length=1, max_length=120)],
     db: DBSession,
+    platform_db: PlatformDB,
     is_active: Annotated[bool, Form()] = True,
     sort_order: Annotated[int, Form()] = 0,
     category_ids: Annotated[str, Form()] = "[]",
     billing_item_ids: Annotated[str, Form()] = "[]",
     billing_mappings: Annotated[str, Form()] = "[]",
+    global_image_template_id: Annotated[UUID | None, Form()] = None,
     image: ItemImageUploadOptional = None,
 ) -> InventoryItemRead:
     payload = InventoryItemCreate(
@@ -134,8 +136,15 @@ async def create_admin_inventory_management_item(
         category_ids=_parse_inventory_category_ids(category_ids),
         billing_item_ids=_parse_inventory_billing_item_ids(billing_item_ids),
         billing_mappings=_parse_inventory_billing_mappings(billing_mappings),
+        global_image_template_id=global_image_template_id,
     )
-    return await create_inventory_management_item(db, payload, image=image)
+    return await create_inventory_management_item(
+        db,
+        payload,
+        image=image,
+        global_image_template_id=global_image_template_id,
+        platform_db=platform_db,
+    )
 
 
 @router.post(
@@ -148,8 +157,9 @@ async def create_admin_inventory_management_item(
 async def create_admin_inventory_item_metadata(
     payload: InventoryItemCreate,
     db: DBSession,
+    platform_db: PlatformDB,
 ) -> InventoryItemRead:
-    return await create_inventory_management_item(db, payload)
+    return await create_inventory_management_item(db, payload, platform_db=platform_db)
 
 
 @router.patch(
@@ -165,12 +175,15 @@ async def update_admin_inventory_management_item(
     base_unit: Annotated[BaseUnit, Form()],
     tamil_name: Annotated[str, Form(min_length=1, max_length=120)],
     db: DBSession,
+    platform_db: PlatformDB,
     is_active: Annotated[bool, Form()] = True,
     sort_order: Annotated[int, Form()] = 0,
     category_ids: Annotated[str, Form()] = "[]",
     billing_item_ids: Annotated[str, Form()] = "[]",
     billing_mappings: Annotated[str, Form()] = "[]",
     remove_image: Annotated[bool, Form()] = False,
+    use_global_image_template: Annotated[bool | None, Form()] = None,
+    global_image_template_id: Annotated[UUID | None, Form()] = None,
     image: ItemImageUploadOptional = None,
 ) -> InventoryItemRead:
     payload = InventoryItemUpdate(
@@ -183,14 +196,20 @@ async def update_admin_inventory_management_item(
         category_ids=_parse_inventory_category_ids(category_ids),
         billing_item_ids=_parse_inventory_billing_item_ids(billing_item_ids),
         billing_mappings=_parse_inventory_billing_mappings(billing_mappings),
+        use_global_image_template=use_global_image_template,
+        global_image_template_id=global_image_template_id,
     )
-    return await update_inventory_management_item(
-        db,
-        item_id,
-        payload,
-        image=image,
-        remove_image=remove_image,
-    )
+    update_kwargs: dict[str, object] = {
+        "db": db,
+        "item_id": item_id,
+        "payload": payload,
+        "image": image,
+        "remove_image": remove_image,
+        "platform_db": platform_db,
+    }
+    if use_global_image_template is not None:
+        update_kwargs["global_image_template_id"] = global_image_template_id
+    return await update_inventory_management_item(**update_kwargs)
 
 
 @router.patch(
@@ -203,8 +222,14 @@ async def patch_admin_inventory_item_metadata(
     item_id: UUID,
     payload: InventoryItemUpdate,
     db: DBSession,
+    platform_db: PlatformDB,
 ) -> InventoryItemRead:
-    return await update_inventory_management_item(db, item_id, payload)
+    return await update_inventory_management_item(
+        db,
+        item_id,
+        payload,
+        platform_db=platform_db,
+    )
 
 
 @router.patch(

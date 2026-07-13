@@ -44,6 +44,11 @@ class ExpenseItem(Base, BaseModelMixin):
     image_content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     image_thumbnail_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image_thumbnail_content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    global_image_template_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE,
+        index=True,
+        nullable=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

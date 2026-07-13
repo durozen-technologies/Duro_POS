@@ -7,7 +7,10 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.storage import build_item_image_path, build_item_image_thumb_path
+from app.services.global_image_templates import (
+    build_image_paths_for_row,
+    load_templates_for_item_rows,
+)
 from app.models import DailyPrice, Item, Shop, ShopItemAllocation
 from app.schemas.admin import PriceStatus
 from app.schemas.pricing import (
@@ -279,6 +282,7 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
                 Item.image_content_type,
                 Item.image_thumbnail_object_key,
                 Item.image_thumbnail_content_type,
+                Item.global_image_template_id,
                 ShopItemAllocation.display_name,
                 ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
                 ShopItemAllocation.sort_order.label("allocation_sort_order"),
@@ -303,6 +307,7 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
             )
         )
     ).all()
+    templates_by_id = await load_templates_for_item_rows(rows)
     has_today_prices = bool(rows) and all(row.price_date == today for row in rows)
     prices_published = _shop_prices_published_today(shop, today)
     prices_set = has_today_prices and prices_published
@@ -328,15 +333,8 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
                 else row.sort_order,
                 category_id=row.category_id,
                 category=row.category,
-                image_path=build_item_image_path(
-                    row.id, row.image_object_key, row.image_content_type
-                ),
-                image_thumb_path=build_item_image_thumb_path(
-                    row.id,
-                    row.image_thumbnail_object_key,
-                    row.image_thumbnail_content_type,
-                    original_object_key=row.image_object_key,
-                ),
+                image_path=build_image_paths_for_row(row, templates_by_id)[0],
+                image_thumb_path=build_image_paths_for_row(row, templates_by_id)[1],
             )
             for row in rows
         ],
@@ -371,6 +369,7 @@ async def get_shop_price_history(
                 Item.image_content_type,
                 Item.image_thumbnail_object_key,
                 Item.image_thumbnail_content_type,
+                Item.global_image_template_id,
                 ShopItemAllocation.display_name,
                 ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
                 ShopItemAllocation.sort_order.label("allocation_sort_order"),
@@ -392,6 +391,7 @@ async def get_shop_price_history(
             )
         )
     ).all()
+    templates_by_id = await load_templates_for_item_rows(rows)
     has_prices = bool(rows) and all(row.price_date == target_date for row in rows)
 
     return ShopBootstrapResponse(
@@ -415,15 +415,8 @@ async def get_shop_price_history(
                 else row.sort_order,
                 category_id=row.category_id,
                 category=row.category,
-                image_path=build_item_image_path(
-                    row.id, row.image_object_key, row.image_content_type
-                ),
-                image_thumb_path=build_item_image_thumb_path(
-                    row.id,
-                    row.image_thumbnail_object_key,
-                    row.image_thumbnail_content_type,
-                    original_object_key=row.image_object_key,
-                ),
+                image_path=build_image_paths_for_row(row, templates_by_id)[0],
+                image_thumb_path=build_image_paths_for_row(row, templates_by_id)[1],
             )
             for row in rows
         ],
@@ -612,6 +605,7 @@ async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
                 Item.image_content_type,
                 Item.image_thumbnail_object_key,
                 Item.image_thumbnail_content_type,
+                Item.global_image_template_id,
                 latest_prices.c.price_per_unit,
                 latest_prices.c.price_date,
             )
@@ -623,6 +617,7 @@ async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
             .order_by(Item.sort_order, Item.name)
         )
     ).all()
+    templates_by_id = await load_templates_for_item_rows(rows)
     has_today_prices = bool(rows) and all(row.price_date == today for row in rows)
 
     return ShopBootstrapResponse(
@@ -644,15 +639,8 @@ async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
                 sort_order=row.sort_order,
                 category_id=row.category_id,
                 category=row.category,
-                image_path=build_item_image_path(
-                    row.id, row.image_object_key, row.image_content_type
-                ),
-                image_thumb_path=build_item_image_thumb_path(
-                    row.id,
-                    row.image_thumbnail_object_key,
-                    row.image_thumbnail_content_type,
-                    original_object_key=row.image_object_key,
-                ),
+                image_path=build_image_paths_for_row(row, templates_by_id)[0],
+                image_thumb_path=build_image_paths_for_row(row, templates_by_id)[1],
             )
             for row in rows
         ],

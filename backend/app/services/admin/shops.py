@@ -39,6 +39,7 @@ from app.schemas.admin import (
 from app.services.admin._shared import (
     _ensure_unique_item_name,
     _item_to_read,
+    _item_to_read_async,
     _json_safe_item_state,
     _normalize_item_name,
     _normalize_tamil_item_name,
@@ -48,6 +49,7 @@ from app.services.admin._shared import (
 )
 from app.services.session_invalidation import invalidate_user_sessions
 from app.services.super_admin.organizations import assert_organization_can_add_branch
+from app.services.global_image_templates import require_active_template
 from app.services.tenant_query import resolve_organization_id
 from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 
@@ -282,6 +284,8 @@ async def create_item(
     image: UploadFile | None = None,
     shop_id: UUID | None = None,
     organization_id: UUID | None = None,
+    global_image_template_id: UUID | None = None,
+    platform_db: AsyncSession | None = None,
 ) -> ItemRead:
     org_id = organization_id or await resolve_organization_id(db, shop_id=shop_id)
     item_name = _normalize_item_name(payload.name)
@@ -317,6 +321,14 @@ async def create_item(
             await save_item_image_upload(db, item, image, commit=False)
             uploaded_image_object_key = item.image_object_key
             uploaded_thumbnail_object_key = item.image_thumbnail_object_key
+        elif global_image_template_id is not None:
+            if platform_db is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Platform database session is required for global image templates",
+                )
+            await require_active_template(platform_db, global_image_template_id)
+            item.global_image_template_id = global_image_template_id
         _record_item_event(
             db,
             item_id=item.id,
@@ -325,7 +337,7 @@ async def create_item(
             after=_json_safe_item_state(item),
         )
         await db.commit()
-        return _item_to_read(item)
+        return await _item_to_read_async(item, platform_db=platform_db)
     except IntegrityError:
         await db.rollback()
         await delete_item_image_storage(uploaded_image_object_key, uploaded_thumbnail_object_key)
@@ -346,6 +358,8 @@ async def update_item(
     image: UploadFile | None = None,
     shop_id: UUID | None = None,
     remove_image: bool = False,
+    global_image_template_id: UUID | None | object = ...,
+    platform_db: AsyncSession | None = None,
 ) -> ItemRead:
     filters = [Item.id == item_id]
     if shop_id is not None:
@@ -398,10 +412,14 @@ async def update_item(
     should_remove_image = (
         remove_image
         and image is None
-        and bool(item.image_object_key or item.image_thumbnail_object_key)
+        and (
+            bool(item.image_object_key or item.image_thumbnail_object_key)
+            or item.global_image_template_id is not None
+        )
     )
-    if not configuration_changed and image is None and not should_remove_image:
-        return _item_to_read(item)
+    template_selection_changed = global_image_template_id is not ...
+    if not configuration_changed and image is None and not should_remove_image and not template_selection_changed:
+        return await _item_to_read_async(item, platform_db=platform_db)
 
     if shop_id is None and item.is_active and not payload.is_active:
         from app.services.admin.catalogue import remove_catalogue_item_from_all_shop_billing
@@ -430,6 +448,22 @@ async def update_item(
             item.image_content_type = None
             item.image_thumbnail_object_key = None
             item.image_thumbnail_content_type = None
+            item.global_image_template_id = None
+        elif template_selection_changed:
+            if global_image_template_id is None:
+                item.global_image_template_id = None
+            else:
+                if platform_db is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Platform database session is required for global image templates",
+                    )
+                await require_active_template(platform_db, global_image_template_id)
+                item.global_image_template_id = global_image_template_id
+                item.image_object_key = None
+                item.image_content_type = None
+                item.image_thumbnail_object_key = None
+                item.image_thumbnail_content_type = None
         await db.flush()
         if image is not None:
             await save_item_image_upload(db, item, image, commit=False)
@@ -456,7 +490,12 @@ async def update_item(
             and previous_thumbnail_object_key != item.image_thumbnail_object_key
         ):
             await delete_item_image_storage(previous_thumbnail_object_key)
-        return _item_to_read(item)
+        if template_selection_changed and global_image_template_id is not ...:
+            await delete_item_image_storage(
+                previous_image_object_key,
+                previous_thumbnail_object_key,
+            )
+        return await _item_to_read_async(item, platform_db=platform_db)
     except Exception:
         await db.rollback()
         if uploaded_image_object_key and uploaded_image_object_key != previous_image_object_key:
@@ -475,6 +514,7 @@ async def update_item_metadata(
     payload: ItemMetadataUpdate,
     *,
     shop_id: UUID | None = None,
+    platform_db: AsyncSession | None = None,
 ) -> ItemRead:
     filters = [Item.id == item_id]
     if shop_id is not None:
@@ -567,25 +607,45 @@ async def update_item_metadata(
         or item.sort_order != next_sort_order
         or dict(item.custom_attributes or {}) != next_custom_attributes
     )
-    if not configuration_changed:
-        return _item_to_read(item)
+    template_selection_changed = "use_global_image_template" in payload.model_fields_set
+    if not configuration_changed and not template_selection_changed:
+        return await _item_to_read_async(item, platform_db=platform_db)
 
     if shop_id is None and item.is_active and not next_is_active:
         from app.services.admin.catalogue import remove_catalogue_item_from_all_shop_billing
 
         await remove_catalogue_item_from_all_shop_billing(db, item_id)
 
-    item.name = next_name
-    item.tamil_name = next_tamil_name
-    item.unit_type = next_unit_type
-    item.base_unit = next_base_unit
-    item.is_active = next_is_active
-    item.sort_order = next_sort_order
-    if category_fields_set:
-        item.category_ref = next_category
-        item.category_id = next_category_id
-        item.category = next_category_name
-    item.custom_attributes = next_custom_attributes
+    if configuration_changed:
+        item.name = next_name
+        item.tamil_name = next_tamil_name
+        item.unit_type = next_unit_type
+        item.base_unit = next_base_unit
+        item.is_active = next_is_active
+        item.sort_order = next_sort_order
+        if category_fields_set:
+            item.category_ref = next_category
+            item.category_id = next_category_id
+            item.category = next_category_name
+        item.custom_attributes = next_custom_attributes
+
+    if template_selection_changed:
+        if not payload.use_global_image_template:
+            pass
+        elif payload.global_image_template_id is None:
+            item.global_image_template_id = None
+        else:
+            if platform_db is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Platform database session is required for global image templates",
+                )
+            await require_active_template(platform_db, payload.global_image_template_id)
+            item.global_image_template_id = payload.global_image_template_id
+            item.image_object_key = None
+            item.image_content_type = None
+            item.image_thumbnail_object_key = None
+            item.image_thumbnail_content_type = None
 
     await db.flush()
     _record_item_event(
@@ -597,7 +657,7 @@ async def update_item_metadata(
         after=_json_safe_item_state(item),
     )
     await db.commit()
-    return _item_to_read(item)
+    return await _item_to_read_async(item, platform_db=platform_db)
 
 
 async def update_item_assumption(

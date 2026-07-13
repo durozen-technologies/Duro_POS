@@ -14,9 +14,9 @@ from app.core.timezone import (
     ist_year_bounds,
     today_ist,
 )
-from app.db.storage import (
-    build_item_image_path,
-    build_item_image_thumb_path,
+from app.services.global_image_templates import (
+    build_image_paths_for_row,
+    load_templates_for_item_rows,
 )
 from app.models import (
     Bill,
@@ -147,6 +147,7 @@ async def list_shop_items(
             Item.image_content_type,
             Item.image_thumbnail_object_key,
             Item.image_thumbnail_content_type,
+            Item.global_image_template_id,
             ShopItemAllocation.id.label("allocation_id"),
             ShopItemAllocation.display_name.label("allocation_display_name"),
             ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
@@ -352,6 +353,7 @@ async def list_shop_items(
     result_rows = rows.all()
     page_rows = result_rows[:limit]
     has_more = len(result_rows) > limit
+    templates_by_id = await load_templates_for_item_rows(page_rows)
     items: list[ShopItemRead] = []
     for row in page_rows:
         is_shop_item = row.shop_id == shop.id
@@ -366,6 +368,9 @@ async def list_shop_items(
         price_status = _price_status_for(row.price_date, is_required=available_for_billing)
         bill_count = int(row.bill_count or 0)
         price_count = int(row.price_count or 0)
+        image_path, image_thumb_path, image_content_type = build_image_paths_for_row(
+            row, templates_by_id
+        )
         items.append(
             ShopItemRead(
                 id=row.id,
@@ -386,16 +391,10 @@ async def list_shop_items(
                     is_allocated=is_allocated,
                 ),
                 **_item_assumption_read_kwargs(row),
-                image_path=build_item_image_path(
-                    row.id, row.image_object_key, row.image_content_type
-                ),
-                image_thumb_path=build_item_image_thumb_path(
-                    row.id,
-                    row.image_thumbnail_object_key,
-                    row.image_thumbnail_content_type,
-                    original_object_key=row.image_object_key,
-                ),
-                image_content_type=row.image_content_type,
+                image_path=image_path,
+                image_thumb_path=image_thumb_path,
+                image_content_type=image_content_type,
+                global_image_template_id=row.global_image_template_id,
                 current_price=row.price_per_unit if is_allocated else None,
                 price_date=row.price_date if is_allocated else None,
                 latest_price_date=row.price_date if is_allocated else None,
@@ -502,6 +501,7 @@ async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItem
                 Item.image_content_type,
                 Item.image_thumbnail_object_key,
                 Item.image_thumbnail_content_type,
+                Item.global_image_template_id,
                 ShopItemAllocation.id.label("allocation_id"),
                 ShopItemAllocation.display_name.label("allocation_display_name"),
                 ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
@@ -542,6 +542,10 @@ async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItem
     bill_count = int(row.bill_count or 0)
     price_count = int(row.price_count or 0)
     allocated_shop_count = int(row.allocated_shop_count or 0)
+    templates_by_id = await load_templates_for_item_rows([row])
+    image_path, image_thumb_path, image_content_type = build_image_paths_for_row(
+        row, templates_by_id
+    )
 
     return ShopItemRead(
         id=row.id,
@@ -562,14 +566,10 @@ async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItem
             is_allocated=is_allocated,
         ),
         **_item_assumption_read_kwargs(row),
-        image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
-        image_thumb_path=build_item_image_thumb_path(
-            row.id,
-            row.image_thumbnail_object_key,
-            row.image_thumbnail_content_type,
-            original_object_key=row.image_object_key,
-        ),
-        image_content_type=row.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=row.global_image_template_id,
         current_price=row.price_per_unit if is_allocated else None,
         price_date=row.price_date if is_allocated else None,
         latest_price_date=row.price_date if is_allocated else None,
@@ -587,7 +587,13 @@ async def get_shop_item(db: AsyncSession, shop: Shop, item_id: UUID) -> ShopItem
     )
 
 
-def _compact_shop_item_from_row(row, shop: Shop, *, allocated: bool) -> ShopItemRead:
+def _compact_shop_item_from_row(
+    row,
+    shop: Shop,
+    *,
+    allocated: bool,
+    templates_by_id: dict,
+) -> ShopItemRead:
     is_shop_item = row.shop_id == shop.id
     effective_name = (
         _coalesce_text(
@@ -605,6 +611,9 @@ def _compact_shop_item_from_row(row, shop: Shop, *, allocated: bool) -> ShopItem
     effective_sort_order = getattr(row, "allocation_sort_order", None)
     if effective_sort_order is None:
         effective_sort_order = row.sort_order
+    image_path, image_thumb_path, image_content_type = build_image_paths_for_row(
+        row, templates_by_id
+    )
 
     return ShopItemRead(
         id=row.id,
@@ -625,14 +634,10 @@ def _compact_shop_item_from_row(row, shop: Shop, *, allocated: bool) -> ShopItem
             is_allocated=allocated,
         ),
         **_item_assumption_read_kwargs(row),
-        image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
-        image_thumb_path=build_item_image_thumb_path(
-            row.id,
-            row.image_thumbnail_object_key,
-            row.image_thumbnail_content_type,
-            original_object_key=row.image_object_key,
-        ),
-        image_content_type=row.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=getattr(row, "global_image_template_id", None),
         price_status=PriceStatus.MISSING,
         scope=ItemScope.SHOP if is_shop_item else ItemScope.GLOBAL,
         allocated=allocated,
@@ -693,6 +698,7 @@ def _selected_shop_items_source(shop: Shop):
         Item.image_content_type.label("image_content_type"),
         Item.image_thumbnail_object_key.label("image_thumbnail_object_key"),
         Item.image_thumbnail_content_type.label("image_thumbnail_content_type"),
+        Item.global_image_template_id.label("global_image_template_id"),
         cast(null(), ShopItemAllocation.id.type).label("allocation_id"),
         cast(null(), ShopItemAllocation.display_name.type).label("allocation_display_name"),
         cast(null(), ShopItemAllocation.tamil_name.type).label("allocation_tamil_name"),
@@ -724,6 +730,7 @@ def _selected_shop_items_source(shop: Shop):
             Item.image_content_type.label("image_content_type"),
             Item.image_thumbnail_object_key.label("image_thumbnail_object_key"),
             Item.image_thumbnail_content_type.label("image_thumbnail_content_type"),
+            Item.global_image_template_id.label("global_image_template_id"),
             ShopItemAllocation.id.label("allocation_id"),
             ShopItemAllocation.display_name.label("allocation_display_name"),
             ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
@@ -813,7 +820,11 @@ async def list_selected_shop_item_rows(
     result_rows = rows.all()
     page_rows = result_rows[:limit]
     has_more = len(result_rows) > limit
-    items = [_compact_shop_item_from_row(row, shop, allocated=True) for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(page_rows)
+    items = [
+        _compact_shop_item_from_row(row, shop, allocated=True, templates_by_id=templates_by_id)
+        for row in page_rows
+    ]
 
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if has_more and page_rows:
@@ -1035,6 +1046,7 @@ def _shop_item_import_candidates_query(shop: Shop, q: str | None = None):
         Item.image_content_type,
         Item.image_thumbnail_object_key,
         Item.image_thumbnail_content_type,
+        Item.global_image_template_id,
     ).where(
         Item.shop_id.is_(None),
         Item.is_active.is_(True),
@@ -1081,7 +1093,11 @@ async def list_shop_item_import_candidate_rows(
     result_rows = rows.all()
     page_rows = result_rows[:limit]
     has_more = len(result_rows) > limit
-    items = [_compact_shop_item_from_row(row, shop, allocated=False) for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(page_rows)
+    items = [
+        _compact_shop_item_from_row(row, shop, allocated=False, templates_by_id=templates_by_id)
+        for row in page_rows
+    ]
 
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if has_more and page_rows:
@@ -1164,6 +1180,7 @@ def _catalogue_rows_query(organization_id: UUID, q: str | None = None, active: b
         Item.image_content_type,
         Item.image_thumbnail_object_key,
         Item.image_thumbnail_content_type,
+        Item.global_image_template_id,
     ).where(Item.shop_id.is_(None), Item.organization_id == organization_id)
 
     search = q.strip() if q else ""
@@ -1180,7 +1197,10 @@ def _catalogue_rows_query(organization_id: UUID, q: str | None = None, active: b
     return query
 
 
-def _catalogue_row_to_shop_item(row) -> ShopItemRead:
+def _catalogue_row_to_shop_item(row, templates_by_id: dict) -> ShopItemRead:
+    image_path, image_thumb_path, image_content_type = build_image_paths_for_row(
+        row, templates_by_id
+    )
     return ShopItemRead(
         id=row.id,
         shop_id=None,
@@ -1196,14 +1216,10 @@ def _catalogue_row_to_shop_item(row) -> ShopItemRead:
         updated_at=row.updated_at,
         custom_attributes=row.custom_attributes or {},
         **_item_assumption_read_kwargs(row),
-        image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
-        image_thumb_path=build_item_image_thumb_path(
-            row.id,
-            row.image_thumbnail_object_key,
-            row.image_thumbnail_content_type,
-            original_object_key=row.image_object_key,
-        ),
-        image_content_type=row.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=row.global_image_template_id,
         price_status=PriceStatus.MISSING,
         scope=ItemScope.GLOBAL,
         allocated=False,
@@ -1277,7 +1293,8 @@ async def list_catalogue_item_rows(
     result_rows = rows.all()
     page_rows = result_rows[:limit]
     has_more = len(result_rows) > limit
-    items = [_catalogue_row_to_shop_item(row) for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(page_rows)
+    items = [_catalogue_row_to_shop_item(row, templates_by_id) for row in page_rows]
 
     next_cursor_group = next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if has_more and page_rows:
@@ -1402,6 +1419,7 @@ async def list_catalogue_items(
             Item.image_content_type,
             Item.image_thumbnail_object_key,
             Item.image_thumbnail_content_type,
+            Item.global_image_template_id,
             func.coalesce(bill_counts.c.bill_count, 0).label("bill_count"),
             func.coalesce(price_counts.c.price_count, 0).label("price_count"),
             func.coalesce(allocation_counts.c.allocated_shop_count, 0).label(
@@ -1486,8 +1504,14 @@ async def list_catalogue_items(
     result_rows = rows.all()
     page_rows = result_rows[:limit]
     has_more = len(result_rows) > limit
-    items = [
-        ShopItemRead(
+    templates_by_id = await load_templates_for_item_rows(page_rows)
+    items = []
+    for row in page_rows:
+        image_path, image_thumb_path, image_content_type = build_image_paths_for_row(
+            row, templates_by_id
+        )
+        items.append(
+            ShopItemRead(
             id=row.id,
             shop_id=None,
             name=row.name,
@@ -1502,14 +1526,10 @@ async def list_catalogue_items(
             updated_at=row.updated_at,
             custom_attributes=row.custom_attributes or {},
             **_item_assumption_read_kwargs(row),
-            image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
-            image_thumb_path=build_item_image_thumb_path(
-                row.id,
-                row.image_thumbnail_object_key,
-                row.image_thumbnail_content_type,
-                original_object_key=row.image_object_key,
-            ),
-            image_content_type=row.image_content_type,
+            image_path=image_path,
+            image_thumb_path=image_thumb_path,
+            image_content_type=image_content_type,
+            global_image_template_id=row.global_image_template_id,
             current_price=None,
             price_date=None,
             latest_price_date=None,
@@ -1527,8 +1547,7 @@ async def list_catalogue_items(
             price_count=int(row.price_count or 0),
             allocated_shop_count=int(row.allocated_shop_count or 0),
         )
-        for row in page_rows
-    ]
+        )
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if has_more and page_rows:
         last_row = page_rows[-1]
@@ -1591,6 +1610,7 @@ async def get_catalogue_item(
                 Item.image_content_type,
                 Item.image_thumbnail_object_key,
                 Item.image_thumbnail_content_type,
+                Item.global_image_template_id,
                 bill_count_sq.label("bill_count"),
                 price_count_sq.label("price_count"),
                 allocated_shop_count_sq.label("allocated_shop_count"),
@@ -1605,6 +1625,10 @@ async def get_catalogue_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     allocated_shop_names = await allocated_shop_names_for_item(db, item_id)
+    templates_by_id = await load_templates_for_item_rows([row])
+    image_path, image_thumb_path, image_content_type = build_image_paths_for_row(
+        row, templates_by_id
+    )
 
     return ShopItemRead(
         id=row.id,
@@ -1621,14 +1645,10 @@ async def get_catalogue_item(
         updated_at=row.updated_at,
         custom_attributes=row.custom_attributes or {},
         **_item_assumption_read_kwargs(row),
-        image_path=build_item_image_path(row.id, row.image_object_key, row.image_content_type),
-        image_thumb_path=build_item_image_thumb_path(
-            row.id,
-            row.image_thumbnail_object_key,
-            row.image_thumbnail_content_type,
-            original_object_key=row.image_object_key,
-        ),
-        image_content_type=row.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=image_content_type,
+        global_image_template_id=row.global_image_template_id,
         current_price=None,
         price_date=None,
         latest_price_date=None,

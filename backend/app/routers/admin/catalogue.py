@@ -90,6 +90,7 @@ async def create_shop_inventory_item(
     ],
     shop: ShopDep,
     db: DBSession,
+    platform_db: PlatformDB,
     is_active: Annotated[
         bool,
         Form(
@@ -107,6 +108,9 @@ async def create_shop_inventory_item(
     category_id: Annotated[
         UUID | None, Form(description="Optional reusable item category ID.")
     ] = None,
+    global_image_template_id: Annotated[
+        UUID | None, Form(description="Optional shared global image template ID.")
+    ] = None,
     image: ItemImageUploadOptional = None,
 ) -> ItemRead:
     payload = ItemCreate(
@@ -120,7 +124,14 @@ async def create_shop_inventory_item(
         category=category,
         custom_attributes=_parse_custom_attributes(custom_attributes),
     )
-    return await create_item(db, payload, image=image, shop_id=shop.id)
+    return await create_item(
+        db,
+        payload,
+        image=image,
+        shop_id=shop.id,
+        global_image_template_id=global_image_template_id,
+        platform_db=platform_db,
+    )
 
 
 @router.get(
@@ -428,6 +439,7 @@ async def update_shop_inventory_item(
     ],
     shop: ShopDep,
     db: DBSession,
+    platform_db: PlatformDB,
     is_active: Annotated[
         bool,
         Form(description="Whether the item remains available for pricing and billing."),
@@ -447,6 +459,13 @@ async def update_shop_inventory_item(
         bool,
         Form(description="Remove the stored image when no replacement image is uploaded."),
     ] = False,
+    use_global_image_template: Annotated[
+        bool,
+        Form(description="Apply `global_image_template_id` to the item image source."),
+    ] = False,
+    global_image_template_id: Annotated[
+        UUID | None, Form(description="Shared global image template ID when applying template.")
+    ] = None,
     image: ItemImageUploadOptional = None,
 ) -> ItemRead:
     payload = ItemUpdate(
@@ -460,14 +479,18 @@ async def update_shop_inventory_item(
         category=category,
         custom_attributes=_parse_custom_attributes(custom_attributes),
     )
-    return await update_item(
-        db,
-        item_id,
-        payload,
-        image=image,
-        shop_id=shop.id,
-        remove_image=remove_image,
-    )
+    update_kwargs: dict[str, object] = {
+        "db": db,
+        "item_id": item_id,
+        "payload": payload,
+        "image": image,
+        "shop_id": shop.id,
+        "remove_image": remove_image,
+        "platform_db": platform_db,
+    }
+    if use_global_image_template:
+        update_kwargs["global_image_template_id"] = global_image_template_id
+    return await update_item(**update_kwargs)
 
 
 @router.post(
@@ -612,6 +635,7 @@ async def create_inventory_item(
     ],
     db: DBSession,
     current_user: AdminUserDep,
+    platform_db: PlatformDB,
     is_active: Annotated[
         bool,
         Form(
@@ -629,6 +653,9 @@ async def create_inventory_item(
     category_id: Annotated[
         UUID | None, Form(description="Optional reusable item category ID.")
     ] = None,
+    global_image_template_id: Annotated[
+        UUID | None, Form(description="Optional shared global image template ID.")
+    ] = None,
     image: ItemImageUploadOptional = None,
 ) -> ItemRead:
     """Create a new inventory item for pricing and billing, with an optional image upload."""
@@ -644,7 +671,12 @@ async def create_inventory_item(
         custom_attributes=_parse_custom_attributes(custom_attributes),
     )
     return await create_item(
-        db, payload, image=image, organization_id=_require_org_id(current_user)
+        db,
+        payload,
+        image=image,
+        organization_id=_require_org_id(current_user),
+        global_image_template_id=global_image_template_id,
+        platform_db=platform_db,
     )
 
 
@@ -691,6 +723,7 @@ async def update_inventory_item(
         Form(min_length=1, max_length=120, description="Updated Tamil display name of the item."),
     ],
     db: DBSession,
+    platform_db: PlatformDB,
     is_active: Annotated[
         bool,
         Form(description="Whether the item remains available for pricing and billing."),
@@ -710,6 +743,13 @@ async def update_inventory_item(
         bool,
         Form(description="Remove the stored image when no replacement image is uploaded."),
     ] = False,
+    use_global_image_template: Annotated[
+        bool,
+        Form(description="Apply `global_image_template_id` to the item image source."),
+    ] = False,
+    global_image_template_id: Annotated[
+        UUID | None, Form(description="Shared global image template ID when applying template.")
+    ] = None,
     image: ItemImageUploadOptional = None,
 ) -> ItemRead:
     """Update item metadata, active state, and optionally replace its image."""
@@ -724,7 +764,17 @@ async def update_inventory_item(
         category=category,
         custom_attributes=_parse_custom_attributes(custom_attributes),
     )
-    return await update_item(db, item_id, payload, image=image, remove_image=remove_image)
+    update_kwargs: dict[str, object] = {
+        "db": db,
+        "item_id": item_id,
+        "payload": payload,
+        "image": image,
+        "remove_image": remove_image,
+        "platform_db": platform_db,
+    }
+    if use_global_image_template:
+        update_kwargs["global_image_template_id"] = global_image_template_id
+    return await update_item(**update_kwargs)
 
 
 @router.patch(
@@ -737,9 +787,10 @@ async def patch_inventory_item_metadata(
     item_id: UUID,
     payload: ItemMetadataUpdate,
     db: DBSession,
+    platform_db: PlatformDB,
 ) -> ItemRead:
     """Partially update item metadata without requiring multipart form-data."""
-    return await update_item_metadata(db, item_id, payload)
+    return await update_item_metadata(db, item_id, payload, platform_db=platform_db)
 
 
 @router.patch(
@@ -768,9 +819,16 @@ async def patch_shop_inventory_item_metadata(
     payload: ItemMetadataUpdate,
     shop: ShopDep,
     db: DBSession,
+    platform_db: PlatformDB,
 ) -> ItemRead:
     """Partially update shop-owned item metadata without requiring multipart form-data."""
-    return await update_item_metadata(db, item_id, payload, shop_id=shop.id)
+    return await update_item_metadata(
+        db,
+        item_id,
+        payload,
+        shop_id=shop.id,
+        platform_db=platform_db,
+    )
 
 
 @router.put(

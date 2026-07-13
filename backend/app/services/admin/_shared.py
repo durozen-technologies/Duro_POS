@@ -6,12 +6,14 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.storage import (
-    build_item_image_path,
-    build_item_image_thumb_path,
+from app.services.global_image_templates import (
+    build_resolved_item_image_paths,
+    get_active_template,
+    resolve_item_image_keys,
 )
 from app.models import (
     BaseUnit,
+    GlobalImageTemplate,
     Item,
     ItemAssumptionStatus,
     ItemCategory,
@@ -33,6 +35,7 @@ __all__ = [
     "_item_assumption_status",
     "_item_assumption_read_kwargs",
     "_item_to_read",
+    "_item_to_read_async",
     "_merge_custom_attributes",
     "_custom_attributes_dict",
     "_coalesce_text",
@@ -100,8 +103,14 @@ def _item_assumption_read_kwargs(row) -> dict[str, object | None]:
     }
 
 
-def _item_to_read(item: Item) -> ItemRead:
+def _item_to_read(
+    item: Item,
+    *,
+    template: GlobalImageTemplate | None = None,
+) -> ItemRead:
     loaded_category = item.__dict__.get("category_ref")
+    image_path, image_thumb_path = build_resolved_item_image_paths(item, template)
+    resolved = resolve_item_image_keys(item, template)
     return ItemRead(
         id=item.id,
         shop_id=item.shop_id,
@@ -116,16 +125,23 @@ def _item_to_read(item: Item) -> ItemRead:
         created_at=item.created_at,
         updated_at=item.updated_at,
         custom_attributes=item.custom_attributes or {},
+        global_image_template_id=item.global_image_template_id,
         **_item_assumption_read_kwargs(item),
-        image_path=build_item_image_path(item.id, item.image_object_key, item.image_content_type),
-        image_thumb_path=build_item_image_thumb_path(
-            item.id,
-            item.image_thumbnail_object_key,
-            item.image_thumbnail_content_type,
-            original_object_key=item.image_object_key,
-        ),
-        image_content_type=item.image_content_type,
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
+        image_content_type=resolved.image_content_type,
     )
+
+
+async def _item_to_read_async(
+    item: Item,
+    *,
+    platform_db: AsyncSession | None = None,
+) -> ItemRead:
+    template = None
+    if item.global_image_template_id and not item.image_object_key and platform_db is not None:
+        template = await get_active_template(platform_db, item.global_image_template_id)
+    return _item_to_read(item, template=template)
 
 
 def _merge_custom_attributes(
@@ -209,6 +225,9 @@ def _json_safe_item_state(item: Item | None) -> dict[str, object | None]:
         "image_content_type": item.image_content_type,
         "image_thumbnail_object_key": item.image_thumbnail_object_key,
         "image_thumbnail_content_type": item.image_thumbnail_content_type,
+        "global_image_template_id": (
+            str(item.global_image_template_id) if item.global_image_template_id else None
+        ),
     }
 
 

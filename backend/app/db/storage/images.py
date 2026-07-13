@@ -4,7 +4,12 @@ from app.db.storage.paths import (
     _guess_content_type,
     _prepare_square_image_variants,
     _upload_bytes,
+    GLOBAL_IMAGE_PREFIX,
+    build_item_image_path,
+    build_item_image_thumb_path,
+    is_global_template_object_key,
 )
+from app.models import GlobalImageTemplate
 
 
 async def save_item_image_content(
@@ -94,6 +99,7 @@ async def save_item_image_content(
     item.image_content_type = resolved_content_type
     item.image_thumbnail_object_key = uploaded_thumbnail_object_key
     item.image_thumbnail_content_type = thumbnail_content_type
+    item.global_image_template_id = None
     try:
         if commit:
             await db.commit()
@@ -110,13 +116,15 @@ async def save_item_image_content(
         raise
 
     if commit and previous_object_key and previous_object_key != item.image_object_key:
-        await _delete_object_if_present(previous_object_key)
+        if not is_global_template_object_key(previous_object_key):
+            await _delete_object_if_present(previous_object_key)
     if (
         commit
         and previous_thumbnail_object_key
         and previous_thumbnail_object_key != item.image_thumbnail_object_key
     ):
-        await _delete_object_if_present(previous_thumbnail_object_key)
+        if not is_global_template_object_key(previous_thumbnail_object_key):
+            await _delete_object_if_present(previous_thumbnail_object_key)
 
     return ItemImageRead(
         item_id=item.id,
@@ -175,8 +183,7 @@ async def delete_item_image(db: AsyncSession, item_id: UUID) -> ItemImageRead:
     item.image_thumbnail_object_key = None
     item.image_thumbnail_content_type = None
     await db.commit()
-    await _delete_object_if_present(previous_object_key)
-    await _delete_object_if_present(previous_thumbnail_object_key)
+    await delete_item_image_storage(previous_object_key, previous_thumbnail_object_key)
     return ItemImageRead(
         item_id=item.id,
         item_name=item.name,
@@ -277,6 +284,7 @@ async def save_inventory_item_image_content(
     item.image_content_type = resolved_content_type
     item.image_thumbnail_object_key = uploaded_thumbnail_object_key
     item.image_thumbnail_content_type = thumbnail_content_type
+    item.global_image_template_id = None
     try:
         if commit:
             await db.commit()
@@ -457,6 +465,7 @@ async def save_expense_item_image_content(
     item.image_content_type = resolved_content_type
     item.image_thumbnail_object_key = uploaded_thumbnail_object_key
     item.image_thumbnail_content_type = thumbnail_content_type
+    item.global_image_template_id = None
     try:
         if commit:
             await db.commit()
@@ -545,4 +554,141 @@ async def delete_expense_item_image(
 
 async def delete_item_image_storage(*object_keys: str | None) -> None:
     for object_key in object_keys:
+        if is_global_template_object_key(object_key):
+            continue
         await _delete_object_if_present(object_key)
+
+
+async def save_global_image_template_content(
+    db: AsyncSession,
+    template: GlobalImageTemplate,
+    *,
+    filename: str,
+    content: bytes,
+    content_type: str | None = None,
+    commit: bool = True,
+) -> GlobalImageTemplate:
+    if not filename:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Image filename is required",
+        )
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Image file is empty",
+        )
+    if len(content) > settings.item_image_max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Image file exceeds {settings.item_image_max_bytes} bytes",
+        )
+
+    resolved_content_type = _guess_content_type(filename, content_type)
+    if not resolved_content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Only image uploads are supported",
+        )
+
+    if not settings.rustfs_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RustFS is not configured. Image was not saved.",
+        )
+
+    (
+        content,
+        resolved_content_type,
+        thumbnail_content,
+        thumbnail_content_type,
+    ) = _prepare_square_image_variants(content)
+    filename = f"{Path(filename).stem or template.id}.jpg"
+    thumbnail_filename = f"{Path(filename).stem or template.id}-thumb.jpg"
+
+    previous_object_key = template.image_object_key
+    previous_thumbnail_object_key = template.image_thumbnail_object_key
+    uploaded_object_key: str | None = None
+    uploaded_thumbnail_object_key: str | None = None
+
+    try:
+        uploaded_object_key, resolved_content_type, _ = await _upload_bytes(
+            item_id=template.id,
+            filename=filename,
+            content=content,
+            content_type=resolved_content_type,
+            variant="original",
+            prefix=GLOBAL_IMAGE_PREFIX,
+            storage_scope="global",
+        )
+        uploaded_thumbnail_object_key, thumbnail_content_type, _ = await _upload_bytes(
+            item_id=template.id,
+            filename=thumbnail_filename,
+            content=thumbnail_content,
+            content_type=thumbnail_content_type,
+            variant="thumb",
+            prefix=GLOBAL_IMAGE_PREFIX,
+            storage_scope="global",
+        )
+    except Exception as exc:
+        await _delete_object_if_present(uploaded_object_key)
+        await _delete_object_if_present(uploaded_thumbnail_object_key)
+        logger.warning(
+            "Unable to save global image template to RustFS template_id=%s bucket=%s endpoint=%s",
+            template.id,
+            settings.rustfs_bucket_name,
+            settings.rustfs_endpoint_url,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RustFS is unavailable. Image was not saved.",
+        ) from exc
+
+    template.image_object_key = uploaded_object_key
+    template.image_content_type = resolved_content_type
+    template.image_thumbnail_object_key = uploaded_thumbnail_object_key
+    template.image_thumbnail_content_type = thumbnail_content_type
+    try:
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
+    except Exception:
+        if uploaded_object_key and uploaded_object_key != previous_object_key:
+            await _delete_object_if_present(uploaded_object_key)
+        if (
+            uploaded_thumbnail_object_key
+            and uploaded_thumbnail_object_key != previous_thumbnail_object_key
+        ):
+            await _delete_object_if_present(uploaded_thumbnail_object_key)
+        raise
+
+    if commit and previous_object_key and previous_object_key != template.image_object_key:
+        await _delete_object_if_present(previous_object_key)
+    if (
+        commit
+        and previous_thumbnail_object_key
+        and previous_thumbnail_object_key != template.image_thumbnail_object_key
+    ):
+        await _delete_object_if_present(previous_thumbnail_object_key)
+
+    return template
+
+
+async def save_global_image_template_upload(
+    db: AsyncSession,
+    template: GlobalImageTemplate,
+    file: UploadFile,
+    *,
+    commit: bool = True,
+) -> GlobalImageTemplate:
+    content = await file.read()
+    return await save_global_image_template_content(
+        db,
+        template,
+        filename=file.filename or "",
+        content=content,
+        content_type=file.content_type,
+        commit=commit,
+    )

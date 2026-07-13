@@ -52,6 +52,8 @@ class InventoryItemCreate(BaseModel):
     billing_item_id: UUID | None = None
     billing_item_ids: list[UUID] = Field(default_factory=list)
     billing_mappings: list[InventoryBillingItemMappingWrite] = Field(default_factory=list)
+    global_image_template_id: UUID | None = None
+    use_global_image_template: bool | None = None
 
     @model_validator(mode="after")
     def validate_unit_pair(self) -> "InventoryItemCreate":
@@ -94,6 +96,7 @@ class InventoryItemRead(ORMModel):
     image_path: str | None = None
     image_thumb_path: str | None = None
     image_content_type: str | None = None
+    global_image_template_id: UUID | None = None
 
 
 class InventoryItemRowsPage(BaseModel):

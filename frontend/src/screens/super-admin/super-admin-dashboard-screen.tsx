@@ -48,6 +48,14 @@ const NAV_TILES = [
     iconColor: ACCENT,
   },
   {
+    route: "SuperAdminGlobalImageTemplates" as const,
+    title: "Image Templates",
+    subtitle: "Shared catalogue images for all tenants",
+    icon: "image-multiple-outline" as const,
+    iconBg: "bg-accentSoft",
+    iconColor: ACCENT,
+  },
+  {
     route: "SuperAdminAudit" as const,
     title: "Audit Log",
     subtitle: "View system activity and security events",

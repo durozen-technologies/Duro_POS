@@ -16,6 +16,8 @@ PLATFORM_TABLES = frozenset(
         "organizations",
         "permissions",
         "user_auth_index",
+        "global_image_template_categories",
+        "global_image_templates",
     }
 )
 
@@ -270,6 +272,14 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
         inspector = inspect(connection)
         table_names = set(inspector.get_table_names(schema=safe))
 
+    if "alembic_version" in table_names and dialect == "postgresql":
+        connection.execute(
+            text(
+                "ALTER TABLE alembic_version "
+                "ALTER COLUMN version_num TYPE VARCHAR(64)"
+            )
+        )
+
     if "shops" in table_names:
         shop_columns = {column["name"] for column in inspector.get_columns("shops", schema=safe)}
         if "daily_prices_published_on" not in shop_columns:
@@ -282,6 +292,78 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
             else:
                 connection.execute(
                     text("ALTER TABLE shops ADD COLUMN daily_prices_published_on DATE")
+                )
+
+    if "items" in table_names:
+        item_columns = {column["name"] for column in inspector.get_columns("items", schema=safe)}
+        if "global_image_template_id" not in item_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE items "
+                        "ADD COLUMN IF NOT EXISTS global_image_template_id UUID"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_items_global_image_template_id "
+                        "ON items (global_image_template_id)"
+                    )
+                )
+            else:
+                connection.execute(
+                    text("ALTER TABLE items ADD COLUMN global_image_template_id CHAR(32)")
+                )
+
+    if "inventory_items" in table_names:
+        inventory_columns = {
+            column["name"] for column in inspector.get_columns("inventory_items", schema=safe)
+        }
+        if "global_image_template_id" not in inventory_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_items "
+                        "ADD COLUMN IF NOT EXISTS global_image_template_id UUID"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_inventory_items_global_image_template_id "
+                        "ON inventory_items (global_image_template_id)"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_items "
+                        "ADD COLUMN global_image_template_id CHAR(32)"
+                    )
+                )
+
+    if "expense_items" in table_names:
+        expense_columns = {
+            column["name"] for column in inspector.get_columns("expense_items", schema=safe)
+        }
+        if "global_image_template_id" not in expense_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE expense_items "
+                        "ADD COLUMN IF NOT EXISTS global_image_template_id UUID"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_expense_items_global_image_template_id "
+                        "ON expense_items (global_image_template_id)"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE expense_items ADD COLUMN global_image_template_id CHAR(32)"
+                    )
                 )
 
     if "bills" in table_names:

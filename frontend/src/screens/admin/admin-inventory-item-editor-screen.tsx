@@ -36,12 +36,17 @@ import {
   type ShopItemRead,
   type UUID,
 } from "@/types/api";
-import { authenticatedImageSource, getItemThumbnailUri } from "@/utils/item-images";
+import { authenticatedImageSource, getItemThumbnailUri, resolveEditorImageUri } from "@/utils/item-images";
 
 import type { AdminInventoryItemEditorScreenProps } from "@/navigation/types";
 import type { ThemePalette } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
 import { AdminHeaderActions } from "./components/admin-header-actions";
+import {
+  AdminGlobalImageTemplatePickerModal,
+  chooseImageSourceAlert,
+  useGlobalImageTemplatePicker,
+} from "./components/admin-global-image-template-picker";
 import { useAdminTheme } from "./use-admin-theme";
 
 type ImageDraft = ItemImageUploadFile;
@@ -171,10 +176,30 @@ export function AdminInventoryItemEditorScreen({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [openMappingKey, setOpenMappingKey] = useState<string | null>(null);
+  const {
+    imageTemplates,
+    imageTemplatesLoading,
+    selectedTemplateId,
+    setSelectedTemplateId,
+    selectedTemplate,
+    templatePreviewUri,
+    templatePickerOpen,
+    setTemplatePickerOpen,
+    openTemplatePicker,
+  } = useGlobalImageTemplatePicker({
+    initialTemplateId: initialItem?.global_image_template_id ?? null,
+  });
 
-  const currentImageUri =
-    imageDraft?.uri || (!removeImage && item ? getItemThumbnailUri(item) : "");
-  const canRemoveImage = Boolean(imageDraft || item?.image_path || item?.image_thumb_path);
+  const currentImageUri = resolveEditorImageUri({
+    imageDraftUri: imageDraft?.uri,
+    removeImageRequested: removeImage,
+    selectedTemplateId,
+    templatePreviewUri,
+    storedImageUri: item ? getItemThumbnailUri(item) : "",
+  });
+  const canRemoveImage = Boolean(
+    imageDraft || item?.image_path || item?.image_thumb_path || selectedTemplateId,
+  );
   const effectiveItemId = itemId ?? item?.id ?? null;
   const isEdit = Boolean(effectiveItemId);
   const matchingBillingItems = useMemo(
@@ -210,9 +235,11 @@ export function AdminInventoryItemEditorScreen({
       if (loadedItem) {
         setItem(loadedItem);
         setValues(valuesFromItem(loadedItem));
+        setSelectedTemplateId(loadedItem.global_image_template_id ?? null);
       } else {
         setItem(null);
         setValues(EMPTY_VALUES);
+        setSelectedTemplateId(null);
       }
       setOpenMappingKey(null);
       setImageDraft(null);
@@ -224,13 +251,13 @@ export function AdminInventoryItemEditorScreen({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [initialItem, itemId]);
+  }, [initialItem, itemId, setSelectedTemplateId]);
 
   useEffect(() => {
     void loadEditorData();
   }, [loadEditorData]);
 
-  const pickImage = useCallback(async () => {
+  const pickImageFromDevice = useCallback(async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
@@ -249,6 +276,13 @@ export function AdminInventoryItemEditorScreen({
       setSaveError(getRequestMessage(error, "Unable to pick image."));
     }
   }, []);
+
+  const chooseImageSource = useCallback(() => {
+    chooseImageSourceAlert({
+      onChooseTemplate: () => void openTemplatePicker(),
+      onUploadFromDevice: () => void pickImageFromDevice(),
+    });
+  }, [openTemplatePicker, pickImageFromDevice]);
 
   const toggleCategory = useCallback((categoryId: UUID) => {
     setValues((current) => {
@@ -303,8 +337,13 @@ export function AdminInventoryItemEditorScreen({
       setRemoveImage(false);
       return;
     }
-    setRemoveImage((current) => !current);
-  }, [imageDraft]);
+    if (removeImage) {
+      setRemoveImage(false);
+      return;
+    }
+    setRemoveImage(true);
+    setSelectedTemplateId(null);
+  }, [imageDraft, removeImage, setSelectedTemplateId]);
 
   const saveItem = useCallback(async () => {
     if (savingRef.current) {
@@ -319,7 +358,22 @@ export function AdminInventoryItemEditorScreen({
     setSaving(true);
     setSaveError(null);
     try {
-      const payload = buildInventoryPayload(values);
+      const payload: InventoryItemMetadataPayload = {
+        ...buildInventoryPayload(values),
+      };
+      const baselineTemplateId = item?.global_image_template_id ?? null;
+      const hasTemplateChange = selectedTemplateId !== baselineTemplateId;
+      if (!imageDraft) {
+        if (removeImage) {
+          payload.use_global_image_template = true;
+          payload.global_image_template_id = null;
+        } else if (isEdit && hasTemplateChange) {
+          payload.use_global_image_template = true;
+          payload.global_image_template_id = selectedTemplateId;
+        } else if (!isEdit && selectedTemplateId) {
+          payload.global_image_template_id = selectedTemplateId;
+        }
+      }
       const savedItem = effectiveItemId
         ? await updateInventoryItemMetadata(effectiveItemId, payload)
         : await createInventoryItemMetadata(payload);
@@ -355,7 +409,7 @@ export function AdminInventoryItemEditorScreen({
       savingRef.current = false;
       setSaving(false);
     }
-  }, [effectiveItemId, imageDraft, navigation, removeImage, values]);
+  }, [effectiveItemId, imageDraft, isEdit, item?.global_image_template_id, navigation, removeImage, selectedTemplateId, setSelectedTemplateId, values]);
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
@@ -406,7 +460,7 @@ export function AdminInventoryItemEditorScreen({
               )}
             </View>
             <View style={styles.row}>
-              <ActionButton label="Pick image" icon="image-edit-outline" palette={palette} tone="info" onPress={() => void pickImage()} />
+              <ActionButton label="Pick image" icon="image-edit-outline" palette={palette} tone="info" onPress={chooseImageSource} />
               {canRemoveImage ? (
                 <ActionButton
                   label={removeImage ? "Undo" : "Remove"}
@@ -417,6 +471,11 @@ export function AdminInventoryItemEditorScreen({
                 />
               ) : null}
             </View>
+            {selectedTemplate ? (
+              <Text style={[styles.templateHint, { color: palette.textMuted }]}>
+                Shared template: {selectedTemplate.name}
+              </Text>
+            ) : null}
 
             <EditorField
               label="English name"
@@ -549,6 +608,21 @@ export function AdminInventoryItemEditorScreen({
           </>
         )}
       </ScrollView>
+      <AdminGlobalImageTemplatePickerModal
+        visible={templatePickerOpen}
+        palette={palette}
+        templates={imageTemplates}
+        loading={imageTemplatesLoading}
+        selectedTemplateId={selectedTemplateId}
+        accentColor={palette.inventory}
+        onClose={() => setTemplatePickerOpen(false)}
+        onSelect={(templateId) => {
+          setSelectedTemplateId(templateId);
+          setImageDraft(null);
+          setRemoveImage(false);
+        }}
+        onUploadFromDevice={() => void pickImageFromDevice()}
+      />
     </SafeAreaView>
   );
 }
@@ -808,6 +882,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 12, fontWeight: "700", letterSpacing: 0 },
   content: { padding: 16, gap: 12 },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
+  templateHint: { fontSize: 12, fontWeight: "600" },
   itemName: { fontSize: 14, fontWeight: "900", letterSpacing: 0 },
   actionButton: { minHeight: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
   actionText: { fontSize: 12, fontWeight: "900", letterSpacing: 0 },

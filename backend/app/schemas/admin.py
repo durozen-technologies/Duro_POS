@@ -162,6 +162,8 @@ class ItemMetadataUpdate(BaseModel):
     category_id: UUID | None = None
     category: str | None = Field(default=None, max_length=80)
     custom_attributes: JsonObject | None = None
+    use_global_image_template: bool | None = None
+    global_image_template_id: UUID | None = None
 
     @model_validator(mode="after")
     def validate_unit_pair(self) -> "ItemMetadataUpdate":
@@ -224,6 +226,7 @@ class ItemRead(ORMModel):
     image_path: str | None = None
     image_thumb_path: str | None = None
     image_content_type: str | None = None
+    global_image_template_id: UUID | None = None
 
 
 class PriceStatus(str, Enum):

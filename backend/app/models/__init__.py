@@ -17,6 +17,7 @@ from .enums import (
     UserRole,
 )
 from .expense import ExpenseEntry, ExpenseItem, ShopExpenseAllocation
+from .global_image_template import GlobalImageTemplate, GlobalImageTemplateCategory
 from .inventory import (
     InventoryCategory,
     InventoryItem,
@@ -68,6 +69,8 @@ __all__ = [
     "DailyPrice",
     "ExpenseEntry",
     "ExpenseItem",
+    "GlobalImageTemplate",
+    "GlobalImageTemplateCategory",
     "InventoryCategory",
     "InventoryItem",
     "InventoryItemBillingMapping",

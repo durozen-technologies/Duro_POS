@@ -53,8 +53,9 @@ async def get_expense_item_counts(
 async def create_admin_expense_item(
     payload: ExpenseItemCreate,
     db: DBSession,
+    platform_db: PlatformDB,
 ) -> ExpenseItemRead:
-    return await create_expense_item(db, payload)
+    return await create_expense_item(db, payload, platform_db=platform_db)
 
 
 @router.get(
@@ -77,8 +78,9 @@ async def update_admin_expense_item(
     expense_item_id: UUID,
     payload: ExpenseItemUpdate,
     db: DBSession,
+    platform_db: PlatformDB,
 ) -> ExpenseItemRead:
-    return await update_expense_item(db, expense_item_id, payload)
+    return await update_expense_item(db, expense_item_id, payload, platform_db=platform_db)
 
 
 @router.delete(

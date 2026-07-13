@@ -2,24 +2,17 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { adminRadii } from "./admin-dashboard-theme";
+import { triggerHaptic } from "./admin-dashboard-utils";
 
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { AdminTextField } from "@/screens/admin/components/admin-text-field";
 
-import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { formatApiErrorMessage } from "@/api/client";
 import {
   createExpenseItem,
   deleteExpenseItem,
@@ -28,8 +21,13 @@ import {
   updateExpenseItem,
 } from "@/api/expenses";
 import type { AdminExpenseItemEditorScreenProps } from "@/navigation/types";
-import { getItemThumbnailUri } from "@/utils/item-images";
+import { getItemThumbnailUri, resolveEditorImageUri } from "@/utils/item-images";
 import { deleteImageDraftFile, loadImagePickerModule, prepareImageDraftForUpload, type ImageDraft } from "@/utils/media-upload";
+import {
+  AdminGlobalImageTemplatePickerModal,
+  chooseImageSourceAlert,
+  useGlobalImageTemplatePicker,
+} from "./components/admin-global-image-template-picker";
 import { useAdminTheme } from "./use-admin-theme";
 
 type RouteProps = AdminExpenseItemEditorScreenProps["route"];
@@ -39,6 +37,7 @@ export function AdminExpenseItemEditorScreen() {
   const route = useRoute<RouteProps>();
   const navigation = useNavigation<NavProps>();
   const { palette } = useAdminTheme();
+  const insets = useSafeAreaInsets();
 
   const { initialItem } = route.params || {};
   const editingItem = initialItem ?? null;
@@ -53,6 +52,23 @@ export function AdminExpenseItemEditorScreen() {
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageStatus, setImageStatus] = useState<string | null>(null);
+  const {
+    imageTemplates,
+    imageTemplatesLoading,
+    selectedTemplateId,
+    setSelectedTemplateId,
+    selectedTemplate,
+    templatePreviewUri,
+    templatePickerOpen,
+    setTemplatePickerOpen,
+    openTemplatePicker,
+  } = useGlobalImageTemplatePicker({
+    initialTemplateId: editingItem?.global_image_template_id ?? null,
+  });
+
+  useEffect(() => {
+    setSelectedTemplateId(editingItem?.global_image_template_id ?? null);
+  }, [editingItem?.global_image_template_id, setSelectedTemplateId]);
 
   useEffect(() => {
     return () => {
@@ -60,12 +76,16 @@ export function AdminExpenseItemEditorScreen() {
     };
   }, [imageDraft]);
 
-  const hasStoredImage = Boolean(editingItem?.image_path || editingItem?.image_thumb_path);
-  const currentImageUri = removeImageRequested
-    ? ""
-    : imageDraft?.uri ?? (editingItem ? getItemThumbnailUri(editingItem) : "");
+  const hasStoredImage = Boolean(editingItem?.image_path || editingItem?.image_thumb_path || editingItem?.global_image_template_id);
+  const currentImageUri = resolveEditorImageUri({
+    imageDraftUri: imageDraft?.uri,
+    removeImageRequested,
+    selectedTemplateId,
+    templatePreviewUri,
+    storedImageUri: editingItem ? getItemThumbnailUri(editingItem) : "",
+  });
 
-  const pickImage = useCallback(async () => {
+  const pickImageFromDevice = useCallback(async () => {
     setImageError(null);
     setImageStatus("Opening image picker...");
     const imagePicker = await loadImagePickerModule();
@@ -97,6 +117,13 @@ export function AdminExpenseItemEditorScreen() {
     }
   }, [imageDraft]);
 
+  const chooseImageSource = useCallback(() => {
+    chooseImageSourceAlert({
+      onChooseTemplate: () => void openTemplatePicker(),
+      onUploadFromDevice: () => void pickImageFromDevice(),
+    });
+  }, [openTemplatePicker, pickImageFromDevice]);
+
   const removeImage = useCallback(() => {
     if (imageDraft) {
       void deleteImageDraftFile(imageDraft);
@@ -111,12 +138,13 @@ export function AdminExpenseItemEditorScreen() {
       setImageStatus(null);
       return;
     }
-    if (hasStoredImage) {
+    if (hasStoredImage || selectedTemplateId) {
       setRemoveImageRequested(true);
+      setSelectedTemplateId(null);
       setImageError(null);
       setImageStatus("Stored image will be removed when you save.");
     }
-  }, [hasStoredImage, imageDraft, removeImageRequested]);
+  }, [hasStoredImage, imageDraft, removeImageRequested, selectedTemplateId, setSelectedTemplateId]);
 
   const saveExpenseItem = useCallback(async () => {
     const name = nameDraft.trim();
@@ -128,16 +156,32 @@ export function AdminExpenseItemEditorScreen() {
     }
     setSavingItem(true);
     try {
+      const baselineTemplateId = editingItem?.global_image_template_id ?? null;
+      const hasTemplateChange = selectedTemplateId !== baselineTemplateId;
+      const templatePayload =
+        !imageDraft && (hasTemplateChange || removeImageRequested)
+          ? {
+              use_global_image_template: true as const,
+              global_image_template_id: removeImageRequested ? null : selectedTemplateId,
+            }
+          : !imageDraft && !editingItem && selectedTemplateId
+            ? { global_image_template_id: selectedTemplateId }
+            : {};
       if (editingItem) {
         await updateExpenseItem(editingItem.id, {
           name,
           tamil_name: tamilName,
           sort_order: sortOrder,
           is_active: activeDraft,
+          ...templatePayload,
         });
         if (imageDraft) {
           await replaceExpenseItemImageFile(editingItem.id, imageDraft);
-        } else if (removeImageRequested && hasStoredImage) {
+        } else if (
+          removeImageRequested &&
+          hasStoredImage &&
+          (editingItem.image_path || editingItem.image_thumb_path)
+        ) {
           await deleteExpenseItemImage(editingItem.id);
         }
       } else {
@@ -146,6 +190,7 @@ export function AdminExpenseItemEditorScreen() {
           tamil_name: tamilName,
           sort_order: sortOrder,
           is_active: activeDraft,
+          ...templatePayload,
         });
         if (imageDraft) {
           try {
@@ -158,6 +203,7 @@ export function AdminExpenseItemEditorScreen() {
       }
       void deleteImageDraftFile(imageDraft);
       setImageDraft(null);
+      triggerHaptic();
       navigation.goBack();
     } catch (error) {
       Alert.alert("Save failed", formatApiErrorMessage(error, "Unable to save expense item."));
@@ -171,8 +217,9 @@ export function AdminExpenseItemEditorScreen() {
     imageDraft,
     nameDraft,
     removeImageRequested,
+    selectedTemplateId,
     tamilNameDraft,
-    navigation
+    navigation,
   ]);
 
   const handleDelete = useCallback(() => {
@@ -186,6 +233,7 @@ export function AdminExpenseItemEditorScreen() {
           setDeletingItem(true);
           try {
             await deleteExpenseItem(editingItem.id);
+            triggerHaptic();
             navigation.goBack();
           } catch (error) {
             Alert.alert("Delete failed", formatApiErrorMessage(error, "Unable to delete expense item."));
@@ -197,45 +245,40 @@ export function AdminExpenseItemEditorScreen() {
   }, [editingItem, navigation]);
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: palette.background }} edges={["left", "right"]}>
       <StatusBar style="light" />
-      <View style={[styles.topBar, { backgroundColor: palette.shell, borderBottomColor: palette.shellBorder }]}>
-        <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingHorizontal: 16,
+          paddingBottom: 12,
+          borderBottomWidth: 1,
+          backgroundColor: palette.shell,
+          borderBottomColor: palette.shellBorder,
+          paddingTop: Math.max(insets.top - 8, 0),
+        }}
+      >
+        <Pressable onPress={() => navigation.goBack()}>
           <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
-        <View style={styles.titleWrap}>
-          <Text style={[styles.title, { color: palette.onShell }]}>
-            {editingItem ? "Edit Expense Item" : "New Expense Item"}
-          </Text>
-          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>
-            Branch expense control
-          </Text>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          onPress={saveExpenseItem}
-          disabled={savingItem}
-          style={[styles.saveButton, { backgroundColor: palette.success }]}
-        >
-          {savingItem ? (
-            <ActivityIndicator color={palette.card} size="small" />
-          ) : (
-            <Text style={[styles.saveButtonText, { color: palette.card }]}>Save</Text>
-          )}
-        </Pressable>
+        <Text style={{ flex: 1, fontSize: 20, fontWeight: "900", color: palette.onShell }}>
+          {editingItem ? "Edit expense item" : "New expense item"}
+        </Text>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.flex}>
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
-            <AdminTextField label="Name" value={nameDraft} onChangeText={setNameDraft} placeholder="Example: Transport" palette={palette} />
-            <AdminTextField label="Tamil name" value={tamilNameDraft} onChangeText={setTamilNameDraft} placeholder="தமிழ் பெயர்" palette={palette} />
-            
-            <View style={[styles.imagePanel, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+      <KeyboardAwareScrollView
+        style={styles.flex}
+        contentContainerStyle={[styles.scrollContent, { gap: 16 }]}
+        enableOnAndroid
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <AdminTextField label="Name" value={nameDraft} onChangeText={setNameDraft} placeholder="Example: Transport" palette={palette} />
+        <AdminTextField label="Tamil name" value={tamilNameDraft} onChangeText={setTamilNameDraft} placeholder="தமிழ் பெயர்" palette={palette} />
+        
+        <View style={[styles.imagePanel, { backgroundColor: palette.card, borderColor: palette.border }]}>
               <ItemThumbnail
                 uri={currentImageUri}
                 recyclingKey={editingItem?.id ?? "new-expense-item"}
@@ -254,16 +297,21 @@ export function AdminExpenseItemEditorScreen() {
                 </Text>
                 {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
                 {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
+                {selectedTemplate ? (
+                  <Text style={[styles.imageMessage, { color: palette.textMuted }]}>
+                    Shared template: {selectedTemplate.name}
+                  </Text>
+                ) : null}
                 <View style={styles.imageActions}>
                   <Pressable
                     accessibilityRole="button"
-                    onPress={pickImage}
+                    onPress={chooseImageSource}
                     style={[styles.imageActionButton, { backgroundColor: palette.card, borderColor: palette.border }]}
                   >
-                    <MaterialCommunityIcons name="image-edit-outline" size={16} color={palette.cash} />
+                    <MaterialCommunityIcons name="image-edit-outline" size={16} color={palette.textPrimary} />
                     <Text style={[styles.imageActionText, { color: palette.textPrimary }]}>Pick image</Text>
                   </Pressable>
-                  {imageDraft || hasStoredImage || removeImageRequested ? (
+                  {imageDraft || hasStoredImage || removeImageRequested || selectedTemplateId ? (
                     <Pressable
                       accessibilityRole="button"
                       onPress={removeImage}
@@ -279,128 +327,93 @@ export function AdminExpenseItemEditorScreen() {
               </View>
             </View>
 
-            {editingItem && (
-              <>
-                <View style={[styles.switchRow, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-                  <View style={styles.rowBody}>
-                    <Text style={[styles.switchTitle, { color: palette.textPrimary }]}>Active</Text>
-                    <Text style={[styles.switchSubtitle, { color: palette.textMuted }]}>
-                      Inactive expense items cannot be allocated to branches.
-                    </Text>
-                  </View>
-                  <Switch
-                    value={activeDraft}
-                    onValueChange={setActiveDraft}
-                    trackColor={{ false: palette.border, true: palette.cash }}
-                    thumbColor={Platform.OS === "ios" ? undefined : palette.card}
-                  />
-                </View>
-
-                <View style={[styles.deleteSection, { borderTopColor: palette.border }]}>
-                  <Text style={[styles.deleteSectionLabel, { color: palette.textMuted }]}>
-                    Danger zone
-                  </Text>
-                  
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={handleDelete}
-                    disabled={!editingItem.can_delete || savingItem || deletingItem}
-                    style={[
-                      styles.deleteButton,
-                      {
-                        backgroundColor: !editingItem.can_delete ? palette.surfaceMuted : palette.dangerSoft,
-                        borderColor: !editingItem.can_delete ? palette.border : palette.danger,
-                        opacity: (!editingItem.can_delete || savingItem || deletingItem) ? 0.6 : 1,
-                      }
-                    ]}
-                  >
-                    {deletingItem ? (
-                      <ActivityIndicator color={palette.danger} size="small" />
-                    ) : (
-                      <>
-                        <MaterialCommunityIcons name="trash-can-outline" size={16} color={!editingItem.can_delete ? palette.textMuted : palette.danger} />
-                        <Text style={[styles.deleteButtonText, { color: !editingItem.can_delete ? palette.textMuted : palette.danger }]}>
-                          Delete item
-                        </Text>
-                      </>
-                    )}
-                  </Pressable>
-
-                  {!editingItem.can_delete ? (
-                    <Text style={[styles.deleteBlockedText, { color: palette.warning }]}>
-                      Cannot Delete - has Billing History.
-                    </Text>
-                  ) : (
-                    <Text style={[styles.deleteHintText, { color: palette.textMuted }]}>
-                      Only expense items without entry history can be deleted.
-                    </Text>
-                  )}
-                </View>
-              </>
-            )}
+        {editingItem && (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderRadius: adminRadii.card,
+              borderWidth: 1,
+              borderColor: palette.border,
+              backgroundColor: palette.card,
+              padding: 14,
+            }}
+          >
+            <Text style={{ color: palette.textPrimary, fontWeight: "600" }}>Active</Text>
+            <Switch value={activeDraft} onValueChange={setActiveDraft} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        )}
+        <Pressable
+          onPress={() => void saveExpenseItem()}
+          disabled={savingItem || deletingItem}
+          style={{
+            marginTop: 8,
+            borderRadius: adminRadii.card,
+            backgroundColor: palette.primary,
+            paddingVertical: 14,
+            alignItems: "center",
+            opacity: savingItem || deletingItem ? 0.7 : 1,
+          }}
+        >
+          {savingItem ? (
+            <ActivityIndicator color={palette.onPrimary} />
+          ) : (
+            <Text style={{ color: palette.onPrimary, fontWeight: "700" }}>Save expense item</Text>
+          )}
+        </Pressable>
+        {editingItem && (
+          <Pressable
+            onPress={handleDelete}
+            disabled={savingItem || deletingItem || !editingItem.can_delete}
+            style={{
+              marginTop: 4,
+              borderRadius: adminRadii.card,
+              borderWidth: 1,
+              borderColor: palette.danger,
+              backgroundColor: palette.dangerSoft,
+              paddingVertical: 14,
+              alignItems: "center",
+              opacity: savingItem || deletingItem || !editingItem.can_delete ? 0.6 : 1,
+            }}
+          >
+            {deletingItem ? (
+              <ActivityIndicator color={palette.danger} />
+            ) : (
+              <Text style={{ color: palette.danger, fontWeight: "700" }}>
+                {editingItem.can_delete ? "Delete item" : "Cannot delete — has billing history"}
+              </Text>
+            )}
+          </Pressable>
+        )}
+      </KeyboardAwareScrollView>
+      <AdminGlobalImageTemplatePickerModal
+        visible={templatePickerOpen}
+        palette={palette}
+        templates={imageTemplates}
+        loading={imageTemplatesLoading}
+        selectedTemplateId={selectedTemplateId}
+        accentColor={palette.cash}
+        onClose={() => setTemplatePickerOpen(false)}
+        onSelect={(templateId) => {
+          setSelectedTemplateId(templateId);
+          void deleteImageDraftFile(imageDraft);
+          setImageDraft(null);
+          setRemoveImageRequested(false);
+          setImageStatus("Shared template selected. Save to apply.");
+        }}
+        onUploadFromDevice={() => void pickImageFromDevice()}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
   flex: {
     flex: 1,
   },
-  topBar: {
-    minHeight: 62,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  titleWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: "900",
-  },
-  subtitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-  },
-  saveButton: {
-    minHeight: 40,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  saveButtonText: {
-    fontSize: 14,
-    fontWeight: "800",
-  },
   scrollContent: {
     padding: 16,
-  },
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    gap: 16,
   },
   imagePanel: {
     borderRadius: 12,
@@ -448,56 +461,5 @@ const styles = StyleSheet.create({
   imageActionText: {
     fontSize: 12,
     fontWeight: "800",
-  },
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minHeight: 64,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-  },
-  switchIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  deleteSection: {
-    marginTop: 8,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    gap: 10,
-  },
-  deleteSectionLabel: {
-    fontSize: 12,
-    fontFamily: "Inter-SemiBold",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  deleteButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    minHeight: 44,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  deleteButtonText: {
-    fontSize: 14,
-    fontFamily: "Inter-Bold",
-  },
-  deleteBlockedText: {
-    fontSize: 13,
-    fontFamily: "Inter-Medium",
-    lineHeight: 18,
-  },
-  deleteHintText: {
-    fontSize: 13,
-    fontFamily: "Inter-Regular",
-    lineHeight: 18,
   },
 });

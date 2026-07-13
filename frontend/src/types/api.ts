@@ -164,6 +164,7 @@ export interface InventoryItemRead {
   image_path?: string | null;
   image_thumb_path?: string | null;
   image_content_type?: string | null;
+  global_image_template_id?: UUID | null;
 }
 
 export interface InventoryItemRowsPage {
@@ -443,6 +444,8 @@ export interface ExpenseItemCreate {
   tamil_name: string;
   sort_order?: number;
   is_active?: boolean;
+  global_image_template_id?: UUID | null;
+  use_global_image_template?: boolean;
 }
 
 export interface ExpenseItemUpdate {
@@ -450,6 +453,8 @@ export interface ExpenseItemUpdate {
   tamil_name: string;
   sort_order: number;
   is_active: boolean;
+  global_image_template_id?: UUID | null;
+  use_global_image_template?: boolean;
 }
 
 export interface ExpenseItemRead {
@@ -461,6 +466,7 @@ export interface ExpenseItemRead {
   image_path?: string | null;
   image_thumb_path?: string | null;
   image_content_type?: string | null;
+  global_image_template_id?: UUID | null;
   created_at: string;
   updated_at?: string | null;
   allocated_shop_count: number;
@@ -607,6 +613,21 @@ export interface ItemRead {
   image_path?: string | null;
   image_thumb_path?: string | null;
   image_content_type?: string | null;
+  global_image_template_id?: UUID | null;
+}
+
+export interface GlobalImageTemplateRead {
+  id: UUID;
+  name: string;
+  category_id?: UUID | null;
+  category_name?: string | null;
+  sort_order: number;
+  is_active: boolean;
+  image_path?: string | null;
+  image_thumb_path?: string | null;
+  image_content_type?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ItemImageRead {
@@ -628,6 +649,8 @@ export interface ItemMetadataUpdate {
   category_id?: UUID | null;
   category?: string | null;
   custom_attributes?: Record<string, string | number | boolean | null>;
+  use_global_image_template?: boolean;
+  global_image_template_id?: UUID | null;
 }
 
 export interface ItemAssumptionUpdate {

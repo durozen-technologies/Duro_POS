@@ -1,4 +1,5 @@
 from app.db.storage.images import *  # noqa: F403
+from app.models.global_image_template import GlobalImageTemplate
 from app.db.storage.paths import (
     _delete_object_if_present,
     _get_storage_client,
@@ -225,12 +226,18 @@ async def _get_or_create_thumbnail_payload(
     item: Item,
     *,
     request_id: str | None = None,
+    platform_db: AsyncSession | None = None,
 ) -> StoredImagePayload | StoredImageStreamPayload:
-    if item.image_thumbnail_object_key:
+    from app.services.global_image_templates import resolve_effective_item_image_keys
+
+    resolved = await resolve_effective_item_image_keys(item, platform_db)
+    uses_global_template = item.image_object_key is None and item.global_image_template_id is not None
+
+    if resolved.image_thumbnail_object_key:
         try:
             return await _stream_object_resilient(
-                item.image_thumbnail_object_key,
-                fallback_content_type=item.image_thumbnail_content_type,
+                resolved.image_thumbnail_object_key,
+                fallback_content_type=resolved.image_thumbnail_content_type,
             )
         except StoredImageObjectNotFoundError as exc:
             _log_missing_image_object(
@@ -239,21 +246,22 @@ async def _get_or_create_thumbnail_payload(
                 object_key=exc.object_key,
                 request_id=request_id,
             )
-            await _commit_stale_image_metadata_cleanup(
-                db,
-                item,
-                clear_original=False,
-                clear_thumbnail=True,
-                request_id=request_id,
-            )
+            if not uses_global_template:
+                await _commit_stale_image_metadata_cleanup(
+                    db,
+                    item,
+                    clear_original=False,
+                    clear_thumbnail=True,
+                    request_id=request_id,
+                )
 
-    if not item.image_object_key:
+    if not resolved.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
 
     try:
         original = await _download_object_resilient(
-            item.image_object_key,
-            fallback_content_type=item.image_content_type,
+            resolved.image_object_key,
+            fallback_content_type=resolved.image_content_type,
         )
     except StoredImageObjectNotFoundError as exc:
         _log_missing_image_object(
@@ -262,21 +270,22 @@ async def _get_or_create_thumbnail_payload(
             object_key=exc.object_key,
             request_id=request_id,
         )
-        await _commit_stale_image_metadata_cleanup(
-            db,
-            item,
-            clear_original=True,
-            clear_thumbnail=True,
-            request_id=request_id,
-        )
+        if not uses_global_template:
+            await _commit_stale_image_metadata_cleanup(
+                db,
+                item,
+                clear_original=True,
+                clear_thumbnail=True,
+                request_id=request_id,
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         ) from exc
     thumbnail_content, thumbnail_content_type = _prepare_thumbnail(original.content)
     uploaded_thumbnail_object_key: str | None = None
 
-    if db is None:
-        transient_key = f"{item.image_object_key}:thumb"
+    if db is None or uses_global_template:
+        transient_key = f"{resolved.image_object_key}:thumb"
         return StoredImagePayload(
             content=thumbnail_content,
             content_type=thumbnail_content_type,
@@ -320,17 +329,27 @@ async def get_item_image_response_payload(
     item: Item,
     *,
     db: AsyncSession | None = None,
+    platform_db: AsyncSession | None = None,
     variant: ImageVariant = "original",
     request_id: str | None = None,
 ) -> StoredImagePayload | StoredImageStreamPayload:
+    from app.services.global_image_templates import resolve_effective_item_image_keys
+
     if variant == "thumb":
-        return await _get_or_create_thumbnail_payload(db, item, request_id=request_id)
-    if not item.image_object_key:
+        return await _get_or_create_thumbnail_payload(
+            db,
+            item,
+            request_id=request_id,
+            platform_db=platform_db,
+        )
+    resolved = await resolve_effective_item_image_keys(item, platform_db)
+    if not resolved.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    uses_global_template = item.image_object_key is None and item.global_image_template_id is not None
     try:
         return await _stream_object_resilient(
-            item.image_object_key,
-            fallback_content_type=item.image_content_type,
+            resolved.image_object_key,
+            fallback_content_type=resolved.image_content_type,
         )
     except StoredImageObjectNotFoundError as exc:
         _log_missing_image_object(
@@ -339,16 +358,36 @@ async def get_item_image_response_payload(
             object_key=exc.object_key,
             request_id=request_id,
         )
-        await _commit_stale_image_metadata_cleanup(
-            db,
-            item,
-            clear_original=True,
-            clear_thumbnail=True,
-            request_id=request_id,
-        )
+        if not uses_global_template:
+            await _commit_stale_image_metadata_cleanup(
+                db,
+                item,
+                clear_original=True,
+                clear_thumbnail=True,
+                request_id=request_id,
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         ) from exc
+
+
+async def get_global_image_template_image_response_payload(
+    template: GlobalImageTemplate,
+    *,
+    variant: ImageVariant = "original",
+) -> StoredImagePayload | StoredImageStreamPayload:
+    if variant == "thumb" and template.image_thumbnail_object_key:
+        object_key = template.image_thumbnail_object_key
+        content_type = template.image_thumbnail_content_type
+    elif template.image_object_key:
+        object_key = template.image_object_key
+        content_type = template.image_content_type
+    else:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    return await _stream_object_resilient(
+        object_key,
+        fallback_content_type=content_type,
+    )
 
 
 def _log_missing_inventory_image_object(
@@ -402,12 +441,20 @@ async def _get_or_create_inventory_thumbnail_payload(
     item: InventoryItem,
     *,
     request_id: str | None = None,
+    platform_db: AsyncSession | None = None,
 ) -> StoredImagePayload | StoredImageStreamPayload:
-    if item.image_thumbnail_object_key:
+    from app.services.global_image_templates import resolve_effective_inventory_item_image_keys
+
+    resolved = await resolve_effective_inventory_item_image_keys(item, platform_db)
+    uses_global_template = (
+        item.image_object_key is None and item.global_image_template_id is not None
+    )
+
+    if resolved.image_thumbnail_object_key:
         try:
             return await _stream_object_resilient(
-                item.image_thumbnail_object_key,
-                fallback_content_type=item.image_thumbnail_content_type,
+                resolved.image_thumbnail_object_key,
+                fallback_content_type=resolved.image_thumbnail_content_type,
             )
         except StoredImageObjectNotFoundError as exc:
             _log_missing_inventory_image_object(
@@ -416,21 +463,22 @@ async def _get_or_create_inventory_thumbnail_payload(
                 object_key=exc.object_key,
                 request_id=request_id,
             )
-            await _commit_stale_inventory_image_metadata_cleanup(
-                db,
-                item,
-                clear_original=False,
-                clear_thumbnail=True,
-                request_id=request_id,
-            )
+            if not uses_global_template:
+                await _commit_stale_inventory_image_metadata_cleanup(
+                    db,
+                    item,
+                    clear_original=False,
+                    clear_thumbnail=True,
+                    request_id=request_id,
+                )
 
-    if not item.image_object_key:
+    if not resolved.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
 
     try:
         original = await _download_object_resilient(
-            item.image_object_key,
-            fallback_content_type=item.image_content_type,
+            resolved.image_object_key,
+            fallback_content_type=resolved.image_content_type,
         )
     except StoredImageObjectNotFoundError as exc:
         _log_missing_inventory_image_object(
@@ -439,20 +487,21 @@ async def _get_or_create_inventory_thumbnail_payload(
             object_key=exc.object_key,
             request_id=request_id,
         )
-        await _commit_stale_inventory_image_metadata_cleanup(
-            db,
-            item,
-            clear_original=True,
-            clear_thumbnail=True,
-            request_id=request_id,
-        )
+        if not uses_global_template:
+            await _commit_stale_inventory_image_metadata_cleanup(
+                db,
+                item,
+                clear_original=True,
+                clear_thumbnail=True,
+                request_id=request_id,
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         ) from exc
     thumbnail_content, thumbnail_content_type = _prepare_thumbnail(original.content)
     uploaded_thumbnail_object_key: str | None = None
 
-    if db is None:
+    if db is None or uses_global_template:
         transient_key = f"{item.image_object_key}:thumb"
         return StoredImagePayload(
             content=thumbnail_content,
@@ -498,17 +547,29 @@ async def get_inventory_item_image_response_payload(
     item: InventoryItem,
     *,
     db: AsyncSession | None = None,
+    platform_db: AsyncSession | None = None,
     variant: ImageVariant = "original",
     request_id: str | None = None,
 ) -> StoredImagePayload | StoredImageStreamPayload:
+    from app.services.global_image_templates import resolve_effective_inventory_item_image_keys
+
     if variant == "thumb":
-        return await _get_or_create_inventory_thumbnail_payload(db, item, request_id=request_id)
-    if not item.image_object_key:
+        return await _get_or_create_inventory_thumbnail_payload(
+            db,
+            item,
+            request_id=request_id,
+            platform_db=platform_db,
+        )
+    resolved = await resolve_effective_inventory_item_image_keys(item, platform_db)
+    if not resolved.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    uses_global_template = (
+        item.image_object_key is None and item.global_image_template_id is not None
+    )
     try:
         return await _stream_object_resilient(
-            item.image_object_key,
-            fallback_content_type=item.image_content_type,
+            resolved.image_object_key,
+            fallback_content_type=resolved.image_content_type,
         )
     except StoredImageObjectNotFoundError as exc:
         _log_missing_inventory_image_object(
@@ -517,13 +578,14 @@ async def get_inventory_item_image_response_payload(
             object_key=exc.object_key,
             request_id=request_id,
         )
-        await _commit_stale_inventory_image_metadata_cleanup(
-            db,
-            item,
-            clear_original=True,
-            clear_thumbnail=True,
-            request_id=request_id,
-        )
+        if not uses_global_template:
+            await _commit_stale_inventory_image_metadata_cleanup(
+                db,
+                item,
+                clear_original=True,
+                clear_thumbnail=True,
+                request_id=request_id,
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         ) from exc
@@ -580,12 +642,20 @@ async def _get_or_create_expense_thumbnail_payload(
     item: ExpenseItem,
     *,
     request_id: str | None = None,
+    platform_db: AsyncSession | None = None,
 ) -> StoredImagePayload | StoredImageStreamPayload:
-    if item.image_thumbnail_object_key:
+    from app.services.global_image_templates import resolve_effective_expense_item_image_keys
+
+    resolved = await resolve_effective_expense_item_image_keys(item, platform_db)
+    uses_global_template = (
+        item.image_object_key is None and item.global_image_template_id is not None
+    )
+
+    if resolved.image_thumbnail_object_key:
         try:
             return await _stream_object_resilient(
-                item.image_thumbnail_object_key,
-                fallback_content_type=item.image_thumbnail_content_type,
+                resolved.image_thumbnail_object_key,
+                fallback_content_type=resolved.image_thumbnail_content_type,
             )
         except StoredImageObjectNotFoundError as exc:
             _log_missing_expense_image_object(
@@ -594,21 +664,22 @@ async def _get_or_create_expense_thumbnail_payload(
                 object_key=exc.object_key,
                 request_id=request_id,
             )
-            await _commit_stale_expense_image_metadata_cleanup(
-                db,
-                item,
-                clear_original=False,
-                clear_thumbnail=True,
-                request_id=request_id,
-            )
+            if not uses_global_template:
+                await _commit_stale_expense_image_metadata_cleanup(
+                    db,
+                    item,
+                    clear_original=False,
+                    clear_thumbnail=True,
+                    request_id=request_id,
+                )
 
-    if not item.image_object_key:
+    if not resolved.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
 
     try:
         original = await _download_object_resilient(
-            item.image_object_key,
-            fallback_content_type=item.image_content_type,
+            resolved.image_object_key,
+            fallback_content_type=resolved.image_content_type,
         )
     except StoredImageObjectNotFoundError as exc:
         _log_missing_expense_image_object(
@@ -617,20 +688,21 @@ async def _get_or_create_expense_thumbnail_payload(
             object_key=exc.object_key,
             request_id=request_id,
         )
-        await _commit_stale_expense_image_metadata_cleanup(
-            db,
-            item,
-            clear_original=True,
-            clear_thumbnail=True,
-            request_id=request_id,
-        )
+        if not uses_global_template:
+            await _commit_stale_expense_image_metadata_cleanup(
+                db,
+                item,
+                clear_original=True,
+                clear_thumbnail=True,
+                request_id=request_id,
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         ) from exc
     thumbnail_content, thumbnail_content_type = _prepare_thumbnail(original.content)
     uploaded_thumbnail_object_key: str | None = None
 
-    if db is None:
+    if db is None or uses_global_template:
         transient_key = f"{item.image_object_key}:thumb"
         return StoredImagePayload(
             content=thumbnail_content,
@@ -676,17 +748,29 @@ async def get_expense_item_image_response_payload(
     item: ExpenseItem,
     *,
     db: AsyncSession | None = None,
+    platform_db: AsyncSession | None = None,
     variant: ImageVariant = "original",
     request_id: str | None = None,
 ) -> StoredImagePayload | StoredImageStreamPayload:
+    from app.services.global_image_templates import resolve_effective_expense_item_image_keys
+
     if variant == "thumb":
-        return await _get_or_create_expense_thumbnail_payload(db, item, request_id=request_id)
-    if not item.image_object_key:
+        return await _get_or_create_expense_thumbnail_payload(
+            db,
+            item,
+            request_id=request_id,
+            platform_db=platform_db,
+        )
+    resolved = await resolve_effective_expense_item_image_keys(item, platform_db)
+    if not resolved.image_object_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    uses_global_template = (
+        item.image_object_key is None and item.global_image_template_id is not None
+    )
     try:
         return await _stream_object_resilient(
-            item.image_object_key,
-            fallback_content_type=item.image_content_type,
+            resolved.image_object_key,
+            fallback_content_type=resolved.image_content_type,
         )
     except StoredImageObjectNotFoundError as exc:
         _log_missing_expense_image_object(
@@ -695,13 +779,14 @@ async def get_expense_item_image_response_payload(
             object_key=exc.object_key,
             request_id=request_id,
         )
-        await _commit_stale_expense_image_metadata_cleanup(
-            db,
-            item,
-            clear_original=True,
-            clear_thumbnail=True,
-            request_id=request_id,
-        )
+        if not uses_global_template:
+            await _commit_stale_expense_image_metadata_cleanup(
+                db,
+                item,
+                clear_original=True,
+                clear_thumbnail=True,
+                request_id=request_id,
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         ) from exc

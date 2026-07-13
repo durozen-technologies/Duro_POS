@@ -9,6 +9,7 @@ from app.routers.admin import (
     catalogue,
     dashboard,
     expenses,
+    global_image_templates,
     inventory,
     pricing,
     retailers,
@@ -29,6 +30,7 @@ for module in (
     dashboard,
     transfers,
     retailers,
+    global_image_templates,
 ):
     router.include_router(module.router)
 

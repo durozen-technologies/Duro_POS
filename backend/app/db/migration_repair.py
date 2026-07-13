@@ -30,6 +30,8 @@ _PLATFORM_TABLES = frozenset(
         "users",
         "audit_logs",
         "alembic_version",
+        "global_image_template_categories",
+        "global_image_templates",
     }
 )
 

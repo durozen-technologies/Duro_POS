@@ -7,7 +7,8 @@ type ItemImageFields = {
   image_thumb_path?: string | null;
 };
 
-const PROTECTED_CATALOG_IMAGE_URI = /\/catalog\/(?:items|inventory-items|expense-items)\/[^/]+\/image(?:\?|$)/;
+const PROTECTED_CATALOG_IMAGE_URI =
+  /\/catalog\/(?:items|inventory-items|expense-items|global-image-templates)\/[^/]+\/image(?:\?|$)/;
 
 export function isProtectedCatalogImageUri(uri: string) {
   return PROTECTED_CATALOG_IMAGE_URI.test(uri);
@@ -26,6 +27,31 @@ export function authenticatedImageSource(uri: string): ImageSource {
 export function getItemThumbnailUri(item: ItemImageFields) {
   const imagePath = item.image_thumb_path || item.image_path || "";
   return imagePath ? resolveApiUrl(imagePath) : "";
+}
+
+export function resolveEditorImageUri({
+  imageDraftUri,
+  removeImageRequested = false,
+  selectedTemplateId = null,
+  templatePreviewUri = "",
+  storedImageUri = "",
+}: {
+  imageDraftUri?: string | null;
+  removeImageRequested?: boolean;
+  selectedTemplateId?: string | null;
+  templatePreviewUri?: string;
+  storedImageUri?: string;
+}) {
+  if (removeImageRequested) {
+    return "";
+  }
+  if (imageDraftUri) {
+    return imageDraftUri;
+  }
+  if (selectedTemplateId && templatePreviewUri) {
+    return templatePreviewUri;
+  }
+  return storedImageUri;
 }
 
 export function prefetchItemThumbnails(items: ItemImageFields[], limit = 12) {

@@ -12,6 +12,8 @@ class ExpenseItemCreate(BaseModel):
     tamil_name: str = Field(min_length=1, max_length=120)
     sort_order: int = 0
     is_active: bool = True
+    global_image_template_id: UUID | None = None
+    use_global_image_template: bool | None = None
 
 
 class ExpenseItemUpdate(BaseModel):
@@ -19,6 +21,8 @@ class ExpenseItemUpdate(BaseModel):
     tamil_name: str = Field(min_length=1, max_length=120)
     sort_order: int = 0
     is_active: bool = True
+    global_image_template_id: UUID | None = None
+    use_global_image_template: bool | None = None
 
 
 class ExpenseItemRead(ORMModel):
@@ -30,6 +34,7 @@ class ExpenseItemRead(ORMModel):
     image_path: str | None = None
     image_thumb_path: str | None = None
     image_content_type: str | None = None
+    global_image_template_id: UUID | None = None
     created_at: datetime
     updated_at: datetime | None = None
     allocated_shop_count: int = 0

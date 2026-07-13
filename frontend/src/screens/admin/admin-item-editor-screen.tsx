@@ -34,10 +34,12 @@ import {
   updateShopItemWithImageFile,
   updateShopItemMetadata,
 } from "@/api/admin";
+import { fetchAdminGlobalImageTemplates } from "@/api/global-image-templates";
 import { isApiRequestCanceled, resolveApiUrl, formatApiErrorMessage } from "@/api/client";
-import { authenticatedImageSource } from "@/utils/item-images";
+import { authenticatedImageSource, resolveEditorImageUri } from "@/utils/item-images";
 import {
   BaseUnit,
+  GlobalImageTemplateRead,
   ItemScope,
   UnitType,
   type ItemCategoryRead,
@@ -370,6 +372,12 @@ function buildFormFields(
   values: EditorValues,
   customAttributes: Record<string, string | number | boolean | null>,
   removeImage: boolean,
+  templateOptions?: {
+    isCreate: boolean;
+    selectedTemplateId: string | null;
+    hasTemplateChange: boolean;
+    hasCustomImage: boolean;
+  },
 ) {
   const fields: Record<string, string> = {
     name: values.name.trim(),
@@ -385,16 +393,43 @@ function buildFormFields(
   if (values.categoryId) {
     fields.category_id = values.categoryId;
   }
+  if (templateOptions && !templateOptions.hasCustomImage) {
+    if (templateOptions.isCreate) {
+      if (templateOptions.selectedTemplateId) {
+        fields.global_image_template_id = templateOptions.selectedTemplateId;
+      }
+    } else if (templateOptions.hasTemplateChange) {
+      fields.use_global_image_template = "true";
+      if (templateOptions.selectedTemplateId) {
+        fields.global_image_template_id = templateOptions.selectedTemplateId;
+      }
+    }
+  }
   return fields;
 }
 
-function buildFormData(values: EditorValues, imageDraft: ImageDraft | null, removeImage: boolean) {
+function buildFormData(
+  values: EditorValues,
+  imageDraft: ImageDraft | null,
+  removeImage: boolean,
+  templateOptions?: {
+    isCreate: boolean;
+    selectedTemplateId: string | null;
+    hasTemplateChange: boolean;
+    hasCustomImage: boolean;
+  },
+) {
   const formData = new FormData();
-  Object.entries(buildFormFields(values, attributesToObject(values.attributes), removeImage && !imageDraft)).forEach(
-    ([key, value]) => {
-      formData.append(key, value);
-    },
-  );
+  Object.entries(
+    buildFormFields(
+      values,
+      attributesToObject(values.attributes),
+      removeImage && !imageDraft,
+      templateOptions,
+    ),
+  ).forEach(([key, value]) => {
+    formData.append(key, value);
+  });
   if (imageDraft) {
     appendReactNativeFile(formData, "image", imageDraft);
   }
@@ -428,18 +463,29 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
   return formatApiErrorMessage(error, fallback);
 }
 
+function buildTemplateMetadataPayload(selectedTemplateId: string | null): ItemMetadataUpdate {
+  return {
+    use_global_image_template: true,
+    global_image_template_id: selectedTemplateId,
+  };
+}
+
 export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
-  const { mode, workspace, itemId, shopId, initialItem } = route.params;
+  const { mode, workspace, itemId, shopId, initialItem: routeInitialItem } = route.params;
   const isCreate = mode === AdminItemEditorMode.Create;
   const isCustomize = mode === AdminItemEditorMode.Customize;
-  const [item, setItem] = useState<ShopItemRead | null>(() => (isCreate ? null : initialItem ?? null));
+  const [item, setItem] = useState<ShopItemRead | null>(() => (isCreate ? null : routeInitialItem ?? null));
   const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
   const [removeImageRequested, setRemoveImageRequested] = useState(false);
+  const [imageTemplates, setImageTemplates] = useState<GlobalImageTemplateRead[]>([]);
+  const [imageTemplatesLoading, setImageTemplatesLoading] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [categories, setCategories] = useState<ItemCategoryRead[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
-  const [loading, setLoading] = useState(!isCreate && !initialItem);
+  const [loading, setLoading] = useState(!isCreate && !routeInitialItem);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -462,7 +508,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     watch,
     formState: { errors, isDirty, isValid },
   } = useForm<EditorValues>({
-    defaultValues: isCreate || !initialItem ? EMPTY_EDITOR : valuesFromItem(initialItem),
+    defaultValues: isCreate || !routeInitialItem ? EMPTY_EDITOR : valuesFromItem(routeInitialItem),
     resolver: zodResolver(editorSchema),
     mode: "onChange",
   });
@@ -476,9 +522,24 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
   const savingRef = useRef(false);
   const deletingRef = useRef(false);
 
-  useEffect(() => {
-    dirtyRef.current = isDirty || Boolean(imageDraft) || removeImageRequested;
-  }, [imageDraft, isDirty, removeImageRequested]);
+  const loadImageTemplates = useCallback(async (signal?: AbortSignal) => {
+    setImageTemplatesLoading(true);
+    try {
+      const rows = await fetchAdminGlobalImageTemplates();
+      if (signal?.aborted) {
+        return;
+      }
+      setImageTemplates(rows);
+    } catch (requestError) {
+      if (isApiRequestCanceled(requestError)) {
+        return;
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setImageTemplatesLoading(false);
+      }
+    }
+  }, []);
 
   const loadCategories = useCallback(async (signal?: AbortSignal) => {
     setCategoriesLoading(true);
@@ -521,6 +582,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       reset(EMPTY_EDITOR);
       setImageDraft(null);
       setRemoveImageRequested(false);
+      setSelectedTemplateId(null);
       setLoading(false);
       setItemError(null);
       setImageError(null);
@@ -530,24 +592,25 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     }
     let alive = true;
     const controller = new AbortController();
-    if (initialItem) {
-      setItem(initialItem);
-      reset(valuesFromItem(initialItem));
+    if (routeInitialItem) {
+      setItem(routeInitialItem);
+      reset(valuesFromItem(routeInitialItem));
       setImageDraft(null);
       setRemoveImageRequested(false);
+      setSelectedTemplateId(routeInitialItem.global_image_template_id ?? null);
       setStoredImageFailed(false);
       setLoading(false);
     } else {
       setLoading(true);
     }
-    if (!initialItem) {
+    if (!routeInitialItem) {
       setItemError(null);
     }
     const ownedByShop =
-      Boolean(initialItem?.shop_id) ||
-      initialItem?.scope === ItemScope.Shop ||
+      Boolean(routeInitialItem?.shop_id) ||
+      routeInitialItem?.scope === ItemScope.Shop ||
       (workspace === AdminItemWorkspace.Shop && Boolean(shopId));
-    const ownedShopId = initialItem?.shop_id ?? shopId;
+    const ownedShopId = routeInitialItem?.shop_id ?? shopId;
     const request =
       ownedByShop && ownedShopId
         ? fetchShopItem(ownedShopId, itemId, { signal: controller.signal })
@@ -562,6 +625,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           reset(valuesFromItem(loadedItem));
           setImageDraft(null);
           setRemoveImageRequested(false);
+          setSelectedTemplateId(loadedItem.global_image_template_id ?? null);
           setStoredImageFailed(false);
         }
         setItemError(null);
@@ -571,13 +635,13 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           return;
         }
         if (alive) {
-          if (!initialItem) {
+          if (!routeInitialItem) {
             setItemError(getRequestErrorMessage(requestError, "Unable to load item."));
           }
         }
       })
       .finally(() => {
-        if (alive && !initialItem) {
+        if (alive && !routeInitialItem) {
           setLoading(false);
         }
       });
@@ -585,11 +649,52 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       alive = false;
       controller.abort();
     };
-  }, [initialItem, isCreate, itemId, itemReloadKey, reset, shopId, workspace]);
+  }, [routeInitialItem, isCreate, itemId, itemReloadKey, reset, shopId, workspace]);
+
+  const title = isCreate
+    ? workspace === AdminItemWorkspace.Catalogue
+      ? "Add catalogue item"
+      : "Add shop item"
+    : isCustomize
+      ? "Customize shop item"
+      : "Edit item";
+  const storedImagePath = item?.image_path || item?.image_thumb_path || "";
+  const hasStoredImage = Boolean(item?.image_path || item?.image_thumb_path);
+  const storedImageUri = storedImagePath && !storedImageFailed ? resolveApiUrl(storedImagePath) : "";
+  const selectedTemplate = useMemo(
+    () => imageTemplates.find((row) => row.id === selectedTemplateId) ?? null,
+    [imageTemplates, selectedTemplateId],
+  );
+  const templatePreviewPath = selectedTemplate?.image_thumb_path || selectedTemplate?.image_path || "";
+  const templatePreviewUri = templatePreviewPath ? resolveApiUrl(templatePreviewPath) : "";
+  const currentImageUri = resolveEditorImageUri({
+    imageDraftUri: imageDraft?.uri,
+    removeImageRequested,
+    selectedTemplateId,
+    templatePreviewUri,
+    storedImageUri: storedImageUri,
+  });
+  const currentImageIsDraft = Boolean(imageDraft && !removeImageRequested);
+  const canEditSharedFields = !isCustomize;
+  const customizationBlocked = isCustomize && item !== null && !item.allocated;
+  const hasImageChange = Boolean(imageDraft || removeImageRequested);
+  const baselineTemplateId = item?.global_image_template_id ?? null;
+  const hasTemplateChange = !isCreate && selectedTemplateId !== baselineTemplateId;
+  const hasPendingChanges = isDirty || hasImageChange || hasTemplateChange;
+  const templateFormOptions = {
+    isCreate,
+    selectedTemplateId,
+    hasTemplateChange,
+    hasCustomImage: Boolean(imageDraft),
+  };
+
+  useEffect(() => {
+    dirtyRef.current = isDirty || Boolean(imageDraft) || removeImageRequested || hasTemplateChange;
+  }, [hasTemplateChange, imageDraft, isDirty, removeImageRequested]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (event) => {
-      if (saving || deleting || (!isDirty && !imageDraft && !removeImageRequested)) {
+      if (saving || deleting || (!isDirty && !imageDraft && !removeImageRequested && !hasTemplateChange)) {
         return;
       }
       event.preventDefault();
@@ -603,31 +708,16 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       ]);
     });
     return unsubscribe;
-  }, [deleting, imageDraft, isDirty, navigation, removeImageRequested, saving]);
+  }, [deleting, hasTemplateChange, imageDraft, isDirty, navigation, removeImageRequested, saving]);
 
-  const title = isCreate
-    ? workspace === AdminItemWorkspace.Catalogue
-      ? "Add catalogue item"
-      : "Add shop item"
-    : isCustomize
-      ? "Customize shop item"
-      : "Edit item";
-  const storedImagePath = item?.image_path || item?.image_thumb_path || "";
-  const hasStoredImage = Boolean(item?.image_path || item?.image_thumb_path);
-  const storedImageUri = storedImagePath && !storedImageFailed ? resolveApiUrl(storedImagePath) : "";
-  const currentImageUri = removeImageRequested
-    ? ""
-    : imageDraft?.uri ?? storedImageUri;
-  const currentImageIsDraft = Boolean(imageDraft && !removeImageRequested);
-  const canEditSharedFields = !isCustomize;
-  const customizationBlocked = isCustomize && item !== null && !item.allocated;
-  const hasImageChange = Boolean(imageDraft || removeImageRequested);
-  const hasPendingChanges = isDirty || hasImageChange;
   // Ownership, not workspace: shop-owned rows must never hit catalogue PATCH.
-  const isShopOwnedItem =
-    Boolean(item?.shop_id) || item?.scope === ItemScope.Shop;
-  const usesCatalogueEndpoint = !isCustomize && !isShopOwnedItem;
-  const effectiveShopId = item?.shop_id ?? shopId ?? undefined;
+  const ownershipSource = item ?? routeInitialItem ?? null;
+  const usesShopItemEndpoint =
+    !isCustomize &&
+    (Boolean(ownershipSource?.shop_id) ||
+      ownershipSource?.scope === ItemScope.Shop ||
+      (workspace === AdminItemWorkspace.Shop && Boolean(shopId)));
+  const effectiveShopId = ownershipSource?.shop_id ?? shopId ?? undefined;
   const canDeleteItem =
     !isCreate &&
     !isCustomize &&
@@ -652,7 +742,14 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     setImageError(null);
   }, [item?.image_path, item?.image_thumb_path]);
 
-  const pickImage = useCallback(async () => {
+  useEffect(() => {
+    if (!selectedTemplateId || selectedTemplate) {
+      return;
+    }
+    void loadImageTemplates();
+  }, [loadImageTemplates, selectedTemplate, selectedTemplateId]);
+
+  const pickImageFromDevice = useCallback(async () => {
     setImageError(null);
     setImageStatus("Opening image picker...");
     const imagePicker = await loadImagePickerModule();
@@ -679,6 +776,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       setImageError(null);
       setImageStatus("Ready to upload when you save.");
       setRemoveImageRequested(false);
+      setSelectedTemplateId(null);
       setStoredImageFailed(false);
       void deleteImageDraftFile(imageDraft);
       setImageDraft(draft);
@@ -691,6 +789,39 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           : "Unable to open the image picker on this device.",
       );
     }
+  }, [imageDraft]);
+
+  const openTemplatePicker = useCallback(async () => {
+    setImageError(null);
+    setImageStatus(null);
+    setTemplatePickerOpen(true);
+    if (imageTemplates.length > 0 || imageTemplatesLoading) {
+      return;
+    }
+    await loadImageTemplates();
+  }, [imageTemplates.length, imageTemplatesLoading, loadImageTemplates]);
+
+  const chooseImageSource = useCallback(() => {
+    setImageError(null);
+    const options: Array<{ text: string; onPress?: () => void; style?: "cancel" | "default" }> = [
+      { text: "Choose shared template", onPress: () => void openTemplatePicker() },
+      { text: "Upload from device", onPress: () => void pickImageFromDevice() },
+      { text: "Cancel", style: "cancel" },
+    ];
+    Alert.alert("Item image", "Pick a shared template or upload your own square image.", options);
+  }, [openTemplatePicker, pickImageFromDevice]);
+
+  const selectImageTemplate = useCallback((templateId: string) => {
+    setSaveError(null);
+    setImageError(null);
+    setImageStatus(null);
+    void deleteImageDraftFile(imageDraft);
+    setImageDraft(null);
+    setRemoveImageRequested(false);
+    setStoredImageFailed(false);
+    setSelectedTemplateId((current) => (current === templateId ? null : templateId));
+    setTemplatePickerOpen(false);
+    setImageStatus("Template selected. Save to apply.");
   }, [imageDraft]);
 
   const removeImage = useCallback(() => {
@@ -737,7 +868,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       setSaveError(requestError instanceof Error ? requestError.message : "Invalid custom attributes.");
       return;
     }
-    setImageStatus(hasImageChange ? "Saving item image..." : null);
+    setImageStatus(hasImageChange || hasTemplateChange ? "Saving item image..." : null);
     try {
       if (isCustomize) {
         if (!shopId || !itemId) {
@@ -754,12 +885,12 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           custom_attributes: customAttributes,
         });
       } else if (isCreate) {
-        const payload = buildFormFields(values, customAttributes, false);
+        const payload = buildFormFields(values, customAttributes, false, templateFormOptions);
         if (workspace === AdminItemWorkspace.Catalogue) {
           if (imageDraft) {
             await createItemWithImageFile(payload, imageDraft);
           } else {
-            await createItem(buildFormData(values, null, false));
+            await createItem(buildFormData(values, null, false, templateFormOptions));
           }
         } else {
           if (!shopId) {
@@ -768,53 +899,40 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           if (imageDraft) {
             await createShopItemWithImageFile(shopId, payload, imageDraft);
           } else {
-            await createShopItem(shopId, buildFormData(values, null, false));
+            await createShopItem(shopId, buildFormData(values, null, false, templateFormOptions));
           }
         }
       } else {
         if (!itemId) {
           throw new Error("Item is required for editing.");
         }
+        const formFields = buildFormFields(
+          values,
+          customAttributes,
+          removeImageRequested,
+          templateFormOptions,
+        );
         // Route by item ownership, not workspace alone — shop-owned rows
         // must hit /shops/{id}/items/... or catalogue PATCH returns 404.
-        if (usesCatalogueEndpoint) {
-          const metadataUnchanged = item ? editorValuesMatchItem(values, item) : false;
-          if (hasImageChange && metadataUnchanged) {
-            if (imageDraft) {
-              await replaceItemImageFile(itemId, imageDraft);
-            } else {
-              await deleteItemImage(itemId);
-            }
-          } else if (hasImageChange) {
-            if (imageDraft) {
-              await updateItemWithImageFile(
-                itemId,
-                buildFormFields(values, customAttributes, false),
-                imageDraft,
-              );
-            } else {
-              await updateItem(itemId, buildFormData(values, null, removeImageRequested));
-            }
-          } else {
-            await updateItemMetadata(itemId, buildMetadataPayload(values, customAttributes));
-          }
-        } else {
+        if (usesShopItemEndpoint) {
           if (!effectiveShopId) {
             throw new Error("Select a shop before editing this shop item.");
           }
-          if (hasImageChange) {
+          const metadataUnchanged = item ? editorValuesMatchItem(values, item) : false;
+          if (hasTemplateChange && metadataUnchanged && !isDirty && !hasImageChange) {
+            await updateShopItemMetadata(
+              effectiveShopId,
+              itemId,
+              buildTemplateMetadataPayload(selectedTemplateId),
+            );
+          } else if (hasImageChange || hasTemplateChange || isDirty) {
             if (imageDraft) {
-              await updateShopItemWithImageFile(
-                effectiveShopId,
-                itemId,
-                buildFormFields(values, customAttributes, false),
-                imageDraft,
-              );
+              await updateShopItemWithImageFile(effectiveShopId, itemId, formFields, imageDraft);
             } else {
               await updateShopItem(
                 effectiveShopId,
                 itemId,
-                buildFormData(values, null, removeImageRequested),
+                buildFormData(values, null, removeImageRequested, templateFormOptions),
               );
             }
           } else {
@@ -823,6 +941,30 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
               itemId,
               buildMetadataPayload(values, customAttributes),
             );
+          }
+        } else {
+          const metadataUnchanged = item ? editorValuesMatchItem(values, item) : false;
+          if (hasTemplateChange && metadataUnchanged && !isDirty && !hasImageChange) {
+            await updateItemMetadata(itemId, buildTemplateMetadataPayload(selectedTemplateId));
+          } else if ((hasImageChange || hasTemplateChange) && metadataUnchanged && !isDirty) {
+            if (imageDraft) {
+              await replaceItemImageFile(itemId, imageDraft);
+            } else if (removeImageRequested) {
+              await deleteItemImage(itemId);
+            } else if (hasTemplateChange) {
+              await updateItemMetadata(itemId, buildTemplateMetadataPayload(selectedTemplateId));
+            }
+          } else if (hasImageChange || hasTemplateChange || isDirty) {
+            if (imageDraft) {
+              await updateItemWithImageFile(itemId, formFields, imageDraft);
+            } else {
+              await updateItem(
+                itemId,
+                buildFormData(values, null, removeImageRequested, templateFormOptions),
+              );
+            }
+          } else {
+            await updateItemMetadata(itemId, buildMetadataPayload(values, customAttributes));
           }
         }
       }
@@ -859,7 +1001,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       }
       const shopNames = item?.allocated_shop_names ?? [];
       const hasMappedBranches =
-        usesCatalogueEndpoint && (shopNames.length > 0 || (item?.allocated_shop_count ?? 0) > 0);
+        !usesShopItemEndpoint && (shopNames.length > 0 || (item?.allocated_shop_count ?? 0) > 0);
       if (!hasMappedBranches) {
         setValue("isActive", false, { shouldDirty: true, shouldValidate: true });
         return;
@@ -881,7 +1023,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         ],
       );
     },
-    [item, setValue, usesCatalogueEndpoint],
+    [item, setValue, usesShopItemEndpoint],
   );
 
   const saveItem = useCallback(() => {
@@ -892,9 +1034,9 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
     setSaving(true);
     setSaveError(null);
     setImageError(null);
-    setImageStatus(hasImageChange ? "Saving item image..." : null);
+    setImageStatus(hasImageChange || hasTemplateChange ? "Saving item image..." : null);
     void submit();
-  }, [hasImageChange, saveDisabled, submit]);
+  }, [hasImageChange, hasTemplateChange, saveDisabled, submit]);
 
   const openDeleteConfirm = useCallback(() => {
     if (!itemId || isCreate || isCustomize || deletingRef.current || savingRef.current) {
@@ -931,7 +1073,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         setDeleteConfirmError(null);
         setSaveError(null);
         try {
-          if (usesCatalogueEndpoint) {
+          if (!usesShopItemEndpoint) {
             await deleteItem(itemId, credentials);
           } else {
             if (!effectiveShopId) {
@@ -951,7 +1093,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         }
       })();
     },
-    [effectiveShopId, isCreate, isCustomize, itemId, navigation, usesCatalogueEndpoint],
+    [effectiveShopId, isCreate, isCustomize, itemId, navigation, usesShopItemEndpoint],
   );
 
   return (
@@ -1046,8 +1188,8 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                 {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
                 {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
                 <XStack gap={adminSpacing.xs} flexWrap="wrap">
-                  <EditorButton label="Pick image" icon="image-edit-outline" onPress={pickImage} palette={palette} tone="info" active />
-                  {imageDraft || hasStoredImage || removeImageRequested ? (
+                  <EditorButton label="Pick image" icon="image-edit-outline" onPress={chooseImageSource} palette={palette} tone="info" active />
+                  {imageDraft || hasStoredImage || removeImageRequested || selectedTemplateId ? (
                     <EditorButton
                       label={removeImageRequested ? "Undo remove" : imageDraft ? "Clear" : "Remove"}
                       icon={removeImageRequested ? "undo" : "image-remove-outline"}
@@ -1058,6 +1200,11 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                     />
                   ) : null}
                 </XStack>
+                {selectedTemplate ? (
+                  <Text style={[styles.imageMessage, { color: palette.textMuted }]}>
+                    Shared template: {selectedTemplate.name}
+                  </Text>
+                ) : null}
               </YStack>
             </View>
           ) : (
@@ -1200,14 +1347,119 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         </ScrollView>
         </KeyboardAvoidingView>
       )}
+      <Modal
+        visible={templatePickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTemplatePickerOpen(false)}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close template picker"
+          style={styles.templateModalBackdrop}
+          onPress={() => setTemplatePickerOpen(false)}
+        >
+          <Pressable
+            accessibilityRole="none"
+            style={[styles.templateModalCard, { backgroundColor: palette.card, borderColor: palette.border }]}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Shared image templates</Text>
+            <Text style={[styles.sectionHint, { color: palette.textMuted, marginTop: adminSpacing.xs }]}>
+              Tap a template. Custom upload still overrides template when you save.
+            </Text>
+            {imageTemplatesLoading ? (
+              <View style={styles.templateModalState}>
+                <Spinner color={palette.items} />
+                <Text style={[styles.helper, { color: palette.textMuted }]}>Loading templates...</Text>
+              </View>
+            ) : imageTemplates.length === 0 ? (
+              <View style={styles.templateModalState}>
+                <Text style={[styles.helper, { color: palette.textMuted }]}>
+                  No shared templates yet. Upload from your device instead.
+                </Text>
+                <EditorButton
+                  label="Upload from device"
+                  icon="image-edit-outline"
+                  onPress={() => {
+                    setTemplatePickerOpen(false);
+                    void pickImageFromDevice();
+                  }}
+                  palette={palette}
+                  tone="info"
+                  active
+                />
+              </View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator
+                contentContainerStyle={styles.templateModalList}
+              >
+                {imageTemplates.map((template) => {
+                  const thumbPath = template.image_thumb_path || template.image_path || "";
+                  const thumbUri = thumbPath ? resolveApiUrl(thumbPath) : "";
+                  const selected = selectedTemplateId === template.id;
+                  return (
+                    <Pressable
+                      key={template.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Use template ${template.name}`}
+                      onPress={() => selectImageTemplate(template.id)}
+                      style={styles.templateModalOption}
+                    >
+                      <View
+                        style={[
+                          styles.templateModalThumb,
+                          {
+                            borderColor: selected ? palette.primary : palette.border,
+                            backgroundColor: palette.surfaceMuted,
+                          },
+                        ]}
+                      >
+                        {thumbUri ? (
+                          <Image
+                            source={authenticatedImageSource(thumbUri)}
+                            contentFit="cover"
+                            style={StyleSheet.absoluteFill}
+                          />
+                        ) : (
+                          <MaterialCommunityIcons name="image-outline" size={20} color={palette.textMuted} />
+                        )}
+                      </View>
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.templateModalLabel,
+                          { color: selected ? palette.primary : palette.textSecondary },
+                        ]}
+                      >
+                        {template.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <EditorButton
+              label="Close"
+              icon="close"
+              onPress={() => setTemplatePickerOpen(false)}
+              palette={palette}
+              tone="warning"
+              active
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
       <AdminConfirmDeleteModal
         visible={deleteConfirmOpen}
-        title={usesCatalogueEndpoint ? "Delete catalogue item" : "Delete shop item"}
+        title={usesShopItemEndpoint ? "Delete shop item" : "Delete catalogue item"}
         resourceName={item?.name?.trim() || "this item"}
         message={
-          usesCatalogueEndpoint
-            ? "Enter your tenant admin password to permanently delete this catalogue item. Only allowed when it has no shop allocations, billing, or price history."
-            : "Enter your tenant admin password to permanently delete this shop item. Items with billing or price history cannot be deleted."
+          usesShopItemEndpoint
+            ? "Enter your tenant admin password to permanently delete this shop item. Items with billing or price history cannot be deleted."
+            : "Enter your tenant admin password to permanently delete this catalogue item. Only allowed when it has no shop allocations, billing, or price history."
         }
         signedInUsername={signedInUsername}
         palette={palette}
@@ -1738,6 +1990,56 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+  },
+  templateThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: adminRadii.card,
+    borderWidth: 2,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  templateModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(10, 17, 13, 0.48)",
+    justifyContent: "center",
+    padding: adminSpacing.md,
+  },
+  templateModalCard: {
+    borderWidth: 1,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.md,
+    maxHeight: "80%",
+    gap: adminSpacing.sm,
+  },
+  templateModalState: {
+    alignItems: "center",
+    gap: adminSpacing.sm,
+    paddingVertical: adminSpacing.md,
+  },
+  templateModalList: {
+    gap: adminSpacing.sm,
+    paddingVertical: adminSpacing.sm,
+    paddingRight: adminSpacing.xs,
+  },
+  templateModalOption: {
+    width: 108,
+    gap: adminSpacing.xs,
+  },
+  templateModalThumb: {
+    width: 108,
+    height: 108,
+    borderRadius: adminRadii.card,
+    borderWidth: 2,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  templateModalLabel: {
+    ...adminTypography.caption,
+    textAlign: "center",
+    minHeight: 32,
   },
   infoBox: {
     borderWidth: 1,

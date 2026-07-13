@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import threading
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from pathlib import Path
@@ -26,8 +27,10 @@ _SCHEMA_PREFIX = "tenant_"
 _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-TENANT_MIGRATION_HEAD = "0023_bill_cancelled_uppercase"
+TENANT_MIGRATION_HEAD = "0028_inventory_expense_global_image_template"
 RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
+_tenant_drift_repair_lock = threading.Lock()
+_tenant_drift_repaired_head: dict[str, str] = {}
 _ALEMBIC_LOGGERS = (
     logging.getLogger("alembic"),
     logging.getLogger("alembic.runtime.migration"),
@@ -132,6 +135,7 @@ async def set_search_path(session: AsyncSession, schema_name: str | None) -> Non
     await session.execute(text("RESET search_path"))
     if schema_name:
         safe = assert_safe_schema_name(schema_name)
+        ensure_tenant_schema_drift_repaired(safe)
         await session.execute(text(f'SET search_path TO "{safe}", public'))
     else:
         await session.execute(text("SET search_path TO public"))
@@ -202,7 +206,7 @@ def _stamp_tenant_alembic_head(connection, schema_name: str) -> None:
     connection.execute(
         text(
             f'CREATE TABLE IF NOT EXISTS "{safe}".alembic_version ('
-            "version_num VARCHAR(32) NOT NULL, "
+            "version_num VARCHAR(64) NOT NULL, "
             "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
         )
     )
@@ -245,7 +249,21 @@ async def run_tenant_migrations_async(session: AsyncSession, schema_name: str) -
 
     safe = assert_safe_schema_name(schema_name)
     await session.flush()
-    repair_tenant_schema_ddl(safe, quiet=True)
+    ensure_tenant_schema_drift_repaired(safe)
+
+
+def ensure_tenant_schema_drift_repaired(schema_name: str) -> None:
+    """Apply idempotent tenant DDL patches once per schema per migration head."""
+    if not is_postgres_database():
+        return
+    safe = assert_safe_schema_name(schema_name)
+    if _tenant_drift_repaired_head.get(safe) == TENANT_MIGRATION_HEAD:
+        return
+    with _tenant_drift_repair_lock:
+        if _tenant_drift_repaired_head.get(safe) == TENANT_MIGRATION_HEAD:
+            return
+        repair_tenant_schema_ddl(safe, quiet=True)
+        _tenant_drift_repaired_head[safe] = TENANT_MIGRATION_HEAD
 
 
 def repair_tenant_schema_ddl(schema_name: str, *, quiet: bool = False) -> bool:

@@ -90,6 +90,9 @@ const getSuperAdminAdminsScreen = () =>
 const getSuperAdminAuditScreen = () =>
   require("@/screens/super-admin/super-admin-audit-screen")
     .SuperAdminAuditScreen;
+const getSuperAdminGlobalImageTemplatesScreen = () =>
+  require("@/screens/super-admin/super-admin-global-image-templates-screen")
+    .SuperAdminGlobalImageTemplatesScreen;
 const getSuperAdminHardDeleteScreen = () =>
   require("@/screens/super-admin/super-admin-hard-delete-screen")
     .SuperAdminHardDeleteScreen;
@@ -290,6 +293,11 @@ function SuperAdminStack() {
       <Stack.Screen
         name="SuperAdminAudit"
         getComponent={getSuperAdminAuditScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
+        name="SuperAdminGlobalImageTemplates"
+        getComponent={getSuperAdminGlobalImageTemplatesScreen}
         options={HEADER_HIDDEN_OPTIONS}
       />
       <Stack.Screen

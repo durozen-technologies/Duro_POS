@@ -80,6 +80,8 @@ export type InventoryItemMetadataPayload = {
   billing_item_id?: UUID | null;
   billing_item_ids: UUID[];
   billing_mappings: InventoryBillingItemMappingWrite[];
+  global_image_template_id?: UUID | null;
+  use_global_image_template?: boolean;
 };
 
 export type AnalyticsDateRange = {
