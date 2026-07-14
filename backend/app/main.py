@@ -96,6 +96,14 @@ async def handle_database_dns_error(_: Request, exc: socket.gaierror) -> JSONRes
     )
 
 
+@app.get("/")
+async def root():
+    return {
+        "message": "FASTAPI Application - DuroPOS(Broiler360)",
+        "version": "1.0.0",
+        "description": "DuroPOS(Broiler360) is a fast and scalable application for managing your business.",
+    }
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
