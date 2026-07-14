@@ -112,22 +112,33 @@ export function SuperAdminOrgsScreen() {
   };
 
   const confirmToggle = (org: OrganizationRead) => {
-    if (org.is_active) {
-      Alert.alert(
-        "Disable Organization?",
-        `${org.name} and all its admins will lose access immediately.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Disable",
-            style: "destructive",
-            onPress: () => void doToggle(org),
-          },
-        ],
-      );
-    } else {
+    if (!org.is_active) {
       void doToggle(org);
+      return;
     }
+
+    const title = "Disable Organization?";
+    const message = `${org.name} and all its admins will lose access immediately.`;
+
+    if (Platform.OS === "web") {
+      const confirmed =
+        typeof globalThis !== "undefined" &&
+        typeof (globalThis as { confirm?: (msg: string) => boolean }).confirm === "function" &&
+        (globalThis as { confirm: (msg: string) => boolean }).confirm(`${title}\n\n${message}`);
+      if (confirmed) {
+        void doToggle(org);
+      }
+      return;
+    }
+
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Disable",
+        style: "destructive",
+        onPress: () => void doToggle(org),
+      },
+    ]);
   };
 
   const doToggle = async (org: OrganizationRead) => {

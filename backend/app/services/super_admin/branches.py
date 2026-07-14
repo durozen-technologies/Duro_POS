@@ -124,6 +124,8 @@ async def hard_delete_branch(
     org = await get_organization_or_404(platform_db, organization_id)
     resource_name = str(shop_id)
     owner_username: str | None = None
+    actor_id = actor.id
+    actor_username = actor.username
 
     try:
         await verify_super_admin_credentials(
@@ -148,7 +150,8 @@ async def hard_delete_branch(
 
         await record_hard_delete_audit(
             platform_db,
-            actor=actor,
+            actor_id=actor_id,
+            actor_username=actor_username,
             action="branch.hard_delete",
             entity_type="shop",
             entity_id=shop_id,
@@ -171,7 +174,8 @@ async def hard_delete_branch(
         await platform_db.rollback()
         await record_hard_delete_audit(
             platform_db,
-            actor=actor,
+            actor_id=actor_id,
+            actor_username=actor_username,
             action="branch.hard_delete",
             entity_type="shop",
             entity_id=shop_id,

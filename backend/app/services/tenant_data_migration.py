@@ -378,6 +378,36 @@ def purge_public_tenant_rows_for_org(conn: Connection, org_id: UUID) -> None:
     _delete_public_tenant_rows(conn, org_id)
 
 
+def _list_tenant_schema_names_on_connection(
+    conn: Connection,
+    *,
+    registered_only: bool = False,
+) -> list[str]:
+    """List tenant schemas using the caller's connection (never open a nested engine).
+
+    Opening a second engine/connection here deadlocks under transaction-pooling
+    (PgBouncer) when the outer hard-delete txn already holds the only checkout.
+    """
+    names: set[str] = set()
+    insp = inspect(conn)
+    if insp.has_table("organizations", schema="public"):
+        names.update(
+            conn.execute(
+                text("SELECT schema_name FROM public.organizations WHERE schema_name IS NOT NULL")
+            ).scalars()
+        )
+    if not registered_only:
+        names.update(
+            conn.execute(
+                text(
+                    "SELECT schema_name FROM information_schema.schemata "
+                    "WHERE schema_name LIKE 'tenant_%'"
+                )
+            ).scalars()
+        )
+    return sorted(names)
+
+
 def purge_organization_rows_for_hard_delete(
     conn: Connection,
     org_id: UUID,
@@ -385,10 +415,8 @@ def purge_organization_rows_for_hard_delete(
     skip_schema: str | None,
 ) -> None:
     """Drop org-scoped rows everywhere before deleting public.organizations."""
-    from app.db.tenant_schema import list_tenant_schema_names_from_db
-
     _delete_org_scoped_tenant_rows(conn, org_id, "public")
-    for schema_name in list_tenant_schema_names_from_db():
+    for schema_name in _list_tenant_schema_names_on_connection(conn):
         if schema_name == skip_schema:
             continue
         _delete_org_scoped_tenant_rows(conn, org_id, schema_name)

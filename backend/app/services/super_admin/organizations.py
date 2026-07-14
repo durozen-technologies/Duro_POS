@@ -511,6 +511,9 @@ async def hard_delete_organization(
     org_id = org.id
     slug = org.slug
     schema_name = org.schema_name
+    # Capture before mutations/rollback — expired ORM attrs cannot be lazy-loaded async.
+    actor_id = actor.id
+    actor_username = actor.username
 
     try:
         await verify_super_admin_credentials(
@@ -545,7 +548,8 @@ async def hard_delete_organization(
 
         await record_hard_delete_audit(
             db,
-            actor=actor,
+            actor_id=actor_id,
+            actor_username=actor_username,
             action="organization.hard_delete",
             entity_type="organization",
             entity_id=org_id,
@@ -569,7 +573,8 @@ async def hard_delete_organization(
         await db.rollback()
         await record_hard_delete_audit(
             db,
-            actor=actor,
+            actor_id=actor_id,
+            actor_username=actor_username,
             action="organization.hard_delete",
             entity_type="organization",
             entity_id=org_id,

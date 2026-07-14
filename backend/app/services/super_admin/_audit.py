@@ -16,7 +16,7 @@ from app.models import AuditLog, User
 
 def _hard_delete_details(
     *,
-    actor: User,
+    actor_username: str,
     resource_name: str,
     result: str,
     client_ip: str | None = None,
@@ -24,7 +24,7 @@ def _hard_delete_details(
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     details: dict[str, object] = {
-        "super_admin_username": actor.username,
+        "super_admin_username": actor_username,
         "resource_name": resource_name,
         "result": result,
         "attempted_at": datetime.now(UTC).isoformat(),
@@ -41,7 +41,9 @@ def _hard_delete_details(
 async def record_hard_delete_audit(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: User | None = None,
+    actor_id: UUID | None = None,
+    actor_username: str | None = None,
     action: str,
     entity_type: str,
     entity_id: UUID | None,
@@ -52,15 +54,24 @@ async def record_hard_delete_audit(
     error: str | None = None,
     extra: dict[str, object] | None = None,
 ) -> None:
+    # Prefer captured scalars — callers often record after rollback when `actor` is expired.
+    resolved_id = actor_id if actor_id is not None else (actor.id if actor is not None else None)
+    resolved_username = (
+        actor_username
+        if actor_username is not None
+        else (actor.username if actor is not None else "")
+    )
+    if resolved_id is None:
+        raise ValueError("actor_id or actor is required for hard-delete audit")
     await record_super_admin_audit(
         db,
-        actor=actor,
+        actor_id=resolved_id,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
         organization_id=organization_id,
         details=_hard_delete_details(
-            actor=actor,
+            actor_username=resolved_username,
             resource_name=resource_name,
             result=result,
             client_ip=client_ip,
@@ -73,7 +84,8 @@ async def record_hard_delete_audit(
 async def record_super_admin_audit(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: User | None = None,
+    actor_id: UUID | None = None,
     action: str,
     entity_type: str,
     entity_id: UUID | None = None,
@@ -81,12 +93,15 @@ async def record_super_admin_audit(
     details: dict[str, object] | None = None,
 ) -> None:
     # Super-admin audit rows live in public; callers may still be inside tenant_schema_scope.
+    resolved_id = actor_id if actor_id is not None else (actor.id if actor is not None else None)
+    if resolved_id is None:
+        raise ValueError("actor_id or actor is required for super-admin audit")
     saved_schema = get_active_tenant_schema()
     token = set_active_tenant_schema(None)
     await set_search_path(db, None)
     try:
         entry = AuditLog(
-            user_id=actor.id,
+            user_id=resolved_id,
             organization_id=organization_id,
             action=action,
             entity_type=entity_type,

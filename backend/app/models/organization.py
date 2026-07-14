@@ -33,5 +33,17 @@ class Organization(Base, BaseModelMixin):
         nullable=False,
     )
 
-    shops = relationship("Shop", back_populates="organization")
-    users = relationship("User", back_populates="organization")
+    # viewonly/noload: after public-schema cutover shops/users live in tenant schemas.
+    # ORM delete/expire of Organization must not SELECT public.shops (table gone).
+    shops = relationship(
+        "Shop",
+        back_populates="organization",
+        viewonly=True,
+        lazy="noload",
+    )
+    users = relationship(
+        "User",
+        back_populates="organization",
+        viewonly=True,
+        lazy="noload",
+    )

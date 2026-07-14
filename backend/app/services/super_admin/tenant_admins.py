@@ -396,6 +396,8 @@ async def hard_delete_tenant_admin(
     entry = await _auth_entry_for_user(platform_db, user_id)
     resource_name = str(user_id)
     organization_id: UUID | None = None
+    actor_id = actor.id
+    actor_username = actor.username
 
     try:
         await verify_super_admin_credentials(
@@ -436,7 +438,8 @@ async def hard_delete_tenant_admin(
         await delete_auth_index(platform_db, user_id=user_id)
         await record_hard_delete_audit(
             platform_db,
-            actor=actor,
+            actor_id=actor_id,
+            actor_username=actor_username,
             action="tenant_admin.hard_delete",
             entity_type="user",
             entity_id=user_id,
@@ -458,7 +461,8 @@ async def hard_delete_tenant_admin(
         await platform_db.rollback()
         await record_hard_delete_audit(
             platform_db,
-            actor=actor,
+            actor_id=actor_id,
+            actor_username=actor_username,
             action="tenant_admin.hard_delete",
             entity_type="user",
             entity_id=user_id,
