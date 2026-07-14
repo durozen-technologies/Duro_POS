@@ -26,7 +26,7 @@ def _ensure_postgresql_enum(name: str, values: Sequence[str]) -> None:
             f"""
             DO $$
             BEGIN
-                CREATE TYPE {name} AS ENUM ({quoted_values});
+                CREATE TYPE public.receiptstatus AS ENUM ({quoted_values});
             EXCEPTION
                 WHEN duplicate_object THEN NULL;
             END
@@ -44,4 +44,4 @@ def downgrade() -> None:
     bind = op.get_bind()
     if bind.dialect.name != "postgresql":
         return
-    op.execute(sa.text(f"DROP TYPE IF EXISTS {_ENUM_NAME}"))
+    op.execute(sa.text("DROP TYPE IF EXISTS public.receiptstatus"))

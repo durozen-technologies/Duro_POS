@@ -594,7 +594,7 @@ async def shop_list_bills(
     db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(10, ge=1, le=100),
     bill_no: str | None = Query(None, max_length=50),
     range_start_date: date | None = Query(None),
     range_end_date: date | None = Query(None),

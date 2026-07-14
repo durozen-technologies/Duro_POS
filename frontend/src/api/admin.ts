@@ -282,13 +282,6 @@ export async function fetchAdminBillDetail(billId: UUID) {
   return data;
 }
 
-export async function fetchAdminBillDetails(billIds: UUID[]) {
-  const { data } = await apiClient.post<BillRead[]>("/api/v1/admin/bills/details", {
-    bill_ids: billIds,
-  });
-  return data;
-}
-
 export async function editAdminBill(billId: UUID, payload: BillEditRequest) {
   const { data } = await apiClient.patch<BillRead>(`/api/v1/admin/bills/${billId}`, payload);
   return data;

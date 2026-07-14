@@ -6,7 +6,6 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
-from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
@@ -38,7 +37,6 @@ from app.routers.admin import (
     allocate_shop_catalogue_items,
     allocate_shop_expenses,
     bill_detail,
-    bill_details,
     bills,
     create_admin_expense_item,
     create_admin_inventory_category,
@@ -140,7 +138,6 @@ from app.schemas.auth import LoginRequest, RegisterRequest
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutRequest,
-    BillDetailBatchRequest,
     BillItemInput,
     BillReceiptStatusUpdate,
     CheckoutPaymentInput,
@@ -2099,24 +2096,8 @@ class BackendApiIntegrationTests(BackendTestCase):
                 self.assertEqual(historical_bill.items[0].item_unit_type, UnitType.WEIGHT)
                 self.assertEqual(historical_bill.items[0].item_base_unit, BaseUnit.KG)
 
-                batch = await bill_details(
-                    BillDetailBatchRequest(bill_ids=[second_bill.id, created_bill.id]),
-                    db,
-                    admin_user,
-                )
-                self.assertEqual([bill.id for bill in batch], [second_bill.id, created_bill.id])
-                self.assertEqual(batch[1].items[0].item_name, "Chicken")
-
-                with self.assertRaises(HTTPException) as missing_ctx:
-                    await bill_details(
-                        BillDetailBatchRequest(bill_ids=[created_bill.id, uuid7()]),
-                        db,
-                        admin_user,
-                    )
-                self.assertEqual(missing_ctx.exception.status_code, 404)
-
-                with self.assertRaises(ValidationError):
-                    BillDetailBatchRequest(bill_ids=[uuid7() for _ in range(51)])
+                second_detail = await bill_detail(second_bill.id, db, admin_user)
+                self.assertEqual(second_detail.id, second_bill.id)
 
         self.run_async(scenario())
 

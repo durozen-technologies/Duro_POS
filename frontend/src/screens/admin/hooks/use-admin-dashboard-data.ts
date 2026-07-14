@@ -5,7 +5,6 @@ import {
   createShop,
   deleteShop,
   fetchAdminBillDetail,
-  fetchAdminBillDetails,
   fetchDailyBills,
   fetchDashboardBootstrap,
   updateShop,
@@ -375,54 +374,6 @@ export function useAdminDashboardData({
     }
   }, []);
 
-  const loadBillDetails = useCallback(async (billIds: UUID[]): Promise<BillRead[]> => {
-    const results = new Map<UUID, BillRead>();
-    const pendingRequests: Array<Promise<void>> = [];
-    const missingBillIds: UUID[] = [];
-
-    for (const billId of billIds) {
-      const cachedBill = billDetailCacheRef.current.get(billId);
-      if (cachedBill) {
-        results.set(billId, cachedBill);
-        continue;
-      }
-
-      const existingRequest = billDetailRequestRef.current.get(billId);
-      if (existingRequest) {
-        pendingRequests.push(
-          existingRequest.then((bill) => {
-            results.set(billId, bill);
-          }),
-        );
-        continue;
-      }
-
-      missingBillIds.push(billId);
-    }
-
-    try {
-      const batchRequest = missingBillIds.length
-        ? fetchAdminBillDetails(missingBillIds).then((bills) => {
-          bills.forEach((bill) => {
-            billDetailCacheRef.current.set(bill.id, bill);
-            results.set(bill.id, bill);
-          });
-        })
-        : Promise.resolve();
-
-      await Promise.all([batchRequest, ...pendingRequests]);
-      return billIds.map((billId) => {
-        const bill = results.get(billId) ?? billDetailCacheRef.current.get(billId);
-        if (!bill) {
-          throw new Error("Unable to load bill detail.");
-        }
-        return bill;
-      });
-    } catch (error) {
-      throw new Error(formatApiErrorMessage(error));
-    }
-  }, []);
-
   return {
     createBranch,
     dailyBills,
@@ -435,7 +386,6 @@ export function useAdminDashboardData({
     largestBill: dashboardData.largestBill,
     lastSyncAt,
     loadBillDetail,
-    loadBillDetails,
     loadDashboard,
     loadMoreBills,
     loading,

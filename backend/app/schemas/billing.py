@@ -51,10 +51,6 @@ class BillEditRequest(BaseModel):
         return self
 
 
-class BillDetailBatchRequest(BaseModel):
-    bill_ids: list[UUID] = Field(min_length=1, max_length=50)
-
-
 class BillLineRead(ORMModel):
     item_id: UUID
     item_name: str
@@ -127,8 +123,9 @@ class ShopBillSummaryRead(BaseModel):
     grand_total: Decimal
     paid_amount: Decimal
     balance_amount: Decimal
-    payment_method: str
+    payment_method: ShopBillPaymentMethodFilter
     receipt_status: ReceiptStatus
+    status: BillStatus
     created_by_name: str | None = None
 
 

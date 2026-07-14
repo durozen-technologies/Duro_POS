@@ -8,7 +8,6 @@ from app.services.admin._shared import (
 )
 from app.services.admin.billing import (
     get_bill_by_id,
-    get_bills_by_ids,
     get_daily_bills,
     get_dashboard_bootstrap,
     get_item_sales_summary,
@@ -64,7 +63,6 @@ __all__ = [
     "delete_item_category",
     "delete_shop_account",
     "get_bill_by_id",
-    "get_bills_by_ids",
     "get_catalogue_item",
     "get_daily_bills",
     "get_dashboard_bootstrap",

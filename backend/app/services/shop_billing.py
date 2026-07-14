@@ -4,9 +4,8 @@ from math import ceil
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import String, asc, cast, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.timezone import ist_midnight, ist_range_bounds
 
@@ -18,16 +17,18 @@ from app.schemas.billing import (
     ShopBillSortField,
     ShopBillSummaryRead,
 )
-from app.services.admin.catalogue import _bill_to_read
-from app.services.billing import _bill_read_for_shop, _load_bill_for_shop
+from app.services.billing import _bill_read_for_shop
+
+_ZERO = Decimal("0")
 
 
-def _payment_method_label(cash_amount: Decimal, upi_amount: Decimal) -> str:
+def _payment_method_code(cash_amount: Decimal, upi_amount: Decimal) -> ShopBillPaymentMethodFilter:
+    """Stable machine-readable payment method for list filters + i18n clients."""
     if cash_amount > 0 and upi_amount > 0:
-        return "Cash + UPI"
+        return ShopBillPaymentMethodFilter.MIXED
     if upi_amount > 0:
-        return "UPI"
-    return "Cash"
+        return ShopBillPaymentMethodFilter.UPI
+    return ShopBillPaymentMethodFilter.CASH
 
 
 def _day_bounds(start: date, end: date) -> tuple[datetime, datetime]:
@@ -44,7 +45,7 @@ async def list_shop_bills(
     shop: Shop,
     *,
     page: int = 1,
-    page_size: int = 20,
+    page_size: int = 10,
     bill_no: str | None = None,
     range_start_date: date | None = None,
     range_end_date: date | None = None,
@@ -86,26 +87,30 @@ async def list_shop_bills(
     if created_by_user_id is not None:
         filters.append(Bill.created_by_user_id == created_by_user_id)
 
-    query = (
-        select(Bill, Payment, Receipt, User.username)
+    if payment_settled is not None:
+        filters.append(Payment.is_settled.is_(payment_settled))
+    if receipt_status is not None:
+        # Compare as text: tenant schemas may have a local receiptstatus twin that
+        # cannot be compared to SQLAlchemy's public.receiptstatus bind type.
+        filters.append(cast(Receipt.receipt_status, String) == receipt_status.value)
+    if payment_method == ShopBillPaymentMethodFilter.CASH:
+        filters.append(Payment.cash_amount > _ZERO)
+        filters.append(Payment.upi_amount == _ZERO)
+    elif payment_method == ShopBillPaymentMethodFilter.UPI:
+        filters.append(Payment.upi_amount > _ZERO)
+        filters.append(Payment.cash_amount == _ZERO)
+    elif payment_method == ShopBillPaymentMethodFilter.MIXED:
+        filters.append(Payment.cash_amount > _ZERO)
+        filters.append(Payment.upi_amount > _ZERO)
+
+    # Count only Bill.id — avoid wrapping the full joined row projection.
+    count_query = (
+        select(func.count(Bill.id))
         .join(Payment, Payment.bill_id == Bill.id)
         .join(Receipt, Receipt.bill_id == Bill.id)
-        .outerjoin(User, User.id == Bill.created_by_user_id)
         .where(*filters)
     )
-
-    if payment_settled is not None:
-        query = query.where(Payment.is_settled.is_(payment_settled))
-    if receipt_status is not None:
-        query = query.where(Receipt.receipt_status == receipt_status)
-    if payment_method == ShopBillPaymentMethodFilter.CASH:
-        query = query.where(Payment.cash_amount > 0, Payment.upi_amount == 0)
-    elif payment_method == ShopBillPaymentMethodFilter.UPI:
-        query = query.where(Payment.upi_amount > 0, Payment.cash_amount == 0)
-    elif payment_method == ShopBillPaymentMethodFilter.MIXED:
-        query = query.where(Payment.cash_amount > 0, Payment.upi_amount > 0)
-
-    total_count = await db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    total_count = int(await db.scalar(count_query) or 0)
     total_pages = max(1, ceil(total_count / page_size)) if total_count else 0
 
     sort_column = {
@@ -115,11 +120,19 @@ async def list_shop_bills(
         ShopBillSortField.CREATED_BY: User.username,
     }[sort_by]
     order_fn = desc if sort_dir.lower() == "desc" else asc
-    ordered = query.order_by(order_fn(sort_column), desc(Bill.id)).offset((page - 1) * page_size).limit(
-        page_size
+
+    list_query = (
+        select(Bill, Payment, Receipt, User.username)
+        .join(Payment, Payment.bill_id == Bill.id)
+        .join(Receipt, Receipt.bill_id == Bill.id)
+        .outerjoin(User, User.id == Bill.created_by_user_id)
+        .where(*filters)
+        .order_by(order_fn(sort_column), desc(Bill.id))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
 
-    rows = (await db.execute(ordered)).all()
+    rows = (await db.execute(list_query)).all()
     items = [
         ShopBillSummaryRead(
             bill_id=bill.id,
@@ -130,8 +143,9 @@ async def list_shop_bills(
             grand_total=bill.total_amount,
             paid_amount=payment.total_paid,
             balance_amount=payment.balance,
-            payment_method=_payment_method_label(payment.cash_amount, payment.upi_amount),
+            payment_method=_payment_method_code(payment.cash_amount, payment.upi_amount),
             receipt_status=receipt.receipt_status,
+            status=bill.status,
             created_by_name=username,
         )
         for bill, payment, receipt, username in rows

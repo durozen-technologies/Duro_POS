@@ -42,21 +42,6 @@ async def bills(
     )
 
 
-@router.post(
-    "/bills/details",
-    response_model=list[BillRead],
-    response_model_exclude_unset=True,
-    summary="Get Bill Details Batch",
-)
-async def bill_details(
-    payload: BillDetailBatchRequest,
-    db: DBSession,
-    current_user: AdminUserDep = None,
-) -> list[BillRead]:
-    """Full bill details for a print batch, returned in request order."""
-    return await get_bills_by_ids(db, payload.bill_ids, _require_org_id(current_user))
-
-
 @router.get(
     "/bills/{bill_id}",
     response_model=BillRead,

@@ -59,7 +59,7 @@ from app.schemas.admin import (
     ShopUpdate,
 )
 from app.services.admin._credentials import verify_tenant_admin_credentials
-from app.schemas.billing import BillDetailBatchRequest, BillEditRequest, BillRead
+from app.schemas.billing import BillEditRequest, BillRead
 from app.schemas.expenses import (
     ExpenseEntryPage,
     ExpenseEntryRead,
@@ -139,7 +139,6 @@ from app.services.admin import (
     delete_item_category,
     delete_shop_account,
     get_bill_by_id,
-    get_bills_by_ids,
     get_catalogue_item,
     get_daily_bills,
     get_dashboard_bootstrap,

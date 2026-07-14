@@ -9,6 +9,7 @@ from app.db.tenant_metadata import (
     ensure_tenant_schema_column_patches,
     ensure_tenant_schema_drift_patches,
     verify_tenant_schema_ddl,
+    _ensure_receipt_status_uses_public_enum,
     _reuse_public_pg_enums,
 )
 
@@ -53,7 +54,13 @@ class EnsureTenantSchemaColumnPatchesTests(unittest.TestCase):
         }[table]
         inspector.get_foreign_keys.return_value = []
 
-        with patch("app.db.tenant_metadata.inspect", return_value=inspector):
+        with (
+            patch("app.db.tenant_metadata.inspect", return_value=inspector),
+            patch("app.db.tenant_metadata.create_tenant_tables"),
+            patch("app.db.tenant_metadata._ensure_public_receipt_status_enum"),
+            patch("app.db.tenant_metadata._ensure_public_billstatus_cancelled_enum"),
+            patch("app.db.tenant_metadata._ensure_public_retailer_sale_status_cancelled_enum"),
+        ):
             ensure_tenant_schema_drift_patches(connection, "tenant_test")
 
         executed_sql = " ".join(
@@ -63,6 +70,7 @@ class EnsureTenantSchemaColumnPatchesTests(unittest.TestCase):
         self.assertIn("daily_prices_published_on", executed_sql)
         self.assertIn("checkout_token", executed_sql)
         self.assertIn("receipt_status", executed_sql)
+        self.assertIn("public.receiptstatus", executed_sql)
 
     def test_skips_when_column_already_present(self) -> None:
         connection = MagicMock()
@@ -88,8 +96,16 @@ class EnsureTenantSchemaColumnPatchesTests(unittest.TestCase):
         }[table]
         inspector.get_foreign_keys.return_value = []
 
-        with patch("app.db.tenant_metadata.inspect", return_value=inspector):
+        with (
+            patch("app.db.tenant_metadata.inspect", return_value=inspector),
+            patch("app.db.tenant_metadata.create_tenant_tables"),
+            patch("app.db.tenant_metadata._ensure_receipt_status_uses_public_enum") as ensure_type,
+            patch("app.db.tenant_metadata._ensure_public_receipt_status_enum"),
+            patch("app.db.tenant_metadata._ensure_public_billstatus_cancelled_enum"),
+            patch("app.db.tenant_metadata._ensure_public_retailer_sale_status_cancelled_enum"),
+        ):
             ensure_tenant_schema_column_patches(connection, "tenant_test")
+            ensure_type.assert_called_once_with(connection, "tenant_test")
 
         alter_calls = [
             call
@@ -97,6 +113,47 @@ class EnsureTenantSchemaColumnPatchesTests(unittest.TestCase):
             if "ALTER TABLE" in getattr(call.args[0], "text", "")
         ]
         self.assertEqual(alter_calls, [])
+
+
+class EnsureReceiptStatusUsesPublicEnumTests(unittest.TestCase):
+    def test_drops_default_before_type_change(self) -> None:
+        """Postgres cannot cast varchar defaults onto receiptstatus automatically."""
+        connection = MagicMock()
+        connection.dialect.name = "postgresql"
+        row = {"type_schema": "tenant_demo_broliers", "type_name": "receiptstatus"}
+        connection.execute.return_value.mappings.return_value.first.return_value = row
+
+        with patch("app.db.tenant_metadata._ensure_public_receipt_status_enum") as ensure_enum:
+            _ensure_receipt_status_uses_public_enum(connection, "tenant_demo_broliers")
+            ensure_enum.assert_called_once_with(connection)
+
+        executed_sql = [
+            getattr(call.args[0], "text", str(call.args[0]))
+            for call in connection.execute.call_args_list
+        ]
+        # First execute is the type lookup; remaining are DDL.
+        ddl = " ".join(executed_sql[1:])
+        self.assertIn("DROP DEFAULT", ddl)
+        self.assertIn("TYPE public.receiptstatus", ddl)
+        self.assertIn("USING receipt_status::text::public.receiptstatus", ddl)
+        self.assertIn("SET DEFAULT 'pending'::public.receiptstatus", ddl)
+        drop_idx = ddl.index("DROP DEFAULT")
+        type_idx = ddl.index("TYPE public.receiptstatus")
+        set_idx = ddl.index("SET DEFAULT")
+        self.assertLess(drop_idx, type_idx)
+        self.assertLess(type_idx, set_idx)
+
+    def test_skips_when_already_public_receiptstatus(self) -> None:
+        connection = MagicMock()
+        connection.dialect.name = "postgresql"
+        row = {"type_schema": "public", "type_name": "receiptstatus"}
+        connection.execute.return_value.mappings.return_value.first.return_value = row
+
+        with patch("app.db.tenant_metadata._ensure_public_receipt_status_enum") as ensure_enum:
+            _ensure_receipt_status_uses_public_enum(connection, "tenant_demo_broliers")
+            ensure_enum.assert_not_called()
+
+        self.assertEqual(connection.execute.call_count, 1)
 
 
 class ReusePublicPgEnumsTests(unittest.TestCase):

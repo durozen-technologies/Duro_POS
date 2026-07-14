@@ -24,10 +24,8 @@ import { z } from "zod";
 import { formatApiErrorMessage, toApiError } from "@/api/client";
 import { cancelAdminBill } from "@/api/admin";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import type { AdminDashboardScreenProps } from "@/navigation/types";
 import { logout } from "@/store/auth-store";
-import { usePrinterStore } from "@/store/printer-store";
 import { AnalyticsPeriod, type AdminBillSummary, type BillRead, type ShopRead, type UUID } from "@/types/api";
 
 import { createDateTimeFormat, formatDateValueInTimeZone, parseCalendarDate, todayDateValue } from "@/utils/format";
@@ -109,7 +107,6 @@ const PERIOD_OPTIONS: { key: AnalyticsPeriod; label: string }[] = [
   { key: AnalyticsPeriod.YEAR, label: "Year" },
 ];
 
-const PRINT_ALL_CHUNK_SIZE = 50;
 const CALENDAR_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const calendarMonthFormatter = createDateTimeFormat({ month: "long", year: "numeric" });
 const calendarDateFormatter = createDateTimeFormat({
@@ -171,8 +168,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const monthOptions = useMemo(() => buildMonthOptions(), []);
   const weekOptions = useMemo(() => buildWeekOptions(), []);
   const yearOptions = useMemo(() => buildYearOptions(), []);
-  const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
-  const { receiptImagePrintBridge, startReceiptImagePrintJob } = useReceiptImagePrintJob();
 
   const [analyticsPeriod, setAnalyticsPeriod] = useState<AnalyticsPeriod>(AnalyticsPeriod.DATE);
   const [analyticsReferenceDate, setAnalyticsReferenceDate] = useState(
@@ -210,7 +205,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const [billPreviewOpen, setBillPreviewOpen] = useState(false);
   const [billPreviewLoading, setBillPreviewLoading] = useState(false);
   const [selectedBillPreview, setSelectedBillPreview] = useState<BillRead | null>(null);
-  const [printingAll, setPrintingAll] = useState(false);
   const [editBill, setEditBill] = useState<BillRead | null>(null);
   const [editBillOpen, setEditBillOpen] = useState(false);
 
@@ -253,7 +247,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     itemSales,
     largestBill,
     loadBillDetail,
-    loadBillDetails,
     loadDashboard,
     loadMoreBills,
     loading,
@@ -650,38 +643,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     void loadDashboard(true);
   }, [loadDashboard]);
 
-  const handlePrintAllBills = useCallback(async () => {
-    if (printingAll || visibleBills.length === 0) {
-      return;
-    }
-
-    if (!preferredPrinter) {
-      Alert.alert("Printer Not Configured", "Connect a saved printer on this device before printing receipts.");
-      return;
-    }
-
-    try {
-      setPrintingAll(true);
-      const fullBills: BillRead[] = [];
-
-      for (let index = 0; index < visibleBills.length; index += PRINT_ALL_CHUNK_SIZE) {
-        const billChunk = visibleBills.slice(index, index + PRINT_ALL_CHUNK_SIZE);
-        const chunkDetails = await loadBillDetails(billChunk.map((bill) => bill.bill_id));
-        fullBills.push(...chunkDetails);
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-
-      await startReceiptImagePrintJob(fullBills, preferredPrinter);
-    } catch (error) {
-      Alert.alert(
-        "Unable to Print",
-        error instanceof Error ? error.message : "The saved printer could not print these receipts.",
-      );
-    } finally {
-      setPrintingAll(false);
-    }
-  }, [loadBillDetails, preferredPrinter, printingAll, startReceiptImagePrintJob, visibleBills]);
-
   const handleLoadMoreBills = useCallback(() => {
     void loadMoreBills().catch((error) => {
       showToast("error", formatApiErrorMessage(error, "Unable to load more bills."));
@@ -744,10 +705,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       ],
     );
   }, [loadDashboard, showToast]);
-
-  const handleStartPrintAllBills = useCallback(() => {
-    void handlePrintAllBills();
-  }, [handlePrintAllBills]);
 
   const handleToggleBranchStatus = useCallback((shopId: UUID, isActive: boolean) => {
     void handleToggleShop(shopId, isActive);
@@ -1164,12 +1121,10 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
             dailyBillsLoadingMore={dailyBillsLoadingMore}
             refreshing={refreshing}
             bottomSpacer={bottomSpacer}
-            printingAll={printingAll}
             onRefresh={handleQuickRefresh}
             onOpenBill={handleOpenBillPreview}
             onEditBill={handleEditBill}
             onCancelBill={handleCancelBill}
-            onPrintAll={handleStartPrintAllBills}
             onLoadMore={handleLoadMoreBills}
             onBackToSales={handleBackToSales}
           />
@@ -1284,7 +1239,6 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
           void handleToggleShop(selectedManagedShop.id, !selectedManagedShop.is_active);
         }}
       />
-      {receiptImagePrintBridge}
     </SafeAreaView>
   );
 }

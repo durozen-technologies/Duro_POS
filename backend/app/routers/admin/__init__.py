@@ -42,7 +42,7 @@ from app.routers.admin.analytics import (  # noqa: E402, F401
     payment_summary,
     sales_summary,
 )
-from app.routers.admin.billing import bill_detail, bill_details, bills  # noqa: E402, F401
+from app.routers.admin.billing import bill_detail, bills  # noqa: E402, F401
 from app.routers.admin.catalogue import (  # noqa: E402, F401
     allocate_shop_catalogue_item,
     allocate_shop_catalogue_items,

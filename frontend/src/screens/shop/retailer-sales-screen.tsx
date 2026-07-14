@@ -265,15 +265,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: appTheme.border,
-    paddingVertical: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: appTheme.border,
+    borderRadius: 999,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    alignSelf: "flex-end",
+    backgroundColor: appTheme.surface,
   },
   shareButtonLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: appTheme.accentDeep,
+    color: appTheme.text,
   },
   highlightLabelContainer: {
     flexDirection: "row",
@@ -740,32 +744,34 @@ const SaleRow = memo(function SaleRow({ sale, tab, onPress, onShare, sharing, t 
         </View>
       </Pressable>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t("retailers.shareReceipt")}
-        disabled={sharing}
-        onPress={onShare}
-        style={({ pressed }) => [
-          styles.shareButton,
-          { opacity: sharing ? 0.7 : pressed ? 0.88 : 1 },
-        ]}
-      >
-        {sharing ? (
-          <ActivityIndicator color={appTheme.accentDeep} size="small" />
-        ) : (
-          <MaterialCommunityIcons name="share-variant" size={18} color={appTheme.accentDeep} />
-        )}
-        <Text style={styles.shareButtonLabel}>
-          {sharing ? t("retailers.shareReceiptPreparing") : t("retailers.shareReceipt")}
-        </Text>
-      </Pressable>
+      <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("retailers.shareReceipt")}
+          disabled={sharing}
+          onPress={onShare}
+          style={({ pressed }) => [
+            styles.shareButton,
+            { opacity: sharing ? 0.7 : pressed ? 0.88 : 1 },
+          ]}
+        >
+          {sharing ? (
+            <ActivityIndicator color={appTheme.text} size="small" />
+          ) : (
+            <MaterialCommunityIcons name="share-variant" size={16} color={appTheme.text} />
+          )}
+          <Text style={styles.shareButtonLabel}>
+            {sharing ? t("retailers.shareReceiptPreparing") : t("retailers.shareReceipt")}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 });
 
 type SalesListHeaderProps = {
   tab: SalesTab;
-  tabOptions: { key: SalesTab; label: string; count: number }[];
+  tabOptions: { key: SalesTab; label: string; count: number; icon?: string }[];
   onTabChange: (tab: SalesTab) => void;
   summaryTotal: string;
   summaryCount: number;
@@ -798,7 +804,7 @@ const SalesListHeader = memo(function SalesListHeader({
     <View style={{ marginBottom: 16, gap: 12 }}>
       <ShopSegmentedTabs
         activeValue={tab}
-        onChange={onTabChange}
+        onChange={(val) => onTabChange(val as SalesTab)}
         items={tabOptions.map(opt => ({
           value: opt.key,
           label: `${opt.label} (${opt.count})`,

@@ -165,17 +165,78 @@ def _ensure_public_receipt_status_enum(connection: Connection) -> None:
     ).scalar_one_or_none()
     if exists is not None:
         return
+    # Always create in public — search_path is often tenant-first during repair.
     connection.execute(
         text(
             """
             DO $$
             BEGIN
-                CREATE TYPE receiptstatus AS ENUM ('pending', 'printed', 'failed');
+                CREATE TYPE public.receiptstatus AS ENUM ('pending', 'printed', 'failed');
             EXCEPTION
                 WHEN duplicate_object THEN NULL;
             END
             $$;
             """
+        )
+    )
+
+
+def _ensure_receipt_status_uses_public_enum(connection: Connection, schema_name: str) -> None:
+    """Point receipts.receipt_status at public.receiptstatus (not a tenant-local twin)."""
+    if connection.dialect.name != "postgresql":
+        return
+    safe = schema_name  # already validated by callers
+    row = connection.execute(
+        text(
+            """
+            SELECT n.nspname AS type_schema, t.typname AS type_name
+            FROM pg_attribute a
+            JOIN pg_class c ON a.attrelid = c.oid
+            JOIN pg_namespace ns ON c.relnamespace = ns.oid
+            JOIN pg_type t ON a.atttypid = t.oid
+            JOIN pg_namespace n ON t.typnamespace = n.oid
+            WHERE ns.nspname = :schema
+              AND c.relname = 'receipts'
+              AND a.attname = 'receipt_status'
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            """
+        ),
+        {"schema": safe},
+    ).mappings().first()
+    if row is None:
+        return
+    if row["type_schema"] == "public" and row["type_name"] == "receiptstatus":
+        return
+    _ensure_public_receipt_status_enum(connection)
+    # Postgres refuses ALTER ... TYPE when the existing DEFAULT expression cannot
+    # cast automatically to the new enum (e.g. varchar default → receiptstatus).
+    connection.execute(
+        text(
+            f'''
+            ALTER TABLE "{safe}".receipts
+            ALTER COLUMN receipt_status DROP DEFAULT
+            '''
+        )
+    )
+    connection.execute(
+        text(
+            f'''
+            ALTER TABLE "{safe}".receipts
+            ALTER COLUMN receipt_status
+            TYPE public.receiptstatus
+            USING receipt_status::text::public.receiptstatus
+            '''
+        )
+    )
+    # Match ORM server_default (Receipt.receipt_status → pending).
+    connection.execute(
+        text(
+            f'''
+            ALTER TABLE "{safe}".receipts
+            ALTER COLUMN receipt_status
+            SET DEFAULT 'pending'::public.receiptstatus
+            '''
         )
     )
 
@@ -451,7 +512,8 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                 connection.execute(
                     text(
                         "ALTER TABLE receipts ADD COLUMN IF NOT EXISTS receipt_status "
-                        "receiptstatus NOT NULL DEFAULT 'printed'"
+                        "public.receiptstatus NOT NULL "
+                        "DEFAULT 'printed'::public.receiptstatus"
                     )
                 )
                 connection.execute(
@@ -460,6 +522,8 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                         "ON receipts (receipt_status)"
                     )
                 )
+            else:
+                _ensure_receipt_status_uses_public_enum(connection, safe)
             if "print_attempts" not in receipt_columns:
                 connection.execute(
                     text(

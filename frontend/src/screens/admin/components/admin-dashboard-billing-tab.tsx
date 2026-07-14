@@ -36,12 +36,10 @@ type AdminBillingTabProps = {
   dailyBillsLoadingMore: boolean;
   refreshing: boolean;
   bottomSpacer: number;
-  printingAll: boolean;
   onRefresh: () => void;
   onOpenBill: (billId: UUID) => void;
   onEditBill: (bill: AdminBillSummary) => void;
   onCancelBill: (bill: AdminBillSummary) => void;
-  onPrintAll: () => void;
   onLoadMore: () => void;
   onBackToSales: () => void;
 };
@@ -176,53 +174,6 @@ function BillCard({
   );
 }
 
-function PrintAllButton({
-  printingAll,
-  onPrintAll,
-  visibleBillsLength,
-  palette,
-}: {
-  printingAll: boolean;
-  onPrintAll: () => void;
-  visibleBillsLength: number;
-  palette: ThemePalette;
-}) {
-  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation(printingAll);
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Print ${visibleBillsLength} visible bills`}
-      accessibilityState={{ disabled: printingAll }}
-      disabled={printingAll}
-      onPress={onPrintAll}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
-    >
-      <Animated.View
-        style={[
-          styles.printAllBtn,
-          {
-            backgroundColor: printingAll ? palette.surfaceMuted : palette.primarySoft,
-            borderColor: palette.primary,
-            opacity: printingAll ? 0.6 : opacity,
-            transform: [{ scale }],
-          },
-        ]}
-      >
-        {printingAll ? (
-          <ActivityIndicator size="small" color={palette.billing} />
-        ) : (
-          <MaterialCommunityIcons name="printer-outline" size={18} color={palette.billing} />
-        )}
-        <Text style={[styles.printAllBtnText, { color: palette.billingStrong }]}>
-          {printingAll ? "Opening printer..." : `Print ${visibleBillsLength} receipts`}
-        </Text>
-      </Animated.View>
-    </Pressable>
-  );
-}
-
 export const AdminBillingTab = memo(function AdminBillingTab({
   dashboardError,
   hasShops,
@@ -235,12 +186,10 @@ export const AdminBillingTab = memo(function AdminBillingTab({
   dailyBillsLoadingMore,
   refreshing,
   bottomSpacer,
-  printingAll,
   onRefresh,
   onOpenBill,
   onEditBill,
   onCancelBill,
-  onPrintAll,
   onLoadMore,
   onBackToSales,
 }: AdminBillingTabProps) {
@@ -300,14 +249,6 @@ export const AdminBillingTab = memo(function AdminBillingTab({
                 tone="neutral"
               />
             </View>
-          ) : null}
-          {hasBills ? (
-            <PrintAllButton
-              printingAll={printingAll}
-              onPrintAll={onPrintAll}
-              visibleBillsLength={visibleBillsLength}
-              palette={palette}
-            />
           ) : null}
         </View>
       }
@@ -445,22 +386,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "900",
     letterSpacing: 0,
-  },
-  printAllBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    minHeight: 48,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  printAllBtnText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "900",
   },
   billGroupHeader: {
     flexDirection: "row",

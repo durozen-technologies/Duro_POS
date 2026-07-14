@@ -52,6 +52,7 @@ from app.schemas.billing import (
     BillItemInput,
     BillReceiptStatusUpdate,
     CheckoutPaymentInput,
+    ShopBillPaymentMethodFilter,
 )
 from app.schemas.inventory import (
     InventoryAddRequest,
@@ -3009,6 +3010,8 @@ class ServiceUnitTests(BackendTestCase):
                 self.assertEqual(page.total_count, 1)
                 self.assertEqual(len(page.items), 1)
                 self.assertEqual(page.items[0].receipt_status, ReceiptStatus.PENDING)
+                self.assertEqual(page.items[0].payment_method.value, "cash")
+                self.assertEqual(page.items[0].status.value, "paid")
 
                 pending_only = await list_shop_bills(
                     db,
@@ -3016,6 +3019,13 @@ class ServiceUnitTests(BackendTestCase):
                     receipt_status=ReceiptStatus.PENDING,
                 )
                 self.assertEqual(pending_only.total_count, 1)
+
+                cash_only = await list_shop_bills(
+                    db,
+                    current_shop,
+                    payment_method=ShopBillPaymentMethodFilter.CASH,
+                )
+                self.assertEqual(cash_only.total_count, 1)
 
         self.run_async(scenario())
 

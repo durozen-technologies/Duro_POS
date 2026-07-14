@@ -165,5 +165,6 @@ export const API_BASE_URL_STORAGE_KEY = "meat-billing-api-base-url";
 export const AUTH_STORAGE_KEY = "meat-billing-auth";
 export const PRINTER_STORAGE_KEY = "meat-billing-printer";
 export const SHOP_LANGUAGE_STORAGE_KEY = "meat-billing-shop-language";
+export const SHOP_BILLS_PAGE_SIZE_STORAGE_KEY = "meat-billing-shop-bills-page-size";
 export const ADMIN_THEME_STORAGE_KEY = "meat-billing-admin-theme";
 export const ADMIN_ITEMS_STORAGE_KEY = "meat-billing-admin-items";

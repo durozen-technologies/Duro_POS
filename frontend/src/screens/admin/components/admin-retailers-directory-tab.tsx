@@ -36,6 +36,47 @@ type RetailerRowProps = {
   palette: ThemePalette;
 };
 
+const ShareButton = memo(function ShareButton({ item, onShare, palette }: { item: RetailerRead; onShare: (item: RetailerRead) => void; palette: ThemePalette }) {
+  const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Share Statement"
+      hitSlop={8}
+      onPress={(e) => {
+        e.stopPropagation();
+        triggerHaptic();
+        onShare(item);
+      }}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+    >
+      <Animated.View
+        style={{
+          width: 32,
+          height: 32,
+          backgroundColor: palette.surfaceMuted,
+          borderColor: palette.border,
+          borderWidth: 1,
+          borderRadius: adminRadii.icon,
+          alignItems: "center",
+          justifyContent: "center",
+          opacity,
+          transform: [{ scale }],
+        }}
+      >
+        <MaterialCommunityIcons 
+          name="share-variant" 
+          size={16} 
+          color={palette.textPrimary} 
+          style={{ marginLeft: -1 }} 
+        />
+      </Animated.View>
+    </Pressable>
+  );
+});
+
+
 const RetailerRow = memo(function RetailerRow({ item, onPress, onShare, palette }: RetailerRowProps) {
   const { scale, opacity, onPressIn, onPressOut } = usePressAnimation();
   const statusBg = item.is_active ? palette.successSoft : palette.surfaceMuted;
@@ -97,33 +138,14 @@ const RetailerRow = memo(function RetailerRow({ item, onPress, onShare, palette 
               </Text>
             ) : null}
           </View>
-          <View style={{ alignItems: "flex-end", gap: 12, width: "16%" }}>
+          <View style={{ alignItems: "flex-end", gap: adminSpacing.sm, flexShrink: 0 }}>
             <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
               <Text style={[adminTypography.badge, { color: statusFg }]}>
                 {item.is_active ? "Active" : "Paused"}
               </Text>
             </View>
             {hasBalance ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Share Statement"
-                onPress={(e) => {
-                  e.stopPropagation();
-                  triggerHaptic();
-                  onShare(item);
-                }}
-                style={{
-                  backgroundColor: palette.surfaceMuted,
-                  borderColor: palette.border,
-                  borderWidth: 1,
-                  borderRadius: adminRadii.icon,
-                  padding: 8,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <MaterialCommunityIcons name="share-variant" size={16} color={palette.textPrimary} />
-              </Pressable>
+              <ShareButton item={item} onShare={onShare} palette={palette} />
             ) : null}
           </View>
         </View>

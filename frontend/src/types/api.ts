@@ -848,6 +848,8 @@ export interface BillCheckoutPreviewRead extends Omit<BillRead, "bill_no"> {
   bill_no?: string | null;
 }
 
+export type ShopBillPaymentMethodFilter = "cash" | "upi" | "mixed";
+
 export interface ShopBillSummaryRead {
   bill_id: UUID;
   bill_no: string;
@@ -857,8 +859,9 @@ export interface ShopBillSummaryRead {
   grand_total: string;
   paid_amount: string;
   balance_amount: string;
-  payment_method: string;
+  payment_method: ShopBillPaymentMethodFilter;
   receipt_status: ReceiptStatus;
+  status: BillStatus;
   created_by_name?: string | null;
 }
 
@@ -871,8 +874,6 @@ export interface ShopBillPage {
 }
 
 export type ShopBillSortField = "bill_no" | "created_at" | "total_amount" | "created_by";
-
-export type ShopBillPaymentMethodFilter = "cash" | "upi" | "mixed";
 
 export interface ShopBillListParams {
   page?: number;

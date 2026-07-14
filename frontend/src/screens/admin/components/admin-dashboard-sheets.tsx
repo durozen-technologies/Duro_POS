@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Controller } from "react-hook-form";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -26,10 +27,13 @@ import {
 } from "tamagui";
 import { WebView } from "react-native-webview";
 
+import { formatApiErrorMessage } from "@/api/client";
 import { buildReceiptHtml } from "@/api/receipts";
+import { useReceiptImageShare } from "@/hooks/use-receipt-image-share";
 import type { BillRead } from "@/types/api";
 
 import { adminElevation, type ThemePalette } from "../admin-dashboard-theme";
+import { triggerHaptic } from "../admin-dashboard-utils";
 import { EmptyStateCard, PrimaryButton } from "./admin-dashboard-primitives";
 
 type ShopEditorSheetProps = {
@@ -680,11 +684,28 @@ export function BillPreviewSheet({
 }: BillPreviewSheetProps) {
   const { panResponder, translateY } = useSwipeToClose(onClose);
   const [receiptPreviewHeight, setReceiptPreviewHeight] = useState(320);
+  const [sharing, setSharing] = useState(false);
+  const { receiptImageShareBridge, startReceiptImageShare } = useReceiptImageShare();
   const receiptHtml = useMemo(() => (bill ? buildReceiptHtml(bill) : ""), [bill]);
 
   useEffect(() => {
     setReceiptPreviewHeight(320);
   }, [bill?.id]);
+
+  const handleShareReceipt = useCallback(async () => {
+    if (!bill || sharing) {
+      return;
+    }
+    triggerHaptic();
+    setSharing(true);
+    try {
+      await startReceiptImageShare(buildReceiptHtml(bill), `Receipt ${bill.bill_no}`);
+    } catch (error) {
+      Alert.alert("Share failed", formatApiErrorMessage(error));
+    } finally {
+      setSharing(false);
+    }
+  }, [bill, sharing, startReceiptImageShare]);
 
   const receiptPreviewScript = useMemo(
     () => `
@@ -723,100 +744,131 @@ export function BillPreviewSheet({
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.modalBackdrop, { backgroundColor: palette.overlay }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <Animated.View
-            {...panResponder.panHandlers}
-            style={[
-              styles.bottomSheet,
-              adminElevation(3),
-              {
-                backgroundColor: palette.card,
-                borderColor: palette.border,
-                paddingBottom: bottomInset + 16,
-                transform: [{ translateY }],
-              },
-            ]}
-          >
-            <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
-            <View style={styles.sheetHeader}>
-              <View style={styles.headerTextWrap}>
-                <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Bill Preview</Text>
-                <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
-                  Review receipt details, purchased items, and payment totals.
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close bill preview"
-                onPress={onClose}
-                style={[styles.iconButton, { backgroundColor: palette.backgroundElevated, borderColor: palette.border }]}
-              >
-                <MaterialCommunityIcons name="close" size={18} color={palette.textPrimary} />
-              </Pressable>
-            </View>
-
-            {loading ? (
-              <View style={styles.loadingWrap}>
-                <ActivityIndicator color={palette.billing} />
-                <Text style={[styles.loadingText, { color: palette.textSecondary }]}>Loading bill preview...</Text>
-              </View>
-            ) : bill ? (
-              <>
-                <ScrollView
-                  style={styles.sheetScroll}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.sheetContent}
+    <>
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={[styles.modalBackdrop, { backgroundColor: palette.overlay }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+            <Animated.View
+              {...panResponder.panHandlers}
+              style={[
+                styles.bottomSheet,
+                adminElevation(3),
+                {
+                  backgroundColor: palette.card,
+                  borderColor: palette.border,
+                  paddingBottom: bottomInset + 16,
+                  transform: [{ translateY }],
+                },
+              ]}
+            >
+              <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
+              <View style={styles.sheetHeader}>
+                <View style={styles.headerTextWrap}>
+                  <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Bill Preview</Text>
+                  <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
+                    Review receipt details, purchased items, and payment totals.
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close bill preview"
+                  onPress={onClose}
+                  style={[styles.iconButton, { backgroundColor: palette.backgroundElevated, borderColor: palette.border }]}
                 >
-                  <View style={styles.receiptPreviewWrap}>
-                    <View
-                      style={[
-                        styles.receiptPreviewFrame,
-                        {
-                          width: RECEIPT_PREVIEW_CANVAS_WIDTH,
-                          maxWidth: "100%",
-                          backgroundColor: palette.card,
-                          borderColor: palette.border,
-                        },
-                      ]}
-                    >
-                      <WebView
-                        originWhitelist={["*"]}
-                        source={{ html: receiptHtml }}
-                        injectedJavaScript={receiptPreviewScript}
-                        onMessage={(event) => {
-                          const nextHeight = Number(event.nativeEvent.data);
-                          if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
-                            return;
-                          }
-                          setReceiptPreviewHeight(nextHeight);
-                        }}
-                        scrollEnabled={false}
-                        nestedScrollEnabled={false}
-                        showsVerticalScrollIndicator={false}
-                        showsHorizontalScrollIndicator={false}
-                        style={{ width: "100%", height: receiptPreviewHeight, backgroundColor: "transparent" }}
-                      />
+                  <MaterialCommunityIcons name="close" size={18} color={palette.textPrimary} />
+                </Pressable>
+              </View>
+
+              {loading ? (
+                <View style={styles.loadingWrap}>
+                  <ActivityIndicator color={palette.billing} />
+                  <Text style={[styles.loadingText, { color: palette.textSecondary }]}>Loading bill preview...</Text>
+                </View>
+              ) : bill ? (
+                <>
+                  <ScrollView
+                    style={styles.sheetScroll}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.sheetContent}
+                  >
+                    <View style={styles.receiptPreviewWrap}>
+                      <View
+                        style={[
+                          styles.receiptPreviewFrame,
+                          {
+                            width: RECEIPT_PREVIEW_CANVAS_WIDTH,
+                            maxWidth: "100%",
+                            backgroundColor: palette.card,
+                            borderColor: palette.border,
+                          },
+                        ]}
+                      >
+                        <WebView
+                          originWhitelist={["*"]}
+                          source={{ html: receiptHtml }}
+                          injectedJavaScript={receiptPreviewScript}
+                          onMessage={(event) => {
+                            const nextHeight = Number(event.nativeEvent.data);
+                            if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
+                              return;
+                            }
+                            setReceiptPreviewHeight(nextHeight);
+                          }}
+                          scrollEnabled={false}
+                          nestedScrollEnabled={false}
+                          showsVerticalScrollIndicator={false}
+                          showsHorizontalScrollIndicator={false}
+                          style={{ width: "100%", height: receiptPreviewHeight, backgroundColor: "transparent" }}
+                        />
+                      </View>
                     </View>
-                  </View>
-                </ScrollView>
-              </>
-            ) : (
-              <EmptyStateCard
-                title="Bill preview unavailable"
-                subtitle="Open another bill to preview its details."
-                actionLabel="Close"
-                onAction={onClose}
-                palette={palette}
-                icon="receipt-text-remove-outline"
-              />
-            )}
-          </Animated.View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+                  </ScrollView>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Share receipt for ${bill.bill_no}`}
+                    accessibilityState={{ disabled: sharing }}
+                    disabled={sharing}
+                    onPress={() => {
+                      void handleShareReceipt();
+                    }}
+                    style={({ pressed }) => [
+                      styles.shareButton,
+                      {
+                        borderColor: palette.border,
+                        backgroundColor: pressed ? palette.surfaceMuted : palette.background,
+                        opacity: sharing ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.shareButtonContent}>
+                      {sharing ? (
+                        <ActivityIndicator color={palette.primary} size="small" />
+                      ) : (
+                        <MaterialCommunityIcons name="share-variant" size={18} color={palette.primary} />
+                      )}
+                      <Text style={[styles.shareButtonLabel, { color: palette.primary }]}>
+                        {sharing ? "Preparing…" : "Share receipt"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                </>
+              ) : (
+                <EmptyStateCard
+                  title="Bill preview unavailable"
+                  subtitle="Open another bill to preview its details."
+                  actionLabel="Close"
+                  onAction={onClose}
+                  palette={palette}
+                  icon="receipt-text-remove-outline"
+                />
+              )}
+            </Animated.View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+      {receiptImageShareBridge}
+    </>
   );
 }
 
@@ -1038,6 +1090,31 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderWidth: 1,
     borderRadius: 12,
+  },
+  shareButton: {
+    marginTop: 12,
+    width: "100%",
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 12,
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  shareButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  shareButtonLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   createActionsWrap: {
     marginTop: 8,
