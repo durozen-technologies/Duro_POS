@@ -29,13 +29,20 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setRetailers(await fetchShopRetailers());
+      const shopRetailers = await fetchShopRetailers();
+      setRetailers(shopRetailers);
       const allSales = await fetchAllShopRetailerSales();
       const pending = allSales.filter(isPendingRetailerSale);
       setPendingCount(pending.length);
-      setPendingBalance(
-        pending.reduce((sum, sale) => sum.plus(money(sale.balance_due)), money(0)).toFixed(2),
+      const salesOutstanding = pending.reduce(
+        (sum, sale) => sum.plus(money(sale.balance_due)),
+        money(0),
       );
+      const openingOutstanding = shopRetailers.reduce(
+        (sum, retailer) => sum.plus(money(retailer.opening_balance ?? 0)),
+        money(0),
+      );
+      setPendingBalance(salesOutstanding.plus(openingOutstanding).toFixed(2));
     } catch (error) {
       Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
     } finally {
@@ -65,7 +72,7 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
   }, [headerMenu, navigation]);
 
   const salesBanner = useMemo(() => {
-    if (pendingCount <= 0) {
+    if (money(pendingBalance).lte(0)) {
       return (
         <Pressable
           className="mb-4 rounded-card border border-border bg-card px-4 py-3 active:opacity-90"
@@ -94,7 +101,9 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
             {formatCurrency(pendingBalance)}
           </Text>
           <Text className="mt-1 text-xs text-amber-900">
-            {t("retailers.pendingSalesCount", { count: String(pendingCount) })}
+            {pendingCount > 0
+              ? t("retailers.pendingSalesCount", { count: String(pendingCount) })
+              : t("retailers.pendingBalanceTotal")}
           </Text>
         </View>
         <View className="px-4 py-3">
@@ -130,6 +139,13 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
               <Text className="text-base font-semibold text-ink">{item.name}</Text>
               {item.shop_name ? (
                 <Text className="mt-1 text-sm font-medium text-ink">{item.shop_name}</Text>
+              ) : null}
+              {money(item.outstanding_balance ?? 0).greaterThan(0) ? (
+                <Text className="mt-1 text-sm font-medium text-amber-900">
+                  {t("retailers.outstandingAvailable", {
+                    amount: formatCurrency(item.outstanding_balance),
+                  })}
+                </Text>
               ) : null}
               {(item.alternate_phone || item.phone) ? (
                 <View className="mt-1 gap-0.5">

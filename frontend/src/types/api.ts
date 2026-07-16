@@ -1168,6 +1168,8 @@ export interface RetailerRead {
   alternate_phone?: string | null;
   address?: string | null;
   is_active: boolean;
+  credit_balance?: string;
+  opening_balance?: string;
   allocated_shop_count?: number;
   outstanding_balance?: string | null;
   branch_names?: string[];
@@ -1313,6 +1315,8 @@ export interface RetailerWalletRead {
   retailer_id: UUID;
   retailer_name: string;
   credit_balance: string;
+  opening_balance?: string;
+  outstanding_balance?: string;
 }
 
 export interface RetailerWalletPayoutCreate {
@@ -1423,6 +1427,7 @@ export interface RetailerSaleCheckoutRequest {
   retailer_id: UUID;
   items: RetailerSaleItemInput[];
   payment: CheckoutPaymentInput;
+  include_opening_balance?: boolean;
 }
 
 export interface RetailerSaleCheckoutCommitRequest extends RetailerSaleCheckoutRequest {

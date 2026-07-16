@@ -24,10 +24,6 @@ from app.models import (
     ShopRetailerAllocation,
     ShopRetailerItemAllocation,
 )
-from app.services.global_image_templates import (
-    build_image_paths_for_row,
-    load_templates_for_item_rows,
-)
 from app.schemas.retailers import (
     PriceHistoryEntry,
     RetailerBalanceRead,
@@ -44,6 +40,10 @@ from app.schemas.retailers import (
     RetailerRead,
     RetailerUpdate,
     RetailerWalletRead,
+)
+from app.services.global_image_templates import (
+    build_image_paths_for_row,
+    load_templates_for_item_rows,
 )
 
 
@@ -607,9 +607,7 @@ async def list_retailer_item_prices(
     shop_id: UUID,
 ) -> list[RetailerItemPriceRead]:
     await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
-    price_as_of = retailer_item_prices_as_of_subquery(
-        retailer_id, shop_id, func.current_date()
-    )
+    price_as_of = retailer_item_prices_as_of_subquery(retailer_id, shop_id, func.current_date())
     rows = (
         await db.execute(
             select(
@@ -963,15 +961,19 @@ async def delete_retailer_item_allocation(
 async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerBalanceRead:
     retailer = await get_retailer_or_404(db, retailer_id)
     sales = (
-        await db.execute(
-            select(RetailerSale)
-            .where(
-                RetailerSale.retailer_id == retailer_id,
-                RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+        (
+            await db.execute(
+                select(RetailerSale)
+                .where(
+                    RetailerSale.retailer_id == retailer_id,
+                    RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+                )
+                .order_by(RetailerSale.created_at.desc())
             )
-            .order_by(RetailerSale.created_at.desc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     sales_outstanding = _sales_outstanding(sales)
     return RetailerBalanceRead(
         retailer_id=retailer.id,
@@ -1003,14 +1005,17 @@ async def update_retailer_outstanding_balance(
 ) -> RetailerBalanceRead:
     retailer = await get_retailer_or_404(db, retailer_id)
     sales = (
-        await db.execute(
-            select(RetailerSale)
-            .where(
-                RetailerSale.retailer_id == retailer_id,
-                RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+        (
+            await db.execute(
+                select(RetailerSale).where(
+                    RetailerSale.retailer_id == retailer_id,
+                    RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     sales_outstanding = _sales_outstanding(sales)
     opening_balance = _quantize_money(outstanding_balance - sales_outstanding)
     if opening_balance < 0:
@@ -1030,12 +1035,23 @@ async def get_shop_retailer_wallet(
     retailer_id: UUID,
 ) -> RetailerWalletRead:
     await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop.id)
-    retailer = await get_retailer_or_404(db, retailer_id)
+    balance = await get_retailer_balance(db, retailer_id)
     return RetailerWalletRead(
-        retailer_id=retailer.id,
-        retailer_name=retailer.name,
-        credit_balance=retailer.credit_balance,
+        retailer_id=balance.retailer_id,
+        retailer_name=balance.retailer_name,
+        credit_balance=balance.credit_balance,
+        opening_balance=balance.opening_balance,
+        outstanding_balance=balance.outstanding_balance,
     )
+
+
+async def get_shop_retailer_balance(
+    db: AsyncSession,
+    shop: Shop,
+    retailer_id: UUID,
+) -> RetailerBalanceRead:
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop.id)
+    return await get_retailer_balance(db, retailer_id)
 
 
 async def list_active_retailers_for_shop(
@@ -1064,7 +1080,38 @@ async def list_active_retailers_for_shop(
         .scalars()
         .all()
     )
-    return [_retailer_to_read(retailer, allocated_shop_count=1) for retailer in rows]
+    if not rows:
+        return []
+
+    retailer_ids = [retailer.id for retailer in rows]
+    balance_rows = (
+        await db.execute(
+            select(
+                RetailerSale.retailer_id,
+                func.coalesce(func.sum(RetailerSale.balance_due), 0).label("sales_outstanding"),
+            )
+            .where(
+                RetailerSale.retailer_id.in_(retailer_ids),
+                RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+            )
+            .group_by(RetailerSale.retailer_id)
+        )
+    ).all()
+    sales_by_retailer = {
+        row.retailer_id: _quantize_money(Decimal(str(row.sales_outstanding or "0.00")))
+        for row in balance_rows
+    }
+    return [
+        _retailer_to_read(
+            retailer,
+            allocated_shop_count=1,
+            outstanding_balance=_total_outstanding(
+                retailer,
+                sales_by_retailer.get(retailer.id, Decimal("0.00")),
+            ),
+        )
+        for retailer in rows
+    ]
 
 
 async def is_retailer_allocated_to_shop(

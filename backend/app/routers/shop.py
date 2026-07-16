@@ -47,6 +47,7 @@ from app.schemas.retailer_inventory import (
     RetailerInventoryUsagePage,
 )
 from app.schemas.retailers import (
+    RetailerBalanceRead,
     RetailerCatalogItemRead,
     RetailerPaymentCreate,
     RetailerPaymentRecordResponse,
@@ -107,7 +108,11 @@ from app.services.retailer_sales import (
     preview_retailer_sale,
     record_retailer_payment,
 )
-from app.services.retailers import get_shop_retailer_wallet, list_active_retailers_for_shop
+from app.services.retailers import (
+    get_shop_retailer_balance,
+    get_shop_retailer_wallet,
+    list_active_retailers_for_shop,
+)
 from app.services.shop_billing import get_shop_bill, list_shop_bills
 from app.services.transfer import create_inventory_transfer, list_transfer_shops
 
@@ -693,6 +698,19 @@ async def shop_retailer_wallet(
     shop: Shop = Depends(get_current_shop),
 ) -> RetailerWalletRead:
     return await get_shop_retailer_wallet(db, shop, retailer_id)
+
+
+@router.get(
+    "/retailers/{retailer_id}/balance",
+    response_model=RetailerBalanceRead,
+    summary="Retailer outstanding balance (includes opening balance)",
+)
+async def shop_retailer_balance(
+    retailer_id: UUID,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+) -> RetailerBalanceRead:
+    return await get_shop_retailer_balance(db, shop, retailer_id)
 
 
 @router.get(

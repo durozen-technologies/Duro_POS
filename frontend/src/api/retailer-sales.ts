@@ -1,6 +1,6 @@
 import { apiClient } from "@/api/client";
 import {
-  RetailerSaleStatus,
+  type RetailerBalanceRead,
   type RetailerCatalogItemRead,
   type RetailerPaymentCreate,
   type RetailerPaymentRecordResponse,
@@ -25,6 +25,13 @@ export async function fetchRetailerCatalog(retailerId: UUID) {
 export async function fetchShopRetailerWallet(retailerId: UUID) {
   const { data } = await apiClient.get<RetailerWalletRead>(
     `/api/v1/shop/retailers/${retailerId}/wallet`,
+  );
+  return data;
+}
+
+export async function fetchShopRetailerBalance(retailerId: UUID) {
+  const { data } = await apiClient.get<RetailerBalanceRead>(
+    `/api/v1/shop/retailers/${retailerId}/balance`,
   );
   return data;
 }
@@ -81,33 +88,8 @@ export async function fetchAllShopRetailerSales() {
 }
 
 export async function fetchShopRetailerOutstandingBalance(retailerId: UUID): Promise<string> {
-  const pageSize = 100;
-  let page = 1;
-  let total = 0;
-  let outstanding = 0;
-
-  do {
-    const response = await fetchShopRetailerSales({
-      retailer_id: retailerId,
-      page,
-      page_size: pageSize,
-    });
-    if (response.items.length === 0) {
-      break;
-    }
-    for (const sale of response.items) {
-      if (
-        sale.status === RetailerSaleStatus.OPEN ||
-        sale.status === RetailerSaleStatus.PARTIAL
-      ) {
-        outstanding += Number(sale.balance_due);
-      }
-    }
-    total = response.total;
-    page += 1;
-  } while ((page - 1) * pageSize < total);
-
-  return outstanding.toFixed(2);
+  const balance = await fetchShopRetailerBalance(retailerId);
+  return Number(balance.outstanding_balance).toFixed(2);
 }
 
 export async function fetchShopRetailerSale(saleId: UUID) {

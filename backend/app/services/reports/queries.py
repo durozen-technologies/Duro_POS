@@ -80,12 +80,7 @@ def _over_report_profit_amount(
     purchase: Decimal | str | int | float,
     expense: Decimal | str | int | float,
 ) -> Decimal:
-    return (
-        _decimal(sales)
-        + _decimal(retailer_paid)
-        - _decimal(purchase)
-        - _decimal(expense)
-    )
+    return _decimal(sales) + _decimal(retailer_paid) - _decimal(purchase) - _decimal(expense)
 
 
 def _total_retailer_inventory_used(item: OverallReportInventoryItem) -> Decimal:
@@ -228,13 +223,13 @@ async def _build_overall_report_statement(
     expense_cash_amount, expense_upi_amount, expense_amount = await _over_report_expense_amounts(
         db, context, shop_id
     )
-    
+
     # Shop billing sales only (normal sales).
     sales_amount = sum(
         (_decimal(item.sales_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
-    
+
     retailer_paid_amount = await _over_report_retailer_paid_amount(db, context, shop_id)
     retailer_balance_amount = await _over_report_retailer_balance_amount(db, context, shop_id)
 
@@ -242,12 +237,12 @@ async def _build_overall_report_statement(
         (_decimal(item.assumption_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
-    
+
     purchase_amount = sum(
         (_decimal(item.purchase_amount) for item in inventory_items.values()),
         Decimal("0"),
     )
-    
+
     difference_amount = sum(
         (_decimal(item.difference_amount) for item in inventory_items.values()),
         Decimal("0"),
@@ -584,7 +579,7 @@ async def _overall_report_inventory_items(
                 RetailerInventoryUsage.shop_id == shop_id,
                 RetailerInventoryUsage.occurred_at >= context.start,
                 RetailerInventoryUsage.occurred_at < context.end,
-                RetailerInventoryUsage.inventory_item_id.in_(list(items.keys()))
+                RetailerInventoryUsage.inventory_item_id.in_(list(items.keys())),
             )
             .group_by(RetailerInventoryUsage.inventory_item_id, RetailerInventoryUsage.retailer_id)
         )
@@ -615,10 +610,7 @@ async def _overall_report_inventory_items(
         total_retailer_used = _total_retailer_inventory_used(item)
         total_retailer_used_bird = _total_retailer_inventory_used_bird_count(item)
         item.remaining_stock = (
-            item.total_available_stock
-            - item.used_stock
-            - total_retailer_used
-            - item.transfer_stock
+            item.total_available_stock - item.used_stock - total_retailer_used - item.transfer_stock
         )
         item.remaining_stock_bird_count = (
             item.total_available_stock_bird_count
@@ -772,7 +764,8 @@ async def _populate_overall_report_billing_items(
         )
         for rs in (await db.execute(rs_totals)).all():
             rs_dict.setdefault(rs.billing_item_id, {})[rs.retailer_id] = (
-                _decimal(rs.sales_quantity), _decimal(rs.sales_amount)
+                _decimal(rs.sales_quantity),
+                _decimal(rs.sales_amount),
             )
 
         # 2. Retailer Prices
@@ -811,11 +804,16 @@ async def _populate_overall_report_billing_items(
                 RetailerInventoryUsage.occurred_at < context.end,
                 RetailerInventoryUsage.category_id.is_not(None),
             )
-            .group_by(RetailerInventoryUsage.inventory_item_id, RetailerInventoryUsage.category_id, RetailerInventoryUsage.retailer_id)
+            .group_by(
+                RetailerInventoryUsage.inventory_item_id,
+                RetailerInventoryUsage.category_id,
+                RetailerInventoryUsage.retailer_id,
+            )
         )
         for mru in (await db.execute(mru_query)).all():
-            mru_dict.setdefault((mru.inventory_item_id, mru.category_id), {})[mru.retailer_id] = _decimal(mru.used_stock)
-
+            mru_dict.setdefault((mru.inventory_item_id, mru.category_id), {})[mru.retailer_id] = (
+                _decimal(mru.used_stock)
+            )
 
     sales_totals = (
         select(
@@ -948,25 +946,37 @@ async def _populate_overall_report_billing_items(
 
         r_data_list = []
         for r in retailers:
-            r_sales_qty, r_sales_amt = rs_dict.get(row.billing_item_id, {}).get(r.id, (Decimal("0"), Decimal("0")))
+            r_sales_qty, r_sales_amt = rs_dict.get(row.billing_item_id, {}).get(
+                r.id, (Decimal("0"), Decimal("0"))
+            )
             r_price = rp_dict.get(row.billing_item_id, {}).get(r.id)
 
             if row.inventory_category_id is not None:
-                r_used_source = mru_dict.get((row.inventory_item_id, row.inventory_category_id), {}).get(r.id, Decimal("0"))
+                r_used_source = mru_dict.get(
+                    (row.inventory_item_id, row.inventory_category_id), {}
+                ).get(r.id, Decimal("0"))
             else:
-                r_inv_data = next((d for d in inventory_item.retailer_data if d.retailer_id == r.id), None)
+                r_inv_data = next(
+                    (d for d in inventory_item.retailer_data if d.retailer_id == r.id), None
+                )
                 r_used_source = r_inv_data.used_stock if r_inv_data else Decimal("0")
-            
-            r_assumption_qty = r_used_source * _decimal(assumption_percent) / Decimal("100") if assumption_percent is not None else Decimal("0")
+
+            r_assumption_qty = (
+                r_used_source * _decimal(assumption_percent) / Decimal("100")
+                if assumption_percent is not None
+                else Decimal("0")
+            )
             r_assumption_amt = r_assumption_qty * r_price if r_price is not None else Decimal("0")
-            
-            r_data_list.append(OverallReportBillingRetailerData(
-                retailer_id=r.id,
-                assumption_quantity=r_assumption_qty,
-                sales_quantity=r_sales_qty,
-                assumption_amount=r_assumption_amt,
-                sales_amount=r_sales_amt
-            ))
+
+            r_data_list.append(
+                OverallReportBillingRetailerData(
+                    retailer_id=r.id,
+                    assumption_quantity=r_assumption_qty,
+                    sales_quantity=r_sales_qty,
+                    assumption_amount=r_assumption_amt,
+                    sales_amount=r_sales_amt,
+                )
+            )
 
         total_retailer_assumption_qty = sum(
             (entry.assumption_quantity for entry in r_data_list),
@@ -1102,7 +1112,10 @@ def _write_over_report_statement(
         return
 
     from app.services.reports.pdf import get_over_report_sheet_config
-    headers, min_widths, aligns, h_aligns, p1_idx, p2_idx = get_over_report_sheet_config(use_tamil, statement.retailers)
+
+    headers, min_widths, aligns, h_aligns, p1_idx, p2_idx = get_over_report_sheet_config(
+        use_tamil, statement.retailers
+    )
     sheet_headers = headers
     inventory_headers = [headers[i] for i in p1_idx]
     inventory_aligns = [aligns[i] for i in p1_idx]
@@ -1274,7 +1287,9 @@ def _over_report_sheet_rows(
                 _over_report_quantity_with_unit(billing_row.difference_quantity, billing_row.unit)
                 if billing_row is not None
                 else "",
-                _over_report_money(billing_row.assumption_amount) if billing_row is not None else "",
+                _over_report_money(billing_row.assumption_amount)
+                if billing_row is not None
+                else "",
                 _over_report_money(_total_retailer_billing_value(billing_row, "assumption_amount"))
                 if billing_row is not None
                 else "",
@@ -1282,7 +1297,9 @@ def _over_report_sheet_rows(
                 _over_report_money(_total_retailer_billing_value(billing_row, "sales_amount"))
                 if billing_row is not None
                 else "",
-                _over_report_money(billing_row.difference_amount) if billing_row is not None else "",
+                _over_report_money(billing_row.difference_amount)
+                if billing_row is not None
+                else "",
             ]
 
             rows.append(row_data)
@@ -1376,14 +1393,20 @@ async def _over_report_expense_amounts(
     row = (
         await db.execute(
             select(
-                func.coalesce(func.sum(ExpenseEntry.cash_amount), Decimal("0.00")).label("expense_cash_amount"),
-                func.coalesce(func.sum(ExpenseEntry.upi_amount), Decimal("0.00")).label("expense_upi_amount"),
-                func.coalesce(func.sum(ExpenseEntry.amount), Decimal("0.00")).label("expense_amount"),
+                func.coalesce(func.sum(ExpenseEntry.cash_amount), Decimal("0.00")).label(
+                    "expense_cash_amount"
+                ),
+                func.coalesce(func.sum(ExpenseEntry.upi_amount), Decimal("0.00")).label(
+                    "expense_upi_amount"
+                ),
+                func.coalesce(func.sum(ExpenseEntry.amount), Decimal("0.00")).label(
+                    "expense_amount"
+                ),
             ).where(
-            ExpenseEntry.shop_id == shop_id,
-            ExpenseEntry.spent_at >= context.start,
-            ExpenseEntry.spent_at < context.end,
-        )
+                ExpenseEntry.shop_id == shop_id,
+                ExpenseEntry.spent_at >= context.start,
+                ExpenseEntry.spent_at < context.end,
+            )
         )
     ).one()
     return (
@@ -1415,14 +1438,28 @@ async def _over_report_retailer_balance_amount(
     context: ReportContext,
     shop_id: UUID,
 ) -> Decimal:
-    total = await db.scalar(
+    sales_balance = await db.scalar(
         select(func.coalesce(func.sum(RetailerSale.balance_due), Decimal("0.00"))).where(
             RetailerSale.shop_id == shop_id,
             RetailerSale.created_at >= context.start,
             RetailerSale.created_at < context.end,
         )
     )
-    return _decimal(total).quantize(Decimal("0.01"))
+    retailer_ids_subq = (
+        select(ShopRetailerAllocation.retailer_id)
+        .where(
+            ShopRetailerAllocation.shop_id == shop_id,
+            ShopRetailerAllocation.is_active.is_(True),
+        )
+        .distinct()
+        .subquery()
+    )
+    opening_balance = await db.scalar(
+        select(func.coalesce(func.sum(Retailer.opening_balance), Decimal("0.00"))).where(
+            Retailer.id.in_(select(retailer_ids_subq.c.retailer_id))
+        )
+    )
+    return (_decimal(sales_balance) + _decimal(opening_balance)).quantize(Decimal("0.01"))
 
 
 # FPDF2-based Overall Report PDF (Tamil-safe)
@@ -1889,9 +1926,12 @@ async def _generate_over_report_fpdf_pdf(
             continue
 
         from app.services.reports.pdf import get_over_report_sheet_config
+
         retailers = statements[0].retailers if statements else []
-        headers, min_widths, aligns, h_aligns, part1_indices, part2_indices = get_over_report_sheet_config(use_tamil, retailers)
-        
+        headers, min_widths, aligns, h_aligns, part1_indices, part2_indices = (
+            get_over_report_sheet_config(use_tamil, retailers)
+        )
+
         sheet_rows = [
             row
             for stmt in statements
@@ -2096,7 +2136,9 @@ async def _generate_over_report_fpdf_pdf(
                 )
 
         total_sales = sum((_decimal(s.sales_amount) for s in statements), Decimal("0"))
-        total_retailer_paid = sum((_decimal(s.retailer_paid_amount) for s in statements), Decimal("0"))
+        total_retailer_paid = sum(
+            (_decimal(s.retailer_paid_amount) for s in statements), Decimal("0")
+        )
         total_purchase = sum((_decimal(s.purchase_amount) for s in statements), Decimal("0"))
         total_expense = sum((_decimal(s.expense_amount) for s in statements), Decimal("0"))
         total_profit = sum((_decimal(s.profit_amount) for s in statements), Decimal("0"))

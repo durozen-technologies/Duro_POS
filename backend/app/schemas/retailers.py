@@ -172,6 +172,8 @@ class RetailerWalletRead(BaseModel):
     retailer_id: UUID
     retailer_name: str
     credit_balance: Decimal
+    opening_balance: Decimal = Decimal("0.00")
+    outstanding_balance: Decimal = Decimal("0.00")
 
 
 class RetailerSaleItemInput(BaseModel):
@@ -183,6 +185,7 @@ class RetailerSaleCheckoutRequest(BaseModel):
     retailer_id: UUID
     items: list[RetailerSaleItemInput]
     payment: CheckoutPaymentInput
+    include_opening_balance: bool = True
 
     @model_validator(mode="after")
     def validate_items(self) -> "RetailerSaleCheckoutRequest":

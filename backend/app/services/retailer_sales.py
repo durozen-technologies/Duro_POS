@@ -172,6 +172,7 @@ def _decode_checkout_token(token: str) -> dict[str, Any]:
 def _payload_fingerprint(payload: RetailerSaleCheckoutRequest) -> str:
     canonical_payload = {
         "retailer_id": str(payload.retailer_id),
+        "include_opening_balance": payload.include_opening_balance,
         "items": [
             {
                 "item_id": str(line.item_id),
@@ -264,9 +265,7 @@ async def _debit_retailer_wallet(
 ) -> None:
     if wallet_amount <= 0:
         return
-    retailer = await db.scalar(
-        select(Retailer).where(Retailer.id == retailer_id).with_for_update()
-    )
+    retailer = await db.scalar(select(Retailer).where(Retailer.id == retailer_id).with_for_update())
     if retailer is None:
         raise HTTPException(status_code=404, detail="Retailer not found")
     if wallet_amount > retailer.credit_balance:
@@ -284,9 +283,7 @@ async def _credit_retailer_wallet(
 ) -> None:
     if wallet_amount <= 0:
         return
-    retailer = await db.scalar(
-        select(Retailer).where(Retailer.id == retailer_id).with_for_update()
-    )
+    retailer = await db.scalar(select(Retailer).where(Retailer.id == retailer_id).with_for_update())
     if retailer is None:
         raise HTTPException(status_code=404, detail="Retailer not found")
     retailer.credit_balance = _round_money(retailer.credit_balance + wallet_amount)
@@ -553,9 +550,14 @@ async def _retailer_opening_balance_excluding_sale(
     retailer_id: UUID,
     *,
     exclude_sale_id: UUID | None = None,
+    include_stored_opening: bool = True,
 ) -> Decimal:
     retailer = await db.get(Retailer, retailer_id)
-    stored_opening = retailer.opening_balance if retailer is not None else Decimal("0.00")
+    stored_opening = (
+        retailer.opening_balance
+        if retailer is not None and include_stored_opening
+        else Decimal("0.00")
+    )
     query = select(func.coalesce(func.sum(RetailerSale.balance_due), Decimal("0.00"))).where(
         RetailerSale.retailer_id == retailer_id,
         RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
@@ -636,9 +638,7 @@ async def get_retailer_catalog(
     db: AsyncSession, shop: Shop, retailer_id: UUID
 ) -> list[RetailerCatalogItemRead]:
     await _get_active_retailer(db, retailer_id, shop=shop)
-    price_as_of = retailer_item_prices_as_of_subquery(
-        retailer_id, shop.id, func.current_date()
-    )
+    price_as_of = retailer_item_prices_as_of_subquery(retailer_id, shop.id, func.current_date())
     rows = (
         await db.execute(
             select(
@@ -723,7 +723,9 @@ async def preview_retailer_sale(
     }
     sale_status = _sale_status(prepared.total_amount, prepared.total_paid)
     opening_balance = await _retailer_opening_balance_excluding_sale(
-        db, payload.retailer_id
+        db,
+        payload.retailer_id,
+        include_stored_opening=payload.include_opening_balance,
     )
     preview_payment_id = uuid7()
     preview_receipt = RetailerSaleReceiptRead(
@@ -848,7 +850,10 @@ async def create_retailer_sale(
         db.add(payment)
         await db.flush()
         opening_balance = await _retailer_opening_balance_excluding_sale(
-            db, sale.retailer_id, exclude_sale_id=sale.id
+            db,
+            sale.retailer_id,
+            exclude_sale_id=sale.id,
+            include_stored_opening=payload.include_opening_balance,
         )
         printed_at = datetime.now(UTC)
         receipt = RetailerSaleReceipt(
@@ -1176,7 +1181,10 @@ def _prepare_retailer_sale_edit_lines(
     for line_input in payload.items:
         existing = existing_by_item[line_input.item_id]
         item_name = (existing.item_name or "").strip()
-        if existing.item_base_unit == BaseUnit.UNIT and line_input.quantity != line_input.quantity.to_integral_value():
+        if (
+            existing.item_base_unit == BaseUnit.UNIT
+            and line_input.quantity != line_input.quantity.to_integral_value()
+        ):
             raise HTTPException(
                 status_code=422,
                 detail=f"{item_name or 'Item'} only accepts integer unit quantities",
@@ -1227,7 +1235,9 @@ async def cancel_retailer_sale(
         )
     )
     await db.commit()
-    await db.refresh(sale, attribute_names=["items", "payments", "receipts", "retailer", "shop", "status"])
+    await db.refresh(
+        sale, attribute_names=["items", "payments", "receipts", "retailer", "shop", "status"]
+    )
     return await _sale_to_read(db, sale)
 
 

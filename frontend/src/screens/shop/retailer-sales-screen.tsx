@@ -978,15 +978,26 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
     [appliedFilter, searchQuery, statusSales],
   );
 
-  const visibleTotal = useMemo(
-    () => visibleSales
-      .reduce(
-        (sum, sale) => sum.plus(money(tab === "pending" ? sale.balance_due : sale.total_amount)),
-        money(0),
-      )
-      .toFixed(2),
-    [tab, visibleSales],
-  );
+  const visibleTotal = useMemo(() => {
+    const salesTotal = visibleSales.reduce(
+      (sum, sale) => sum.plus(money(tab === "pending" ? sale.balance_due : sale.total_amount)),
+      money(0),
+    );
+    if (tab !== "pending") {
+      return salesTotal.toFixed(2);
+    }
+    const openingForVisible = (() => {
+      if (appliedFilter.retailerId) {
+        const retailer = retailers.find((row) => row.id === appliedFilter.retailerId);
+        return money(retailer?.opening_balance ?? 0);
+      }
+      const ids = new Set(visibleSales.map((sale) => sale.retailer_id));
+      return retailers
+        .filter((retailer) => ids.has(retailer.id))
+        .reduce((sum, retailer) => sum.plus(money(retailer.opening_balance ?? 0)), money(0));
+    })();
+    return salesTotal.plus(openingForVisible).toFixed(2);
+  }, [appliedFilter.retailerId, retailers, tab, visibleSales]);
 
   const selectedRetailerName = useMemo(() => {
     if (!appliedFilter.retailerId) {

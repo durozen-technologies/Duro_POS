@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Pressable, Switch, View } from "react-native";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { commitRetailerSale, fetchShopRetailerWallet, previewRetailerSale } from "@/api/retailer-sales";
 import { buildRetailerSaleInvoiceHtml } from "@/api/retailer-receipts";
-import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Screen } from "@/components/ui/screen";
@@ -21,9 +21,10 @@ import { getRetailerCartTotal, useRetailerCartStore } from "@/store/retailer-car
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
+import { resolveWalletCreditAmount } from "@/utils/retailer-wallet";
 import { ShopText as Text } from "@/components/ui/shop-text";
 
-type FormValues = { walletAmount: string; cashAmount: string; upiAmount: string };
+type FormValues = { cashAmount: string; upiAmount: string };
 
 export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutScreenProps) {
   const { retailerId } = route.params;
@@ -33,12 +34,15 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
   const [submitting, setSubmitting] = useState(false);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [outstandingBalance, setOutstandingBalance] = useState<string | null>(null);
+  const [applyWalletCredit, setApplyWalletCredit] = useState(false);
   const completedRef = useRef(false);
   const form = useForm<FormValues>({
-    defaultValues: { walletAmount: "", cashAmount: "", upiAmount: "" },
+    defaultValues: { cashAmount: "", upiAmount: "" },
   });
   const { receiptImagePrintBridge, startReceiptHtmlPrintJob } = useReceiptImagePrintJob();
   const headerMenu = useShopHeaderMenu(navigation);
+  const hasWalletCredit = walletBalance !== null && money(walletBalance).greaterThan(0);
 
   useEffect(() => {
     if (cartItems.length === 0 && !completedRef.current) {
@@ -48,23 +52,34 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
 
   useEffect(() => {
     void fetchShopRetailerWallet(retailerId)
-      .then((wallet) => setWalletBalance(wallet.credit_balance))
-      .catch(() => setWalletBalance(null));
+      .then((wallet) => {
+        setWalletBalance(wallet.credit_balance);
+        setOutstandingBalance(
+          wallet.outstanding_balance != null
+            ? Number(wallet.outstanding_balance).toFixed(2)
+            : null,
+        );
+        setApplyWalletCredit(money(wallet.credit_balance).greaterThan(0));
+      })
+      .catch(() => {
+        setWalletBalance(null);
+        setOutstandingBalance(null);
+        setApplyWalletCredit(false);
+      });
   }, [retailerId]);
 
   const totalAmount = useMemo(() => getRetailerCartTotal(cartItems), [cartItems]);
-  const [walletAmount = "", cashAmount = "", upiAmount = ""] = useWatch({
+  const [cashAmount = "", upiAmount = ""] = useWatch({
     control: form.control,
-    name: ["walletAmount", "cashAmount", "upiAmount"],
+    name: ["cashAmount", "upiAmount"],
   });
+  const walletAmount = useMemo(
+    () => resolveWalletCreditAmount(applyWalletCredit, walletBalance, totalAmount, cashAmount, upiAmount),
+    [applyWalletCredit, walletBalance, totalAmount, cashAmount, upiAmount],
+  );
   const paid = money(walletAmount).plus(money(cashAmount)).plus(money(upiAmount));
   const balance = money(totalAmount).minus(paid);
-  const walletWithinBalance =
-    walletBalance === null || money(walletAmount).lessThanOrEqualTo(money(walletBalance));
-  const canPrint =
-    paid.greaterThan(0) &&
-    paid.lessThanOrEqualTo(money(totalAmount)) &&
-    walletWithinBalance;
+  const canPrint = paid.greaterThan(0) && paid.lessThanOrEqualTo(money(totalAmount));
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -79,12 +94,15 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
         Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
         return;
       }
-      if (walletBalance !== null && money(values.walletAmount).greaterThan(money(walletBalance))) {
-        Alert.alert(t("checkout.checkoutFailedTitle"), t("retailers.walletExceedsAvailable"));
-        return;
-      }
       setSubmitting(true);
       try {
+        const resolvedWallet = resolveWalletCreditAmount(
+          applyWalletCredit,
+          walletBalance,
+          totalAmount,
+          values.cashAmount,
+          values.upiAmount,
+        );
         const payload = {
           retailer_id: retailerId,
           items: cartItems.map((item) => ({
@@ -95,10 +113,11 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
                 : money(item.quantity).toString(),
           })),
           payment: {
-            wallet_amount: toMoneyString(values.walletAmount),
+            wallet_amount: toMoneyString(resolvedWallet),
             cash_amount: toMoneyString(values.cashAmount),
             upi_amount: toMoneyString(values.upiAmount),
           },
+          include_opening_balance: true,
         };
         const preview = await previewRetailerSale(payload);
         const invoiceReceipt = preview.receipt ?? preview.receipts?.[0];
@@ -121,6 +140,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
       }
     },
     [
+      applyWalletCredit,
       canPrint,
       cartItems,
       language,
@@ -130,6 +150,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
       retailerId,
       startReceiptHtmlPrintJob,
       t,
+      totalAmount,
       walletBalance,
     ],
   );
@@ -172,25 +193,34 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
             title={t("retailers.checkoutTitle")}
             subtitle={t("retailers.checkoutSubtitle")}
           />
-          {walletBalance !== null && money(walletBalance).greaterThan(0) ? (
+          {outstandingBalance !== null && money(outstandingBalance).greaterThan(0) ? (
             <Text className="text-sm text-muted">
-              {t("retailers.walletAvailable", { amount: formatCurrency(walletBalance) })}
+              {t("retailers.outstandingAvailable", {
+                amount: formatCurrency(outstandingBalance),
+              })}
             </Text>
           ) : null}
-          <Controller
-            control={form.control}
-            name="walletAmount"
-            render={({ field }) => (
-              <TextField
-                label={t("retailers.walletAmount")}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-                suffix="Rs"
-                value={field.value}
-                onChangeText={field.onChange}
-              />
-            )}
-          />
+          {hasWalletCredit ? (
+            <Pressable
+              className="flex-row items-center justify-between rounded-card border border-border bg-card px-4 py-3"
+              onPress={() => setApplyWalletCredit((current) => !current)}
+            >
+              <View className="mr-3 min-w-0 flex-1">
+                <Text className="font-semibold text-ink">{t("retailers.applyWalletCredit")}</Text>
+                <Text className="mt-1 text-sm text-muted">
+                  {t("retailers.applyWalletCreditHint", {
+                    amount: formatCurrency(walletBalance ?? "0"),
+                  })}
+                </Text>
+                {applyWalletCredit && money(walletAmount).greaterThan(0) ? (
+                  <Text className="mt-1 text-sm font-medium text-ink">
+                    {t("retailers.walletApplied", { amount: formatCurrency(walletAmount) })}
+                  </Text>
+                ) : null}
+              </View>
+              <Switch value={applyWalletCredit} onValueChange={setApplyWalletCredit} />
+            </Pressable>
+          ) : null}
           <Controller
             control={form.control}
             name="cashAmount"
@@ -224,6 +254,12 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
               <Text className="text-sm text-muted">{t("common.paidAmount")}</Text>
               <Text className="font-semibold text-ink">{formatCurrency(paid.toFixed(2))}</Text>
             </View>
+            {applyWalletCredit && money(walletAmount).greaterThan(0) ? (
+              <View className="flex-row justify-between">
+                <Text className="text-sm text-muted">{t("retailers.walletAmount")}</Text>
+                <Text className="font-semibold text-ink">{formatCurrency(walletAmount)}</Text>
+              </View>
+            ) : null}
             <View className="flex-row justify-between">
               <Text className="text-sm text-muted">{t("retailers.balanceDue")}</Text>
               <Text className="text-lg font-bold text-ink">{formatCurrency(balance.toFixed(2))}</Text>
@@ -234,13 +270,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
             />
           </View>
           <Button
-            label={
-              !walletWithinBalance
-                ? t("retailers.walletExceedsAvailable")
-                : canPrint
-                  ? t("action.printReceipt")
-                  : t("retailers.enterPayment")
-            }
+            label={canPrint ? t("action.printReceipt") : t("retailers.enterPayment")}
             onPress={form.handleSubmit(handleCheckout)}
             disabled={!canPrint}
             loading={submitting}

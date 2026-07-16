@@ -147,8 +147,28 @@ def get_over_report_sheet_config(
     h_aligns: list[str] = []
 
     base_min_widths = [
-        46, 58, 72, 72, 72, 76, 72, 68, 68, 52, 58,
-        62, 58, 72, 58, 72, 56, 64, 76, 64, 80, 64,
+        46,
+        58,
+        72,
+        72,
+        72,
+        76,
+        72,
+        68,
+        68,
+        52,
+        58,
+        62,
+        58,
+        72,
+        58,
+        72,
+        56,
+        64,
+        76,
+        64,
+        80,
+        64,
     ]
     base_aligns = ["left"] * _OVER_REPORT_COLUMN_COUNT
 
@@ -192,6 +212,7 @@ OVER_REPORT_SHEET_HEADER_FONT_SIZE_FPDF = 11.0
 OVER_REPORT_SHEET_HEADER_FONT_SIZE_REPORTLAB = 10.0
 OVER_REPORT_SHEET_DATA_FONT_SIZE_FPDF = 12.0
 OVER_REPORT_SHEET_DATA_FONT_SIZE_REPORTLAB = 11.0
+
 
 def _over_report_sheet_widths(
     headers: list[str],
@@ -645,6 +666,25 @@ class PdfReportWriter:
             self._canvas.drawCentredString(self._width / 2, y, _pdf_text(text, 120))
             y -= font_size + 6
         self._y = y - 8
+
+    def right_aligned_meta(self, lines: list[str], *, font_size: int = 9) -> None:
+        """Draw right-aligned meta lines above the next table block."""
+        if not lines:
+            return
+        self._current_table = None
+        self._current_table_is_sheet = False
+        line_height = font_size + 4
+        block_height = len(lines) * line_height + 8
+        self._ensure_space(block_height, repeat_table_header=False)
+        self._page_has_content = True
+        y = self._y - font_size
+        self._set_fill(self._text)
+        self._canvas.setFont(self._font_bold, font_size)
+        right_x = self._width - self._margin
+        for line in lines:
+            self._canvas.drawRightString(right_x, y, _pdf_text(line, 90))
+            y -= line_height
+        self._y = y - 4
 
     def sheet_table(
         self,
@@ -1830,6 +1870,49 @@ async def _retailer_wallet_balances_for_report(
     return [(row.name, _money(row.credit_balance)) for row in rows]
 
 
+async def _retailer_opening_balances_for_report(
+    db: AsyncSession,
+    context: ReportContext,
+) -> list[tuple[str, Decimal]]:
+    """Return (retailer_name, opening_balance) for retailers in report scope."""
+    scoped_shop_ids = context.scoped_shop_ids
+    scoped_retailer_ids = context.scoped_retailer_ids
+
+    query = select(Retailer.name, Retailer.opening_balance).order_by(Retailer.name)
+    if scoped_retailer_ids:
+        query = query.where(Retailer.id.in_(scoped_retailer_ids))
+    elif scoped_shop_ids:
+        retailer_ids_subq = (
+            select(ShopRetailerAllocation.retailer_id)
+            .where(
+                ShopRetailerAllocation.shop_id.in_(scoped_shop_ids),
+                ShopRetailerAllocation.is_active.is_(True),
+            )
+            .distinct()
+            .subquery()
+        )
+        query = query.where(Retailer.id.in_(select(retailer_ids_subq.c.retailer_id)))
+    else:
+        return []
+
+    rows = (await db.execute(query)).all()
+    return [
+        (row.name, Decimal(str(row.opening_balance or "0.00")).quantize(Decimal("0.01")))
+        for row in rows
+    ]
+
+
+def _retailer_opening_balance_meta_lines(
+    opening_balances: list[tuple[str, Decimal]],
+) -> list[str]:
+    if not opening_balances:
+        return []
+    if len(opening_balances) == 1:
+        _, amount = opening_balances[0]
+        return [f"Opening Balance: {_money(amount)}"]
+    return [f"{name} Opening Balance: {_money(amount)}" for name, amount in opening_balances]
+
+
 async def _write_retailers_section(
     db: AsyncSession,
     writer: PdfReportWriter,
@@ -1848,6 +1931,10 @@ async def _write_retailers_section(
         "Retailer Sales Report",
         date_line,
     )
+
+    opening_balances = await _retailer_opening_balances_for_report(db, context)
+    writer.right_aligned_meta(_retailer_opening_balance_meta_lines(opening_balances))
+    opening_balances_total = sum((amount for _, amount in opening_balances), Decimal("0.00"))
 
     filters: list[object] = [
         RetailerSale.created_at >= context.start,
@@ -2028,6 +2115,7 @@ async def _write_retailers_section(
     writer.sheet_table(headers, table_rows, widths, alignments, bold_borders=True)
 
     wallet_balances = await _retailer_wallet_balances_for_report(db, context)
+    total_outstanding = (total_balance + opening_balances_total).quantize(Decimal("0.01"))
     writer.split_financial_summary(
         "Current Wallet Credit",
         wallet_balances,
@@ -2036,7 +2124,7 @@ async def _write_retailers_section(
             ("Total Unit", f"{float(total_unit):g} Units"),
             ("Total Wallet Credit", _money(total_wallet_credit)),
             ("Total Paid", _money(total_paid)),
-            ("Total Balance", _money(total_balance)),
+            ("Total Balance", _money(total_outstanding)),
         ],
     )
 
