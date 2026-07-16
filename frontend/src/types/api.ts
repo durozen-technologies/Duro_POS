@@ -165,6 +165,7 @@ export interface InventoryItemRead {
   image_thumb_path?: string | null;
   image_content_type?: string | null;
   global_image_template_id?: UUID | null;
+  can_delete?: boolean;
 }
 
 export interface InventoryItemRowsPage {

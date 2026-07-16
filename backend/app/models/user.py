@@ -49,6 +49,7 @@ class User(Base, BaseModelMixin):
 
     id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
     username: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    shop_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
     organization_id: Mapped[UUID | None] = mapped_column(

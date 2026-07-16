@@ -263,6 +263,7 @@ export function SuperAdminAdminsScreen() {
   const listRefreshing = refreshing || orgsRefreshing;
 
   const [newAdminUsername, setNewAdminUsername] = useState("");
+  const [newAdminShopName, setNewAdminShopName] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [newPasswordVisible, setNewPasswordVisible] = useState(false);
   const [managedAdmin, setManagedAdmin] = useState<TenantAdminRead | null>(
@@ -305,9 +306,19 @@ export function SuperAdminAdminsScreen() {
       setError("Password must be at least 8 characters.");
       return;
     }
+    if (!newAdminShopName.trim()) {
+      setError("Shop name is required.");
+      return;
+    }
     try {
-      await createAdmin(username, newAdminPassword, selectedOrgId);
+      await createAdmin(
+        username,
+        newAdminPassword,
+        selectedOrgId,
+        newAdminShopName.trim(),
+      );
       setNewAdminUsername("");
+      setNewAdminShopName("");
       setNewAdminPassword("");
       setNewPasswordVisible(false);
     } catch {
@@ -372,6 +383,11 @@ export function SuperAdminAdminsScreen() {
             <Text className="text-xs font-medium text-muted" numberOfLines={1}>
               {item.organization_name}
             </Text>
+            {item.shop_name ? (
+              <Text className="text-xs text-muted" numberOfLines={1}>
+                Shop: {item.shop_name}
+              </Text>
+            ) : null}
             <Text className="text-xs text-muted">
               Last login: {formatLastLogin(item.last_login_at)}
             </Text>
@@ -487,6 +503,24 @@ export function SuperAdminAdminsScreen() {
                 returnKeyType="next"
                 value={newAdminUsername}
                 onChangeText={setNewAdminUsername}
+              />
+            </View>
+
+            {/* Password + eye toggle */}
+            <View>
+              <Text className="mb-1.5 text-xs font-medium text-muted">
+                Shop Name
+              </Text>
+              <TextInput
+                accessibilityLabel="Shop name"
+                autoCapitalize="words"
+                autoCorrect={false}
+                className="min-h-[44px] rounded-control border border-border bg-background px-4 py-2 text-sm text-ink"
+                placeholder="Shown in receipts and reports"
+                placeholderTextColor={MUTED}
+                returnKeyType="next"
+                value={newAdminShopName}
+                onChangeText={setNewAdminShopName}
               />
             </View>
 

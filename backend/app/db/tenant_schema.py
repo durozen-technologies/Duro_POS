@@ -27,7 +27,7 @@ _SCHEMA_PREFIX = "tenant_"
 _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-TENANT_MIGRATION_HEAD = "0028_inventory_expense_global_image_template"
+TENANT_MIGRATION_HEAD = "0029_tenant_admin_shop_name"
 RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
 _tenant_drift_repair_lock = threading.Lock()
 _tenant_drift_repaired_head: dict[str, str] = {}

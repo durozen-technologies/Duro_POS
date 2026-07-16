@@ -23,12 +23,10 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.ids import uuid7
 from app.core.timezone import ist_month_key
-from app.db.storage import build_item_image_path, build_item_image_thumb_path
 from app.models import (
     AuditLog,
     Item,
     MonthlyRetailerSaleSequence,
-    Organization,
     Retailer,
     RetailerPayment,
     RetailerReceiptType,
@@ -57,12 +55,17 @@ from app.schemas.retailers import (
     RetailerSaleReceiptPage,
     RetailerSaleReceiptRead,
 )
+from app.services.global_image_templates import (
+    build_image_paths_for_row,
+    load_templates_for_item_rows,
+)
 from app.services.retailer_receipt_number import balance_receipt_number, invoice_receipt_number
 from app.services.retailer_sale_number import retailer_sale_no_from_sequence
 from app.services.retailers import (
     is_retailer_allocated_to_shop,
     retailer_item_prices_as_of_subquery,
 )
+from app.services.tenant_query import resolve_organization_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -196,8 +199,7 @@ def _sale_status(total_amount: Decimal, amount_paid: Decimal) -> RetailerSaleSta
 
 
 async def _shop_organization_name(db: AsyncSession, shop: Shop) -> str:
-    org = await db.get(Organization, shop.organization_id)
-    return org.name if org is not None else ""
+    return await resolve_organization_display_name(db, shop.organization_id)
 
 
 async def _peek_next_sale_sequence(db: AsyncSession, now: datetime) -> int:
@@ -640,7 +642,7 @@ async def get_retailer_catalog(
     rows = (
         await db.execute(
             select(
-                price_as_of.c.item_id,
+                Item.id,
                 price_as_of.c.price_per_unit,
                 Item.name,
                 Item.tamil_name,
@@ -650,6 +652,7 @@ async def get_retailer_catalog(
                 Item.image_content_type,
                 Item.image_thumbnail_object_key,
                 Item.image_thumbnail_content_type,
+                Item.global_image_template_id,
                 ShopItemAllocation.display_name,
             )
             .join(Item, Item.id == price_as_of.c.item_id)
@@ -676,23 +679,17 @@ async def get_retailer_catalog(
             .order_by(Item.sort_order.asc(), Item.name.asc())
         )
     ).all()
+    templates_by_id = await load_templates_for_item_rows(list(rows))
     return [
         RetailerCatalogItemRead(
-            item_id=row.item_id,
+            item_id=row.id,
             item_name=(row.display_name or row.name).strip(),
             item_tamil_name=row.tamil_name,
             item_unit_type=row.unit_type,
             item_base_unit=row.base_unit,
             price_per_unit=row.price_per_unit,
-            image_path=build_item_image_path(
-                row.item_id, row.image_object_key, row.image_content_type
-            ),
-            image_thumb_path=build_item_image_thumb_path(
-                row.item_id,
-                row.image_thumbnail_object_key,
-                row.image_thumbnail_content_type,
-                original_object_key=row.image_object_key,
-            ),
+            image_path=build_image_paths_for_row(row, templates_by_id)[0],
+            image_thumb_path=build_image_paths_for_row(row, templates_by_id)[1],
         )
         for row in rows
     ]

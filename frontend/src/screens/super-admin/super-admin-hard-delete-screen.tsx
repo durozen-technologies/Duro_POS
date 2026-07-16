@@ -77,7 +77,7 @@ export function SuperAdminHardDeleteScreen() {
   } else if (resourceType === "branch") {
     title = "Hard Delete Branch";
     message =
-      "This will permanently remove the branch, but keep the parent organization intact.";
+      "This will permanently remove the branch and all of its billing, price, inventory, and sales history. The parent organization stays intact.";
   }
 
   return (

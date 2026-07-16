@@ -4,6 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import {
   createInventoryItemMetadata,
+  deleteInventoryItem,
   deleteInventoryItemImage,
   fetchCatalogueItemRows,
   fetchInventoryCategories,
@@ -411,6 +413,32 @@ export function AdminInventoryItemEditorScreen({
     }
   }, [effectiveItemId, imageDraft, isEdit, item?.global_image_template_id, navigation, removeImage, selectedTemplateId, setSelectedTemplateId, values]);
 
+  const confirmDeleteItem = useCallback(() => {
+    if (!effectiveItemId || savingRef.current) {
+      return;
+    }
+    if (item?.can_delete === false) {
+      triggerHaptic();
+      setSaveError("Cannot delete inventory item after billing usage history.");
+      return;
+    }
+    Alert.alert("Delete inventory item", `Delete ${item?.name ?? "this item"}?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deleteInventoryItem(effectiveItemId)
+            .then(() => navigation.goBack())
+            .catch((error) => {
+              triggerHaptic();
+              setSaveError(getRequestMessage(error, "Unable to delete inventory item."));
+            });
+        },
+      },
+    ]);
+  }, [effectiveItemId, item?.can_delete, item?.name, navigation]);
+
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
       <StatusBar style="light" />
@@ -596,13 +624,17 @@ export function AdminInventoryItemEditorScreen({
             </View>
             {isEdit ? (
               <ActionButton
-                label="Cannot delete - has billing history"
+                label={
+                  item?.can_delete === false
+                    ? "Cannot delete - has billing history"
+                    : "Delete item"
+                }
                 icon="trash-can-outline"
                 palette={palette}
                 tone="danger"
-                active={false}
-                disabled={true}
-                onPress={() => {}}
+                active={item?.can_delete !== false}
+                disabled={saving || item?.can_delete === false}
+                onPress={confirmDeleteItem}
               />
             ) : null}
           </>

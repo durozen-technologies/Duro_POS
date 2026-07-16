@@ -12,7 +12,6 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.storage import build_item_image_path, build_item_image_thumb_path
 from app.models import (
     DailyPrice,
     Item,
@@ -24,6 +23,10 @@ from app.models import (
     ShopItemAllocation,
     ShopRetailerAllocation,
     ShopRetailerItemAllocation,
+)
+from app.services.global_image_templates import (
+    build_image_paths_for_row,
+    load_templates_for_item_rows,
 )
 from app.schemas.retailers import (
     PriceHistoryEntry,
@@ -429,7 +432,9 @@ def _allocation_read_from_row(
     price_per_unit=None,
     allocation_is_active: bool | None = None,
     price_history: list[PriceHistoryEntry] | None = None,
+    templates_by_id: dict | None = None,
 ) -> RetailerItemAllocationRead:
+    image_path, image_thumb_path, _ = build_image_paths_for_row(item, templates_by_id or {})
     return RetailerItemAllocationRead(
         item_id=item.id,
         item_name=(
@@ -444,13 +449,8 @@ def _allocation_read_from_row(
         ),
         unit_type=item.unit_type,
         base_unit=item.base_unit,
-        image_path=build_item_image_path(item.id, item.image_object_key, item.image_content_type),
-        image_thumb_path=build_item_image_thumb_path(
-            item.id,
-            item.image_thumbnail_object_key,
-            item.image_thumbnail_content_type,
-            original_object_key=item.image_object_key,
-        ),
+        image_path=image_path,
+        image_thumb_path=image_thumb_path,
         billing_price=billing_price,
         is_allocated=is_allocated,
         retailer_item_price_id=retailer_item_price_id,
@@ -523,6 +523,7 @@ async def list_shop_retailer_item_catalog(
 
     query = query.order_by(Item.sort_order.asc(), Item.name.asc()).limit(limit)
     rows = (await db.execute(query)).all()
+    templates_by_id = await load_templates_for_item_rows([row[0] for row in rows])
 
     items = [
         _allocation_read_from_row(
@@ -531,6 +532,7 @@ async def list_shop_retailer_item_catalog(
             billing_price=billing_price,
             is_allocated=catalog_row is not None,
             retailer_item_price_id=catalog_row.id if catalog_row else None,
+            templates_by_id=templates_by_id,
         )
         for item, billing_allocation, catalog_row, billing_price in rows
     ]
@@ -796,6 +798,7 @@ async def list_retailer_item_allocations(
                     )
                 )
 
+    templates_by_id = await load_templates_for_item_rows([row[0] for row in rows])
     items = [
         _allocation_read_from_row(
             item,
@@ -806,6 +809,7 @@ async def list_retailer_item_allocations(
             price_per_unit=price_per_unit,
             allocation_is_active=price_is_active,
             price_history=price_history_map.get(item.id, []),
+            templates_by_id=templates_by_id,
         )
         for item, billing_allocation, price_id, price_per_unit, price_is_active, billing_price in rows
     ]

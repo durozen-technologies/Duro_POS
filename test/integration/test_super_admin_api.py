@@ -340,7 +340,7 @@ class SuperAdminApiTests(BackendTestCase):
 
         self.run_async(scenario())
 
-    def test_hard_delete_branch_blocked_when_billing_exists(self) -> None:
+    def test_hard_delete_branch_purges_billing_history(self) -> None:
         async def scenario() -> None:
             super_admin = await self.harness.create_super_admin_user()
             org = await self.harness.create_default_organization()
@@ -362,15 +362,21 @@ class SuperAdminApiTests(BackendTestCase):
 
             with self.harness.session_factory() as session:
                 adapter = AsyncSessionAdapter(session)
-                with self.assertRaises(HTTPException) as ctx:
-                    await branch_service.hard_delete_branch(
-                        adapter,
-                        org.id,
-                        shop.id,
-                        HardDeleteRequest(username=super_admin.username, password="password123"),
-                        super_admin,
-                    )
-                self.assertEqual(ctx.exception.status_code, 409)
+                await branch_service.hard_delete_branch(
+                    adapter,
+                    org.id,
+                    shop.id,
+                    HardDeleteRequest(username=super_admin.username, password="password123"),
+                    super_admin,
+                )
+
+                self.assertEqual(await branch_service.list_organization_branches(adapter, org.id), [])
+                self.assertIsNone(session.get(Shop, shop.id))
+                self.assertIsNone(session.get(User, _owner.id))
+                self.assertEqual(
+                    session.scalar(select(Bill.id).where(Bill.shop_id == shop.id)),
+                    None,
+                )
 
         self.run_async(scenario())
 

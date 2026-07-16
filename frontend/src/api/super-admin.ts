@@ -77,6 +77,7 @@ export interface AdminRoleRead {
 export interface TenantAdminRead {
   id: UUID;
   username: string;
+  shop_name?: string | null;
   role: string;
   organization_id: UUID;
   organization_name: string;
@@ -334,6 +335,7 @@ export async function patchOrganization(
 
 export async function createTenantAdmin(payload: {
   username: string;
+  shop_name?: string | null;
   password: string;
   organization_id: UUID;
 }) {

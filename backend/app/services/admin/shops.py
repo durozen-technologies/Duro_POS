@@ -385,7 +385,10 @@ async def update_item(
     item_name = _normalize_item_name(payload.name)
     tamil_name = _normalize_tamil_item_name(payload.tamil_name)
     item_category = await _resolve_item_category(
-        db, category_id=payload.category_id, category_name=payload.category
+        db,
+        category_id=payload.category_id,
+        category_name=payload.category,
+        organization_id=item.organization_id,
     )
     category_name = item_category.name if item_category is not None else None
     name_changed = item.name != item_name
@@ -406,6 +409,7 @@ async def update_item(
             db,
             item_name,
             shop_id=shop_id,
+            organization_id=item.organization_id,
             exclude_item_id=item_id,
         )
 
@@ -552,7 +556,10 @@ async def update_item_metadata(
     )
     next_category = (
         await _resolve_item_category(
-            db, category_id=payload.category_id, category_name=payload.category
+            db,
+            category_id=payload.category_id,
+            category_name=payload.category,
+            organization_id=item.organization_id,
         )
         if category_fields_set
         else None
@@ -593,6 +600,7 @@ async def update_item_metadata(
             db,
             next_name,
             shop_id=shop_id,
+            organization_id=item.organization_id,
             exclude_item_id=item_id,
         )
 

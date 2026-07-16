@@ -13,6 +13,7 @@ from app.schemas.common import ORMModel
 class TenantAdminCreate(BaseModel):
     organization_id: UUID
     username: str = Field(min_length=3, max_length=50)
+    shop_name: str | None = Field(default=None, min_length=1, max_length=120)
     password: str = Field(min_length=8, max_length=128)
     role_ids: list[UUID] = Field(default_factory=list)
 
@@ -47,6 +48,7 @@ class TenantAdminPasswordReset(BaseModel):
 class TenantAdminRead(ORMModel):
     id: UUID
     username: str
+    shop_name: str | None = None
     role: UserRole
     organization_id: UUID
     organization_name: str

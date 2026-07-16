@@ -16,7 +16,7 @@ import {
 
 import { fetchShopBills } from "@/api/billing";
 import { formatApiErrorMessage, toApiError } from "@/api/client";
-import { ShopDateRangeFilter } from "@/components/shop/date-range-filter";
+
 import { ShopHeaderActions } from "@/components/shop-header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -658,10 +658,7 @@ export function ShopBillsScreen({ navigation }: ShopBillsScreenProps) {
     setPage(1);
   }, []);
 
-  const onDateFilterChange = useCallback((next: ExpenseHistoryFilterDraft) => {
-    setDateFilter(next);
-    setPage(1);
-  }, []);
+
 
   const receiptFilterOptions = useMemo(
     () =>
@@ -720,12 +717,6 @@ export function ShopBillsScreen({ navigation }: ShopBillsScreenProps) {
           }}
         />
 
-        <ShopDateRangeFilter
-          filter={dateFilter}
-          range={dateRange}
-          onChange={onDateFilterChange}
-          t={t}
-        />
 
         <Pressable
           accessibilityRole="button"
@@ -802,7 +793,7 @@ export function ShopBillsScreen({ navigation }: ShopBillsScreenProps) {
       dateRange,
       filtersActive,
       filtersExpanded,
-      onDateFilterChange,
+
       paymentFilter,
       paymentFilterOptions,
       periodLabel,

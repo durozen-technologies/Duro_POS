@@ -5,10 +5,10 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Organization, Shop, User
+from app.models import Organization, Shop, User, UserRole
 
 
 async def resolve_organization_id(
@@ -77,6 +77,29 @@ async def list_organization_shop_ids(
     organization_id: UUID,
 ) -> list[UUID]:
     return list(await db.scalars(select(Shop.id).where(Shop.organization_id == organization_id)))
+
+
+async def resolve_organization_display_name(
+    db: AsyncSession,
+    organization_id: UUID | None,
+) -> str:
+    if organization_id is None:
+        return "Organization"
+    tenant_admin_shop_name = await db.scalar(
+        select(User.shop_name)
+        .where(
+            User.organization_id == organization_id,
+            User.role == UserRole.TENANT_ADMIN,
+            User.shop_name.is_not(None),
+            func.length(func.trim(User.shop_name)) > 0,
+        )
+        .order_by(User.created_at.desc(), User.id.desc())
+        .limit(1)
+    )
+    if tenant_admin_shop_name:
+        return tenant_admin_shop_name.strip()
+    org = await db.get(Organization, organization_id)
+    return org.name if org is not None else "Organization"
 
 
 def org_filter_for_shop(organization_id: UUID):

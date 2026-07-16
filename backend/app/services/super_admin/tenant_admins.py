@@ -41,6 +41,7 @@ def _tenant_admin_to_read(user: User, org_name: str, role_ids: list[UUID]) -> Te
     return TenantAdminRead(
         id=user.id,
         username=user.username,
+        shop_name=user.shop_name,
         role=user.role,
         organization_id=user.organization_id,
         organization_name=org_name,
@@ -163,6 +164,7 @@ async def create_tenant_admin(
     org = await get_organization_or_404(platform_db, payload.organization_id)
     schema_name = await _require_org_schema(platform_db, org)
     username = normalize_username(payload.username)
+    shop_name = payload.shop_name.strip() if payload.shop_name else None
 
     if await username_is_globally_taken(platform_db, username):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
@@ -170,6 +172,7 @@ async def create_tenant_admin(
     async with tenant_schema_scope(platform_db, schema_name):
         user = User(
             username=username,
+            shop_name=shop_name,
             password_hash=get_password_hash(payload.password),
             role=UserRole.TENANT_ADMIN,
             organization_id=org.id,

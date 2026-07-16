@@ -341,6 +341,19 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
             )
         )
 
+    if "users" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("users", schema=safe)}
+        if "shop_name" not in user_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE users "
+                        "ADD COLUMN IF NOT EXISTS shop_name VARCHAR(120)"
+                    )
+                )
+            else:
+                connection.execute(text("ALTER TABLE users ADD COLUMN shop_name VARCHAR(120)"))
+
     if "shops" in table_names:
         shop_columns = {column["name"] for column in inspector.get_columns("shops", schema=safe)}
         if "daily_prices_published_on" not in shop_columns:

@@ -105,6 +105,25 @@ def _ensure_item_tamil_name_column(sync_conn: Connection) -> None:
         sync_conn.execute(text("ALTER TABLE items ADD COLUMN tamil_name VARCHAR(120)"))
 
 
+def _ensure_user_shop_name_column(sync_conn: Connection) -> None:
+    """Keep login working when public.users predates users.shop_name."""
+    inspector = inspect(sync_conn)
+    if "users" not in set(inspector.get_table_names()):
+        return
+
+    column_names = {column["name"] for column in inspector.get_columns("users")}
+    if "shop_name" in column_names:
+        return
+
+    dialect = sync_conn.dialect.name
+    if dialect == "postgresql":
+        sync_conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS shop_name VARCHAR(120)")
+        )
+    else:
+        sync_conn.execute(text("ALTER TABLE users ADD COLUMN shop_name VARCHAR(120)"))
+
+
 def _ensure_inventory_vehicle_number_column(sync_conn: Connection) -> None:
     """Keep direct app starts compatible with the inventory movement model.
 

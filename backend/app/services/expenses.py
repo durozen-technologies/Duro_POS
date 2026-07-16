@@ -1027,7 +1027,15 @@ async def create_shop_expense_entry(
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
-    return _expense_entry_to_read(entry=entry, shop_name=shop.name, item=item)
+    templates_by_id = await load_templates_for_item_rows([item])
+    template = (
+        templates_by_id.get(item.global_image_template_id)
+        if item.global_image_template_id and not item.image_object_key
+        else None
+    )
+    return _expense_entry_to_read(
+        entry=entry, shop_name=shop.name, item=item, template=template
+    )
 
 
 async def update_expense_entry(
@@ -1059,7 +1067,19 @@ async def update_expense_entry(
             .where(ExpenseEntry.id == entry_id)
         )
     ).one()
-    return _expense_entry_to_read(entry=entry, shop_name=row.shop_name, item=row.ExpenseItem)
+    expense_item = row.ExpenseItem
+    templates_by_id = await load_templates_for_item_rows([expense_item])
+    template = (
+        templates_by_id.get(expense_item.global_image_template_id)
+        if expense_item.global_image_template_id and not expense_item.image_object_key
+        else None
+    )
+    return _expense_entry_to_read(
+        entry=entry,
+        shop_name=row.shop_name,
+        item=expense_item,
+        template=template,
+    )
 
 
 async def list_expense_entries(

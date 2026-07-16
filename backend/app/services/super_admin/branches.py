@@ -6,13 +6,27 @@ from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
 from app.core.logging import log_event
 from app.db.tenant_schema import tenant_schema_scope
-from app.models import Bill, DailyPrice, Shop, User
+from app.models import (
+    Bill,
+    BillItem,
+    CheckoutSnapshot,
+    DailyPrice,
+    InventoryTransfer,
+    Payment,
+    Receipt,
+    RetailerPayment,
+    RetailerSale,
+    RetailerSaleItem,
+    RetailerSaleReceipt,
+    Shop,
+    User,
+)
 from app.schemas.admin import ShopRead
 from app.schemas.super_admin.hard_delete import HardDeleteRequest
 from app.services.super_admin._audit import record_hard_delete_audit
@@ -87,29 +101,31 @@ async def _load_shop_for_delete(
     return shop
 
 
-async def _assert_shop_can_be_deleted(db: AsyncSession, shop_id: UUID) -> None:
-    existence_row = (
-        await db.execute(
-            select(
-                select(Bill.id).where(Bill.shop_id == shop_id).exists().label("has_bills"),
-                select(DailyPrice.id)
-                .where(DailyPrice.shop_id == shop_id)
-                .exists()
-                .label("has_prices"),
-            )
-        )
-    ).one()
-    has_bills, has_prices = existence_row
-    if has_bills:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete a branch that already has billing history",
-        )
-    if has_prices:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete a branch that already has price history",
-        )
+async def _purge_shop_rows_for_hard_delete(db: AsyncSession, shop_id: UUID) -> None:
+    """Remove non-cascading shop dependents so hard delete can proceed with history."""
+    bill_ids = select(Bill.id).where(Bill.shop_id == shop_id)
+    sale_ids = select(RetailerSale.id).where(RetailerSale.shop_id == shop_id)
+
+    await db.execute(delete(CheckoutSnapshot).where(CheckoutSnapshot.shop_id == shop_id))
+    await db.execute(delete(Payment).where(Payment.bill_id.in_(bill_ids)))
+    await db.execute(delete(Receipt).where(Receipt.bill_id.in_(bill_ids)))
+    await db.execute(delete(BillItem).where(BillItem.bill_id.in_(bill_ids)))
+    await db.execute(delete(Bill).where(Bill.shop_id == shop_id))
+    await db.execute(delete(DailyPrice).where(DailyPrice.shop_id == shop_id))
+
+    await db.execute(
+        delete(RetailerSaleReceipt).where(RetailerSaleReceipt.retailer_sale_id.in_(sale_ids))
+    )
+    await db.execute(
+        delete(RetailerPayment).where(RetailerPayment.retailer_sale_id.in_(sale_ids))
+    )
+    await db.execute(
+        delete(RetailerSaleItem).where(RetailerSaleItem.retailer_sale_id.in_(sale_ids))
+    )
+    await db.execute(delete(RetailerSale).where(RetailerSale.shop_id == shop_id))
+    await db.execute(
+        delete(InventoryTransfer).where(InventoryTransfer.source_shop_id == shop_id)
+    )
 
 
 async def hard_delete_branch(
@@ -141,7 +157,7 @@ async def hard_delete_branch(
             )
             resource_name = shop.name
             owner_username = shop.owner.username
-            await _assert_shop_can_be_deleted(platform_db, shop_id)
+            await _purge_shop_rows_for_hard_delete(platform_db, shop_id)
             owner_id = shop.owner.id
             await platform_db.delete(shop)
             await platform_db.delete(shop.owner)

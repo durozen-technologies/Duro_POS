@@ -1959,21 +1959,27 @@ async def update_catalogue_item_allocation(
     return await get_shop_item(db, shop, item_id)
 
 
-def _bill_to_read(bill: Bill) -> BillRead:
+def _bill_to_read(bill: Bill, *, organization_name: str | None = None) -> BillRead:
     """Serialise a fully-loaded ``Bill`` ORM object to ``BillRead``.
 
     Assumes ``bill.shop``, ``bill.payment``, and ``bill.receipt`` are already
     eagerly loaded (via ``contains_eager``).  ``bill.items`` must also be
     loaded with their nested ``item`` relationship.
+
+    When ``organization_name`` is provided (tenant-admin shop name override),
+    it is used for receipt/report headers instead of the raw organization name.
     """
+    resolved_organization_name = organization_name
+    if resolved_organization_name is None:
+        resolved_organization_name = (
+            bill.shop.organization.name if bill.shop.organization is not None else ""
+        )
     return BillRead(
         id=bill.id,
         bill_no=bill.bill_no,
         shop_id=bill.shop_id,
         shop_name=bill.shop.name,
-        organization_name=(
-            bill.shop.organization.name if bill.shop.organization is not None else ""
-        ),
+        organization_name=resolved_organization_name,
         total_amount=bill.total_amount,
         status=bill.status.value,
         created_at=bill.created_at,

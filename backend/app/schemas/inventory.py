@@ -97,6 +97,7 @@ class InventoryItemRead(ORMModel):
     image_thumb_path: str | None = None
     image_content_type: str | None = None
     global_image_template_id: UUID | None = None
+    can_delete: bool = True
 
 
 class InventoryItemRowsPage(BaseModel):

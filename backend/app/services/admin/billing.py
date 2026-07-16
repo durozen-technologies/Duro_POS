@@ -33,7 +33,7 @@ from app.services.admin.catalogue import _bill_to_read, _get_period_bounds
 from app.services.admin.shops import list_shops
 from app.services.billing import bill_counts_toward_sales_clause
 from app.services.reports.queries import compute_shop_purchase_amounts
-from app.services.tenant_query import get_shop_for_tenant_or_404
+from app.services.tenant_query import get_shop_for_tenant_or_404, resolve_organization_display_name
 
 
 async def _branch_quota_for_organization(
@@ -75,7 +75,8 @@ async def get_bill_by_id(db: AsyncSession, bill_id: UUID, organization_id: UUID)
     bill = result.scalar_one_or_none()
     if bill is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bill not found")
-    return _bill_to_read(bill)
+    organization_name = await resolve_organization_display_name(db, organization_id)
+    return _bill_to_read(bill, organization_name=organization_name)
 
 
 async def get_shop_sales_summary(

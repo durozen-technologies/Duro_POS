@@ -7,7 +7,7 @@ import unittest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.models import BaseUnit, Item, ShopItemAllocation, UnitType
+from app.models import BaseUnit, Item, ItemCategory, Organization, ShopItemAllocation, UnitType
 from app.schemas.admin import ItemMetadataUpdate, ItemUpdate
 from app.services.admin.catalogue import allocate_catalogue_item
 from app.services.admin.shops import delete_item, update_item, update_item_metadata
@@ -159,6 +159,62 @@ class ItemMetadataScopeTests(BackendTestCase):
                     )
                 )
                 self.assertIsNone(allocation)
+
+        self.run_async(scenario())
+
+    def test_catalogue_update_resolves_category_for_item_organization(self) -> None:
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                first_org = session.scalar(select(Organization).order_by(Organization.created_at))
+                self.assertIsNotNone(first_org)
+                second_org = Organization(name="Tenant B", slug="tenant-b", is_active=True)
+                session.add(second_org)
+                session.commit()
+                session.refresh(second_org)
+                self.assertNotEqual(first_org.id, second_org.id)
+
+                category = ItemCategory(name="Raw items", organization_id=second_org.id)
+                session.add(category)
+                session.commit()
+                session.refresh(category)
+
+                item = Item(
+                    organization_id=second_org.id,
+                    shop_id=None,
+                    name="Country Chicken",
+                    tamil_name="நாட்டுக்கோழி",
+                    unit_type=UnitType.WEIGHT,
+                    base_unit=BaseUnit.KG,
+                    sort_order=0,
+                    category_id=category.id,
+                    category=category.name,
+                    is_active=True,
+                    custom_attributes={},
+                )
+                session.add(item)
+                session.commit()
+                session.refresh(item)
+                item_id = item.id
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                updated = await update_item(
+                    adapter,
+                    item_id,
+                    ItemUpdate(
+                        name="Country Chicken",
+                        tamil_name="நாட்டுக்கோழி",
+                        unit_type=UnitType.WEIGHT,
+                        base_unit=BaseUnit.KG,
+                        is_active=True,
+                        sort_order=0,
+                        category_id=category.id,
+                        category=category.name,
+                        custom_attributes={},
+                    ),
+                )
+                self.assertEqual(updated.id, item_id)
+                self.assertEqual(updated.category_id, category.id)
 
         self.run_async(scenario())
 

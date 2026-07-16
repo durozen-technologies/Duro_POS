@@ -146,11 +146,16 @@ export function useTenantAdminsData(orgs: OrganizationRead[]) {
   }, [loadFirstPage]);
 
   const createAdmin = useCallback(
-    async (username: string, password: string, organization_id: UUID) => {
+    async (
+      username: string,
+      password: string,
+      organization_id: UUID,
+      shop_name?: string | null,
+    ) => {
       setCreating(true);
       setError(null);
       try {
-        await createTenantAdmin({ username, password, organization_id });
+        await createTenantAdmin({ username, password, organization_id, shop_name });
         await loadFirstPage();
       } catch (createError) {
         const message =

@@ -35,7 +35,6 @@ from app.models import (
     InventoryMovementType,
     InventoryTransfer,
     Item,
-    Organization,
     Payment,
     Retailer,
     RetailerPayment,
@@ -53,7 +52,7 @@ from app.schemas.admin import (
 from app.services.admin.catalogue import _get_period_bounds
 from app.services.billing import bill_counts_toward_sales_clause
 from app.services.retailer_sale_number import format_retailer_sale_bill_no
-from app.services.tenant_query import list_organization_shops
+from app.services.tenant_query import list_organization_shops, resolve_organization_display_name
 
 SECTION_ORDER: tuple[AdminReportSection, ...] = (
     "sales",
@@ -407,10 +406,7 @@ async def _resolve_report_organization_name(
     org_id = organization_id
     if org_id is None and shops:
         org_id = await db.scalar(select(Shop.organization_id).where(Shop.id == shops[0][0]))
-    if org_id is None:
-        return "Organization"
-    org = await db.get(Organization, org_id)
-    return org.name if org is not None else "Organization"
+    return await resolve_organization_display_name(db, org_id)
 
 
 @dataclass(frozen=True)

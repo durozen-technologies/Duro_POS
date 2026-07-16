@@ -209,6 +209,7 @@ def _inventory_item_to_read_with_categories(
         image_thumb_path=image_thumb_path,
         image_content_type=image_content_type,
         global_image_template_id=item.global_image_template_id,
+        can_delete=True,
     )
 
 
@@ -254,7 +255,28 @@ def _inventory_item_row_to_read(
         image_thumb_path=image_thumb_path,
         image_content_type=image_content_type,
         global_image_template_id=getattr(row, "global_image_template_id", None),
+        can_delete=True,
     )
+
+
+async def _inventory_item_can_delete_map(
+    db: AsyncSession,
+    item_ids: list[UUID],
+) -> dict[UUID, bool]:
+    if not item_ids:
+        return {}
+    usage_rows = (
+        await db.execute(
+            select(InventoryMovement.inventory_item_id)
+            .where(
+                InventoryMovement.inventory_item_id.in_(item_ids),
+                InventoryMovement.movement_type == InventoryMovementType.USE,
+            )
+            .group_by(InventoryMovement.inventory_item_id)
+        )
+    ).all()
+    used_item_ids = {row.inventory_item_id for row in usage_rows}
+    return {item_id: item_id not in used_item_ids for item_id in item_ids}
 
 
 async def _ensure_unique_inventory_item_name(
@@ -876,6 +898,7 @@ async def list_inventory_item_rows(
     templates_by_id = await load_templates_for_item_rows(page_rows)
     categories_by_item_id = await _categories_by_inventory_item_id(db, item_ids)
     item_mappings_by_item_id = await _billing_mappings_by_inventory_item_id(db, item_ids)
+    can_delete_by_item_id = await _inventory_item_can_delete_map(db, item_ids)
 
     next_cursor_sort_order = next_cursor_name = next_cursor_id = next_cursor_is_active = None
     if has_more and page_rows:
@@ -885,16 +908,19 @@ async def list_inventory_item_rows(
         next_cursor_id = last_row.id
         next_cursor_is_active = last_row.is_active
 
+    item_reads: list[InventoryItemRead] = []
+    for row in page_rows:
+        item_read = _inventory_item_row_to_read(
+            row,
+            categories_by_item_id,
+            item_mappings_by_item_id,
+            templates_by_id,
+        )
+        item_read.can_delete = can_delete_by_item_id.get(row.id, True)
+        item_reads.append(item_read)
+
     return InventoryItemRowsPage(
-        items=[
-            _inventory_item_row_to_read(
-                row,
-                categories_by_item_id,
-                item_mappings_by_item_id,
-                templates_by_id,
-            )
-            for row in page_rows
-        ],
+        items=item_reads,
         limit=limit,
         has_more=has_more,
         next_cursor_sort_order=next_cursor_sort_order,
@@ -966,7 +992,17 @@ async def get_inventory_item(
     elif item.global_image_template_id and not item.image_object_key:
         templates_by_id = await load_templates_for_item_rows([item])
         template = templates_by_id.get(item.global_image_template_id)
-    return _inventory_item_to_read(item, template=template)
+    item_read = _inventory_item_to_read(item, template=template)
+    has_usage = await db.scalar(
+        select(InventoryMovement.id)
+        .where(
+            InventoryMovement.inventory_item_id == item_id,
+            InventoryMovement.movement_type == InventoryMovementType.USE,
+        )
+        .limit(1)
+    )
+    item_read.can_delete = has_usage is None
+    return item_read
 
 
 async def create_inventory_item(
@@ -1316,6 +1352,19 @@ async def delete_inventory_item(db: AsyncSession, item_id: UUID) -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
         )
+    has_usage = await db.scalar(
+        select(InventoryMovement.id)
+        .where(
+            InventoryMovement.inventory_item_id == item_id,
+            InventoryMovement.movement_type == InventoryMovementType.USE,
+        )
+        .limit(1)
+    )
+    if has_usage is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete inventory item with billing usage history",
+        )
     image_object_key = item.image_object_key
     thumbnail_object_key = item.image_thumbnail_object_key
     await db.execute(
@@ -1662,6 +1711,7 @@ def _stock_item_from_inventory_item(
     category_used_bird: dict[tuple[UUID, UUID], int] | None = None,
     category_retailer_used_bird: dict[tuple[UUID, UUID], int] | None = None,
     stock_last_updated_at: datetime | None = None,
+    template=None,
 ) -> InventoryItemStockRead:
     """Build a stock read object.
 
@@ -1669,7 +1719,7 @@ def _stock_item_from_inventory_item(
     separate all-time and display (e.g. today-scoped) ``used_quantity`` values.
     If omitted it is computed as ``added_quantity - used_quantity``.
     """
-    base = _inventory_item_to_read(item)
+    base = _inventory_item_to_read(item, template=template)
     if available_quantity is None:
         available_quantity = added_quantity - used_quantity
     if available_bird_count is None:
@@ -1809,6 +1859,7 @@ async def get_inventory_summary(
         category_retailer_used_today_bird,
     ) = await _retailer_usage_totals(db, shop.id, item_ids, used_since=date.today())
     stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, item_ids)
+    templates_by_id = await load_templates_for_item_rows(list(items))
     stock_items = [
         _stock_item_from_inventory_item(
             item,
@@ -1836,6 +1887,11 @@ async def get_inventory_summary(
             category_used_bird=category_used_today_bird,
             category_retailer_used_bird=category_retailer_used_today_bird,
             stock_last_updated_at=stock_last_updated.get(item.id),
+            template=(
+                templates_by_id.get(item.global_image_template_id)
+                if item.global_image_template_id and not item.image_object_key
+                else None
+            ),
         )
         for item in items
     ]
@@ -2015,6 +2071,8 @@ async def list_inventory_stock_rows(
 
     stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, item_ids)
 
+    inventory_items = [row[0] for row in page_rows]
+    templates_by_id = await load_templates_for_item_rows(inventory_items)
     stock_items = [
         _stock_item_from_inventory_item(
             item,
@@ -2044,6 +2102,11 @@ async def list_inventory_stock_rows(
             category_used_bird=category_used_today_bird,
             category_retailer_used_bird=category_retailer_used_today_bird,
             stock_last_updated_at=stock_last_updated.get(item.id),
+            template=(
+                templates_by_id.get(item.global_image_template_id)
+                if item.global_image_template_id and not item.image_object_key
+                else None
+            ),
         )
         for item, allocation in page_rows
     ]
@@ -2427,6 +2490,7 @@ async def _stock_item_for_shop_inventory_item(
         retailer_used_display_bird = retailer_used_alltime_bird
         category_retailer_used_display_bird = category_retailer_used_alltime_bird
     stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, [item.id])
+    templates_by_id = await load_templates_for_item_rows([item])
     return _stock_item_from_inventory_item(
         item,
         allocation=allocation,
@@ -2453,6 +2517,11 @@ async def _stock_item_for_shop_inventory_item(
         category_used_bird=category_used_display_bird,
         category_retailer_used_bird=category_retailer_used_display_bird,
         stock_last_updated_at=stock_last_updated.get(item.id),
+        template=(
+            templates_by_id.get(item.global_image_template_id)
+            if item.global_image_template_id and not item.image_object_key
+            else None
+        ),
     )
 
 

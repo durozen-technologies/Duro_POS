@@ -55,6 +55,7 @@ from app.schemas.billing import (
 from app.services.admin.catalogue import _bill_to_read
 from app.services.bill_number import bill_no_from_sequence, bill_number_prefix_from_settings
 from app.services.inventory import _available_quantity_at
+from app.services.tenant_query import resolve_organization_display_name
 
 TWOPLACES = Decimal("0.01")
 THREEPLACES = Decimal("0.001")
@@ -99,8 +100,7 @@ def _round_money(value: Decimal) -> Decimal:
 
 
 async def _shop_organization_name(db: AsyncSession, shop: Shop) -> str:
-    org = await db.get(Organization, shop.organization_id)
-    return org.name if org is not None else ""
+    return await resolve_organization_display_name(db, shop.organization_id)
 
 
 async def _ensure_shop_tenant_session(db: AsyncSession, shop: Shop) -> None:
@@ -424,6 +424,15 @@ async def _load_bill_for_shop(db: AsyncSession, shop: Shop, bill_id: UUID) -> Bi
     return bill
 
 
+async def _organization_name_for_bill(db: AsyncSession, bill: Bill) -> str:
+    organization_id = bill.shop.organization_id if bill.shop is not None else None
+    if organization_id is None and bill.shop_id is not None:
+        organization_id = await db.scalar(
+            select(Shop.organization_id).where(Shop.id == bill.shop_id)
+        )
+    return await resolve_organization_display_name(db, organization_id)
+
+
 async def _bill_read_for_shop(
     db: AsyncSession,
     shop: Shop,
@@ -432,7 +441,10 @@ async def _bill_read_for_shop(
     created_by_name: str | None = None,
 ) -> BillRead:
     bill = await _load_bill_for_shop(db, shop, bill_id)
-    read = _bill_to_read(bill)
+    read = _bill_to_read(
+        bill,
+        organization_name=await _organization_name_for_bill(db, bill),
+    )
     if created_by_name is None and bill.created_by_user_id is not None:
         user = await db.get(User, bill.created_by_user_id)
         created_by_name = user.username if user is not None else None
@@ -914,7 +926,10 @@ async def cancel_shop_bill(
         )
     )
     await db.commit()
-    return _bill_to_read(bill)
+    return _bill_to_read(
+        bill,
+        organization_name=await _organization_name_for_bill(db, bill),
+    )
 
 
 async def edit_shop_bill(
@@ -980,4 +995,7 @@ async def edit_shop_bill(
         )
     )
     await db.commit()
-    return _bill_to_read(bill)
+    return _bill_to_read(
+        bill,
+        organization_name=await _organization_name_for_bill(db, bill),
+    )
