@@ -1085,6 +1085,7 @@ function AdminItemsRoute({
         </View>
         <PriceGrid
           items={priceState.bootstrap?.items ?? []}
+          pricesPublished={priceState.bootstrap?.prices_set ?? false}
           loading={priceState.loading}
           refreshing={priceHistoryOpen ? priceHistoryLoading : priceState.refreshing}
           draftPrices={priceState.draftPrices}

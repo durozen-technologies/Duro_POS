@@ -813,26 +813,28 @@ export const ActionButton = memo(function ActionButton({
   let bg = disabled ? palette.surfaceMuted : danger ? palette.dangerSoft : active ? palette.primary : palette.card;
   let border = disabled ? palette.border : danger ? palette.danger : active ? palette.primary : palette.border;
 
-  if (tone === "danger") {
-    fg = palette.danger;
-    bg = active ? palette.dangerSoft : palette.card;
-    border = palette.danger;
-  } else if (tone === "success") {
-    fg = active ? palette.onPrimary : palette.success;
-    bg = active ? palette.success : palette.successSoft;
-    border = palette.success;
-  } else if (tone === "warning") {
-    fg = active ? palette.onCash : palette.warning;
-    bg = active ? palette.cash : palette.warningSoft;
-    border = palette.warning;
-  } else if (tone === "info") {
-    fg = active ? palette.onPrimary : palette.primaryStrong;
-    bg = active ? palette.primary : palette.primarySoft;
-    border = palette.primaryStrong;
-  } else if (tone === "primary") {
-    fg = active ? palette.onPrimary : palette.primaryStrong;
-    bg = active ? palette.primary : palette.primarySoft;
-    border = palette.primary;
+  if (!disabled) {
+    if (tone === "danger") {
+      fg = palette.danger;
+      bg = active ? palette.dangerSoft : palette.card;
+      border = palette.danger;
+    } else if (tone === "success") {
+      fg = active ? palette.onPrimary : palette.success;
+      bg = active ? palette.success : palette.successSoft;
+      border = palette.success;
+    } else if (tone === "warning") {
+      fg = active ? palette.onCash : palette.warning;
+      bg = active ? palette.cash : palette.warningSoft;
+      border = palette.warning;
+    } else if (tone === "info") {
+      fg = active ? palette.onPrimary : palette.primaryStrong;
+      bg = active ? palette.primary : palette.primarySoft;
+      border = palette.primaryStrong;
+    } else if (tone === "primary") {
+      fg = active ? palette.onPrimary : palette.primaryStrong;
+      bg = active ? palette.primary : palette.primarySoft;
+      border = palette.primary;
+    }
   }
 
   const { scale, opacity, onPressIn, onPressOut } = usePressAnimation(disabled || loading);

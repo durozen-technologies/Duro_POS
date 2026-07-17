@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -63,8 +64,8 @@ import { toDateInputValue } from "@/utils/expense-history-filters";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
 import type { ThemePalette } from "./admin-dashboard-theme";
-import { triggerHaptic } from "./admin-dashboard-utils";
-import { ActionButton, IconButton, EmptyStateCard, SearchField } from "./components/admin-dashboard-primitives";
+import { triggerHaptic, type ToastTone } from "./admin-dashboard-utils";
+import { ActionButton, IconButton, EmptyStateCard, SearchField, ToastBanner } from "./components/admin-dashboard-primitives";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { AdminTransferShopsTab } from "./components/admin-transfer-shops-tab";
 import { useAdminTheme } from "./use-admin-theme";
@@ -330,13 +331,6 @@ function formatPurchaseRate(value: string | number, unit: BaseUnit) {
   return `₹${money(value).toFixed(2)}/${unit === BaseUnit.KG ? "kg" : "unit"}`;
 }
 
-function isPurchaseRateUpdatedToday(updatedAt?: string | null) {
-  if (!updatedAt) {
-    return false;
-  }
-  return toDateInputValue(new Date(updatedAt)) === toDateInputValue(new Date());
-}
-
 function inventoryItemBillingNames(item: InventoryItemRead) {
   return (Array.isArray(item.billing_items) ? item.billing_items : []).map(
     (billingItem) =>
@@ -430,6 +424,24 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const [purchaseRateCalendarOpen, setPurchaseRateCalendarOpen] = useState(false);
   const [historicalPurchaseRates, setHistoricalPurchaseRates] = useState<Record<string, string>>({});
   const [loadingHistoricalRates, setLoadingHistoricalRates] = useState(false);
+  const [confirmedTodayRates, setConfirmedTodayRates] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
+  const toastAnimation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!toast) {
+      toastAnimation.setValue(0);
+      return;
+    }
+    Animated.timing(toastAnimation, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+    const timer = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(timer);
+  }, [toast, toastAnimation]);
+
   const debouncedSearchRef = useRef("");
   const loadedItemsQueryRef = useRef<string | null>(null);
   const itemsAbortRef = useRef<AbortController | null>(null);
@@ -524,6 +536,34 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       };
     }
   }, [activeTab, purchaseRateHistoryDate, isTodayPurchaseRate]);
+
+  // Today's confirmed snapshot (written only by the overall Save button) drives
+  // the "Updated today" badge — a lone row edit never creates this snapshot.
+  const [confirmedTodayNonce, setConfirmedTodayNonce] = useState(0);
+  useEffect(() => {
+    if (activeTab !== "purchaseRates") {
+      return;
+    }
+    let active = true;
+    fetchInventoryPurchaseRatesHistory(toDateInputValue(new Date()))
+      .then((rates) => {
+        if (active) {
+          const rateMap: Record<string, string> = {};
+          for (const r of rates) {
+            rateMap[r.inventory_item_id] = r.purchase_rate;
+          }
+          setConfirmedTodayRates(rateMap);
+        }
+      })
+      .catch((e) => {
+        if (active) {
+          console.error("Failed to load today's confirmed purchase rates", e);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeTab, confirmedTodayNonce]);
 
   useEffect(() => {
     itemsCursorRef.current = itemsCursor;
@@ -1131,6 +1171,8 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
     try {
       const updatedItem = await updateInventoryItemPurchaseRate(itemId, money(nextRate).toFixed(2));
       setItems((currentItems) => currentItems.map((item) => (item.id === itemId ? updatedItem : item)));
+      // Any row save flips every item back to "Needs update" until the overall Save confirms today.
+      setConfirmedTodayRates({});
       setEditingPurchaseRateId(null);
       setEditingPurchaseRateValue("");
     } catch (error) {
@@ -1165,7 +1207,9 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
         setEditingPurchaseRateValue("");
       }
       await confirmInventoryPurchaseRatesToday();
+      setConfirmedTodayNonce((nonce) => nonce + 1);
       await loadInventoryRows();
+      setToast({ tone: "success", message: "Today Prices is update for report." });
     } catch (error) {
       triggerHaptic();
       setErrorMessage(getRequestMessage(error, "Unable to save today's purchase rates."));
@@ -1371,7 +1415,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const renderPurchaseRateRow = ({ item }: { item: InventoryItemRead }) => {
     const editing = editingPurchaseRateId === item.id;
     const saving = savingPurchaseRateId === item.id;
-    const updatedToday = isPurchaseRateUpdatedToday(item.updated_at);
+    const updatedToday = confirmedTodayRates[item.id] != null;
     const historicalRate = !isTodayPurchaseRate ? historicalPurchaseRates[item.id] : null;
     const hasHistoricalRate = historicalRate != null;
     
@@ -2182,6 +2226,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
         }}
         onClose={() => setPurchaseRateCalendarOpen(false)}
       />
+      <ToastBanner toast={toast} animatedValue={toastAnimation} palette={palette} />
     </SafeAreaView>
   );
 }

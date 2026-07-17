@@ -1,5 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 
+import { describeHttpError } from "@/api/api-errors";
 import {
   API_CONNECTION_ERROR_MESSAGE,
   apiClient,
@@ -105,7 +106,10 @@ async function uploadGlobalImageTemplateMultipart<TResponse>(
         if (response.status >= 200 && response.status < 300) {
           return body as TResponse;
         }
-        throw new Error(getUploadResponseMessage(body) || `Upload failed with status ${response.status}.`);
+        throw new Error(
+          getUploadResponseMessage(body) ||
+            describeHttpError(response.status, "Unable to upload the image. Please try again."),
+        );
       }
 
       const formData = new FormData();

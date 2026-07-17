@@ -1,5 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 
+import { describeHttpError } from "@/api/api-errors";
 import { apiClient, getApiAuthHeaders, resolveReachableApiUrlCandidates, API_CONNECTION_ERROR_MESSAGE } from "@/api/client";
 import type {
   ExpenseEntryCreate,
@@ -118,7 +119,10 @@ async function uploadExpenseItemImageFile(path: string, file: ExpenseItemImageUp
       if (response.status >= 200 && response.status < 300) {
         return body as ExpenseItemRead;
       }
-      throw new Error(getUploadResponseMessage(body) || `Image upload failed with status ${response.status}.`);
+      throw new Error(
+        getUploadResponseMessage(body) ||
+          describeHttpError(response.status, "Unable to upload the image. Please try again."),
+      );
     } catch (error) {
       lastError = error;
     }

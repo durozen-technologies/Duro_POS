@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -8,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Button as TButton, Input, Spinner, XStack, YStack } from "tamagui";
@@ -26,10 +28,10 @@ import {
   type UUID,
 } from "@/types/api";
 import { isPositiveNumber, toMoneyString } from "@/utils/decimal";
-import { createDateTimeFormat, parseCalendarDate } from "@/utils/format";
+import { createDateTimeFormat, formatCurrency, parseCalendarDate } from "@/utils/format";
 import { getItemThumbnailUri } from "@/utils/item-images";
 
-import { adminElevation, adminRadii, adminSpacing, type ThemePalette } from "../admin-dashboard-theme";
+import { adminElevation, adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
 import {
   AdminItemWorkspace,
   ItemScope,
@@ -167,7 +169,9 @@ function ActionButton({
   compact?: boolean;
   onPress: () => void;
 }) {
-  const colors = buttonColors(palette, tone, active || tone === "primary");
+  const colors = disabled
+    ? { fg: palette.textMuted, bg: palette.surfaceMuted, border: palette.border }
+    : buttonColors(palette, tone, active || tone === "primary");
   return (
     <TButton
       accessibilityRole="button"
@@ -179,7 +183,7 @@ function ActionButton({
       borderWidth={1}
       borderColor={colors.border}
       backgroundColor={colors.bg}
-      opacity={disabled ? 0.55 : 1}
+      opacity={disabled ? 0.7 : 1}
       flex={compact ? 1 : undefined}
       minWidth={compact ? 0 : undefined}
       pressStyle={{ opacity: 0.9, scale: 0.99 }}
@@ -1243,6 +1247,7 @@ const PriceRow = memo(function PriceRow({
   dirty,
   valid,
   saving,
+  publishedToday,
   palette,
   thumbnailSize = 60,
   onChangeDraftPrice,
@@ -1253,6 +1258,7 @@ const PriceRow = memo(function PriceRow({
   dirty: boolean;
   valid: boolean;
   saving: boolean;
+  publishedToday: boolean;
   palette: ThemePalette;
   thumbnailSize?: number;
   onChangeDraftPrice: (itemId: UUID, value: string) => void;
@@ -1261,9 +1267,24 @@ const PriceRow = memo(function PriceRow({
   const imageUri = getItemThumbnailUri(item);
   const thumbnailRadius = Math.round(thumbnailSize * 0.24);
   const thumbnailIconSize = Math.round(thumbnailSize * 0.43);
-  const updatedToday = item.price_status === PriceStatus.Current;
+  // "Updated today" only after the overall Save Today Prices publish, not a lone row save.
+  const updatedToday = publishedToday && item.price_status === PriceStatus.Current;
+  const inputRef = useRef<TextInput>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const showSave = isFocused || dirty;
+
+  const handleEditSavePress = () => {
+    if (!showSave) {
+      inputRef.current?.focus();
+      return;
+    }
+    inputRef.current?.blur();
+    if (dirty && valid) {
+      onSaveRow(item, value);
+    }
+  };
   return (
-    <View style={[styles.priceRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+    <View style={styles.priceRow}>
       <ItemThumbnail
         uri={imageUri}
         recyclingKey={item.item_id}
@@ -1307,33 +1328,71 @@ const PriceRow = memo(function PriceRow({
           </Text>
         </View>
       </View>
-      <View style={styles.priceEdit}>
-        <Input
-          value={value}
-          onChangeText={(nextValue) => onChangeDraftPrice(item.item_id, nextValue)}
-          placeholder="0.00"
-          placeholderTextColor={palette.textMuted as never}
-          keyboardType="decimal-pad"
-          minHeight={40}
-          borderRadius={10}
-          borderWidth={1}
-          borderColor={valid || !value ? palette.border : palette.danger}
-          backgroundColor={palette.surfaceMuted}
-          color={palette.textPrimary}
-          fontSize={15}
-          fontWeight="900"
-          textAlign="right"
-        />
-        <ActionButton
-          label="Save"
-          icon="cash-check"
-          palette={palette}
-          tone={dirty ? "primary" : "neutral"}
-          compact
-          disabled={!valid || !dirty}
-          loading={saving}
-          onPress={() => onSaveRow(item, value)}
-        />
+      <View style={[styles.pricePanel, { backgroundColor: palette.surfaceMuted }]}>
+        <Text style={[styles.pricePanelLabel, { color: palette.textMuted }]}>RATE</Text>
+        <View
+          style={[
+            styles.pricePanelValueRow,
+            {
+              borderBottomWidth: isFocused ? 2 : 0,
+              borderBottomColor: valid || !value ? palette.primary : palette.danger,
+              paddingBottom: isFocused ? 0 : 2,
+            },
+          ]}
+        >
+          <Text style={[styles.pricePanelCurrency, { color: palette.textPrimary }]}>₹</Text>
+          <TextInput
+            ref={inputRef}
+            value={value}
+            onChangeText={(nextValue) => onChangeDraftPrice(item.item_id, nextValue)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            onSubmitEditing={() => {
+              if (dirty && valid) {
+                onSaveRow(item, value);
+              }
+            }}
+            returnKeyType="done"
+            keyboardType="decimal-pad"
+            placeholder="0"
+            placeholderTextColor={palette.textMuted}
+            style={[styles.pricePanelInput, { color: palette.textPrimary }]}
+          />
+          <Text style={[styles.pricePanelUnit, { color: palette.textPrimary }]}>
+            /{item.base_unit.toLowerCase()}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          disabled={saving}
+          onPress={handleEditSavePress}
+          style={({ pressed }) => [
+            styles.pricePanelButton,
+            {
+              backgroundColor: pressed ? palette.surfaceMuted : "transparent",
+              borderColor: showSave ? palette.primary : palette.border,
+              opacity: saving ? 0.7 : 1,
+            },
+          ]}
+        >
+          {saving ? (
+            <ActivityIndicator size="small" color={showSave ? palette.primary : palette.textPrimary} />
+          ) : (
+            <MaterialCommunityIcons
+              name={showSave ? "check" : "pencil-outline"}
+              size={14}
+              color={showSave ? palette.primary : palette.textPrimary}
+            />
+          )}
+          <Text
+            style={[
+              styles.pricePanelButtonText,
+              { color: showSave ? palette.primary : palette.textPrimary },
+            ]}
+          >
+            {saving ? "Saving..." : showSave ? "Save" : "Edit"}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -1352,6 +1411,7 @@ const PriceRow = memo(function PriceRow({
   previous.dirty === next.dirty &&
   previous.valid === next.valid &&
   previous.saving === next.saving &&
+  previous.publishedToday === next.publishedToday &&
   previous.thumbnailSize === next.thumbnailSize &&
   previous.palette === next.palette
 ));
@@ -1371,7 +1431,7 @@ const PriceHistoryRow = memo(function PriceHistoryRow({
   const hasPrice = Boolean(item.current_price);
 
   return (
-    <View style={[styles.priceHistoryRow, { borderColor: palette.border, backgroundColor: palette.card }]}>
+    <View style={styles.priceHistoryRow}>
       <ItemThumbnail
         uri={imageUri}
         recyclingKey={item.item_id}
@@ -1444,7 +1504,7 @@ function PriceHistoryCalendar({
   const todayValue = toDateInputValue(new Date());
 
   return (
-    <View style={[styles.priceHistoryPanel, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+    <View style={styles.priceHistoryPanel}>
       <XStack alignItems="center" justifyContent="space-between" gap={8}>
         <Pressable
           accessibilityRole="button"
@@ -1508,12 +1568,11 @@ function PriceHistoryCalendar({
                 styles.historyDayCell,
                 styles.historyDayButton,
                 {
-                  borderColor: selected ? palette.items : isToday ? palette.success : palette.border,
-                  backgroundColor: selected ? palette.items : isToday ? palette.successSoft : palette.card,
+                  backgroundColor: selected ? palette.items : isToday ? palette.successSoft : "transparent",
                 },
               ]}
             >
-              <Text style={[styles.historyDayText, { color: selected ? palette.onPrimary : palette.textPrimary }]}>
+              <Text style={[styles.historyDayText, { color: selected ? palette.onPrimary : isToday ? palette.success : palette.textPrimary }]}>
                 {dayNumber}
               </Text>
             </Pressable>
@@ -1524,8 +1583,17 @@ function PriceHistoryCalendar({
   );
 }
 
+type SavePreviewRow = {
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name?: string | null;
+  base_unit: BaseUnit;
+  price_per_unit: string;
+};
+
 export function PriceGrid({
   items,
+  pricesPublished,
   loading,
   refreshing,
   draftPrices,
@@ -1549,10 +1617,10 @@ export function PriceGrid({
   onRefreshHistory,
   onChangeDraftPrice,
   onSaveRow,
-  onSaveEdited,
   onCompleteToday,
 }: {
   items: ItemPriceRead[];
+  pricesPublished: boolean;
   loading: boolean;
   refreshing: boolean;
   draftPrices: Record<UUID, string>;
@@ -1579,6 +1647,10 @@ export function PriceGrid({
   onSaveEdited: (entries: DailyPriceCreate["entries"]) => void;
   onCompleteToday: (entries: DailyPriceCreate["entries"], staleCarryCount: number) => void;
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState<SavePreviewRow[]>([]);
+  const confirmPendingRef = useRef(false);
+
   const itemsById = useMemo(
     () => new Map(items.map((item) => [item.item_id, item])),
     [items],
@@ -1631,26 +1703,65 @@ export function PriceGrid({
     };
   }, [draftPrices, items, itemsById]);
 
-  const completeToday = useCallback(() => {
+  const openSavePreview = useCallback(() => {
     if (priceState.incompleteCount > 0) {
       return;
     }
     if (priceState.completeEntries.length !== items.length) {
       return;
     }
-    onCompleteToday(priceState.completeEntries, 0);
-  }, [
-    items.length,
-    onCompleteToday,
-    priceState.completeEntries,
-    priceState.incompleteCount,
-  ]);
-  const priceSummaryText = `${selectedShop?.name ?? "Select a shop"} · ${items.length} items · ${priceState.dirtyCount} unsaved${
-    priceState.incompleteCount > 0 ? ` · ${priceState.incompleteCount} need price` : ""
-  }`;
-  const historySummaryText = `${selectedShop?.name ?? "Select a shop"} · ${formatHistoryDate(historyDate)} · ${
-    historyItems.length
-  } items`;
+    const entryByItemId = new Map(
+      priceState.completeEntries.map((entry) => [entry.item_id, entry.price_per_unit]),
+    );
+    const rows: SavePreviewRow[] = items.map((item) => ({
+      item_id: item.item_id,
+      item_name: item.item_name,
+      item_tamil_name: item.item_tamil_name,
+      base_unit: item.base_unit,
+      price_per_unit: entryByItemId.get(item.item_id) ?? "0.00",
+    }));
+    setPreviewRows(rows);
+    setPreviewOpen(true);
+  }, [items, priceState.completeEntries, priceState.incompleteCount]);
+
+  const confirmCompleteToday = useCallback(() => {
+    if (previewRows.length === 0) {
+      return;
+    }
+    confirmPendingRef.current = true;
+    onCompleteToday(
+      previewRows.map((row) => ({
+        item_id: row.item_id,
+        price_per_unit: row.price_per_unit,
+      })),
+      0,
+    );
+  }, [onCompleteToday, previewRows]);
+
+  useEffect(() => {
+    if (!confirmPendingRef.current || savingAll) {
+      return;
+    }
+    confirmPendingRef.current = false;
+    if (!error) {
+      setPreviewOpen(false);
+    }
+  }, [error, savingAll]);
+
+  const todayValue = toDateInputValue(new Date());
+  const dateDropdownLabel =
+    historyOpen && historyDate !== todayValue ? formatHistoryDate(historyDate) : "Today";
+  const handleSelectHistoryDate = useCallback(
+    (dateValue: string) => {
+      if (dateValue === toDateInputValue(new Date()) && historyOpen) {
+        // Picking today's date returns to the editable daily prices view.
+        onToggleHistory();
+        return;
+      }
+      onSelectHistoryDate(dateValue);
+    },
+    [historyOpen, onSelectHistoryDate, onToggleHistory],
+  );
 
   const renderPriceRow = useCallback(({ item }: { item: ItemPriceRead }) => {
     const draftValue = draftPrices[item.item_id];
@@ -1665,12 +1776,13 @@ export function PriceGrid({
         dirty={dirty}
         valid={valid}
         saving={savingItemId === item.item_id}
+        publishedToday={pricesPublished}
         palette={palette}
         onChangeDraftPrice={onChangeDraftPrice}
         onSaveRow={onSaveRow}
       />
     );
-  }, [draftPrices, onChangeDraftPrice, onSaveRow, palette, savingItemId]);
+  }, [draftPrices, onChangeDraftPrice, onSaveRow, palette, pricesPublished, savingItemId]);
   const renderHistoryRow = useCallback(({ item }: { item: ItemPriceRead }) => (
     <PriceHistoryRow item={item} palette={palette} />
   ), [palette]);
@@ -1681,15 +1793,17 @@ export function PriceGrid({
       historyOpen,
       historyLoading,
       historyItems,
+      pricesPublished,
       savingItemId,
     }),
-    [draftPrices, historyDate, historyItems, historyLoading, historyOpen, savingItemId],
+    [draftPrices, historyDate, historyItems, historyLoading, historyOpen, pricesPublished, savingItemId],
   );
   const listItems = historyOpen ? historyItems : items;
   const listLoading = historyOpen ? historyLoading : loading;
   const activeError = historyOpen ? historyError : error;
 
   return (
+    <>
     <FlatList
       data={listLoading ? [] : listItems}
       extraData={priceListExtraData}
@@ -1700,42 +1814,66 @@ export function PriceGrid({
       updateCellsBatchingPeriod={40}
       windowSize={7}
       removeClippedSubviews
-      ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+      ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: palette.border }} />}
       style={{ flex: 1, backgroundColor: palette.background }}
       contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding, gap: 12 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.items} />}
       ListHeaderComponent={
         <YStack gap={12} marginBottom={4}>
           <ErrorState message={activeError} palette={palette} onRetry={historyOpen ? onRefreshHistory : onRefresh} />
-          <View style={[styles.priceSummary, { borderColor: palette.border, backgroundColor: palette.card }]}>
-            <XStack alignItems="center" justifyContent="space-between" gap={10}>
-              <YStack flex={1} minWidth={0}>
-                <Text numberOfLines={1} style={[styles.sectionTitle, { color: palette.textPrimary }]}>
-                  {historyOpen ? "Price history" : "Daily prices"}
+          <View style={styles.priceSummary}>
+            <XStack gap={8}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Select price date"
+                accessibilityState={{ expanded: historyOpen }}
+                onPress={onToggleHistory}
+                style={[
+                  styles.priceDateDropdown,
+                  {
+                    borderColor: palette.primaryStrong,
+                    backgroundColor: historyOpen ? palette.primary : palette.primarySoft,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="calendar-month-outline"
+                  size={14}
+                  color={historyOpen ? palette.onPrimary : palette.primaryStrong}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.priceDateDropdownText,
+                    { color: historyOpen ? palette.onPrimary : palette.primaryStrong },
+                  ]}
+                >
+                  {dateDropdownLabel}
                 </Text>
-                <Text numberOfLines={1} style={[styles.sectionSubtitle, { color: palette.textMuted }]}>
-                  {historyOpen ? historySummaryText : priceSummaryText}
-                </Text>
-              </YStack>
-              <XStack gap={8}>
+                <MaterialCommunityIcons
+                  name={historyOpen ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={historyOpen ? palette.onPrimary : palette.primaryStrong}
+                />
+              </Pressable>
+              {!historyOpen ? (
                 <ActionButton
-                  label="Items"
-                  icon="arrow-left"
+                  label={savingAll ? "Publishing..." : "Save Today Prices"}
+                  icon="calendar-check-outline"
                   palette={palette}
-                  tone="neutral"
-                  onPress={onBackToItems}
+                  tone="success"
+                  active={true}
+                  loading={savingAll}
+                  disabled={
+                    items.length === 0
+                    || priceState.incompleteCount > 0
+                    || priceState.completeEntries.length !== items.length
+                    || savingAll
+                  }
+                  onPress={openSavePreview}
                   compact
                 />
-                <ActionButton
-                  label={historyOpen ? "Today" : "History"}
-                  icon={historyOpen ? "calendar-today" : "history"}
-                  palette={palette}
-                  tone="info"
-                  active={historyOpen}
-                  onPress={onToggleHistory}
-                  compact
-                />
-              </XStack>
+              ) : null}
             </XStack>
             {historyOpen ? (
               <PriceHistoryCalendar
@@ -1744,36 +1882,10 @@ export function PriceGrid({
                 loading={historyLoading}
                 palette={palette}
                 onChangeMonth={onChangeHistoryMonth}
-                onSelectDate={onSelectHistoryDate}
+                onSelectDate={handleSelectHistoryDate}
                 onRefresh={onRefreshHistory}
               />
-            ) : (
-              <XStack gap={8} flexWrap="wrap">
-                <ActionButton
-                  label={savingAll ? "Saving..." : "Save edited prices"}
-                  icon="content-save-all-outline"
-                  palette={palette}
-                  tone="primary"
-                  loading={savingAll}
-                  disabled={priceState.dirtyCount === 0 || priceState.invalidDirtyCount > 0}
-                  onPress={() => onSaveEdited(priceState.dirtyEntries)}
-                />
-                <ActionButton 
-                  label={savingAll ? "Publishing..." : "Save"}
-                  icon="calendar-check-outline"
-                  palette={palette}
-                  tone="success"
-                  loading={savingAll}
-                  disabled={
-                    items.length === 0
-                    || priceState.incompleteCount > 0
-                    || priceState.completeEntries.length !== items.length
-                    || savingAll
-                  }
-                  onPress={completeToday}
-                />
-              </XStack>
-            )}
+            ) : null}
           </View>
         </YStack>
       }
@@ -1804,6 +1916,100 @@ export function PriceGrid({
         )
       }
     />
+    <Modal
+      visible={previewOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {
+        if (!savingAll) {
+          setPreviewOpen(false);
+        }
+      }}
+    >
+      <Pressable
+        style={styles.modalBackdrop}
+        onPress={() => {
+          if (!savingAll) {
+            setPreviewOpen(false);
+          }
+        }}
+      >
+        <Pressable
+          style={[styles.previewSheet, { backgroundColor: palette.card, borderColor: palette.border }]}
+          onPress={() => undefined}
+        >
+          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>
+            Save today&apos;s prices
+          </Text>
+          <Text style={[styles.sectionSubtitle, { color: palette.textMuted, marginTop: 4 }]}>
+            {selectedShop?.name ?? "Branch"}
+          </Text>
+          <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 8 }]}>
+            Review all shop items below before publishing today&apos;s billing prices.
+          </Text>
+
+          <FlatList
+            data={previewRows}
+            keyExtractor={(item) => item.item_id}
+            style={{ maxHeight: 360, marginTop: adminSpacing.sm }}
+            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+            renderItem={({ item }) => (
+              <View
+                style={[
+                  styles.previewRow,
+                  { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
+                ]}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]} numberOfLines={1}>
+                    {item.item_name}
+                  </Text>
+                  {item.item_tamil_name ? (
+                    <Text style={[adminTypography.caption, { color: palette.primary, marginTop: 2 }]} numberOfLines={1}>
+                      {item.item_tamil_name}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]}>
+                  {formatCurrency(item.price_per_unit)}
+                  {item.base_unit ? `/${item.base_unit.toLowerCase()}` : ""}
+                </Text>
+              </View>
+            )}
+          />
+
+          <View style={styles.previewActions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={savingAll}
+              onPress={() => setPreviewOpen(false)}
+              style={[
+                styles.previewButton,
+                { borderColor: palette.border, backgroundColor: palette.surfaceMuted },
+              ]}
+            >
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={savingAll}
+              onPress={() => void confirmCompleteToday()}
+              style={[
+                styles.previewButton,
+                { borderColor: palette.primary, backgroundColor: palette.primary },
+              ]}
+            >
+              {savingAll ? (
+                <ActivityIndicator size="small" color={palette.card} />
+              ) : (
+                <Text style={{ color: palette.card, fontWeight: "700" }}>Update today</Text>
+              )}
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
@@ -2290,10 +2496,57 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   priceSummary: {
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    gap: 16,
+  },
+  priceDateDropdown: {
+    minHeight: 36,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  priceDateDropdownText: {
+    ...adminTypography.bodyStrong,
+    fontSize: 12,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    padding: adminSpacing.lg,
+  },
+  previewSheet: {
+    borderWidth: 1,
+    borderRadius: adminRadii.card,
+    padding: adminSpacing.md,
+    maxHeight: "85%",
+  },
+  previewRow: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
+    borderWidth: 1,
+    borderRadius: adminRadii.control,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  previewActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: adminSpacing.md,
+  },
+  previewButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: adminRadii.control,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sectionTitle: {
     fontSize: 17,
@@ -2306,9 +2559,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   priceRow: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
@@ -2338,14 +2590,58 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0,
   },
-  priceEdit: {
-    width: 116,
-    gap: 6,
+  pricePanel: {
+    borderRadius: 16,
+    padding: 12,
+    alignItems: "center",
+    minWidth: 120,
+  },
+  pricePanelLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  pricePanelValueRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    marginTop: 4,
+  },
+  pricePanelCurrency: {
+    fontSize: 15,
+    fontWeight: "800",
+    paddingBottom: 1,
+  },
+  pricePanelInput: {
+    fontSize: 15,
+    fontWeight: "800",
+    padding: 0,
+    margin: 0,
+    minWidth: 44,
+    textAlign: "center",
+  },
+  pricePanelUnit: {
+    fontSize: 13,
+    fontWeight: "700",
+    paddingBottom: 2,
+  },
+  pricePanelButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+  },
+  pricePanelButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   priceHistoryRow: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -2365,10 +2661,9 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   priceHistoryPanel: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    gap: 20,
   },
   historyIconButton: {
     width: 36,
@@ -2410,8 +2705,7 @@ const styles = StyleSheet.create({
     height: 34,
   },
   historyDayButton: {
-    borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },

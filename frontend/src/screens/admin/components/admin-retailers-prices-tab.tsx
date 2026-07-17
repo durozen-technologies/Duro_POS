@@ -37,8 +37,8 @@ import { createDateTimeFormat, formatCurrency, todayDateValue } from "@/utils/fo
 import { getItemThumbnailUri } from "@/utils/item-images";
 
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
-import { triggerHaptic } from "../admin-dashboard-utils";
-import { ActionButton, ChipButton, EmptyStateCard, SearchField } from "./admin-dashboard-primitives";
+import { triggerHaptic, type ToastTone } from "../admin-dashboard-utils";
+import { ActionButton, ChipButton, EmptyStateCard, SearchField, ToastBanner } from "./admin-dashboard-primitives";
 
 
 type PriceDraft = {
@@ -106,6 +106,7 @@ const PriceItemRow = memo(function PriceItemRow({
   item,
   draft,
   isHistoricalDate,
+  updatedToday,
   palette,
   updatePrice,
   saveRow,
@@ -114,6 +115,7 @@ const PriceItemRow = memo(function PriceItemRow({
   item: RetailerItemAllocationRead;
   draft: PriceDraft;
   isHistoricalDate: boolean;
+  updatedToday: boolean;
   palette: ThemePalette;
   updatePrice: (itemId: UUID, price: string) => void;
   saveRow: (draft: PriceDraft) => void;
@@ -130,7 +132,6 @@ const PriceItemRow = memo(function PriceItemRow({
     image_thumb_path: item.image_thumb_path,
     image_path: item.image_path,
   });
-  const updatedToday = isRetailerPriceUpdatedToday(item.price_history);
   const showPriceStatus = !isHistoricalDate && Boolean(draft.saved_price_per_unit);
 
   return (
@@ -328,7 +329,23 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<SavePreviewRow[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
+  const toastAnimation = useRef(new Animated.Value(0)).current;
   const debouncedSearch = useDebouncedValue(search, 250);
+
+  useEffect(() => {
+    if (!toast) {
+      toastAnimation.setValue(0);
+      return;
+    }
+    Animated.timing(toastAnimation, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+    const timer = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(timer);
+  }, [toast, toastAnimation]);
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const [headerHeight, setHeaderHeight] = useState(260);
@@ -356,6 +373,33 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
     const needsUpdateCount = pricedItems.length - updatedTodayCount;
     return { updatedTodayCount, needsUpdateCount, pricedItems: pricedItems.length };
   }, [catalogueItems, isHistoricalDate]);
+
+  const allPricesEntered = useMemo(() => {
+    if (catalogueItems.length === 0) return false;
+    return catalogueItems.every((item) => {
+      const draft = drafts.get(item.item_id);
+      const rawPrice = draft?.price_per_unit ?? savedPriceFromItem(item);
+      return Number(rawPrice) > 0;
+    });
+  }, [catalogueItems, drafts]);
+
+  // "Updated today" only reflects the overall Save (Update today) flow, which prices
+  // every item at once — a lone row save leaves other items stale, so badges stay red.
+  const publishedToday = useMemo(
+    () =>
+      priceUpdateSummary != null
+      && priceUpdateSummary.pricedItems > 0
+      && priceUpdateSummary.needsUpdateCount === 0,
+    [priceUpdateSummary],
+  );
+
+  // Any row save after the last overall save flips every badge back to
+  // "Needs update" until Update today confirms again (items prices tab concept).
+  const [rowEditedSinceConfirm, setRowEditedSinceConfirm] = useState(false);
+
+  useEffect(() => {
+    setRowEditedSinceConfirm(false);
+  }, [selectedRetailerId, selectedShopId, selectedDate]);
 
   const selectedBranch = useMemo(
     () => branches.find((row) => row.id === selectedShopId) ?? null,
@@ -579,6 +623,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
         triggerHaptic();
 
         applySavedPrices([{ item_id: draft.item_id, price_per_unit: nextPrice }]);
+        setRowEditedSinceConfirm(true);
       } catch (err) {
         Alert.alert("Save failed", formatApiErrorMessage(err));
       } finally {
@@ -652,11 +697,9 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
 
       triggerHaptic();
       setPreviewOpen(false);
+      setRowEditedSinceConfirm(false);
       await loadItems(true);
-      Alert.alert(
-        "Prices saved",
-        `Updated today's prices for ${itemsToSave.length} item${itemsToSave.length === 1 ? "" : "s"}.`,
-      );
+      setToast({ tone: "success", message: "Today Prices is Published for Shop Billing." });
     } catch (err) {
       Alert.alert("Save failed", formatApiErrorMessage(err));
     } finally {
@@ -797,6 +840,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
 
   return (
     <View style={styles.container}>
+      <ToastBanner toast={toast} palette={palette} animatedValue={toastAnimation} />
       {renderBranchPicker()}
       {renderRetailerPicker()}
 
@@ -907,7 +951,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
               <Pressable
                 accessibilityRole="button"
                 onPress={() => void saveAllChanges()}
-                disabled={savingAll || loadingPreview || isHistoricalDate}
+                disabled={savingAll || loadingPreview || isHistoricalDate || !allPricesEntered}
                 style={{
                   flex: 1.2,
                   flexDirection: "row",
@@ -916,16 +960,17 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                   gap: 8,
                   height: 48,
                   borderRadius: adminRadii.control,
-                  backgroundColor: palette.primary,
-                  opacity: savingAll || loadingPreview || isHistoricalDate ? 0.72 : 1,
+                  backgroundColor: savingAll || loadingPreview || isHistoricalDate || !allPricesEntered ? palette.surfaceMuted : palette.primary,
+                  borderColor: savingAll || loadingPreview || isHistoricalDate || !allPricesEntered ? palette.border : palette.primary,
+                  borderWidth: 1,
                 }}
               >
                 {savingAll || loadingPreview ? (
                   <ActivityIndicator size="small" color={palette.card} />
                 ) : (
                   <>
-                    <MaterialCommunityIcons name="content-save-outline" size={20} color={palette.card} />
-                    <Text style={[adminTypography.bodyStrong, { color: palette.card }]}>Save</Text>
+                    <MaterialCommunityIcons name="content-save-outline" size={20} color={savingAll || loadingPreview || isHistoricalDate || !allPricesEntered ? palette.textMuted : palette.card} />
+                    <Text style={[adminTypography.bodyStrong, { color: savingAll || loadingPreview || isHistoricalDate || !allPricesEntered ? palette.textMuted : palette.card }]}>Save</Text>
                   </>
                 )}
               </Pressable>
@@ -1007,6 +1052,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                     item={item}
                     draft={draft}
                     isHistoricalDate={isHistoricalDate}
+                    updatedToday={publishedToday && !rowEditedSinceConfirm}
                     palette={palette}
                     updatePrice={updatePrice}
                     saveRow={saveRow}

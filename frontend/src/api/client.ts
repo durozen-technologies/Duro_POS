@@ -3,6 +3,7 @@ import axios, { CanceledError, type InternalAxiosRequestConfig, isAxiosError } f
 import {
   API_CONNECTION_ERROR_MESSAGE,
   ApiRequestError,
+  describeHttpError,
   formatUserFacingApiMessage,
   isApiRequestError,
   isNetworkConnectionError,
@@ -537,13 +538,9 @@ function getErrorMessage(error: unknown) {
     return formatUserFacingApiMessage(responseMessage);
   }
 
-  if (status === 422) {
-    return "Invalid input provided. Please check your data.";
-  }
-
   const fallbackMessage = error.message || "Request failed";
   if (fallbackMessage.startsWith("Request failed with status code")) {
-    return "A server error occurred. Please try again.";
+    return describeHttpError(status, "A server error occurred. Please try again.");
   }
 
   return formatUserFacingApiMessage(fallbackMessage);

@@ -168,16 +168,18 @@ export function SuperAdminOrgsScreen() {
       <View
         className={`flex-row items-center px-4 py-4 ${index < orgs.length - 1 ? "border-b border-border" : ""}`}
       >
-        {/* Status indicator */}
-        <View
-          className={`mr-4 h-3 w-3 rounded-full ${org.is_active ? "bg-success" : "bg-border"}`}
-        />
-
         {/* Info */}
         <View className="flex-1 pr-4 justify-center">
-          <Text className="text-base font-semibold text-ink leading-tight" numberOfLines={1}>
-            {org.name}
-          </Text>
+          <View className="flex-row items-center gap-3">
+            <Text className="text-base font-semibold text-ink leading-tight" numberOfLines={1}>
+              {org.name}
+            </Text>
+            <View className={`rounded px-1.5 py-0.5 ${org.is_active ? "bg-successSoft" : "bg-surface"}`}>
+              <Text className={`text-[10px] font-bold uppercase tracking-wider ${org.is_active ? "text-success" : "text-muted"}`}>
+                {org.is_active ? "Active" : "Inactive"}
+              </Text>
+            </View>
+          </View>
           <View className="mt-1 flex-row items-center gap-2">
             <Text className="text-sm text-muted">
               {formatSlug(org.slug)}
@@ -189,11 +191,11 @@ export function SuperAdminOrgsScreen() {
           </View>
         </View>
 
-        <View className="flex-row items-center gap-2">
+        <View className="flex-row items-center gap-1">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Hard delete ${org.name}`}
-            className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-dangerSoft bg-dangerSoft active:opacity-80"
+            className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control active:opacity-50"
             disabled={togglingId != null}
             onPress={() => navigation.navigate("SuperAdminHardDelete", {
               resourceType: "organization",
@@ -201,18 +203,20 @@ export function SuperAdminOrgsScreen() {
               resourceName: org.name,
             })}
           >
-            <MaterialCommunityIcons name="delete-outline" size={20} color="#DC2626" />
+            <MaterialCommunityIcons name="delete-outline" size={20} color={MUTED} />
           </Pressable>
 
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Edit ${org.name}`}
-            className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-border bg-card active:opacity-80"
+            className="min-h-[44px] min-w-[44px] items-center justify-center rounded-control active:opacity-50"
             disabled={togglingId != null}
             onPress={() => navigation.navigate("SuperAdminOrgEdit", { org })}
           >
-            <MaterialCommunityIcons name="pencil-outline" size={20} color={INK} />
+            <MaterialCommunityIcons name="pencil-outline" size={20} color={MUTED} />
           </Pressable>
+
+          <View className="w-1" />
 
           {/* Toggle button — spinner while toggling */}
           <Pressable
@@ -220,9 +224,9 @@ export function SuperAdminOrgsScreen() {
             accessibilityLabel={
               org.is_active ? `Disable ${org.name}` : `Enable ${org.name}`
             }
-            className={`min-h-[44px] min-w-[84px] items-center justify-center rounded-control border px-4 ${
+            className={`min-h-[36px] min-w-[80px] items-center justify-center rounded-control px-4 ${
               toggling ? "opacity-50" : "active:opacity-80"
-            } ${org.is_active ? "border-transparent bg-dangerSoft" : "border-transparent bg-accent"}`}
+            } ${org.is_active ? "bg-dangerSoft" : "bg-accent"}`}
             disabled={toggling || togglingId != null}
             onPress={() => confirmToggle(org)}
           >
@@ -233,7 +237,7 @@ export function SuperAdminOrgsScreen() {
               />
             ) : (
               <Text
-                className={`text-sm font-medium ${org.is_active ? "text-danger" : "text-white"}`}
+                className={`text-sm font-semibold ${org.is_active ? "text-danger" : "text-white"}`}
               >
                 {org.is_active ? "Disable" : "Enable"}
               </Text>
@@ -246,18 +250,15 @@ export function SuperAdminOrgsScreen() {
 
   const listHeader = (
     <View>
-      {/* Create form */}
-      <View className="mx-4 mb-8 mt-2 rounded-3xl border border-border bg-card p-5 shadow-sm">
-        <Text className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
-          New Organization
-        </Text>
+      {/* Create form toolbar */}
+      <View className="px-4 pb-8 pt-2">
         <View className="flex-row gap-3">
           <TextInput
             accessibilityLabel="Organization name"
             autoCapitalize="words"
             autoCorrect={false}
-            className="min-h-[48px] flex-1 rounded-control border border-border bg-surface px-4 py-2 text-base text-ink"
-            placeholder="e.g. Acme Retail"
+            className="min-h-[48px] flex-1 rounded-control border border-border bg-card px-4 py-2 text-base text-ink"
+            placeholder="New organization name..."
             placeholderTextColor={MUTED}
             returnKeyType="done"
             value={newOrgName}
@@ -267,7 +268,7 @@ export function SuperAdminOrgsScreen() {
           <TextInput
             accessibilityLabel="Maximum branches"
             keyboardType="number-pad"
-            className="min-h-[48px] w-[80px] rounded-control border border-border bg-surface px-3 py-2 text-center text-base text-ink"
+            className="min-h-[48px] w-[80px] rounded-control border border-border bg-card px-3 py-2 text-center text-base text-ink"
             placeholder="5"
             placeholderTextColor={MUTED}
             value={newOrgMaxBranches}
@@ -294,11 +295,10 @@ export function SuperAdminOrgsScreen() {
         ) : null}
       </View>
 
-      {/* Column header */}
-      <View className="flex-row items-center border-y border-border bg-surface px-4 py-3">
-        <View className="mr-4 w-3" />
-        <Text className="flex-1 pr-4 text-xs font-semibold uppercase tracking-wider text-muted">
-          Organization
+      {/* Section header */}
+      <View className="border-b border-border px-4 pb-2">
+        <Text className="text-xs font-semibold uppercase tracking-wider text-muted">
+          All Organizations
         </Text>
       </View>
     </View>

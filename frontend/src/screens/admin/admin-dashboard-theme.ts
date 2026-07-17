@@ -22,6 +22,10 @@ export type ThemePalette = {
   shadow: string;
   overlay: string;
   navBackdrop: string;
+  surface: string;
+  accent: string;
+  accentSoft: string;
+  onAccent: string;
   shell: string;
   shellBorder: string;
   onShell: string;
@@ -152,6 +156,10 @@ type SemanticCore = Pick<
   | "shadow"
   | "overlay"
   | "navBackdrop"
+  | "surface"
+  | "accent"
+  | "accentSoft"
+  | "onAccent"
   | "shell"
   | "shellBorder"
   | "onShell"
@@ -214,6 +222,10 @@ const LIGHT_CORE: SemanticCore = {
   shadow: "#0A1F22",
   overlay: "rgba(10,31,34,0.38)",
   navBackdrop: "rgba(255,255,255,0.96)",
+  surface: "#FFFFFF",
+  accent: "#0B6E78",
+  accentSoft: "#D2EDEF",
+  onAccent: "#FFFFFF",
   shell: "#FFFFFF",
   shellBorder: "#BAD0D3",
   onShell: "#0A0F0F",
@@ -243,6 +255,10 @@ const DARK_CORE: SemanticCore = {
   shadow: "#000000",
   overlay: "rgba(0,0,0,0.72)",
   navBackdrop: "rgba(9,21,24,0.96)",
+  surface: "#102328",
+  accent: "#2BBAC8",
+  accentSoft: "rgba(43,186,200,0.18)",
+  onAccent: "#04191C",
   shell: "#102328",
   shellBorder: "#255058",
   onShell: "#ECF4F5",

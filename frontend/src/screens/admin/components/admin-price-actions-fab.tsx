@@ -43,36 +43,24 @@ type AdminPriceActionsFabProps = {
 
 const MAIN_SIZE = 56;
 const MINI_SIZE = 48;
-const ORBIT_RADIUS = 116;
-/** Degrees from straight up, fanning toward the left (upper-left quadrant). */
-const ACTION_ANGLES = [20, 55, 90] as const;
+const ACTION_Y_OFFSETS = [72, 136, 200] as const;
+const MAX_Y_OFFSET = Math.max(...ACTION_Y_OFFSETS);
 /** Room for the longest action label chip ("Purchase Rate") without truncation. */
 const LABEL_CHIP_WIDTH = 168;
-const MAX_ACTION_ANGLE = Math.max(...ACTION_ANGLES);
-const MIN_ACTION_ANGLE = Math.min(...ACTION_ANGLES);
 const STAGE_WIDTH =
   MAIN_SIZE / 2 +
-  ORBIT_RADIUS * Math.sin((MAX_ACTION_ANGLE * Math.PI) / 180) +
   MINI_SIZE +
   LABEL_CHIP_WIDTH +
   adminSpacing.md;
 const STAGE_HEIGHT =
   MAIN_SIZE / 2 +
-  ORBIT_RADIUS * Math.cos((MIN_ACTION_ANGLE * Math.PI) / 180) +
+  MAX_Y_OFFSET +
   MINI_SIZE / 2 +
   adminSpacing.md;
 const OPEN_MS = 320;
 const CLOSE_MS = 220;
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1);
 const EASE_IN = Easing.bezier(0.4, 0, 1, 1);
-
-function orbitOffset(angleDeg: number, radius: number) {
-  const rad = (angleDeg * Math.PI) / 180;
-  return {
-    x: -radius * Math.sin(rad),
-    y: -radius * Math.cos(rad),
-  };
-}
 
 function useReduceMotion() {
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -247,7 +235,7 @@ type RadialActionProps = {
 };
 
 const RadialAction = memo(function RadialAction({ action, index, palette, progress, onPress }: RadialActionProps) {
-  const target = useMemo(() => orbitOffset(ACTION_ANGLES[index] ?? 50, ORBIT_RADIUS), [index]);
+  const target = useMemo(() => ({ x: 0, y: -(ACTION_Y_OFFSETS[index] ?? 72) }), [index]);
   const STAGGER_RATIO = 40 / OPEN_MS;
   const revealStart = 0.02 + index * STAGGER_RATIO;
   const moveEnd = Math.min(revealStart + 0.5, 1);
@@ -438,16 +426,7 @@ export const AdminPriceActionsFab = memo(function AdminPriceActionsFab({
     extrapolate: "clamp",
   });
 
-  const orbitRingOpacity = progress.interpolate({
-    inputRange: [0, 0.12, 0.55, 1],
-    outputRange: [0, 0.22, 0.1, 0],
-    extrapolate: "clamp",
-  });
-  const orbitRingScale = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [MAIN_SIZE / (ORBIT_RADIUS * 2), 1],
-    extrapolate: "clamp",
-  });
+
 
   return (
     <>
@@ -482,17 +461,7 @@ export const AdminPriceActionsFab = memo(function AdminPriceActionsFab({
               pointerEvents="box-none"
               collapsable={false}
             >
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.orbitRing,
-                  {
-                    backgroundColor: palette.primarySoft,
-                    opacity: orbitRingOpacity,
-                    transform: [{ scale: orbitRingScale }],
-                  },
-                ]}
-              />
+
               <View style={styles.orbitOrigin} pointerEvents="box-none">
                 {actions.map((action, index) => (
                   <RadialAction
@@ -539,14 +508,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "flex-end",
   },
-  orbitRing: {
-    position: "absolute",
-    right: MAIN_SIZE / 2 - ORBIT_RADIUS,
-    bottom: MAIN_SIZE / 2 - ORBIT_RADIUS,
-    width: ORBIT_RADIUS * 2,
-    height: ORBIT_RADIUS * 2,
-    borderRadius: ORBIT_RADIUS,
-  },
+
   orbitOrigin: {
     position: "absolute",
     right: 0,

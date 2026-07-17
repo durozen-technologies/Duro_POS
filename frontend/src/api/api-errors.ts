@@ -114,6 +114,32 @@ export function formatUserFacingApiMessage(
   return sanitizeUserFacingMessage(message, fallback);
 }
 
+const HTTP_STATUS_MESSAGES: Record<number, string> = {
+  400: "Invalid input provided. Please check your data.",
+  401: "Session expired. Please sign in again.",
+  403: "Access denied. Please contact your administrator.",
+  404: "The requested record was not found. It may have been removed. Refresh and try again.",
+  409: "This conflicts with existing data. Refresh and try again.",
+  413: "The uploaded file is too large. Choose a smaller image.",
+  422: "Invalid input provided. Please check your data.",
+  429: "Too many requests. Please wait a moment before retrying.",
+};
+
+/** User-facing message for an HTTP status without leaking the raw status code. */
+export function describeHttpError(
+  status: number,
+  fallback = "Something went wrong. Please try again.",
+) {
+  const mapped = HTTP_STATUS_MESSAGES[status];
+  if (mapped) {
+    return mapped;
+  }
+  if (status >= 500) {
+    return "A server error occurred. Please try again later.";
+  }
+  return fallback;
+}
+
 export function normalizeApiRequestError(error: unknown): ApiRequestError {
   if (isApiRequestError(error)) {
     return error;

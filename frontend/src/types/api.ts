@@ -1334,7 +1334,7 @@ export interface RetailerWalletPayoutRead {
   credit_balance_before: string;
   credit_balance_after: string;
   notes?: string | null;
-  recorded_by_user_id: UUID;
+  recorded_by_user_id?: UUID | null;
   created_at: string;
 }
 
@@ -1357,7 +1357,7 @@ export interface RetailerPaymentRead {
   wallet_amount?: string;
   total_paid: string;
   paid_at: string;
-  recorded_by_user_id: UUID;
+  recorded_by_user_id?: UUID | null;
 }
 
 export enum RetailerReceiptType {
@@ -1388,7 +1388,7 @@ export interface RetailerSaleRead {
   balance_due: string;
   status: RetailerSaleStatus;
   created_at: string;
-  created_by_user_id: UUID;
+  created_by_user_id?: UUID | null;
   items: RetailerSaleLineRead[];
   payments: RetailerPaymentRead[];
   receipts?: RetailerSaleReceiptRead[];

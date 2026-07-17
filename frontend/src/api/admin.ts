@@ -1,5 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 
+import { describeHttpError } from "@/api/api-errors";
 import { apiClient, getApiAuthHeaders, resolveReachableApiUrlCandidates, API_CONNECTION_ERROR_MESSAGE } from "@/api/client";
 import {
   AdminItemRowsPage,
@@ -371,7 +372,10 @@ export async function downloadAdminReportPdf(
       }
       const message = await readDownloadedErrorMessage(response.uri);
       await FileSystem.deleteAsync(response.uri, { idempotent: true }).catch(() => undefined);
-      throw new DownloadHttpError(message || `Report download failed with status ${response.status}.`, response.status);
+      throw new DownloadHttpError(
+        message || describeHttpError(response.status, "Unable to download the report. Please try again."),
+        response.status,
+      );
     } catch (error) {
       if (error instanceof DownloadHttpError) {
         throw error;
@@ -705,7 +709,10 @@ async function uploadItemMultipartFile<TResponse>(
         return body as TResponse;
       }
       const message = getUploadResponseMessage(body);
-      throw new UploadHttpError(message || `Image upload failed with status ${response.status}.`, response.status);
+      throw new UploadHttpError(
+        message || describeHttpError(response.status, "Unable to save the item. Please try again."),
+        response.status,
+      );
     } catch (error) {
       if (error instanceof UploadHttpError) {
         throw error;
