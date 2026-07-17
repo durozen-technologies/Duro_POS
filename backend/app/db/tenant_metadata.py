@@ -919,6 +919,46 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                 )
             )
 
+    # User FKs must be nullable + ON DELETE SET NULL so hard-deleting a user
+    # preserves transaction history (tenant migration 0030).
+    _user_fk_set_null_targets = (
+        ("retailer_sales", "created_by_user_id"),
+        ("retailer_payments", "recorded_by_user_id"),
+        ("retailer_wallet_payouts", "recorded_by_user_id"),
+        ("bills", "created_by_user_id"),
+    )
+    if dialect == "postgresql":
+        for table_name, column_name in _user_fk_set_null_targets:
+            if table_name not in table_names:
+                continue
+            columns = {
+                column["name"]: column
+                for column in inspector.get_columns(table_name, schema=safe)
+            }
+            if column_name not in columns:
+                continue
+            if not columns[column_name].get("nullable", True):
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table_name}" '
+                        f"ALTER COLUMN {column_name} DROP NOT NULL"
+                    )
+                )
+            for fk in inspector.get_foreign_keys(table_name, schema=safe):
+                if fk.get("constrained_columns") != [column_name] or not fk.get("name"):
+                    continue
+                if (fk.get("options") or {}).get("ondelete") == "SET NULL":
+                    continue
+                connection.execute(
+                    text(f'ALTER TABLE "{table_name}" DROP CONSTRAINT "{fk["name"]}"')
+                )
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table_name}" ADD CONSTRAINT "{fk["name"]}" '
+                        f"FOREIGN KEY ({column_name}) REFERENCES users(id) ON DELETE SET NULL"
+                    )
+                )
+
 
 def ensure_tenant_schema_column_patches(connection: Connection, schema_name: str) -> None:
     """Backward-compatible alias for startup/repair drift patching."""

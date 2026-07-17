@@ -217,7 +217,7 @@ class RetailerPaymentRead(ORMModel):
     wallet_amount: Decimal = Decimal("0.00")
     total_paid: Decimal
     paid_at: datetime
-    recorded_by_user_id: UUID
+    recorded_by_user_id: UUID | None = None
 
 
 class RetailerSaleReceiptRead(ORMModel):
@@ -243,7 +243,7 @@ class RetailerSaleRead(ORMModel):
     balance_due: Decimal
     status: RetailerSaleStatus
     created_at: datetime
-    created_by_user_id: UUID
+    created_by_user_id: UUID | None = None
     items: list[RetailerSaleLineRead]
     payments: list[RetailerPaymentRead]
     receipts: list[RetailerSaleReceiptRead] = []
@@ -315,5 +315,5 @@ class RetailerWalletPayoutRead(ORMModel):
     credit_balance_before: Decimal
     credit_balance_after: Decimal
     notes: str | None = None
-    recorded_by_user_id: UUID
+    recorded_by_user_id: UUID | None = None
     created_at: datetime

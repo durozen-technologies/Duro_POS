@@ -28,7 +28,7 @@ class Bill(Base, BaseModelMixin):
         String(512), unique=True, index=True, nullable=True
     )
     created_by_user_id: Mapped[UUID | None] = mapped_column(
-        UUID_SQL_TYPE, ForeignKey("users.id"), index=True, nullable=True
+        UUID_SQL_TYPE, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
     item_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     total_quantity: Mapped[Decimal] = mapped_column(

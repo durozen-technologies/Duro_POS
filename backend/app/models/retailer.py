@@ -209,8 +209,8 @@ class RetailerSale(Base, BaseModelMixin):
         ),
         nullable=False,
     )
-    created_by_user_id: Mapped[UUID] = mapped_column(
-        UUID_SQL_TYPE, ForeignKey("users.id"), index=True, nullable=False
+    created_by_user_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
 
     retailer = relationship("Retailer", back_populates="sales")
@@ -276,8 +276,8 @@ class RetailerPayment(Base):
         server_default=func.now(),
         nullable=False,
     )
-    recorded_by_user_id: Mapped[UUID] = mapped_column(
-        UUID_SQL_TYPE, ForeignKey("users.id"), index=True, nullable=False
+    recorded_by_user_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
     retailer_inventory_purchase_id: Mapped[UUID | None] = mapped_column(
         UUID_SQL_TYPE,
@@ -360,8 +360,8 @@ class RetailerWalletPayout(Base, BaseModelMixin):
     credit_balance_before: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     credit_balance_after: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    recorded_by_user_id: Mapped[UUID] = mapped_column(
-        UUID_SQL_TYPE, ForeignKey("users.id"), index=True, nullable=False
+    recorded_by_user_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
 
     retailer = relationship("Retailer")
