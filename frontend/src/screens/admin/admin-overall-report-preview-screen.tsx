@@ -172,8 +172,12 @@ function buildInventoryRows(
     item.used_stock_breakdown.length > 0
       ? item.used_stock_breakdown
       : [{ label: "Used", quantity: item.used_stock } as OverallReportUsedStockBreakdown];
+  const retailerUsedRows =
+    (item.retailer_used_stock_breakdown?.length ?? 0) > 0
+      ? item.retailer_used_stock_breakdown
+      : [{ label: "Used", quantity: sumRetailerInventoryUsed(item) } as OverallReportUsedStockBreakdown];
   const billingRows = item.billing_items;
-  const rowCount = Math.max(1, usedRows.length, billingRows.length || 1);
+  const rowCount = Math.max(1, usedRows.length, retailerUsedRows.length, billingRows.length || 1);
   const rows: SheetRow[] = [];
 
   for (let index = 0; index < rowCount; index += 1) {
@@ -193,7 +197,7 @@ function buildInventoryRows(
       isFirst ? formatReportQuantityWithUnit(item.adding_stock, item.unit) : "",
       isFirst ? formatReportQuantityWithUnit(item.total_available_stock, item.unit) : "",
       formatUsedBreakdown(usedRow, item.unit),
-      isFirst ? formatReportQuantityWithUnit(sumRetailerInventoryUsed(item), item.unit) : "",
+      formatUsedBreakdown(retailerUsedRows[index], item.unit),
       isFirst ? formatReportQuantityWithUnit(item.transfer_stock, item.unit) : "",
       formatReportQuantityWithUnit(item.remaining_stock, item.unit),
       isFirst && item.purchase_rate != null ? formatReportMoney(item.purchase_rate) : "",

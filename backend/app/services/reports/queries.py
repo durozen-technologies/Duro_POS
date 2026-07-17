@@ -729,6 +729,49 @@ async def _populate_overall_report_used_stock_breakdown(
             )
         )
 
+    retailer_rows = (
+        await db.execute(
+            select(
+                RetailerInventoryUsage.inventory_item_id,
+                RetailerInventoryUsage.category_id,
+                InventoryCategory.name.label("category_name"),
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("quantity"),
+            )
+            .outerjoin(
+                InventoryCategory, InventoryCategory.id == RetailerInventoryUsage.category_id
+            )
+            .where(
+                RetailerInventoryUsage.shop_id == shop_id,
+                RetailerInventoryUsage.inventory_item_id.in_(list(inventory_items)),
+                RetailerInventoryUsage.occurred_at >= context.start,
+                RetailerInventoryUsage.occurred_at < context.end,
+            )
+            .group_by(
+                RetailerInventoryUsage.inventory_item_id,
+                RetailerInventoryUsage.category_id,
+                InventoryCategory.name,
+            )
+            .order_by(
+                RetailerInventoryUsage.inventory_item_id,
+                func.lower(func.coalesce(InventoryCategory.name, "Used")),
+                RetailerInventoryUsage.category_id,
+            )
+        )
+    ).all()
+    for row in retailer_rows:
+        inventory_item = inventory_items.get(row.inventory_item_id)
+        if inventory_item is None:
+            continue
+        label = row.category_name or "Used"
+        inventory_item.retailer_used_stock_breakdown.append(
+            OverallReportUsedStockBreakdown(
+                category_id=row.category_id,
+                category_name=row.category_name,
+                label=label,
+                quantity=_decimal(row.quantity),
+            )
+        )
+
 
 async def _populate_overall_report_billing_items(
     db: AsyncSession,
@@ -1208,6 +1251,17 @@ def _over_report_sheet_rows(
             item.unit,
             item.used_stock_bird_count,
         )
+        retailer_used_rows = item.retailer_used_stock_breakdown or [
+            OverallReportUsedStockBreakdown(
+                label="Used",
+                quantity=_total_retailer_inventory_used(item),
+            )
+        ]
+        retailer_used_stock_text = _combined_used_stock_text(
+            retailer_used_rows,
+            item.unit,
+            _total_retailer_inventory_used_bird_count(item),
+        )
         row_count = max(1, len(billing_rows) or 1)
         for index in range(row_count):
             is_first = index == 0
@@ -1244,13 +1298,7 @@ def _over_report_sheet_rows(
                 if is_first
                 else "",
                 used_stock_text if is_first else "",
-                _combined_stock_text(
-                    _total_retailer_inventory_used(item),
-                    item.unit,
-                    _total_retailer_inventory_used_bird_count(item),
-                )
-                if is_first
-                else "",
+                retailer_used_stock_text if is_first else "",
                 _combined_stock_text(item.transfer_stock, item.unit, item.transfer_stock_bird_count)
                 if is_first
                 else "",
@@ -1258,7 +1306,9 @@ def _over_report_sheet_rows(
                     item.remaining_stock,
                     item.unit,
                     item.remaining_stock_bird_count,
-                ),
+                )
+                if is_first
+                else "",
                 _over_report_money(item.purchase_rate)
                 if is_first and item.purchase_rate is not None
                 else "",

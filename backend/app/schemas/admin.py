@@ -427,6 +427,9 @@ class OverallReportInventoryItem(BaseModel):
     purchase_rate: Decimal | None = None
     purchase_amount: Decimal = Decimal("0")
     used_stock_breakdown: list[OverallReportUsedStockBreakdown] = Field(default_factory=list)
+    retailer_used_stock_breakdown: list[OverallReportUsedStockBreakdown] = Field(
+        default_factory=list
+    )
     billing_items: list[OverallReportBillingItem] = Field(default_factory=list)
     retailer_data: list[OverallReportInventoryRetailerData] = Field(default_factory=list)
 

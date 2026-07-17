@@ -1024,6 +1024,7 @@ export interface OverallReportInventoryItem {
   purchase_amount: string;
   difference_amount: string;
   used_stock_breakdown: OverallReportUsedStockBreakdown[];
+  retailer_used_stock_breakdown: OverallReportUsedStockBreakdown[];
   billing_items: OverallReportBillingItem[];
   retailer_data: OverallReportInventoryRetailerData[];
 }
