@@ -18,6 +18,7 @@ import type { AdminRetailerDetailScreenProps } from "@/navigation/types";
 import type { RetailerBalanceRead, RetailerInventoryPurchaseRead } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
+import { canShareRetailerStatement } from "@/utils/retailer-statement";
 
 import { adminRadii } from "./admin-dashboard-theme";
 import { triggerHaptic } from "./admin-dashboard-utils";
@@ -48,7 +49,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
   const [statementModalOpen, setStatementModalOpen] = useState(false);
   const [walletPayoutModalOpen, setWalletPayoutModalOpen] = useState(false);
   const [outstandingBalanceModalOpen, setOutstandingBalanceModalOpen] = useState(false);
-  const canShareStatement = money(balance?.outstanding_balance ?? 0).gt(0);
+  const canShareStatement = canShareRetailerStatement(balance?.open_sales ?? []);
   const canPayOutWallet = money(balance?.credit_balance ?? 0).gt(0);
 
   const loadOverview = useCallback(async () => {
@@ -324,7 +325,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
               <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
                 {canShareStatement
                   ? "PDF statement with outstanding bills only"
-                  : "No outstanding balance to share"}
+                  : "No outstanding bills to share"}
               </Text>
             </Pressable>
             <Pressable

@@ -1355,6 +1355,22 @@ def _over_report_sheet_rows(
             rows.append(row_data)
 
         if is_single_date:
+            # Purchase amount = (used + retailer used + transfer) * purchase rate
+            total_purchase_qty = (
+                _decimal(item.used_stock)
+                + _total_retailer_inventory_used(item)
+                + _decimal(item.transfer_stock)
+            )
+            if item.purchase_rate is not None:
+                purchase_subtotal_text = (
+                    f"{_over_report_quantity_with_unit(total_purchase_qty, item.unit)}"
+                    f" × {_over_report_money(item.purchase_rate)}\n"
+                    f"= {_over_report_money(item.purchase_amount)}"
+                )
+            else:
+                purchase_subtotal_text = (
+                    f"Total Purchase Amount\n{_over_report_money(item.purchase_amount)}"
+                )
             row_data = [
                 "",
                 "",
@@ -1363,10 +1379,10 @@ def _over_report_sheet_rows(
                 "",
                 f"Total Used\n{_combined_stock_text(item.used_stock, item.unit, item.used_stock_bird_count)}",
                 f"Total Used\n{_combined_stock_text(_total_retailer_inventory_used(item), item.unit, _total_retailer_inventory_used_bird_count(item))}",
+                f"Total Transfer\n{_combined_stock_text(item.transfer_stock, item.unit, item.transfer_stock_bird_count)}",
                 "",
                 "",
-                "",
-                "",
+                purchase_subtotal_text,
                 "Subtotal",
                 _over_report_quantity_with_unit(item.assumption_quantity, item.unit),
                 _over_report_quantity_with_unit(
@@ -1789,6 +1805,15 @@ def _fpdf_draw_row(
 
 OVER_REPORT_HIGHLIGHT_FILL = (255, 244, 196)
 
+# Space to reserve for a section title + column header row + first data row so
+# they never render into the footer band at the bottom of the page.
+OVER_REPORT_SECTION_BLOCK_HEIGHT = 160
+
+
+def _fpdf_ensure_space(pdf: FPDF, needed_height: float) -> None:
+    if pdf.get_y() + needed_height > pdf.page_break_trigger:
+        pdf.add_page()
+
 
 def _fpdf_row_is_highlight_row(row_values: list[object]) -> bool:
     for value in row_values:
@@ -2042,6 +2067,7 @@ async def _generate_over_report_fpdf_pdf(
             pdf.set_draw_color(31, 39, 51)
 
         # Part 1
+        _fpdf_ensure_space(pdf, OVER_REPORT_SECTION_BLOCK_HEIGHT)
         pdf.set_font("NotoSans", style="B", size=14)
         pdf.cell(0, 10, text="Part 1: Inventory Details", align="L", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
@@ -2058,6 +2084,10 @@ async def _generate_over_report_fpdf_pdf(
             pdf.set_font("NotoSans", size=12)
             for row in mapped_rows:
                 part1_row = [row[i] for i in part1_indices]
+                # Rows beyond the first per item only carry Part 2 billing data;
+                # their Part 1 cells are all blank, so skip them here.
+                if not any(str(cell).strip() for cell in part1_row):
+                    continue
                 is_highlight = _fpdf_row_is_highlight_row(part1_row)
                 fill = is_highlight or row_index % 2 == 1
                 fill_color = OVER_REPORT_HIGHLIGHT_FILL if is_highlight else (244, 246, 248)
@@ -2078,6 +2108,7 @@ async def _generate_over_report_fpdf_pdf(
             if unmapped_rows:
                 if mapped_rows or row_index > 0:
                     pdf.ln(8)
+                _fpdf_ensure_space(pdf, OVER_REPORT_SECTION_BLOCK_HEIGHT)
                 pdf.set_font("NotoSans", style="B", size=11)
                 pdf.set_text_color(31, 39, 51)
                 pdf.cell(
@@ -2116,6 +2147,8 @@ async def _generate_over_report_fpdf_pdf(
                 row_index = 0
                 for row in unmapped_rows:
                     part1_row = [row[i] for i in part1_indices]
+                    if not any(str(cell).strip() for cell in part1_row):
+                        continue
                     is_highlight = _fpdf_row_is_highlight_row(part1_row)
                     fill = is_highlight or row_index % 2 == 1
                     fill_color = OVER_REPORT_HIGHLIGHT_FILL if is_highlight else (244, 246, 248)
@@ -2135,6 +2168,7 @@ async def _generate_over_report_fpdf_pdf(
 
         # Part 2
         pdf.ln(10)
+        _fpdf_ensure_space(pdf, OVER_REPORT_SECTION_BLOCK_HEIGHT)
         pdf.set_font("NotoSans", style="B", size=14)
         pdf.cell(
             0, 10, text="Part 2: Billing & Sales Details", align="L", new_x="LMARGIN", new_y="NEXT"

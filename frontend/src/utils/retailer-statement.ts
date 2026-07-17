@@ -117,6 +117,21 @@ export function filterStatementSales(sales: RetailerSaleRead[]) {
   return sales.filter(saleHasBalanceDue);
 }
 
+export function canShareRetailerStatement(
+  openSales: readonly Pick<RetailerSaleRead, "balance_due">[],
+) {
+  return openSales.some(saleHasBalanceDue);
+}
+
+export function buildRetailerBalanceStatementFilename(retailerName: string) {
+  const safeName =
+    retailerName
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001f\s]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "Retailer";
+  return `${safeName}-Balance-Statement.pdf`;
+}
+
 function sumMoney(values: string[]): string {
   const total = values.reduce((sum, value) => sum + Number(value || 0), 0);
   return total.toFixed(2);
@@ -259,6 +274,19 @@ if (process.env.RETAILER_STATEMENT_SELF_CHECK === "1") {
 
   const filtered = filterStatementSales([saleB, saleA]);
   console.assert(filtered.length === 1 && filtered[0] === saleA, "balance due filter");
+  console.assert(
+    canShareRetailerStatement([{ balance_due: "10.00" }]),
+    "share enabled for unpaid bill",
+  );
+  console.assert(
+    !canShareRetailerStatement([]),
+    "share disabled when balance is opening balance only",
+  );
+  console.assert(
+    buildRetailerBalanceStatementFilename(' Raja / Chicken:Shop? ') ===
+      "Raja-Chicken-Shop-Balance-Statement.pdf",
+    "safe retailer statement filename",
+  );
 
   const rows = expandSalesToStatementRows(filtered);
   console.assert(rows.length === 2, "row count");

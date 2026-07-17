@@ -325,9 +325,27 @@ function buildOverallReportQuery(params: FetchOverallReportParams) {
   return query.toString();
 }
 
-function buildAdminReportFilename() {
+function formatReportFilenameDate(value: string) {
+  const [year, month, day] = value.split("-");
+  return `${day}-${month}-${year}`;
+}
+
+function buildAdminReportFilename(params: DownloadAdminReportPdfParams) {
+  const startDate = params.range?.startDate ?? params.referenceDate ?? null;
+  const endDate = params.range?.endDate ?? params.referenceDate ?? null;
+  if (startDate && endDate) {
+    return startDate === endDate
+      ? `Admin-Report-${formatReportFilenameDate(startDate)}.pdf`
+      : `Admin-Report-${formatReportFilenameDate(startDate)} to ${formatReportFilenameDate(endDate)}.pdf`;
+  }
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return `admin-report-${timestamp}.pdf`;
+  return `Admin-Report-${timestamp}.pdf`;
+}
+
+function parseAttachmentFilename(headers: Record<string, string>) {
+  const disposition = headers["Content-Disposition"] ?? headers["content-disposition"] ?? "";
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  return match?.[1]?.trim() || null;
 }
 
 async function readDownloadedErrorMessage(uri: string) {
@@ -350,7 +368,7 @@ export async function downloadAdminReportPdf(
   if (!baseDirectory) {
     throw new Error("File storage is not available on this device.");
   }
-  const filename = buildAdminReportFilename();
+  const filename = buildAdminReportFilename(params);
   const localUri = `${baseDirectory}${filename}`;
   const query = buildAdminReportQuery(params);
   const downloadUrls = await resolveReachableApiUrlCandidates(`/api/v1/admin/reports/pdf?${query}`);
@@ -368,6 +386,19 @@ export async function downloadAdminReportPdf(
         },
       });
       if (response.status >= 200 && response.status < 300) {
+        // Week/month/year periods: only the backend knows the real start/end
+        // dates, so prefer the filename it sends in Content-Disposition.
+        const serverFilename = parseAttachmentFilename(response.headers);
+        if (serverFilename && serverFilename !== filename) {
+          const targetUri = `${baseDirectory}${serverFilename}`;
+          try {
+            await FileSystem.deleteAsync(targetUri, { idempotent: true });
+            await FileSystem.moveAsync({ from: response.uri, to: targetUri });
+            return { uri: targetUri, filename: serverFilename };
+          } catch {
+            return { uri: response.uri, filename };
+          }
+        }
         return { uri: response.uri, filename };
       }
       const message = await readDownloadedErrorMessage(response.uri);

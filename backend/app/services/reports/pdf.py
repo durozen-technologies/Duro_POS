@@ -969,10 +969,12 @@ def iter_admin_report_file(report_file: BinaryIO, chunk_size: int = 64 * 1024) -
 
 
 def _report_filename(context: ReportContext) -> str:
-    period_start = context.start.date().isoformat()
-    period_end = (context.end - timedelta(days=1)).date().isoformat()
-    scope = "all-branches" if not context.shop_ids else f"{len(context.shop_ids)}-branches"
-    return f"admin-report-{scope}-{period_start}-to-{period_end}.pdf"
+    period_start = context.start.date()
+    period_end = (context.end - timedelta(days=1)).date()
+    start_text = period_start.strftime("%d-%m-%Y")
+    if period_start == period_end:
+        return f"Admin-Report-{start_text}.pdf"
+    return f"Admin-Report-{start_text} to {period_end.strftime('%d-%m-%Y')}.pdf"
 
 
 def _format_cell(value: object) -> str:

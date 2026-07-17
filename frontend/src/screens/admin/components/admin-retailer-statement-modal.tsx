@@ -14,6 +14,7 @@ import type { RetailerRead } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { shareStatementPdf } from "@/utils/share-statement-pdf";
 import {
+  buildRetailerBalanceStatementFilename,
   createStatementDateDraft,
   filterStatementSales,
   isValidStatementDateDraft,
@@ -128,7 +129,11 @@ export const AdminRetailerStatementModal = memo(function AdminRetailerStatementM
         endDate: draft.endDate,
       });
 
-      await shareStatementPdf(html, "Share statement");
+      await shareStatementPdf(
+        html,
+        "Share statement",
+        buildRetailerBalanceStatementFilename(retailer.name),
+      );
       onClose();
     } catch (error) {
       Alert.alert("Share failed", formatApiErrorMessage(error));

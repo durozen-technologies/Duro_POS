@@ -16,6 +16,7 @@ import { fetchRetailers } from "@/api/retailers";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { RetailerRead } from "@/types/api";
+import { money } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
 
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
@@ -83,6 +84,8 @@ const RetailerRow = memo(function RetailerRow({ item, onPress, onShare, palette 
   const statusFg = item.is_active ? palette.success : palette.textMuted;
   const balance = Number(item.outstanding_balance ?? 0);
   const hasBalance = balance > 0;
+  // Outstanding balance includes opening balance; share needs unpaid bills.
+  const canShare = money(item.outstanding_balance ?? 0).gt(money(item.opening_balance ?? 0));
 
   return (
     <Pressable
@@ -144,7 +147,7 @@ const RetailerRow = memo(function RetailerRow({ item, onPress, onShare, palette 
                 {item.is_active ? "Active" : "Paused"}
               </Text>
             </View>
-            {hasBalance ? (
+            {canShare ? (
               <ShareButton item={item} onShare={onShare} palette={palette} />
             ) : null}
           </View>
