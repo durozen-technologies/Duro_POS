@@ -504,11 +504,28 @@ def run_all_tenant_migrations(
 
 class TenantSchemaRouter:
     async def resolve_schema(self, db: AsyncSession, organization_id: UUID) -> str | None:
+        from app.core.config import get_settings
+        from app.core.redis_cache import cache_get_json, cache_set_json, org_schema_cache_key
         from app.models import Organization
 
-        return await db.scalar(
+        cache_key = org_schema_cache_key(organization_id)
+        cached = await cache_get_json(cache_key)
+        if isinstance(cached, str) and cached:
+            return cached
+        if cached is None:
+            pass
+        elif cached == "":
+            return None
+
+        schema_name = await db.scalar(
             select(Organization.schema_name).where(Organization.id == organization_id)
         )
+        await cache_set_json(
+            cache_key,
+            schema_name or "",
+            ttl_seconds=get_settings().redis_org_schema_cache_ttl,
+        )
+        return schema_name
 
 
 tenant_router = TenantSchemaRouter()

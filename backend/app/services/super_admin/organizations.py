@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.permission_codes import TENANT_FULL_ADMIN_PERMISSIONS
 from app.core.errors import BRANCH_LIMIT_REACHED_DETAIL
 from app.core.logging import log_event
+from app.core.redis_cache import evict_org_schema_cache
 from app.db.database import get_session_local
 from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import (
@@ -234,6 +235,7 @@ async def create_organization(
     )
     await db.commit()
     await db.refresh(org)
+    await evict_org_schema_cache(org.id)
     log_event(
         logger, logging.INFO, "organization_created", "organization created", org_id=str(org.id)
     )
@@ -562,6 +564,7 @@ async def hard_delete_organization(
         # Core delete — ORM db.delete(org) would SELECT public.shops (tenant-only table).
         await db.execute(delete(Organization).where(Organization.id == org_id))
         await db.commit()
+        await evict_org_schema_cache(org_id)
         log_event(
             logger,
             logging.INFO,

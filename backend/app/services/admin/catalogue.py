@@ -6,6 +6,7 @@ from sqlalchemy import and_, case, cast, func, null, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redis_cache import evict_shop_bootstrap_cache
 from app.core.timezone import (
     ist_day_bounds,
     ist_month_bounds,
@@ -13,10 +14,6 @@ from app.core.timezone import (
     ist_week_bounds,
     ist_year_bounds,
     today_ist,
-)
-from app.services.global_image_templates import (
-    build_image_paths_for_row,
-    load_templates_for_item_rows,
 )
 from app.models import (
     Bill,
@@ -52,6 +49,10 @@ from app.services.admin._shared import (
     _shop_item_visibility_filter,
     _sum_if,
     _zero_if_null,
+)
+from app.services.global_image_templates import (
+    build_image_paths_for_row,
+    load_templates_for_item_rows,
 )
 
 
@@ -1704,6 +1705,7 @@ async def allocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID) -
             after={"shop_id": str(shop.id), "item_id": str(item_id)},
         )
         await db.commit()
+    await evict_shop_bootstrap_cache(shop.id)
     return await get_shop_item(db, shop, item_id)
 
 
@@ -1794,6 +1796,8 @@ async def allocate_catalogue_items(
                         raise
                     allocated_count = 0
 
+    if allocated_count:
+        await evict_shop_bootstrap_cache(shop.id)
     return ShopItemAllocationBulkRead(
         item_ids=unique_item_ids,
         allocated_count=allocated_count,
@@ -1897,6 +1901,7 @@ async def deallocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID)
         )
         await db.delete(allocation)
         await db.commit()
+        await evict_shop_bootstrap_cache(shop.id)
     return await get_shop_item(db, shop, item_id)
 
 

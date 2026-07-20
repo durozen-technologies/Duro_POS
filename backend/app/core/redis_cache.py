@@ -1,7 +1,8 @@
-"""Optional Redis helpers for tenant admin permission cache."""
+"""Optional Redis helpers for permission, shop hot-read, and org→schema caches."""
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from typing import Any
@@ -13,6 +14,7 @@ from fastapi import FastAPI
 logger = logging.getLogger(__name__)
 
 _bound_app: FastAPI | None = None
+_GEN_TTL_SECONDS = 7 * 24 * 60 * 60
 
 try:
     from redis_fastapi.cache_backend import CacheBackend
@@ -145,3 +147,76 @@ async def cache_delete(key: str) -> None:
 
 async def evict_user_permission_cache(user_id: UUID, perm_version: int) -> None:
     await cache_delete(permission_cache_key(str(user_id), perm_version))
+
+
+def _shop_bills_gen_key(shop_id: UUID) -> str:
+    return f"{_redis_key_prefix()}:shop:{shop_id}:bills:gen"
+
+
+def _shop_bootstrap_gen_key(shop_id: UUID) -> str:
+    return f"{_redis_key_prefix()}:shop:{shop_id}:bootstrap:gen"
+
+
+def _shop_inventory_summary_gen_key(shop_id: UUID) -> str:
+    return f"{_redis_key_prefix()}:shop:{shop_id}:invsum:gen"
+
+
+async def _get_generation(gen_key: str) -> int:
+    raw = await cache_get_json(gen_key)
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.isdigit():
+        return int(raw)
+    return 0
+
+
+async def _bump_generation(gen_key: str) -> None:
+    current = await _get_generation(gen_key)
+    await cache_set_json(gen_key, current + 1, ttl_seconds=_GEN_TTL_SECONDS)
+
+
+def hash_cache_parts(*parts: object) -> str:
+    """Stable short hash for filter/query dimensions in cache keys."""
+    payload = "|".join("" if part is None else str(part) for part in parts)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+async def shop_bills_cache_key(shop_id: UUID, filter_hash: str) -> str:
+    gen = await _get_generation(_shop_bills_gen_key(shop_id))
+    return f"{_redis_key_prefix()}:shop:{shop_id}:bills:v{gen}:{filter_hash}"
+
+
+async def shop_bootstrap_cache_key(shop_id: UUID, price_date: str) -> str:
+    gen = await _get_generation(_shop_bootstrap_gen_key(shop_id))
+    return f"{_redis_key_prefix()}:shop:{shop_id}:bootstrap:v{gen}:{price_date}"
+
+
+async def shop_inventory_summary_cache_key(
+    shop_id: UUID,
+    *,
+    include_unallocated: bool,
+    active_allocations_only: bool,
+) -> str:
+    gen = await _get_generation(_shop_inventory_summary_gen_key(shop_id))
+    flags = f"{int(include_unallocated)}{int(active_allocations_only)}"
+    return f"{_redis_key_prefix()}:shop:{shop_id}:invsum:v{gen}:{flags}"
+
+
+def org_schema_cache_key(organization_id: UUID) -> str:
+    return f"{_redis_key_prefix()}:org:{organization_id}:schema"
+
+
+async def evict_shop_bills_cache(shop_id: UUID) -> None:
+    await _bump_generation(_shop_bills_gen_key(shop_id))
+
+
+async def evict_shop_bootstrap_cache(shop_id: UUID) -> None:
+    await _bump_generation(_shop_bootstrap_gen_key(shop_id))
+
+
+async def evict_shop_inventory_summary_cache(shop_id: UUID) -> None:
+    await _bump_generation(_shop_inventory_summary_gen_key(shop_id))
+
+
+async def evict_org_schema_cache(organization_id: UUID) -> None:
+    await cache_delete(org_schema_cache_key(organization_id))

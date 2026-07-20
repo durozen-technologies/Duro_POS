@@ -224,6 +224,10 @@ Production runs **two backend replicas** behind Caddy (`round_robin` + active `/
 
 **Redis is required** for correct login rate limiting across replicas. If Redis is down, each backend falls back to in-memory counters (limits are effectively doubled). Keep `REDIS_PASSWORD` set and Redis healthy before enabling dual-backend mode.
 
+Redis also caches short-TTL shop hot reads (`/shop/bills`, `/shop/bootstrap`, inventory summary) and org→schema lookups. Without Redis those paths hit Postgres every time (safe but slower under load).
+
+For cashier thumbnail load, prefer `RUSTFS_PUBLIC_READ_ENABLED=True` with `RUSTFS_PUBLIC_BASE_URL` so images skip the API/DB proxy — see `docs/rustfs.md`.
+
 Database migrations run **once** via the `migrate` compose service (`scripts/deploy-prod.sh` → `compose run --rm migrate`) — not on backend startup.
 
 ### Deploy flow

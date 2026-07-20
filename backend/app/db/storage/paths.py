@@ -41,7 +41,7 @@ _bucket_ready = False
 _public_read_policy_ready = False
 _bucket_init_lock: asyncio.Lock | None = None
 IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable"
-PROXY_IMAGE_CACHE_CONTROL = "public, max-age=3600"
+PROXY_IMAGE_CACHE_CONTROL = "public, max-age=86400"
 ImageVariant = Literal["original", "thumb"]
 StorageScope = Literal["tenant", "global"]
 GLOBAL_IMAGE_PREFIX = "global/items"

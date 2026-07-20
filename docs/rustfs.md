@@ -56,9 +56,33 @@ RUSTFS_ACCESS_KEY_ID=...
 RUSTFS_SECRET_ACCESS_KEY=...
 RUSTFS_BUCKET_NAME=pos-mlb-items
 RUSTFS_REGION_NAME=us-east-1
-RUSTFS_PUBLIC_BASE_URL=
-RUSTFS_PUBLIC_READ_ENABLED=False
+# Prefer public reads in production so cashier thumbs hit object storage
+# (or a CDN in front of it) instead of FastAPI + tenant DB on every request.
+RUSTFS_PUBLIC_BASE_URL=https://images.example.com
+RUSTFS_PUBLIC_READ_ENABLED=True
 ```
+
+When `RUSTFS_PUBLIC_READ_ENABLED=True` and `RUSTFS_PUBLIC_BASE_URL` is set,
+bootstrap/`ItemPriceRead` image URLs point at `{PUBLIC_BASE}/{bucket}/{object_key}`
+and skip the authenticated `/api/v1/catalog/.../image` proxy. Ensure the bucket
+(or CDN) allows anonymous GET for object keys under the item image prefixes.
+
+If public read stays off, the API proxy still serves images with
+`Cache-Control: public, max-age=86400` and `ETag` / `If-None-Match` 304 support.
+Hot thumb paths that already have `image_object_key` on the row do not open a
+platform DB session for global template resolution.
+
+## Production compose
+
+```yaml
+RUSTFS_PUBLIC_BASE_URL: ${BACKEND_RUSTFS_PUBLIC_BASE_URL:-}
+RUSTFS_PUBLIC_READ_ENABLED: ${BACKEND_RUSTFS_PUBLIC_READ_ENABLED:-False}
+```
+
+Set GitHub / VM secrets `BACKEND_RUSTFS_PUBLIC_BASE_URL` and
+`BACKEND_RUSTFS_PUBLIC_READ_ENABLED=True` once the bucket is publicly readable
+(or fronted by Caddy/CDN). Leaving them unset keeps the authenticated proxy
+(safer default; higher backend/DB load under cashier thumbnail prefetch).
 
 ## Virtual-host domains
 

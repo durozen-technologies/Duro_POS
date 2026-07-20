@@ -9,14 +9,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.ids import uuid7
+from app.core.redis_cache import (
+    cache_get_json,
+    cache_set_json,
+    evict_shop_inventory_summary_cache,
+    shop_inventory_summary_cache_key,
+)
 from app.core.timezone import ist_midnight
+from app.db.storage import (
+    delete_inventory_item_image as delete_inventory_item_image_storage,
+)
 from app.db.storage import (
     delete_item_image_storage,
     save_inventory_item_image_upload,
-)
-from app.db.storage import (
-    delete_inventory_item_image as delete_inventory_item_image_storage,
 )
 from app.models import (
     BaseUnit,
@@ -67,9 +74,8 @@ from app.services.global_image_templates import (
     apply_global_image_template_selection,
     build_inventory_image_paths_for_row,
     build_resolved_inventory_item_image_paths,
-    load_templates_for_item_rows,
     get_active_template,
-    require_active_template,
+    load_templates_for_item_rows,
 )
 from app.services.tenant_query import resolve_organization_id
 
@@ -1444,59 +1450,69 @@ async def _movement_totals(
     if not item_ids:
         return empty
 
-    # ADD movements — all-time unless point-in-time ``as_of`` is set
-    add_filter = [
+    used_since_dt = ist_midnight(used_since) if used_since is not None else None
+    movement_base = [
         InventoryMovement.shop_id == shop_id,
         InventoryMovement.inventory_item_id.in_(item_ids),
-        InventoryMovement.movement_type == InventoryMovementType.ADD,
     ]
     if as_of is not None:
-        add_filter.append(InventoryMovement.occurred_at <= as_of)
-    add_rows = (
+        movement_base.append(InventoryMovement.occurred_at <= as_of)
+
+    is_add = InventoryMovement.movement_type == InventoryMovementType.ADD
+    is_use = InventoryMovement.movement_type == InventoryMovementType.USE
+    use_in_window = is_use
+    if used_since_dt is not None:
+        use_in_window = and_(is_use, InventoryMovement.occurred_at >= used_since_dt)
+
+    # One scan for ADD (all-time) + USE (optionally windowed) item totals.
+    item_rows = (
         await db.execute(
             select(
                 InventoryMovement.inventory_item_id,
-                func.coalesce(func.sum(InventoryMovement.quantity), 0).label("quantity"),
-                func.coalesce(func.sum(InventoryMovement.bird_count), 0).label("bird_count"),
+                func.coalesce(
+                    func.sum(case((is_add, InventoryMovement.quantity), else_=0)),
+                    0,
+                ).label("added_qty"),
+                func.coalesce(
+                    func.sum(case((is_add, InventoryMovement.bird_count), else_=0)),
+                    0,
+                ).label("added_bird"),
+                func.coalesce(
+                    func.sum(case((use_in_window, InventoryMovement.quantity), else_=0)),
+                    0,
+                ).label("used_qty"),
+                func.coalesce(
+                    func.sum(case((use_in_window, InventoryMovement.bird_count), else_=0)),
+                    0,
+                ).label("used_bird"),
             )
-            .where(*add_filter)
+            .where(
+                *movement_base,
+                InventoryMovement.movement_type.in_(
+                    (InventoryMovementType.ADD, InventoryMovementType.USE)
+                ),
+            )
             .group_by(InventoryMovement.inventory_item_id)
         )
     ).all()
-    added: dict[UUID, Decimal] = {row.inventory_item_id: row.quantity or ZERO for row in add_rows}
+    added: dict[UUID, Decimal] = {
+        row.inventory_item_id: row.added_qty or ZERO for row in item_rows if row.added_qty
+    }
     added_bird: dict[UUID, int] = {
-        row.inventory_item_id: int(row.bird_count or 0) for row in add_rows
+        row.inventory_item_id: int(row.added_bird or 0)
+        for row in item_rows
+        if row.added_bird
     }
-
-    # USE movements — optionally scoped to a start date
-    use_filter = [
-        InventoryMovement.shop_id == shop_id,
-        InventoryMovement.inventory_item_id.in_(item_ids),
-        InventoryMovement.movement_type == InventoryMovementType.USE,
-    ]
-    if used_since is not None:
-        use_filter.append(
-            InventoryMovement.occurred_at >= ist_midnight(used_since)
-        )
-    if as_of is not None:
-        use_filter.append(InventoryMovement.occurred_at <= as_of)
-
-    use_rows = (
-        await db.execute(
-            select(
-                InventoryMovement.inventory_item_id,
-                func.coalesce(func.sum(InventoryMovement.quantity), 0).label("quantity"),
-                func.coalesce(func.sum(InventoryMovement.bird_count), 0).label("bird_count"),
-            )
-            .where(*use_filter)
-            .group_by(InventoryMovement.inventory_item_id)
-        )
-    ).all()
-    used: dict[UUID, Decimal] = {row.inventory_item_id: row.quantity or ZERO for row in use_rows}
+    used: dict[UUID, Decimal] = {
+        row.inventory_item_id: row.used_qty or ZERO for row in item_rows if row.used_qty
+    }
     used_bird: dict[UUID, int] = {
-        row.inventory_item_id: int(row.bird_count or 0) for row in use_rows
+        row.inventory_item_id: int(row.used_bird or 0) for row in item_rows if row.used_bird
     }
 
+    category_filter = [*movement_base, is_use, InventoryMovement.category_id.is_not(None)]
+    if used_since_dt is not None:
+        category_filter.append(InventoryMovement.occurred_at >= used_since_dt)
     category_rows = (
         await db.execute(
             select(
@@ -1505,10 +1521,7 @@ async def _movement_totals(
                 func.coalesce(func.sum(InventoryMovement.quantity), 0).label("quantity"),
                 func.coalesce(func.sum(InventoryMovement.bird_count), 0).label("bird_count"),
             )
-            .where(
-                *use_filter,
-                InventoryMovement.category_id.is_not(None),
-            )
+            .where(*category_filter)
             .group_by(InventoryMovement.inventory_item_id, InventoryMovement.category_id)
         )
     ).all()
@@ -1519,15 +1532,12 @@ async def _movement_totals(
         (row.inventory_item_id, row.category_id): int(row.bird_count or 0) for row in category_rows
     }
 
-    # TRANSFERRED_OUT — all-time unless scoped to a start date or point-in-time ``as_of``
     transfer_filter = [
         InventoryTransfer.source_shop_id == shop_id,
         InventoryTransfer.inventory_item_id.in_(item_ids),
     ]
-    if used_since is not None:
-        transfer_filter.append(
-            InventoryTransfer.occurred_at >= ist_midnight(used_since)
-        )
+    if used_since_dt is not None:
+        transfer_filter.append(InventoryTransfer.occurred_at >= used_since_dt)
     if as_of is not None:
         transfer_filter.append(InventoryTransfer.occurred_at <= as_of)
     transfer_rows = (
@@ -1558,6 +1568,204 @@ async def _movement_totals(
     )
 
 
+async def _movement_totals_alltime_and_today(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+    *,
+    today: date | None = None,
+) -> tuple[
+    dict[UUID, Decimal],
+    dict[UUID, Decimal],
+    dict[UUID, Decimal],
+    dict[tuple[UUID, UUID], Decimal],
+    dict[UUID, Decimal],
+    dict[UUID, Decimal],
+    dict[UUID, int],
+    dict[UUID, int],
+    dict[UUID, int],
+    dict[tuple[UUID, UUID], int],
+    dict[UUID, int],
+    dict[UUID, int],
+]:
+    """All-time ADD + all-time/today USE + transfers in two movement scans + one transfer scan."""
+    empty = ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+    if not item_ids:
+        return empty
+
+    today_dt = ist_midnight(today or date.today())
+    is_add = InventoryMovement.movement_type == InventoryMovementType.ADD
+    is_use = InventoryMovement.movement_type == InventoryMovementType.USE
+    use_today = and_(is_use, InventoryMovement.occurred_at >= today_dt)
+
+    item_rows = (
+        await db.execute(
+            select(
+                InventoryMovement.inventory_item_id,
+                func.coalesce(
+                    func.sum(case((is_add, InventoryMovement.quantity), else_=0)), 0
+                ).label("added_qty"),
+                func.coalesce(
+                    func.sum(case((is_add, InventoryMovement.bird_count), else_=0)), 0
+                ).label("added_bird"),
+                func.coalesce(
+                    func.sum(case((is_use, InventoryMovement.quantity), else_=0)), 0
+                ).label("used_all_qty"),
+                func.coalesce(
+                    func.sum(case((is_use, InventoryMovement.bird_count), else_=0)), 0
+                ).label("used_all_bird"),
+                func.coalesce(
+                    func.sum(case((use_today, InventoryMovement.quantity), else_=0)), 0
+                ).label("used_today_qty"),
+                func.coalesce(
+                    func.sum(case((use_today, InventoryMovement.bird_count), else_=0)), 0
+                ).label("used_today_bird"),
+            )
+            .where(
+                InventoryMovement.shop_id == shop_id,
+                InventoryMovement.inventory_item_id.in_(item_ids),
+                InventoryMovement.movement_type.in_(
+                    (InventoryMovementType.ADD, InventoryMovementType.USE)
+                ),
+            )
+            .group_by(InventoryMovement.inventory_item_id)
+        )
+    ).all()
+
+    added = {row.inventory_item_id: row.added_qty or ZERO for row in item_rows if row.added_qty}
+    added_bird = {
+        row.inventory_item_id: int(row.added_bird or 0) for row in item_rows if row.added_bird
+    }
+    used_alltime = {
+        row.inventory_item_id: row.used_all_qty or ZERO for row in item_rows if row.used_all_qty
+    }
+    used_alltime_bird = {
+        row.inventory_item_id: int(row.used_all_bird or 0)
+        for row in item_rows
+        if row.used_all_bird
+    }
+    used_today = {
+        row.inventory_item_id: row.used_today_qty or ZERO
+        for row in item_rows
+        if row.used_today_qty
+    }
+    used_today_bird = {
+        row.inventory_item_id: int(row.used_today_bird or 0)
+        for row in item_rows
+        if row.used_today_bird
+    }
+
+    category_rows = (
+        await db.execute(
+            select(
+                InventoryMovement.inventory_item_id,
+                InventoryMovement.category_id,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (InventoryMovement.occurred_at >= today_dt, InventoryMovement.quantity),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("quantity"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                InventoryMovement.occurred_at >= today_dt,
+                                InventoryMovement.bird_count,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("bird_count"),
+            )
+            .where(
+                InventoryMovement.shop_id == shop_id,
+                InventoryMovement.inventory_item_id.in_(item_ids),
+                is_use,
+                InventoryMovement.category_id.is_not(None),
+            )
+            .group_by(InventoryMovement.inventory_item_id, InventoryMovement.category_id)
+        )
+    ).all()
+    category_used_today = {
+        (row.inventory_item_id, row.category_id): row.quantity or ZERO
+        for row in category_rows
+        if row.quantity
+    }
+    category_used_today_bird = {
+        (row.inventory_item_id, row.category_id): int(row.bird_count or 0)
+        for row in category_rows
+        if row.bird_count
+    }
+
+    transfer_rows = (
+        await db.execute(
+            select(
+                InventoryTransfer.inventory_item_id,
+                func.coalesce(func.sum(InventoryTransfer.quantity), 0).label("all_qty"),
+                func.coalesce(func.sum(InventoryTransfer.bird_count), 0).label("all_bird"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (InventoryTransfer.occurred_at >= today_dt, InventoryTransfer.quantity),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("today_qty"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                InventoryTransfer.occurred_at >= today_dt,
+                                InventoryTransfer.bird_count,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("today_bird"),
+            )
+            .where(
+                InventoryTransfer.source_shop_id == shop_id,
+                InventoryTransfer.inventory_item_id.in_(item_ids),
+            )
+            .group_by(InventoryTransfer.inventory_item_id)
+        )
+    ).all()
+    transferred_alltime = {
+        row.inventory_item_id: row.all_qty or ZERO for row in transfer_rows if row.all_qty
+    }
+    transferred_alltime_bird = {
+        row.inventory_item_id: int(row.all_bird or 0) for row in transfer_rows if row.all_bird
+    }
+    transferred_today = {
+        row.inventory_item_id: row.today_qty or ZERO for row in transfer_rows if row.today_qty
+    }
+    transferred_today_bird = {
+        row.inventory_item_id: int(row.today_bird or 0) for row in transfer_rows if row.today_bird
+    }
+
+    return (
+        added,
+        used_alltime,
+        used_today,
+        category_used_today,
+        transferred_alltime,
+        transferred_today,
+        added_bird,
+        used_alltime_bird,
+        used_today_bird,
+        category_used_today_bird,
+        transferred_alltime_bird,
+        transferred_today_bird,
+    )
+
+
 async def _retailer_usage_totals(
     db: AsyncSession,
     shop_id: UUID,
@@ -1579,30 +1787,12 @@ async def _retailer_usage_totals(
         RetailerInventoryUsage.inventory_item_id.in_(item_ids),
     ]
     if used_since is not None:
-        usage_filter.append(
-            RetailerInventoryUsage.occurred_at
-            >= ist_midnight(used_since)
-        )
+        usage_filter.append(RetailerInventoryUsage.occurred_at >= ist_midnight(used_since))
     if as_of is not None:
         usage_filter.append(RetailerInventoryUsage.occurred_at <= as_of)
 
-    item_rows = (
-        await db.execute(
-            select(
-                RetailerInventoryUsage.inventory_item_id,
-                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("quantity"),
-                func.coalesce(func.sum(RetailerInventoryUsage.bird_count), 0).label("bird_count"),
-            )
-            .where(*usage_filter)
-            .group_by(RetailerInventoryUsage.inventory_item_id)
-        )
-    ).all()
-    item_totals = {row.inventory_item_id: row.quantity or ZERO for row in item_rows}
-    item_bird_totals = {
-        row.inventory_item_id: int(row.bird_count or 0) for row in item_rows
-    }
-
-    category_rows = (
+    # One scan: item totals + category totals via grouping with nullable category.
+    rows = (
         await db.execute(
             select(
                 RetailerInventoryUsage.inventory_item_id,
@@ -1610,17 +1800,178 @@ async def _retailer_usage_totals(
                 func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("quantity"),
                 func.coalesce(func.sum(RetailerInventoryUsage.bird_count), 0).label("bird_count"),
             )
-            .where(*usage_filter, RetailerInventoryUsage.category_id.is_not(None))
+            .where(*usage_filter)
             .group_by(RetailerInventoryUsage.inventory_item_id, RetailerInventoryUsage.category_id)
         )
     ).all()
-    category_totals = {
-        (row.inventory_item_id, row.category_id): row.quantity or ZERO for row in category_rows
-    }
-    category_bird_totals = {
-        (row.inventory_item_id, row.category_id): int(row.bird_count or 0) for row in category_rows
-    }
+    item_totals: dict[UUID, Decimal] = {}
+    item_bird_totals: dict[UUID, int] = {}
+    category_totals: dict[tuple[UUID, UUID], Decimal] = {}
+    category_bird_totals: dict[tuple[UUID, UUID], int] = {}
+    for row in rows:
+        qty = row.quantity or ZERO
+        birds = int(row.bird_count or 0)
+        item_totals[row.inventory_item_id] = item_totals.get(row.inventory_item_id, ZERO) + qty
+        item_bird_totals[row.inventory_item_id] = item_bird_totals.get(row.inventory_item_id, 0) + birds
+        if row.category_id is not None:
+            category_totals[(row.inventory_item_id, row.category_id)] = qty
+            category_bird_totals[(row.inventory_item_id, row.category_id)] = birds
     return item_totals, category_totals, item_bird_totals, category_bird_totals
+
+
+async def _retailer_usage_totals_alltime_and_today(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+    *,
+    today: date | None = None,
+) -> tuple[
+    dict[UUID, Decimal],
+    dict[tuple[UUID, UUID], Decimal],
+    dict[UUID, int],
+    dict[tuple[UUID, UUID], int],
+    dict[UUID, Decimal],
+    dict[tuple[UUID, UUID], Decimal],
+    dict[UUID, int],
+    dict[tuple[UUID, UUID], int],
+]:
+    if not item_ids:
+        return {}, {}, {}, {}, {}, {}, {}, {}
+
+    today_dt = ist_midnight(today or date.today())
+    rows = (
+        await db.execute(
+            select(
+                RetailerInventoryUsage.inventory_item_id,
+                RetailerInventoryUsage.category_id,
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0).label("all_qty"),
+                func.coalesce(func.sum(RetailerInventoryUsage.bird_count), 0).label("all_bird"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                RetailerInventoryUsage.occurred_at >= today_dt,
+                                RetailerInventoryUsage.quantity,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("today_qty"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                RetailerInventoryUsage.occurred_at >= today_dt,
+                                RetailerInventoryUsage.bird_count,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("today_bird"),
+            )
+            .where(
+                RetailerInventoryUsage.shop_id == shop_id,
+                RetailerInventoryUsage.inventory_item_id.in_(item_ids),
+            )
+            .group_by(RetailerInventoryUsage.inventory_item_id, RetailerInventoryUsage.category_id)
+        )
+    ).all()
+
+    all_item: dict[UUID, Decimal] = {}
+    all_item_bird: dict[UUID, int] = {}
+    all_cat: dict[tuple[UUID, UUID], Decimal] = {}
+    all_cat_bird: dict[tuple[UUID, UUID], int] = {}
+    today_item: dict[UUID, Decimal] = {}
+    today_item_bird: dict[UUID, int] = {}
+    today_cat: dict[tuple[UUID, UUID], Decimal] = {}
+    today_cat_bird: dict[tuple[UUID, UUID], int] = {}
+    for row in rows:
+        all_qty = row.all_qty or ZERO
+        all_bird = int(row.all_bird or 0)
+        today_qty = row.today_qty or ZERO
+        today_bird = int(row.today_bird or 0)
+        all_item[row.inventory_item_id] = all_item.get(row.inventory_item_id, ZERO) + all_qty
+        all_item_bird[row.inventory_item_id] = all_item_bird.get(row.inventory_item_id, 0) + all_bird
+        today_item[row.inventory_item_id] = today_item.get(row.inventory_item_id, ZERO) + today_qty
+        today_item_bird[row.inventory_item_id] = (
+            today_item_bird.get(row.inventory_item_id, 0) + today_bird
+        )
+        if row.category_id is not None:
+            all_cat[(row.inventory_item_id, row.category_id)] = all_qty
+            all_cat_bird[(row.inventory_item_id, row.category_id)] = all_bird
+            if today_qty or today_bird:
+                today_cat[(row.inventory_item_id, row.category_id)] = today_qty
+                today_cat_bird[(row.inventory_item_id, row.category_id)] = today_bird
+    return (
+        all_item,
+        all_cat,
+        all_item_bird,
+        all_cat_bird,
+        today_item,
+        today_cat,
+        today_item_bird,
+        today_cat_bird,
+    )
+
+
+async def _shop_today_header_totals(
+    db: AsyncSession,
+    shop_id: UUID,
+    item_ids: list[UUID],
+    *,
+    today: date | None = None,
+) -> tuple[Decimal, Decimal, Decimal, int, int, int]:
+    """Cheap shop-level today used/transfer/retailer totals for stock-rows header."""
+    if not item_ids:
+        return ZERO, ZERO, ZERO, 0, 0, 0
+    today_dt = ist_midnight(today or date.today())
+    used_qty, used_bird = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(InventoryMovement.quantity), 0),
+                func.coalesce(func.sum(InventoryMovement.bird_count), 0),
+            ).where(
+                InventoryMovement.shop_id == shop_id,
+                InventoryMovement.inventory_item_id.in_(item_ids),
+                InventoryMovement.movement_type == InventoryMovementType.USE,
+                InventoryMovement.occurred_at >= today_dt,
+            )
+        )
+    ).one()
+    transfer_qty, transfer_bird = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(InventoryTransfer.quantity), 0),
+                func.coalesce(func.sum(InventoryTransfer.bird_count), 0),
+            ).where(
+                InventoryTransfer.source_shop_id == shop_id,
+                InventoryTransfer.inventory_item_id.in_(item_ids),
+                InventoryTransfer.occurred_at >= today_dt,
+            )
+        )
+    ).one()
+    retailer_qty, retailer_bird = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(RetailerInventoryUsage.quantity), 0),
+                func.coalesce(func.sum(RetailerInventoryUsage.bird_count), 0),
+            ).where(
+                RetailerInventoryUsage.shop_id == shop_id,
+                RetailerInventoryUsage.inventory_item_id.in_(item_ids),
+                RetailerInventoryUsage.occurred_at >= today_dt,
+            )
+        )
+    ).one()
+    return (
+        transfer_qty or ZERO,
+        used_qty or ZERO,
+        retailer_qty or ZERO,
+        int(transfer_bird or 0),
+        int(used_bird or 0),
+        int(retailer_bird or 0),
+    )
 
 
 async def _stock_last_updated_at_by_item_id(
@@ -1634,61 +1985,44 @@ async def _stock_last_updated_at_by_item_id(
 
     last_updated: dict[UUID, datetime | None] = dict.fromkeys(unique_item_ids)
 
-    def _apply_rows(rows: list[object]) -> None:
-        for row in rows:
-            item_id = row.inventory_item_id
-            occurred_at = row.last_at
-            if occurred_at is None:
-                continue
-            current = last_updated.get(item_id)
-            if current is None or occurred_at > current:
-                last_updated[item_id] = occurred_at
-
-    movement_rows = (
+    movement_sub = (
+        select(
+            InventoryMovement.inventory_item_id.label("inventory_item_id"),
+            InventoryMovement.occurred_at.label("occurred_at"),
+        ).where(
+            InventoryMovement.shop_id == shop_id,
+            InventoryMovement.inventory_item_id.in_(unique_item_ids),
+        )
+    )
+    usage_sub = (
+        select(
+            RetailerInventoryUsage.inventory_item_id.label("inventory_item_id"),
+            RetailerInventoryUsage.occurred_at.label("occurred_at"),
+        ).where(
+            RetailerInventoryUsage.shop_id == shop_id,
+            RetailerInventoryUsage.inventory_item_id.in_(unique_item_ids),
+        )
+    )
+    transfer_sub = (
+        select(
+            InventoryTransfer.inventory_item_id.label("inventory_item_id"),
+            InventoryTransfer.occurred_at.label("occurred_at"),
+        ).where(
+            InventoryTransfer.source_shop_id == shop_id,
+            InventoryTransfer.inventory_item_id.in_(unique_item_ids),
+        )
+    )
+    events = movement_sub.union_all(usage_sub, transfer_sub).subquery()
+    rows = (
         await db.execute(
             select(
-                InventoryMovement.inventory_item_id,
-                func.max(InventoryMovement.occurred_at).label("last_at"),
-            )
-            .where(
-                InventoryMovement.shop_id == shop_id,
-                InventoryMovement.inventory_item_id.in_(unique_item_ids),
-            )
-            .group_by(InventoryMovement.inventory_item_id)
+                events.c.inventory_item_id,
+                func.max(events.c.occurred_at).label("last_at"),
+            ).group_by(events.c.inventory_item_id)
         )
     ).all()
-    _apply_rows(movement_rows)
-
-    usage_rows = (
-        await db.execute(
-            select(
-                RetailerInventoryUsage.inventory_item_id,
-                func.max(RetailerInventoryUsage.occurred_at).label("last_at"),
-            )
-            .where(
-                RetailerInventoryUsage.shop_id == shop_id,
-                RetailerInventoryUsage.inventory_item_id.in_(unique_item_ids),
-            )
-            .group_by(RetailerInventoryUsage.inventory_item_id)
-        )
-    ).all()
-    _apply_rows(usage_rows)
-
-    transfer_rows = (
-        await db.execute(
-            select(
-                InventoryTransfer.inventory_item_id,
-                func.max(InventoryTransfer.occurred_at).label("last_at"),
-            )
-            .where(
-                InventoryTransfer.source_shop_id == shop_id,
-                InventoryTransfer.inventory_item_id.in_(unique_item_ids),
-            )
-            .group_by(InventoryTransfer.inventory_item_id)
-        )
-    ).all()
-    _apply_rows(transfer_rows)
-
+    for row in rows:
+        last_updated[row.inventory_item_id] = row.last_at
     return last_updated
 
 
@@ -1779,6 +2113,39 @@ async def get_inventory_summary(
     include_unallocated: bool = False,
     active_allocations_only: bool = False,
 ) -> InventorySummaryRead:
+    cache_key = await shop_inventory_summary_cache_key(
+        shop.id,
+        include_unallocated=include_unallocated,
+        active_allocations_only=active_allocations_only,
+    )
+    cached = await cache_get_json(cache_key)
+    if isinstance(cached, dict):
+        try:
+            return InventorySummaryRead.model_validate(cached)
+        except Exception:
+            pass
+
+    summary = await _get_inventory_summary_from_db(
+        db,
+        shop,
+        include_unallocated=include_unallocated,
+        active_allocations_only=active_allocations_only,
+    )
+    await cache_set_json(
+        cache_key,
+        summary.model_dump(mode="json"),
+        ttl_seconds=get_settings().redis_inventory_summary_cache_ttl,
+    )
+    return summary
+
+
+async def _get_inventory_summary_from_db(
+    db: AsyncSession,
+    shop: Shop,
+    *,
+    include_unallocated: bool = False,
+    active_allocations_only: bool = False,
+) -> InventorySummaryRead:
     allocation_query = select(ShopInventoryAllocation).where(
         ShopInventoryAllocation.shop_id == shop.id
     )
@@ -1829,35 +2196,27 @@ async def get_inventory_summary(
     (
         added,
         used_alltime,
-        _,
-        transferred_alltime,
-        added_bird,
-        used_alltime_bird,
-        _,
-        transferred_alltime_bird,
-    ) = await _movement_totals(db, shop.id, item_ids)
-    (
-        _,
         used_today,
         category_used_today,
+        transferred_alltime,
         transferred_today,
-        _,
+        added_bird,
+        used_alltime_bird,
         used_today_bird,
         category_used_today_bird,
+        transferred_alltime_bird,
         transferred_today_bird,
-    ) = await _movement_totals(db, shop.id, item_ids, used_since=date.today())
+    ) = await _movement_totals_alltime_and_today(db, shop.id, item_ids)
     (
         retailer_used_alltime,
-        category_retailer_used_alltime,
+        _,
         retailer_used_alltime_bird,
-        category_retailer_used_alltime_bird,
-    ) = await _retailer_usage_totals(db, shop.id, item_ids)
-    (
+        _,
         retailer_used_today,
         category_retailer_used_today,
         retailer_used_today_bird,
         category_retailer_used_today_bird,
-    ) = await _retailer_usage_totals(db, shop.id, item_ids, used_since=date.today())
+    ) = await _retailer_usage_totals_alltime_and_today(db, shop.id, item_ids)
     stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, item_ids)
     templates_by_id = await load_templates_for_item_rows(list(items))
     stock_items = [
@@ -2034,40 +2393,30 @@ async def list_inventory_stock_rows(
     page_rows = rows[:limit]
     has_more = len(rows) > limit
     item_ids = [row[0].id for row in page_rows]
-    # Fetch all-time totals for correct available_quantity, and today-only
-    # totals for the displayed used_quantity (which resets each day).
     (
         added,
         used_alltime,
-        _,
-        transferred_alltime,
-        added_bird,
-        used_alltime_bird,
-        _,
-        transferred_alltime_bird,
-    ) = await _movement_totals(db, shop.id, item_ids)
-    (
-        _,
         used_today,
         category_used_today,
+        transferred_alltime,
         transferred_today,
-        _,
+        added_bird,
+        used_alltime_bird,
         used_today_bird,
         category_used_today_bird,
+        transferred_alltime_bird,
         transferred_today_bird,
-    ) = await _movement_totals(db, shop.id, item_ids, used_since=date.today())
+    ) = await _movement_totals_alltime_and_today(db, shop.id, item_ids)
     (
         retailer_used_alltime,
-        category_retailer_used_alltime,
+        _,
         retailer_used_alltime_bird,
-        category_retailer_used_alltime_bird,
-    ) = await _retailer_usage_totals(db, shop.id, item_ids)
-    (
+        _,
         retailer_used_today,
         category_retailer_used_today,
         retailer_used_today_bird,
         category_retailer_used_today_bird,
-    ) = await _retailer_usage_totals(db, shop.id, item_ids, used_since=date.today())
+    ) = await _retailer_usage_totals_alltime_and_today(db, shop.id, item_ids)
 
     stock_last_updated = await _stock_last_updated_at_by_item_id(db, shop.id, item_ids)
 
@@ -2127,15 +2476,28 @@ async def list_inventory_stock_rows(
     total_used_bird_count = 0
     total_retailer_used_bird_count = 0
     if cursor_id is None:
-        summary = await get_inventory_summary(
-            db, shop, include_unallocated=False, active_allocations_only=active_allocations_only
+        header_item_ids = list(
+            (
+                await db.scalars(
+                    select(ShopInventoryAllocation.inventory_item_id).where(
+                        ShopInventoryAllocation.shop_id == shop.id,
+                        *(
+                            [ShopInventoryAllocation.is_active.is_(True)]
+                            if active_allocations_only
+                            else []
+                        ),
+                    )
+                )
+            ).all()
         )
-        total_transfer_stock = summary.total_transfer_stock
-        total_used_stock = summary.total_used_stock
-        total_retailer_used_stock = summary.total_retailer_used_stock
-        total_transfer_bird_count = summary.total_transfer_bird_count
-        total_used_bird_count = summary.total_used_bird_count
-        total_retailer_used_bird_count = summary.total_retailer_used_bird_count
+        (
+            total_transfer_stock,
+            total_used_stock,
+            total_retailer_used_stock,
+            total_transfer_bird_count,
+            total_used_bird_count,
+            total_retailer_used_bird_count,
+        ) = await _shop_today_header_totals(db, shop.id, header_item_ids)
 
     return InventoryStockRowsPage(
         shop_id=shop.id,
@@ -2690,6 +3052,7 @@ async def add_shop_inventory_stock(
     )
     db.add(movement)
     await db.commit()
+    await evict_shop_inventory_summary_cache(shop.id)
     await db.refresh(movement)
     movement = await db.scalar(
         select(InventoryMovement)
@@ -2776,6 +3139,7 @@ async def use_shop_inventory_stock(
     )
     db.add(movement)
     await db.commit()
+    await evict_shop_inventory_summary_cache(shop.id)
     await db.refresh(movement)
     movement = await db.scalar(
         select(InventoryMovement)
@@ -2891,6 +3255,7 @@ async def use_shop_inventory_stock_split(
     await db.flush()
     movement_ids = [movement.id for movement in movements]
     await db.commit()
+    await evict_shop_inventory_summary_cache(shop.id)
     saved_movements = (
         await db.scalars(
             select(InventoryMovement)
@@ -3334,6 +3699,7 @@ async def admin_set_shop_inventory_stock(
         db.add(movement)
     if movements_added or transfer_changed:
         await db.commit()
+        await evict_shop_inventory_summary_cache(shop.id)
 
     return await _stock_item_for_shop_inventory_item(
         db, shop, item, allocation, used_since=date.today()

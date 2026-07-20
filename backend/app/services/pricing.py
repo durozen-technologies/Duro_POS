@@ -7,10 +7,14 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.global_image_templates import (
-    build_image_paths_for_row,
-    load_templates_for_item_rows,
+from app.core.config import get_settings
+from app.core.redis_cache import (
+    cache_get_json,
+    cache_set_json,
+    evict_shop_bootstrap_cache,
+    shop_bootstrap_cache_key,
 )
+from app.core.timezone import today_ist
 from app.models import DailyPrice, Item, Shop, ShopItemAllocation
 from app.schemas.admin import PriceStatus
 from app.schemas.pricing import (
@@ -20,6 +24,10 @@ from app.schemas.pricing import (
     DailyPriceUpdate,
     ItemPriceRead,
     ShopBootstrapResponse,
+)
+from app.services.global_image_templates import (
+    build_image_paths_for_row,
+    load_templates_for_item_rows,
 )
 
 
@@ -64,11 +72,13 @@ async def _invalidate_daily_prices_publication(db: AsyncSession, shop: Shop) -> 
     if shop.daily_prices_published_on == date.today():
         shop.daily_prices_published_on = None
         await db.commit()
+    await evict_shop_bootstrap_cache(shop.id)
 
 
 async def _publish_daily_prices(db: AsyncSession, shop: Shop, target_date: date) -> None:
     shop.daily_prices_published_on = target_date
     await db.commit()
+    await evict_shop_bootstrap_cache(shop.id)
 
 
 def _validate_daily_price_entries(
@@ -247,7 +257,27 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
     Uses one latest-price subquery for the selected shop instead of two
     correlated latest-price lookups per item.
     """
-    today = date.today()
+    today = today_ist()
+    cache_key = await shop_bootstrap_cache_key(shop.id, today.isoformat())
+    cached = await cache_get_json(cache_key)
+    if isinstance(cached, dict):
+        try:
+            return ShopBootstrapResponse.model_validate(cached)
+        except Exception:
+            pass
+
+    result = await _get_shop_bootstrap_from_db(db, shop, today=today)
+    await cache_set_json(
+        cache_key,
+        result.model_dump(mode="json"),
+        ttl_seconds=get_settings().redis_shop_bootstrap_cache_ttl,
+    )
+    return result
+
+
+async def _get_shop_bootstrap_from_db(
+    db: AsyncSession, shop: Shop, *, today: date
+) -> ShopBootstrapResponse:
     latest_prices = (
         select(
             DailyPrice.item_id.label("item_id"),
@@ -312,13 +342,12 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
     prices_published = _shop_prices_published_today(shop, today)
     prices_set = has_today_prices and prices_published
 
-    return ShopBootstrapResponse(
-        shop_id=shop.id,
-        shop_name=shop.name,
-        price_date=today,
-        prices_set=prices_set,
-        next_screen="billing" if prices_set else "daily_price_setup",
-        items=[
+    items: list[ItemPriceRead] = []
+    for row in rows:
+        image_path, image_thumb_path, _content_type = build_image_paths_for_row(
+            row, templates_by_id
+        )
+        items.append(
             ItemPriceRead(
                 item_id=row.id,
                 item_name=(row.display_name or row.name).strip(),
@@ -333,11 +362,18 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
                 else row.sort_order,
                 category_id=row.category_id,
                 category=row.category,
-                image_path=build_image_paths_for_row(row, templates_by_id)[0],
-                image_thumb_path=build_image_paths_for_row(row, templates_by_id)[1],
+                image_path=image_path,
+                image_thumb_path=image_thumb_path,
             )
-            for row in rows
-        ],
+        )
+
+    return ShopBootstrapResponse(
+        shop_id=shop.id,
+        shop_name=shop.name,
+        price_date=today,
+        prices_set=prices_set,
+        next_screen="billing" if prices_set else "daily_price_setup",
+        items=items,
     )
 
 
@@ -478,6 +514,8 @@ async def create_daily_prices(
     saved = await _upsert_daily_price_entries(db, shop.id, target_date, entries, items_by_id)
     if publish:
         await _publish_daily_prices(db, shop, target_date)
+    else:
+        await evict_shop_bootstrap_cache(shop.id)
     return saved
 
 
