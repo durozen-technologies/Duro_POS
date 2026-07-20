@@ -220,6 +220,8 @@ All services attach to **`brolier360-pos-edge`** and **`brolier360-pos-internal`
 
 Production runs **two backend replicas** behind Caddy (`round_robin` + active `/health` checks). Both connect to Postgres through **pgBouncer** (session pooling, port 6432). Backends use **psycopg3 async** with `prepare_threshold=None` and SQLAlchemy `NullPool` so no `__asyncpg_stmt_*` prepared statements hit the pooler; health probes use `exec_driver_sql("SELECT 1")`.
 
+**Connection capacity** is governed by PgBouncer (`PGBOUNCER_*` in deploy `.env`), not `DB_POOL_*` — the latter only apply when connecting to Postgres directly (local dev). Defaults: `default_pool_size=40`, `max_db_connections=80`, `max_client_conn=400`, Postgres `max_connections=120`. Tune via GitHub/env overrides before load tests; keep `max_db_connections` below Postgres `max_connections` minus headroom for migrate/admin.
+
 **Redis is required** for correct login rate limiting across replicas. If Redis is down, each backend falls back to in-memory counters (limits are effectively doubled). Keep `REDIS_PASSWORD` set and Redis healthy before enabling dual-backend mode.
 
 Database migrations run **once** via the `migrate` compose service (`scripts/deploy-prod.sh` → `compose run --rm migrate`) — not on backend startup.
