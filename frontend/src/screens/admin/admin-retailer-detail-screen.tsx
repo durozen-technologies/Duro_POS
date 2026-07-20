@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -12,12 +13,22 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchAdminRetailerInventoryPurchases } from "@/api/retailer-inventory";
-import { fetchRetailerBalance, fetchRetailerBranchAllocations } from "@/api/retailers";
+import {
+  fetchRetailerBalance,
+  fetchRetailerBranchAllocations,
+  settleAdminRetailerOutstanding,
+} from "@/api/retailers";
 import { formatApiErrorMessage } from "@/api/client";
+import { RetailerBulkSettleModal } from "@/components/retailer-bulk-settle-modal";
 import type { AdminRetailerDetailScreenProps } from "@/navigation/types";
-import type { RetailerBalanceRead, RetailerInventoryPurchaseRead } from "@/types/api";
+import type {
+  RetailerBalanceRead,
+  RetailerBulkSettleRead,
+  RetailerInventoryPurchaseRead,
+} from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
+import { computeSettleableOutstanding, sumPendingBillsBalance } from "@/utils/retailer-bulk-settle";
 import { canShareRetailerStatement } from "@/utils/retailer-statement";
 
 import { adminRadii } from "./admin-dashboard-theme";
@@ -49,8 +60,17 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
   const [statementModalOpen, setStatementModalOpen] = useState(false);
   const [walletPayoutModalOpen, setWalletPayoutModalOpen] = useState(false);
   const [outstandingBalanceModalOpen, setOutstandingBalanceModalOpen] = useState(false);
+  const [collectModalOpen, setCollectModalOpen] = useState(false);
   const canShareStatement = canShareRetailerStatement(balance?.open_sales ?? []);
   const canPayOutWallet = money(balance?.credit_balance ?? 0).gt(0);
+  const billsOutstanding = sumPendingBillsBalance(
+    (balance?.open_sales ?? []).map((sale) => sale.balance_due),
+  );
+  const settleableOutstanding = computeSettleableOutstanding(
+    Number(balance?.opening_balance ?? 0).toFixed(2),
+    billsOutstanding,
+  );
+  const canCollectPayment = money(settleableOutstanding).gt(0);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -167,9 +187,11 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
         <View style={{ flex: 1, padding: 16 }}>
           <AdminRetailerBillsTab
             retailerId={retailer.id}
+            retailerName={retailer.name}
             palette={palette}
             refreshNonce={refreshNonce}
             onOpenSale={(saleId) => navigation.navigate("AdminRetailerSaleDetail", { saleId })}
+            onSettled={() => void loadOverview()}
           />
         </View>
       ) : activeTab === "purchases" ? (
@@ -304,6 +326,32 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
           <View style={{ flexDirection: "row", gap: 12 }}>
             <Pressable
               onPress={() => {
+                if (!canCollectPayment) {
+                  return;
+                }
+                triggerHaptic();
+                setCollectModalOpen(true);
+              }}
+              disabled={!canCollectPayment}
+              style={{
+                flex: 1,
+                borderRadius: adminRadii.card,
+                borderWidth: 1,
+                borderColor: palette.border,
+                backgroundColor: palette.card,
+                padding: 14,
+                opacity: canCollectPayment ? 1 : 0.55,
+              }}
+            >
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Collect payment</Text>
+              <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
+                {canCollectPayment
+                  ? "FIFO Cash/UPI across opening + pending bills"
+                  : "No outstanding balance to collect"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
                 if (!canShareStatement) {
                   return;
                 }
@@ -328,6 +376,8 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                   : "No outstanding bills to share"}
               </Text>
             </Pressable>
+          </View>
+          <View style={{ flexDirection: "row", gap: 12 }}>
             <Pressable
               onPress={() => {
                 triggerHaptic();
@@ -386,6 +436,34 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 }
               : current,
           );
+        }}
+      />
+      <RetailerBulkSettleModal
+        visible={collectModalOpen}
+        retailerId={retailer.id}
+        retailerName={retailer.name}
+        openingBalance={Number(balance?.opening_balance ?? 0).toFixed(2)}
+        billsOutstanding={billsOutstanding}
+        palette={{
+          overlay: palette.overlay,
+          card: palette.card,
+          border: palette.border,
+          textPrimary: palette.textPrimary,
+          textSecondary: palette.textSecondary,
+          textMuted: palette.textMuted,
+          surfaceMuted: palette.surfaceMuted,
+          primary: palette.primary,
+          onPrimary: palette.onPrimary,
+        }}
+        onClose={() => setCollectModalOpen(false)}
+        onSettle={(payload) => settleAdminRetailerOutstanding(retailer.id, payload)}
+        onSettled={async (result: RetailerBulkSettleRead) => {
+          Alert.alert(
+            "Payment collected",
+            `Applied ${formatCurrency(result.total_paid)}. Outstanding now ${formatCurrency(result.outstanding_after)}.`,
+          );
+          await loadOverview();
+          setRefreshNonce((value) => value + 1);
         }}
       />
     </SafeAreaView>

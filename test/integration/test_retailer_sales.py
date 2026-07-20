@@ -12,6 +12,7 @@ from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
 from app.models import Item, Retailer, RetailerItemPrice, RetailerReceiptType, RetailerSale, RetailerSaleStatus, Shop, User
 from app.schemas.billing import CheckoutPaymentInput
 from app.schemas.retailers import (
+    RetailerBulkSettleCreate,
     RetailerCreate,
     RetailerItemPriceInput,
     RetailerPaymentCreate,
@@ -31,6 +32,7 @@ from app.services.retailer_sales import (
     get_retailer_sale,
     preview_retailer_sale,
     record_retailer_payment,
+    settle_retailer_outstanding_payment,
 )
 from app.services.retailers import (
     bulk_allocate_retailer_items,
@@ -875,5 +877,262 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 self.assertEqual(edited.status, RetailerSaleStatus.PARTIAL)
                 self.assertEqual(edited.total_amount, Decimal("300.00"))
                 self.assertEqual(edited.balance_due, Decimal("200.00"))
+
+        self.run_async(scenario())
+
+    async def _create_open_sale(
+        self,
+        db,
+        current_shop,
+        shop_user,
+        retailer,
+        chicken,
+        *,
+        quantity: Decimal,
+        balance_due: Decimal | None = None,
+    ):
+        total = (quantity * Decimal("100.00")).quantize(Decimal("0.01"))
+        due = balance_due if balance_due is not None else total
+        if due > total:
+            raise AssertionError("balance_due cannot exceed sale total")
+        cash_paid = (total - due).quantize(Decimal("0.01"))
+        if cash_paid <= 0:
+            # Checkout requires a non-zero payment; bump quantity by 1 unit and pay that unit.
+            quantity = quantity + Decimal("1")
+            total = (quantity * Decimal("100.00")).quantize(Decimal("0.01"))
+            cash_paid = (total - due).quantize(Decimal("0.01"))
+        payload = RetailerSaleCheckoutRequest(
+            retailer_id=retailer.id,
+            items=[RetailerSaleItemInput(item_id=chicken.id, quantity=quantity)],
+            payment=CheckoutPaymentInput(
+                cash_amount=cash_paid,
+                upi_amount=Decimal("0.00"),
+            ),
+            include_opening_balance=False,
+        )
+        preview = await preview_retailer_sale(db, current_shop, shop_user, payload)
+        sale = await create_retailer_sale(
+            db,
+            current_shop,
+            shop_user,
+            RetailerSaleCheckoutCommitRequest(
+                retailer_id=payload.retailer_id,
+                items=payload.items,
+                payment=payload.payment,
+                include_opening_balance=False,
+                checkout_token=preview.checkout_token,
+            ),
+        )
+        self.assertEqual(sale.balance_due, due)
+        return sale
+
+    def test_bulk_settle_opening_then_fifo_cash_upi(self) -> None:
+        """Opening 5000 + bill 3000; pay 4000 cash + 3000 UPI → opening 0, bill left 1000."""
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                retailer_row = session.get(Retailer, retailer.id)
+                retailer_row.opening_balance = Decimal("5000.00")
+                session.commit()
+
+                sale = await self._create_open_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    retailer,
+                    chicken,
+                    quantity=Decimal("30"),
+                    balance_due=Decimal("3000.00"),
+                )
+                self.assertEqual(sale.balance_due, Decimal("3000.00"))
+
+                result = await settle_retailer_outstanding_payment(
+                    db,
+                    shop_user,
+                    retailer.id,
+                    RetailerBulkSettleCreate(
+                        cash_amount=Decimal("4000.00"),
+                        upi_amount=Decimal("3000.00"),
+                    ),
+                    shop=current_shop,
+                )
+                self.assertEqual(result.total_paid, Decimal("7000.00"))
+                self.assertEqual(result.applied_to_opening, Decimal("5000.00"))
+                self.assertEqual(result.opening_cash_amount, Decimal("4000.00"))
+                self.assertEqual(result.opening_upi_amount, Decimal("1000.00"))
+                self.assertEqual(result.applied_to_bills, Decimal("2000.00"))
+                self.assertEqual(result.opening_balance_after, Decimal("0.00"))
+                self.assertEqual(result.bills_outstanding_after, Decimal("1000.00"))
+                self.assertEqual(result.outstanding_after, Decimal("1000.00"))
+                self.assertEqual(len(result.sales), 1)
+                self.assertEqual(result.sales[0].cash_amount, Decimal("0.00"))
+                self.assertEqual(result.sales[0].upi_amount, Decimal("2000.00"))
+                self.assertEqual(result.sales[0].balance_due_after, Decimal("1000.00"))
+                self.assertEqual(result.sales[0].status, RetailerSaleStatus.PARTIAL)
+
+                refreshed = await get_retailer_sale(db, sale.id, shop_id=current_shop.id)
+                self.assertEqual(refreshed.balance_due, Decimal("1000.00"))
+                retailer_after = session.get(Retailer, retailer.id)
+                session.refresh(retailer_after)
+                self.assertEqual(retailer_after.opening_balance, Decimal("0.00"))
+
+        self.run_async(scenario())
+
+    def test_bulk_settle_rejects_overpay(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                await self._create_open_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    retailer,
+                    chicken,
+                    quantity=Decimal("1"),
+                    balance_due=Decimal("100.00"),
+                )
+                with self.assertRaises(HTTPException) as context:
+                    await settle_retailer_outstanding_payment(
+                        db,
+                        shop_user,
+                        retailer.id,
+                        RetailerBulkSettleCreate(
+                            cash_amount=Decimal("200.00"),
+                            upi_amount=Decimal("0.00"),
+                        ),
+                        shop=current_shop,
+                    )
+                self.assertEqual(context.exception.status_code, 422)
+                self.assertIn("exceeds outstanding", str(context.exception.detail).lower())
+
+        self.run_async(scenario())
+
+    def test_bulk_settle_fifo_oldest_bill_first(self) -> None:
+        _actor, shop = self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                older = await self._create_open_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    retailer,
+                    chicken,
+                    quantity=Decimal("2"),
+                    balance_due=Decimal("200.00"),
+                )
+                newer = await self._create_open_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    retailer,
+                    chicken,
+                    quantity=Decimal("3"),
+                    balance_due=Decimal("300.00"),
+                )
+                result = await settle_retailer_outstanding_payment(
+                    db,
+                    shop_user,
+                    retailer.id,
+                    RetailerBulkSettleCreate(
+                        cash_amount=Decimal("250.00"),
+                        upi_amount=Decimal("0.00"),
+                    ),
+                    shop=current_shop,
+                )
+                self.assertEqual(len(result.sales), 2)
+                self.assertEqual(result.sales[0].sale_id, older.id)
+                self.assertEqual(result.sales[0].amount_applied, Decimal("200.00"))
+                self.assertEqual(result.sales[0].balance_due_after, Decimal("0.00"))
+                self.assertEqual(result.sales[0].status, RetailerSaleStatus.SETTLED)
+                self.assertEqual(result.sales[1].sale_id, newer.id)
+                self.assertEqual(result.sales[1].amount_applied, Decimal("50.00"))
+                self.assertEqual(result.sales[1].balance_due_after, Decimal("250.00"))
+                self.assertEqual(result.sales[1].status, RetailerSaleStatus.PARTIAL)
+
+        self.run_async(scenario())
+
+    def test_bulk_settle_shop_scope_skips_other_shop_sales(self) -> None:
+        _actor_a, shop_a = self.run_async(
+            self.harness.create_shop_user(username="shop_a", shop_name="Shop A")
+        )
+        _actor_b, shop_b = self.run_async(
+            self.harness.create_shop_user(username="shop_b", shop_name="Shop B")
+        )
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db_a, user_a, current_a, retailer, chicken, _duck = await self._prepare_shop_retailer(
+                    session, username="shop_a"
+                )
+                chicken_b = session.scalar(
+                    select(Item).where(Item.name == "Chicken", Item.shop_id.is_(None))
+                )
+                user_b = session.scalar(select(User).where(User.username == "shop_b"))
+                current_b = session.scalar(select(Shop).where(Shop.owner_user_id == user_b.id))
+                await allocate_catalogue_item(db_a, current_b, chicken_b.id)
+                await sync_retailer_branch_allocations(
+                    db_a, retailer.id, [current_a.id, current_b.id]
+                )
+                await sync_shop_retailer_item_catalog(db_a, current_b.id, [chicken_b.id])
+                await sync_retailer_item_prices(
+                    db_a,
+                    retailer.id,
+                    current_b.id,
+                    [RetailerItemPriceInput(item_id=chicken_b.id, price_per_unit=Decimal("100.00"))],
+                )
+
+                sale_a = await self._create_open_sale(
+                    db_a,
+                    current_a,
+                    user_a,
+                    retailer,
+                    chicken,
+                    quantity=Decimal("2"),
+                    balance_due=Decimal("200.00"),
+                )
+                sale_b = await self._create_open_sale(
+                    db_a,
+                    current_b,
+                    user_b,
+                    retailer,
+                    chicken_b,
+                    quantity=Decimal("5"),
+                    balance_due=Decimal("500.00"),
+                )
+
+                result = await settle_retailer_outstanding_payment(
+                    db_a,
+                    user_a,
+                    retailer.id,
+                    RetailerBulkSettleCreate(
+                        cash_amount=Decimal("200.00"),
+                        upi_amount=Decimal("0.00"),
+                    ),
+                    shop=current_a,
+                )
+                self.assertEqual(result.applied_to_bills, Decimal("200.00"))
+                self.assertEqual(len(result.sales), 1)
+                self.assertEqual(result.sales[0].sale_id, sale_a.id)
+
+                other = await get_retailer_sale(db_a, sale_b.id)
+                self.assertEqual(other.balance_due, Decimal("500.00"))
+                self.assertNotIn(sale_b.id, [line.sale_id for line in result.sales])
+                self.assertIn(other.status, (RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL))
 
         self.run_async(scenario())

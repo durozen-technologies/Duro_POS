@@ -3,14 +3,17 @@ import { useFocusEffect } from "@react-navigation/native";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ComponentProps } from "react";
 import { Alert, ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
-import { buildRetailerShareReceiptHtml } from "@/api/retailer-receipts";
+import { buildRetailerBulkSettleReceiptHtml, buildRetailerShareReceiptHtml } from "@/api/retailer-receipts";
 import {
   fetchAllShopRetailerSales,
+  fetchShopRetailerBalance,
   fetchShopRetailerOutstandingBalance,
   fetchShopRetailerSale,
+  settleShopRetailerOutstanding,
 } from "@/api/retailer-sales";
 import { fetchShopRetailers } from "@/api/retailers";
 import { formatApiErrorMessage } from "@/api/client";
+import { RetailerBulkSettleModal } from "@/components/retailer-bulk-settle-modal";
 import {
   CalendarDateField,
   CalendarDatePickerModal,
@@ -24,13 +27,22 @@ import { Screen } from "@/components/ui/screen";
 import { ShopSegmentedTabs } from "@/components/ui/shop-segmented-tabs";
 import { StatusPill } from "@/components/ui/status-pill";
 import { appTheme } from "@/constants/theme";
+import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import { useReceiptImageShare } from "@/hooks/use-receipt-image-share";
 import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import { useShopTranslation, type ShopTranslationKey } from "@/hooks/use-shop-translation";
 import type { RetailerSalesScreenProps } from "@/navigation/types";
-import { RetailerSaleStatus, type RetailerRead, type RetailerSaleRead } from "@/types/api";
+import { usePrinterStore } from "@/store/printer-store";
+import {
+  RetailerSaleStatus,
+  type RetailerBulkSettleRead,
+  type RetailerRead,
+  type RetailerSaleRead,
+} from "@/types/api";
+import { usePriceStore } from "@/store/price-store";
 import { money } from "@/utils/decimal";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { computeSettleableOutstanding, sumPendingBillsBalance } from "@/utils/retailer-bulk-settle";
 import {
   createRetailerSalesFilterDraft,
   describeRetailerSalesFilter,
@@ -174,6 +186,29 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 13,
     lineHeight: 18,
+    color: appTheme.muted,
+  },
+  collectButton: {
+    marginTop: 12,
+    alignSelf: "stretch",
+    borderRadius: 12,
+    backgroundColor: appTheme.accent,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  collectButtonLabel: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  collectHint: {
+    marginTop: 10,
+    fontSize: 12,
+    lineHeight: 17,
     color: appTheme.muted,
   },
   saleCard: {
@@ -781,6 +816,9 @@ type SalesListHeaderProps = {
   filterActive: boolean;
   onSearchChange: (value: string) => void;
   onOpenFilter: () => void;
+  canCollectPayment: boolean;
+  collectPaymentEnabled: boolean;
+  onCollectPayment: () => void;
   t: Translate;
 };
 
@@ -796,6 +834,9 @@ const SalesListHeader = memo(function SalesListHeader({
   filterActive,
   onSearchChange,
   onOpenFilter,
+  canCollectPayment,
+  collectPaymentEnabled,
+  onCollectPayment,
   t,
 }: SalesListHeaderProps) {
   const pending = tab === "pending";
@@ -861,6 +902,22 @@ const SalesListHeader = memo(function SalesListHeader({
               ? t("retailers.pendingSalesCount", { count: String(summaryCount) })
               : t("retailers.paidSalesCount", { count: String(summaryCount) })}
         </Text>
+        {pending ? (
+          canCollectPayment ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("retailers.collectPayment")}
+              disabled={!collectPaymentEnabled}
+              onPress={onCollectPayment}
+              style={[styles.collectButton, { opacity: collectPaymentEnabled ? 1 : 0.55 }]}
+            >
+              <MaterialCommunityIcons name="cash-multiple" size={18} color="#FFFFFF" />
+              <Text style={styles.collectButtonLabel}>{t("retailers.collectPayment")}</Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.collectHint}>{t("retailers.collectPaymentHint")}</Text>
+          )
+        ) : null}
       </View>
     </View>
   );
@@ -869,6 +926,9 @@ const SalesListHeader = memo(function SalesListHeader({
 export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
   const { language, t } = useShopTranslation();
   const { receiptImageShareBridge, startReceiptImageShare } = useReceiptImageShare();
+  const { receiptImagePrintBridge, startReceiptHtmlPrintJob } = useReceiptImagePrintJob();
+  const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
+  const shopBootstrap = usePriceStore((state) => state.bootstrap);
   const [sharingSaleId, setSharingSaleId] = useState<string | null>(null);
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -882,6 +942,10 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
   const [retailers, setRetailers] = useState<RetailerRead[]>([]);
   const [retailersLoading, setRetailersLoading] = useState(false);
   const [calendarTarget, setCalendarTarget] = useState<"date" | "start" | "end" | null>(null);
+  const [collectModalOpen, setCollectModalOpen] = useState(false);
+  const [collectOpeningBalance, setCollectOpeningBalance] = useState("0.00");
+  const [collectRetailerName, setCollectRetailerName] = useState("");
+  const [collectLoading, setCollectLoading] = useState(false);
 
   const calendarColors = useMemo<CalendarPickerColors>(
     () => ({
@@ -999,14 +1063,97 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
     return salesTotal.plus(openingForVisible).toFixed(2);
   }, [appliedFilter.retailerId, retailers, tab, visibleSales]);
 
+  const selectedRetailerId = appliedFilter.retailerId;
   const selectedRetailerName = useMemo(() => {
-    if (!appliedFilter.retailerId) {
+    if (!selectedRetailerId) {
       return null;
     }
-    return retailers.find((retailer) => retailer.id === appliedFilter.retailerId)?.name
-      ?? sales.find((sale) => sale.retailer_id === appliedFilter.retailerId)?.retailer_name
+    return retailers.find((retailer) => retailer.id === selectedRetailerId)?.name
+      ?? sales.find((sale) => sale.retailer_id === selectedRetailerId)?.retailer_name
       ?? null;
-  }, [appliedFilter.retailerId, retailers, sales]);
+  }, [retailers, sales, selectedRetailerId]);
+
+  const selectedRetailerPendingSales = useMemo(() => {
+    if (!selectedRetailerId) {
+      return [];
+    }
+    return pendingSales.filter((sale) => sale.retailer_id === selectedRetailerId);
+  }, [pendingSales, selectedRetailerId]);
+
+  const selectedRetailerBillsOutstanding = useMemo(
+    () => sumPendingBillsBalance(selectedRetailerPendingSales.map((sale) => sale.balance_due)),
+    [selectedRetailerPendingSales],
+  );
+
+  const bulkSettleReceiptContext = useMemo(() => {
+    const sample = sales.find((sale) => sale.retailer_id === selectedRetailerId);
+    return {
+      organizationName: sample?.organization_name ?? "DUROZEN",
+      shopName: sample?.shop_name ?? shopBootstrap?.shop_name ?? "Shop",
+    };
+  }, [sales, selectedRetailerId, shopBootstrap?.shop_name]);
+
+  const openCollectPayment = useCallback(async () => {
+    if (!selectedRetailerId) {
+      return;
+    }
+    setCollectLoading(true);
+    try {
+      const balance = await fetchShopRetailerBalance(selectedRetailerId);
+      setCollectOpeningBalance(Number(balance.opening_balance ?? 0).toFixed(2));
+      setCollectRetailerName(balance.retailer_name || selectedRetailerName || "");
+      const settleable = computeSettleableOutstanding(
+        Number(balance.opening_balance ?? 0).toFixed(2),
+        selectedRetailerBillsOutstanding,
+      );
+      if (money(settleable).lte(0)) {
+        Alert.alert(t("retailers.collectPayment"), t("retailers.collectPaymentHint"));
+        return;
+      }
+      setCollectModalOpen(true);
+    } catch (error) {
+      Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
+    } finally {
+      setCollectLoading(false);
+    }
+  }, [selectedRetailerBillsOutstanding, selectedRetailerId, selectedRetailerName, t]);
+
+  const handleBulkSettle = useCallback(
+    async (payload: { cash_amount: string; upi_amount: string }) => {
+      if (!selectedRetailerId) {
+        throw new Error("Retailer is required");
+      }
+      return settleShopRetailerOutstanding(selectedRetailerId, payload);
+    },
+    [selectedRetailerId],
+  );
+
+  const handleBulkSettled = useCallback(
+    async (result: RetailerBulkSettleRead) => {
+      if (!preferredPrinter) {
+        Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
+      } else {
+        try {
+          await startReceiptHtmlPrintJob(
+            [buildRetailerBulkSettleReceiptHtml(result, bulkSettleReceiptContext)],
+            preferredPrinter,
+            language,
+          );
+        } catch (error) {
+          Alert.alert(t("checkout.printFailedAfterSaveTitle"), formatApiErrorMessage(error));
+        }
+      }
+      Alert.alert(
+        t("retailers.collectPaymentSuccess"),
+        t("retailers.collectPaymentSuccessDetail", {
+          total: formatCurrency(result.total_paid),
+          remaining: formatCurrency(result.outstanding_after),
+        }),
+      );
+      await load({ silent: true });
+    },
+    [bulkSettleReceiptContext, language, load, preferredPrinter, startReceiptHtmlPrintJob, t],
+  );
 
   const activeFilterLabel = useMemo(
     () => describeRetailerSalesFilter(appliedFilter, selectedRetailerName),
@@ -1076,6 +1223,9 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
         filterActive={hasActiveRetailerSalesFilters(appliedFilter)}
         onSearchChange={setSearchQuery}
         onOpenFilter={openFilterModal}
+        canCollectPayment={Boolean(selectedRetailerId)}
+        collectPaymentEnabled={!collectLoading && Boolean(selectedRetailerId)}
+        onCollectPayment={() => void openCollectPayment()}
         t={t}
       />
     ),
@@ -1089,6 +1239,9 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
       searchQuery,
       appliedFilter,
       openFilterModal,
+      selectedRetailerId,
+      collectLoading,
+      openCollectPayment,
       t,
     ],
   );
@@ -1217,6 +1370,32 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
         onClose={() => setCalendarTarget(null)}
       />
       {receiptImageShareBridge}
+      {receiptImagePrintBridge}
+      {selectedRetailerId ? (
+        <RetailerBulkSettleModal
+          visible={collectModalOpen}
+          retailerId={selectedRetailerId}
+          retailerName={collectRetailerName || selectedRetailerName || ""}
+          openingBalance={collectOpeningBalance}
+          billsOutstanding={selectedRetailerBillsOutstanding}
+          palette={{
+            overlay: "rgba(30, 43, 34, 0.45)",
+            card: appTheme.card,
+            border: appTheme.border,
+            textPrimary: appTheme.text,
+            textSecondary: appTheme.muted,
+            textMuted: appTheme.muted,
+            surfaceMuted: appTheme.surface,
+            primary: appTheme.accent,
+            onPrimary: "#FFFFFF",
+          }}
+          title={t("retailers.collectPayment")}
+          confirmLabel={t("retailers.collectAndPrint")}
+          onClose={() => setCollectModalOpen(false)}
+          onSettle={handleBulkSettle}
+          onSettled={handleBulkSettled}
+        />
+      ) : null}
     </View>
   );
 }

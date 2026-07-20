@@ -41,6 +41,9 @@ from app.models import (
 )
 from app.models.enums import BaseUnit
 from app.schemas.retailers import (
+    RetailerBulkSettleCreate,
+    RetailerBulkSettleRead,
+    RetailerBulkSettleSaleLine,
     RetailerCatalogItemRead,
     RetailerPaymentCreate,
     RetailerPaymentRead,
@@ -400,6 +403,232 @@ async def reverse_purchase_settlement_payments(
         if payment.receipt is not None:
             await db.delete(payment.receipt)
         await db.delete(payment)
+
+
+def _take_cash_upi(
+    amount: Decimal,
+    cash_left: Decimal,
+    upi_left: Decimal,
+) -> tuple[Decimal, Decimal, Decimal, Decimal]:
+    """Allocate amount from cash-first then UPI. Returns used cash, used upi, remaining pools."""
+    amount = _round_money(amount)
+    cash_used = _round_money(min(amount, cash_left))
+    remaining = _round_money(amount - cash_used)
+    upi_used = _round_money(min(remaining, upi_left))
+    return (
+        cash_used,
+        upi_used,
+        _round_money(cash_left - cash_used),
+        _round_money(upi_left - upi_used),
+    )
+
+
+async def _apply_cash_upi_settlement_to_sale(
+    db: AsyncSession,
+    user: User,
+    sale: RetailerSale,
+    cash_amount: Decimal,
+    upi_amount: Decimal,
+) -> RetailerPayment:
+    cash_amount = _round_money(cash_amount)
+    upi_amount = _round_money(upi_amount)
+    total_paid = _round_money(cash_amount + upi_amount)
+    if total_paid <= 0:
+        raise HTTPException(status_code=422, detail="Payment amount must be greater than zero")
+    if total_paid > sale.balance_due:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Payment exceeds balance due ({sale.balance_due})",
+        )
+
+    opening_balance = await _retailer_opening_balance_excluding_sale(
+        db, sale.retailer_id, exclude_sale_id=sale.id
+    )
+    payment = RetailerPayment(
+        retailer_sale_id=sale.id,
+        cash_amount=cash_amount,
+        upi_amount=upi_amount,
+        wallet_amount=Decimal("0.00"),
+        total_paid=total_paid,
+        recorded_by_user_id=user.id,
+    )
+    db.add(payment)
+    sale.amount_paid_total = _round_money(sale.amount_paid_total + total_paid)
+    sale.balance_due = _round_money(sale.total_amount - sale.amount_paid_total)
+    sale.status = _sale_status(sale.total_amount, sale.amount_paid_total)
+    await db.flush()
+    printed_at = datetime.now(UTC)
+    db.add(
+        RetailerSaleReceipt(
+            retailer_sale_id=sale.id,
+            retailer_payment_id=payment.id,
+            receipt_type=RetailerReceiptType.BALANCE_PAYMENT,
+            receipt_number=balance_receipt_number(sale.sale_no, printed_at, payment_id=payment.id),
+            printed_at=printed_at,
+            opening_balance=opening_balance,
+        )
+    )
+    return payment
+
+
+async def settle_retailer_outstanding_payment(
+    db: AsyncSession,
+    user: User,
+    retailer_id: UUID,
+    payload: RetailerBulkSettleCreate,
+    *,
+    shop: Shop | None = None,
+    admin_override: bool = False,
+) -> RetailerBulkSettleRead:
+    """FIFO settle: opening balance first, then oldest open/partial sales. Cash then UPI."""
+    del admin_override  # presence of shop already distinguishes shop vs admin scope
+    cash_amount = _round_money(payload.cash_amount)
+    upi_amount = _round_money(payload.upi_amount)
+    total_paid = _round_money(cash_amount + upi_amount)
+    if cash_amount < 0 or upi_amount < 0:
+        raise HTTPException(status_code=422, detail="Payment amounts cannot be negative")
+    if total_paid <= 0:
+        raise HTTPException(status_code=422, detail="Payment amount must be greater than zero")
+
+    retailer = await _get_active_retailer(db, retailer_id, shop=shop)
+    retailer = await db.scalar(select(Retailer).where(Retailer.id == retailer_id).with_for_update())
+    if retailer is None or not retailer.is_active:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+
+    sale_filters = [
+        RetailerSale.retailer_id == retailer_id,
+        RetailerSale.status.in_([RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL]),
+        RetailerSale.balance_due > 0,
+    ]
+    if shop is not None:
+        sale_filters.append(RetailerSale.shop_id == shop.id)
+
+    pending_sales = (
+        await db.scalars(
+            select(RetailerSale)
+            .where(*sale_filters)
+            .order_by(RetailerSale.created_at.asc(), RetailerSale.id.asc())
+            .with_for_update()
+        )
+    ).all()
+
+    bills_outstanding_before = _round_money(
+        sum((sale.balance_due for sale in pending_sales), Decimal("0.00"))
+    )
+    opening_before = _round_money(retailer.opening_balance)
+    outstanding_before = _round_money(opening_before + bills_outstanding_before)
+    if total_paid > outstanding_before:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Payment exceeds outstanding balance ({outstanding_before})",
+        )
+
+    cash_left = cash_amount
+    upi_left = upi_amount
+
+    applied_opening = _round_money(min(total_paid, opening_before))
+    opening_cash = Decimal("0.00")
+    opening_upi = Decimal("0.00")
+    if applied_opening > 0:
+        opening_cash, opening_upi, cash_left, upi_left = _take_cash_upi(
+            applied_opening, cash_left, upi_left
+        )
+        retailer.opening_balance = _round_money(opening_before - applied_opening)
+
+    sale_lines: list[RetailerBulkSettleSaleLine] = []
+    applied_to_bills = Decimal("0.00")
+    remaining_pool = _round_money(cash_left + upi_left)
+
+    for sale in pending_sales:
+        if remaining_pool <= 0:
+            break
+        pay_amount = _round_money(min(remaining_pool, sale.balance_due))
+        if pay_amount <= 0:
+            continue
+        cash_used, upi_used, cash_left, upi_left = _take_cash_upi(pay_amount, cash_left, upi_left)
+        payment = await _apply_cash_upi_settlement_to_sale(db, user, sale, cash_used, upi_used)
+        applied_to_bills = _round_money(applied_to_bills + pay_amount)
+        remaining_pool = _round_money(cash_left + upi_left)
+        sale_lines.append(
+            RetailerBulkSettleSaleLine(
+                sale_id=sale.id,
+                sale_no=sale.sale_no,
+                shop_id=sale.shop_id,
+                payment_id=payment.id,
+                cash_amount=cash_used,
+                upi_amount=upi_used,
+                amount_applied=pay_amount,
+                balance_due_after=sale.balance_due,
+                status=sale.status,
+            )
+        )
+
+    opening_after = _round_money(retailer.opening_balance)
+    bills_after = _round_money(sum((sale.balance_due for sale in pending_sales), Decimal("0.00")))
+    outstanding_after = _round_money(opening_after + bills_after)
+
+    shop_id = shop.id if shop is not None else None
+    organization_id = shop.organization_id if shop is not None else None
+    if shop is None and sale_lines:
+        first_shop = await db.get(Shop, sale_lines[0].shop_id)
+        if first_shop is not None:
+            shop_id = first_shop.id
+            organization_id = first_shop.organization_id
+
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            organization_id=organization_id,
+            shop_id=shop_id,
+            action="retailer_payment.bulk_settled",
+            entity_type="retailer",
+            entity_id=retailer.id,
+            details={
+                "cash_amount": str(cash_amount),
+                "upi_amount": str(upi_amount),
+                "total_paid": str(total_paid),
+                "applied_to_opening": str(applied_opening),
+                "opening_cash_amount": str(opening_cash),
+                "opening_upi_amount": str(opening_upi),
+                "applied_to_bills": str(applied_to_bills),
+                "outstanding_before": str(outstanding_before),
+                "outstanding_after": str(outstanding_after),
+                "sale_ids": [str(line.sale_id) for line in sale_lines],
+            },
+        )
+    )
+    await db.commit()
+
+    logger.info(
+        {
+            "event": "retailer_bulk_settle",
+            "retailer_id": str(retailer.id),
+            "total_paid": str(total_paid),
+            "applied_to_opening": str(applied_opening),
+            "applied_to_bills": str(applied_to_bills),
+            "outstanding_after": str(outstanding_after),
+            "actor_role": user.role.value,
+        }
+    )
+
+    return RetailerBulkSettleRead(
+        retailer_id=retailer.id,
+        retailer_name=retailer.name,
+        cash_amount=cash_amount,
+        upi_amount=upi_amount,
+        total_paid=total_paid,
+        applied_to_opening=applied_opening,
+        opening_cash_amount=opening_cash,
+        opening_upi_amount=opening_upi,
+        applied_to_bills=applied_to_bills,
+        opening_balance_before=opening_before,
+        opening_balance_after=opening_after,
+        bills_outstanding_before=bills_outstanding_before,
+        bills_outstanding_after=bills_after,
+        outstanding_before=outstanding_before,
+        outstanding_after=outstanding_after,
+        sales=sale_lines,
+    )
 
 
 async def _prepare_retailer_checkout(

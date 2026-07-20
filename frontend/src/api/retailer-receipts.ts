@@ -4,6 +4,7 @@ import type { ShopLanguage } from "@/store/shop-language-store";
 import {
   RetailerReceiptType,
   RetailerSaleStatus,
+  type RetailerBulkSettleRead,
   type RetailerPaymentRead,
   type RetailerSaleRead,
   type RetailerSaleReceiptRead,
@@ -12,6 +13,7 @@ import {
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
 import {
   buildRetailerReceiptPartyText,
+  formatRetailerSaleNoDisplay,
   pickRetailerShareReceipt,
   retailerReceiptPartyLabels,
 } from "@/utils/retailer-sale";
@@ -133,7 +135,7 @@ function receiptLabels() {
     paidAmount: "Paid Amount",
     balanceAmount: "Balance Amount",
     openingBalance: "Opening Balance",
-    totalBalance: "Total Balance",
+    closingBalance: "Closing Balance",
     paidThisVisit: "Paid This Visit",
     paymentSettled: "Payment Settled",
     thankYou: "Thank you. Visit again.",
@@ -194,12 +196,33 @@ function settledFooter(settled: boolean, labels: ReturnType<typeof receiptLabels
 
 function organizationHeader(sale: RetailerSaleRead) {
   const org = formatReceiptHeaderName(organizationName(sale));
-  const shop = formatReceiptHeaderName(sale.shop_name);
   return `
     <div class="center">
-      <div class="strong header-main">${escapeHtml(org)}</div>
-      <div class="strong header-sub">${escapeHtml(shop)}</div>
+      <div class="strong header-main header-main-divider">${escapeHtml(org)}</div>
     </div>`;
+}
+
+function organizationHeaderFromName(organizationNameValue: string) {
+  const org = formatReceiptHeaderName(
+    organizationNameValue.split("\n")[0]?.trim() || organizationNameValue,
+  );
+  return `
+    <div class="center">
+      <div class="strong header-main header-main-divider">${escapeHtml(org)}</div>
+    </div>`;
+}
+
+function retailerReceiptPartyExportFields(
+  retailerName: string,
+  shopName: string,
+  labels: ReturnType<typeof receiptLabels>,
+) {
+  const party = buildRetailerReceiptPartyText(retailerName, shopName, labels);
+  return {
+    purchaserText: party.purchaserLine,
+    shopNameMetaText: party.shopLine,
+    shopName: "",
+  };
 }
 
 function receiptFooter(settled: boolean, labels: ReturnType<typeof receiptLabels>) {
@@ -212,23 +235,48 @@ function receiptFooter(settled: boolean, labels: ReturnType<typeof receiptLabels
     </div>`;
 }
 
+type PaymentSummaryExportOptions = {
+  includeOpeningBalance?: boolean;
+  includeBalanceAmount?: boolean;
+  includePaidAmount?: boolean;
+  paidAmountFontSize?: number;
+};
+
 function paymentSummaryExportFields(
   labels: ReturnType<typeof receiptLabels>,
   paidAmountLabel: string,
   paidAmount: string,
   balanceAmount: string,
   openingBalance: string,
-  totalBalance: string,
+  closingBalance: string,
+  options?: PaymentSummaryExportOptions,
 ) {
+  const includeOpeningBalance = options?.includeOpeningBalance ?? true;
+  const includeBalanceAmount = options?.includeBalanceAmount ?? true;
+  const includePaidAmount = options?.includePaidAmount ?? true;
+
   return {
-    paidAmountLabel,
-    paidAmountValue: `Rs. ${formatReceiptCurrency(paidAmount)}`,
-    balanceAmountLabel: labels.balanceAmount,
-    balanceAmountValue: `Rs. ${formatReceiptCurrency(balanceAmount)}`,
-    openingBalanceLabel: labels.openingBalance,
-    openingBalanceValue: `Rs. ${formatReceiptCurrency(openingBalance)}`,
-    totalBalanceLabel: labels.totalBalance,
-    totalBalanceValue: `Rs. ${formatReceiptCurrency(totalBalance)}`,
+    ...(includeOpeningBalance
+      ? {
+          openingBalanceLabel: labels.openingBalance,
+          openingBalanceValue: `Rs. ${formatReceiptCurrency(openingBalance)}`,
+        }
+      : {}),
+    ...(includePaidAmount
+      ? {
+          paidAmountLabel,
+          paidAmountValue: `Rs. ${formatReceiptCurrency(paidAmount)}`,
+          ...(options?.paidAmountFontSize ? { paidAmountFontSize: options.paidAmountFontSize } : {}),
+        }
+      : {}),
+    ...(includeBalanceAmount
+      ? {
+          balanceAmountLabel: labels.balanceAmount,
+          balanceAmountValue: `Rs. ${formatReceiptCurrency(balanceAmount)}`,
+        }
+      : {}),
+    totalBalanceLabel: labels.closingBalance,
+    totalBalanceValue: `Rs. ${formatReceiptCurrency(closingBalance)}`,
   };
 }
 
@@ -323,7 +371,7 @@ function retailerTotalsTableHtml(
           <td colspan="2"></td>
         </tr>
         <tr class="total-row grand-total">
-          <td class="strong">${labels.totalBalance}</td>
+          <td class="strong">${labels.closingBalance}</td>
           <td class="align-right strong">Rs. ${formatReceiptCurrency(totalBalance)}</td>
         </tr>
       </table>`;
@@ -377,12 +425,11 @@ export function buildRetailerSaleInvoiceHtml(
   const itemRows = saleItemRowsHtml(sale, language);
 
   const orgName = organizationName(sale);
-  const party = buildRetailerReceiptPartyText(sale.retailer_name, sale.shop_name, labels);
+  const partyFields = retailerReceiptPartyExportFields(sale.retailer_name, sale.shop_name, labels);
   const exportPayload = {
     companyName: formatReceiptHeaderName(orgName),
-    shopName: formatReceiptHeaderName(sale.shop_name),
+    ...partyFields,
     billText: `${labels.saleNo}: ${sale.sale_no}`,
-    purchaserText: party.combinedText,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
     cashLabel: labels.cash,
@@ -444,12 +491,11 @@ export function buildRetailerBalancePaymentHtml(
   const itemRows = saleItemRowsHtml(sale, language);
 
   const orgName = organizationName(sale);
-  const party = buildRetailerReceiptPartyText(sale.retailer_name, sale.shop_name, labels);
+  const partyFields = retailerReceiptPartyExportFields(sale.retailer_name, sale.shop_name, labels);
   const exportPayload = {
     companyName: formatReceiptHeaderName(orgName),
-    shopName: formatReceiptHeaderName(sale.shop_name),
+    ...partyFields,
     billText: `${labels.receiptNo}: ${receipt.receipt_number}`,
-    purchaserText: party.combinedText,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
     cashLabel: labels.cash,
@@ -492,6 +538,176 @@ export function buildRetailerBalancePaymentHtml(
         currentBillBalance,
         totalBalance,
       )}
+      ${receiptFooter(settled, labels)}
+    </div>`;
+
+  return buildReceiptHtmlMarkup(body, exportPayload);
+}
+
+export type RetailerBulkSettleReceiptContext = {
+  organizationName: string;
+  shopName: string;
+};
+
+function bulkSettleAllocationRows(result: RetailerBulkSettleRead) {
+  const rows: Array<{ itemName: string; quantityText: string; lineTotal: string }> = [];
+
+  if (Number(result.applied_to_opening) > 0) {
+    rows.push({
+      itemName: "Opening Balance",
+      quantityText: formatReceiptCurrency(result.applied_to_opening),
+      lineTotal: formatReceiptCurrency(result.opening_balance_after),
+    });
+  }
+
+  for (const sale of result.sales) {
+    rows.push({
+      itemName: formatRetailerSaleNoDisplay(sale.sale_no),
+      quantityText: formatReceiptCurrency(sale.amount_applied),
+      lineTotal: formatReceiptCurrency(sale.balance_due_after),
+    });
+  }
+
+  return rows;
+}
+
+function bulkSettleAllocationsTableHtml(
+  rows: Array<{ itemName: string; quantityText: string; lineTotal: string }>,
+) {
+  if (rows.length === 0) {
+    return "";
+  }
+
+  const itemRows = rows
+    .map(
+      (row) => `
+        <tr class="item-row">
+          <td class="item-name strong">${escapeHtml(row.itemName)}</td>
+          <td class="align-right item-qty">${escapeHtml(row.quantityText)}</td>
+          <td class="align-right item-total strong">${escapeHtml(row.lineTotal)}</td>
+        </tr>`,
+    )
+    .join("");
+
+  return `
+      <table>
+        <colgroup>
+          <col class="col-item-name" />
+          <col class="col-item-qty" />
+          <col class="col-item-total" />
+        </colgroup>
+        <thead>
+          <tr class="items-header">
+            <th align="left">Bill</th>
+            <th align="right">Applied</th>
+            <th align="right">Balance</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>`;
+}
+
+function bulkSettleTotalsTableHtml(
+  labels: ReturnType<typeof receiptLabels>,
+  result: RetailerBulkSettleRead,
+) {
+  return `
+      <table class="totals-section">
+        <colgroup>
+          <col class="col-total-label" />
+          <col class="col-total-value" />
+        </colgroup>
+        <tr class="total-row">
+          <td>${labels.cash}</td>
+          <td class="align-right">${formatReceiptCurrency(result.cash_amount)}</td>
+        </tr>
+        <tr class="total-row">
+          <td>${labels.upi}</td>
+          <td class="align-right">${formatReceiptCurrency(result.upi_amount)}</td>
+        </tr>
+        <tr class="total-row paid-this-visit-row">
+          <td class="strong">${labels.paidThisVisit}</td>
+          <td class="align-right strong">Rs. ${formatReceiptCurrency(result.total_paid)}</td>
+        </tr>
+        <tr class="total-row">
+          <td>Applied to Opening</td>
+          <td class="align-right">${formatReceiptCurrency(result.applied_to_opening)}</td>
+        </tr>
+        <tr class="total-row">
+          <td>Applied to Bills</td>
+          <td class="align-right">${formatReceiptCurrency(result.applied_to_bills)}</td>
+        </tr>
+        <tr class="total-row total-balance-divider">
+          <td colspan="2"></td>
+        </tr>
+        <tr class="total-row grand-total">
+          <td class="strong">${labels.closingBalance}</td>
+          <td class="align-right strong">Rs. ${formatReceiptCurrency(result.outstanding_after)}</td>
+        </tr>
+      </table>`;
+}
+
+export function buildRetailerBulkSettleReceiptHtml(
+  result: RetailerBulkSettleRead,
+  context: RetailerBulkSettleReceiptContext,
+) {
+  const labels = receiptLabels();
+  const settled = Number(result.outstanding_after) <= 0;
+  const printedAt = new Date().toISOString();
+  const orgName = formatReceiptHeaderName(
+    context.organizationName.split("\n")[0]?.trim() || context.organizationName,
+  );
+  const partyFields = retailerReceiptPartyExportFields(result.retailer_name, context.shopName, labels);
+  const allocationRows = bulkSettleAllocationRows(result);
+
+  const exportPayload = {
+    companyName: orgName,
+    ...partyFields,
+    billText: "Outstanding Payment",
+    dateText: `${labels.date}: ${formatDateTime(printedAt)}`,
+    itemHeader: "Bill",
+    quantityHeader: "Applied",
+    totalHeader: "Balance",
+    cashLabel: labels.cash,
+    cashValue: formatReceiptCurrency(result.cash_amount),
+    upiLabel: labels.upi,
+    upiValue: formatReceiptCurrency(result.upi_amount),
+    totalLabel: labels.paidThisVisit,
+    totalValue: `Rs. ${formatReceiptCurrency(result.total_paid)}`,
+    totalFontSize: 15,
+    ...paymentSummaryExportFields(
+      labels,
+      labels.paidThisVisit,
+      result.total_paid,
+      "",
+      "",
+      result.outstanding_after,
+      {
+        includeOpeningBalance: false,
+        includeBalanceAmount: false,
+        includePaidAmount: false,
+      },
+    ),
+    thankYou: settled ? labels.paymentSettled : labels.thankYou,
+    poweredBy: labels.poweredBy,
+    provider: labels.provider,
+    items: allocationRows,
+  };
+
+  const body = `
+    <div class="receipt-container">
+      ${organizationHeaderFromName(context.organizationName)}
+      <div class="center" style="margin-bottom: 8px;">
+        <div class="strong" style="font-size: 18px;">Outstanding Payment</div>
+      </div>
+      <div class="bill-meta">
+        <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(result.retailer_name)}</span>
+        <span class="bill-meta-shop"><strong>${labels.shopName}:</strong> ${escapeHtml(context.shopName)}</span>
+        <span class="bill-meta-primary"><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(printedAt))}</span>
+      </div>
+      ${bulkSettleAllocationsTableHtml(allocationRows)}
+      <div class="payment-divider"></div>
+      ${bulkSettleTotalsTableHtml(labels, result)}
       ${receiptFooter(settled, labels)}
     </div>`;
 

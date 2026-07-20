@@ -2,6 +2,8 @@ import { apiClient } from "@/api/client";
 import type {
   RetailerBalanceRead,
   RetailerBranchAllocationRead,
+  RetailerBulkSettleCreate,
+  RetailerBulkSettleRead,
   RetailerCreate,
   RetailerItemAllocationBulkRead,
   RetailerItemAllocationListRead,
@@ -282,6 +284,17 @@ export async function cancelAdminRetailerSale(saleId: UUID) {
 export async function recordAdminRetailerPayment(saleId: UUID, payload: RetailerPaymentCreate) {
   const { data } = await apiClient.post<RetailerPaymentRecordResponse>(
     `/api/v1/admin/retailer-sales/${saleId}/payments`,
+    payload,
+  );
+  return data;
+}
+
+export async function settleAdminRetailerOutstanding(
+  retailerId: UUID,
+  payload: RetailerBulkSettleCreate,
+) {
+  const { data } = await apiClient.post<RetailerBulkSettleRead>(
+    `/api/v1/admin/retailers/${retailerId}/settle-outstanding`,
     payload,
   );
   return data;

@@ -1439,6 +1439,42 @@ export interface RetailerPaymentCreate {
   payment: CheckoutPaymentInput;
 }
 
+export interface RetailerBulkSettleCreate {
+  cash_amount: string;
+  upi_amount: string;
+}
+
+export interface RetailerBulkSettleSaleLine {
+  sale_id: UUID;
+  sale_no: string;
+  shop_id: UUID;
+  payment_id: UUID;
+  cash_amount: string;
+  upi_amount: string;
+  amount_applied: string;
+  balance_due_after: string;
+  status: RetailerSaleStatus;
+}
+
+export interface RetailerBulkSettleRead {
+  retailer_id: UUID;
+  retailer_name: string;
+  cash_amount: string;
+  upi_amount: string;
+  total_paid: string;
+  applied_to_opening: string;
+  opening_cash_amount: string;
+  opening_upi_amount: string;
+  applied_to_bills: string;
+  opening_balance_before: string;
+  opening_balance_after: string;
+  bills_outstanding_before: string;
+  bills_outstanding_after: string;
+  outstanding_before: string;
+  outstanding_after: string;
+  sales: RetailerBulkSettleSaleLine[];
+}
+
 export interface RetailerSaleAdminPaymentInput {
   cash_amount: string;
   upi_amount: string;

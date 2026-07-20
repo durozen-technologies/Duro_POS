@@ -48,6 +48,8 @@ from app.schemas.retailer_inventory import (
 )
 from app.schemas.retailers import (
     RetailerBalanceRead,
+    RetailerBulkSettleCreate,
+    RetailerBulkSettleRead,
     RetailerCatalogItemRead,
     RetailerPaymentCreate,
     RetailerPaymentRecordResponse,
@@ -107,6 +109,7 @@ from app.services.retailer_sales import (
     list_retailer_sales,
     preview_retailer_sale,
     record_retailer_payment,
+    settle_retailer_outstanding_payment,
 )
 from app.services.retailers import (
     get_shop_retailer_balance,
@@ -711,6 +714,27 @@ async def shop_retailer_balance(
     shop: Shop = Depends(get_current_shop),
 ) -> RetailerBalanceRead:
     return await get_shop_retailer_balance(db, shop, retailer_id)
+
+
+@router.post(
+    "/retailers/{retailer_id}/settle-outstanding",
+    response_model=RetailerBulkSettleRead,
+    summary="FIFO settle retailer outstanding (opening then oldest bills)",
+)
+async def shop_settle_retailer_outstanding(
+    retailer_id: UUID,
+    payload: RetailerBulkSettleCreate,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+    user: User = Depends(get_current_user),
+) -> RetailerBulkSettleRead:
+    return await settle_retailer_outstanding_payment(
+        db,
+        user,
+        retailer_id,
+        payload,
+        shop=shop,
+    )
 
 
 @router.get(

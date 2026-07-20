@@ -17,13 +17,16 @@ import {
   fetchAdminRetailerSale,
   fetchAllAdminRetailerSales,
   fetchRetailerBalance,
+  settleAdminRetailerOutstanding,
 } from "@/api/retailers";
 import { formatApiErrorMessage } from "@/api/client";
+import { RetailerBulkSettleModal } from "@/components/retailer-bulk-settle-modal";
 import { useReceiptImageShare } from "@/hooks/use-receipt-image-share";
-import type { RetailerSaleRead, UUID } from "@/types/api";
+import type { RetailerBulkSettleRead, RetailerSaleRead, UUID } from "@/types/api";
 import { RetailerSaleStatus } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { computeSettleableOutstanding, sumPendingBillsBalance } from "@/utils/retailer-bulk-settle";
 import {
   formatRetailerSaleNoDisplay,
   isPendingRetailerSale,
@@ -43,10 +46,12 @@ type BillsFilter = "pending" | "paid";
 
 type AdminRetailerBillsTabProps = {
   retailerId: UUID;
+  retailerName: string;
   palette: ThemePalette;
   refreshNonce?: number;
   onRefreshComplete?: () => void;
   onOpenSale: (saleId: UUID) => void;
+  onSettled?: () => void;
 };
 
 type BillRowProps = {
@@ -184,10 +189,12 @@ const BillRow = memo(function BillRow({
 
 export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
   retailerId,
+  retailerName,
   palette,
   refreshNonce = 0,
   onRefreshComplete,
   onOpenSale,
+  onSettled,
 }: AdminRetailerBillsTabProps) {
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -197,6 +204,8 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
   const [sharingSaleId, setSharingSaleId] = useState<UUID | null>(null);
   const [editSale, setEditSale] = useState<RetailerSaleRead | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [collectModalOpen, setCollectModalOpen] = useState(false);
+  const [openingBalance, setOpeningBalance] = useState("0.00");
   const { receiptImageShareBridge, startReceiptImageShare } = useReceiptImageShare();
 
   const load = useCallback(
@@ -207,7 +216,10 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
         setLoading(true);
       }
       try {
-        const rows = await fetchAllAdminRetailerSales({ retailer_id: retailerId });
+        const [rows, balance] = await Promise.all([
+          fetchAllAdminRetailerSales({ retailer_id: retailerId }),
+          fetchRetailerBalance(retailerId),
+        ]);
         setSales(
           sortRetailerSalesByNo(
             rows.filter(
@@ -217,6 +229,7 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
             ),
           ),
         );
+        setOpeningBalance(Number(balance.opening_balance ?? 0).toFixed(2));
         setError(null);
       } catch (err) {
         setError(formatApiErrorMessage(err));
@@ -236,17 +249,42 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
   const pendingSales = useMemo(() => sales.filter(isPendingRetailerSale), [sales]);
   const paidSales = useMemo(() => sales.filter(isSettledRetailerSale), [sales]);
   const visibleSales = filter === "pending" ? pendingSales : paidSales;
+  const billsOutstanding = useMemo(
+    () => sumPendingBillsBalance(pendingSales.map((sale) => sale.balance_due)),
+    [pendingSales],
+  );
+  const settleableOutstanding = useMemo(
+    () => computeSettleableOutstanding(openingBalance, billsOutstanding),
+    [billsOutstanding, openingBalance],
+  );
+  const canCollectPayment = money(settleableOutstanding).gt(0);
 
   const visibleTotal = useMemo(
     () =>
-      visibleSales
-        .reduce(
-          (sum, sale) =>
-            sum.plus(money(filter === "pending" ? sale.balance_due : sale.total_amount)),
-          money(0),
-        )
-        .toFixed(2),
-    [filter, visibleSales],
+      filter === "pending"
+        ? settleableOutstanding
+        : visibleSales
+            .reduce((sum, sale) => sum.plus(money(sale.total_amount)), money(0))
+            .toFixed(2),
+    [filter, settleableOutstanding, visibleSales],
+  );
+
+  const handleBulkSettle = useCallback(
+    async (payload: { cash_amount: string; upi_amount: string }) =>
+      settleAdminRetailerOutstanding(retailerId, payload),
+    [retailerId],
+  );
+
+  const handleBulkSettled = useCallback(
+    async (result: RetailerBulkSettleRead) => {
+      Alert.alert(
+        "Payment collected",
+        `Applied ${formatCurrency(result.total_paid)}. Outstanding now ${formatCurrency(result.outstanding_after)}.`,
+      );
+      await load(true);
+      onSettled?.();
+    },
+    [load, onSettled],
   );
 
   const filterTabs = useMemo(
@@ -358,7 +396,7 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
 
       <View style={[styles.summaryCard, { backgroundColor: palette.surfaceMuted }]}>
         <Text style={[adminTypography.caption, { color: palette.textMuted, fontWeight: "700" }]}>
-          {filter === "pending" ? "Total balance due" : "Total fully paid"}
+          {filter === "pending" ? "Total outstanding" : "Total fully paid"}
         </Text>
         <Text style={[styles.summaryValue, { color: palette.textPrimary }]} numberOfLines={1}>
           {formatCurrency(visibleTotal)}
@@ -368,6 +406,26 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
             ? `${pendingSales.length} pending bill(s)`
             : `${paidSales.length} fully paid bill(s)`}
         </Text>
+        {filter === "pending" ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={!canCollectPayment}
+            onPress={() => {
+              triggerHaptic();
+              setCollectModalOpen(true);
+            }}
+            style={[
+              styles.collectButton,
+              {
+                backgroundColor: palette.primary,
+                opacity: canCollectPayment ? 1 : 0.55,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="cash-multiple" size={18} color={palette.onPrimary} />
+            <Text style={{ color: palette.onPrimary, fontWeight: "800" }}>Collect payment</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <FlatList
@@ -421,6 +479,27 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
         }}
         onSaved={handleSaleSaved}
       />
+      <RetailerBulkSettleModal
+        visible={collectModalOpen}
+        retailerId={retailerId}
+        retailerName={retailerName}
+        openingBalance={openingBalance}
+        billsOutstanding={billsOutstanding}
+        palette={{
+          overlay: palette.overlay,
+          card: palette.card,
+          border: palette.border,
+          textPrimary: palette.textPrimary,
+          textSecondary: palette.textSecondary,
+          textMuted: palette.textMuted,
+          surfaceMuted: palette.surfaceMuted,
+          primary: palette.primary,
+          onPrimary: palette.onPrimary,
+        }}
+        onClose={() => setCollectModalOpen(false)}
+        onSettle={handleBulkSettle}
+        onSettled={handleBulkSettled}
+      />
     </View>
   );
 });
@@ -443,6 +522,16 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "800",
     marginTop: 4,
+  },
+  collectButton: {
+    marginTop: 12,
+    borderRadius: adminRadii.control,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
   listContent: {
     paddingBottom: 24,

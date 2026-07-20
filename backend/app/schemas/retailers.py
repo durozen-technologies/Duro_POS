@@ -277,6 +277,48 @@ class RetailerPaymentCreate(BaseModel):
     payment: CheckoutPaymentInput
 
 
+class RetailerBulkSettleCreate(BaseModel):
+    cash_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    upi_amount: Decimal = Field(default=Decimal("0"), ge=0)
+
+    @model_validator(mode="after")
+    def validate_amounts(self) -> "RetailerBulkSettleCreate":
+        if self.cash_amount + self.upi_amount <= 0:
+            raise ValueError("At least one of cash or UPI amount is required")
+        return self
+
+
+class RetailerBulkSettleSaleLine(BaseModel):
+    sale_id: UUID
+    sale_no: str
+    shop_id: UUID
+    payment_id: UUID
+    cash_amount: Decimal
+    upi_amount: Decimal
+    amount_applied: Decimal
+    balance_due_after: Decimal
+    status: RetailerSaleStatus
+
+
+class RetailerBulkSettleRead(BaseModel):
+    retailer_id: UUID
+    retailer_name: str
+    cash_amount: Decimal
+    upi_amount: Decimal
+    total_paid: Decimal
+    applied_to_opening: Decimal
+    opening_cash_amount: Decimal = Decimal("0.00")
+    opening_upi_amount: Decimal = Decimal("0.00")
+    applied_to_bills: Decimal
+    opening_balance_before: Decimal
+    opening_balance_after: Decimal
+    bills_outstanding_before: Decimal
+    bills_outstanding_after: Decimal
+    outstanding_before: Decimal
+    outstanding_after: Decimal
+    sales: list[RetailerBulkSettleSaleLine]
+
+
 class RetailerSaleAdminPaymentInput(BaseModel):
     cash_amount: Decimal = Field(ge=0)
     upi_amount: Decimal = Field(ge=0)

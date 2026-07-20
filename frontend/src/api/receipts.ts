@@ -311,13 +311,17 @@ function buildReceiptImageExportScript() {
                 }).height;
                 y += 3;
 
-                y += drawWrappedText(measureContext, payload.shopName, 0, y, receiptWidth, {
-                  size: 19,
-                  weight: 800,
-                  align: "center",
-                  lineHeightRatio: 1.15,
-                }).height;
-                y += 7;
+                if (payload.shopName) {
+                  y += drawWrappedText(measureContext, payload.shopName, 0, y, receiptWidth, {
+                    size: 19,
+                    weight: 800,
+                    align: "center",
+                    lineHeightRatio: 1.15,
+                  }).height;
+                  y += 7;
+                } else {
+                  y += 7;
+                }
                 y += 10;
 
                 y += drawWrappedText(measureContext, payload.billText, 0, y, receiptWidth, {
@@ -331,6 +335,16 @@ function buildReceiptImageExportScript() {
                 if (payload.purchaserText) {
                   y += drawWrappedText(measureContext, payload.purchaserText, 0, y, receiptWidth, {
                     size: 24,
+                    weight: 800,
+                    align: "center",
+                    lineHeightRatio: 1.15,
+                  }).height;
+                  y += 4;
+                }
+
+                if (payload.shopNameMetaText) {
+                  y += drawWrappedText(measureContext, payload.shopNameMetaText, 0, y, receiptWidth, {
+                    size: 19,
                     weight: 800,
                     align: "center",
                     lineHeightRatio: 1.15,
@@ -407,7 +421,7 @@ function buildReceiptImageExportScript() {
                 });
                 y += 12;
                 y += measureFittedTextHeight(measureContext, payload.totalValue, totalValueWidth, {
-                  size: 26,
+                  size: payload.totalFontSize || 26,
                   weight: 800,
                   lineHeightRatio: 1.2,
                 });
@@ -418,7 +432,7 @@ function buildReceiptImageExportScript() {
                 if (payload.paidAmountLabel && payload.paidAmountValue) {
                   y += 8;
                   y += measureFittedTextHeight(measureContext, payload.paidAmountValue, totalValueWidth, {
-                    size: 18,
+                    size: payload.paidAmountFontSize || 18,
                     weight: 800,
                     lineHeightRatio: 1.3,
                   });
@@ -477,13 +491,17 @@ function buildReceiptImageExportScript() {
               }).height;
               y += 3;
 
-              y += drawWrappedText(context, payload.shopName, 0, y, receiptWidth, {
-                size: 19,
-                weight: 800,
-                align: "center",
-                lineHeightRatio: 1.15,
-              }).height;
-              y += 7;
+              if (payload.shopName) {
+                y += drawWrappedText(context, payload.shopName, 0, y, receiptWidth, {
+                  size: 19,
+                  weight: 800,
+                  align: "center",
+                  lineHeightRatio: 1.15,
+                }).height;
+                y += 7;
+              } else {
+                y += 7;
+              }
 
               context.lineWidth = 2.5;
               context.beginPath();
@@ -503,6 +521,16 @@ function buildReceiptImageExportScript() {
               if (payload.purchaserText) {
                 y += drawWrappedText(context, payload.purchaserText, 0, y, receiptWidth, {
                   size: 24,
+                  weight: 800,
+                  align: "center",
+                  lineHeightRatio: 1.15,
+                }).height;
+                y += 4;
+              }
+
+              if (payload.shopNameMetaText) {
+                y += drawWrappedText(context, payload.shopNameMetaText, 0, y, receiptWidth, {
+                  size: 19,
                   weight: 800,
                   align: "center",
                   lineHeightRatio: 1.15,
@@ -645,7 +673,12 @@ function buildReceiptImageExportScript() {
               context.stroke();
               y += 12;
 
-              y += drawTotalRow(payload.totalLabel, payload.totalValue, 26, 800);
+              y += drawTotalRow(
+                payload.totalLabel,
+                payload.totalValue,
+                payload.totalFontSize || 26,
+                800,
+              );
               y += 8;
 
               if (payload.paidAmountLabel || payload.balanceAmountLabel) {
@@ -658,7 +691,12 @@ function buildReceiptImageExportScript() {
               }
 
               if (payload.paidAmountLabel && payload.paidAmountValue) {
-                y += drawTotalRow(payload.paidAmountLabel, payload.paidAmountValue, 18, 800);
+                y += drawTotalRow(
+                  payload.paidAmountLabel,
+                  payload.paidAmountValue,
+                  payload.paidAmountFontSize || 18,
+                  800,
+                );
                 y += 8;
               }
 
@@ -791,6 +829,7 @@ type ReceiptExportPayload = {
   shopName: string;
   billText: string;
   purchaserText?: string;
+  shopNameMetaText?: string;
   dateText: string;
   openingBalanceLabel?: string;
   openingBalanceValue?: string;
@@ -803,8 +842,10 @@ type ReceiptExportPayload = {
   upiValue: string;
   totalLabel: string;
   totalValue: string;
+  totalFontSize?: number;
   paidAmountLabel?: string;
   paidAmountValue?: string;
+  paidAmountFontSize?: number;
   balanceAmountLabel?: string;
   balanceAmountValue?: string;
   totalBalanceLabel?: string;
@@ -896,6 +937,11 @@ export function buildReceiptHtmlMarkup(
             overflow-wrap: anywhere;
             color: #000000;
             font-weight: 800;
+          }
+          .header-main-divider {
+            border-bottom: 2.5px solid #000000;
+            padding-bottom: 7px;
+            margin-bottom: 10px;
           }
           .header-sub {
             font-size: 19px;
@@ -1040,6 +1086,10 @@ export function buildReceiptHtmlMarkup(
           }
           .grand-total td:last-child {
             font-size: 20px;
+          }
+          .paid-this-visit-row td {
+            font-size: 15px;
+            font-weight: 700;
           }
 
           .footer {

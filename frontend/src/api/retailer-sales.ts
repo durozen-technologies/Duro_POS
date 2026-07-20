@@ -1,6 +1,8 @@
 import { apiClient } from "@/api/client";
 import {
   type RetailerBalanceRead,
+  type RetailerBulkSettleCreate,
+  type RetailerBulkSettleRead,
   type RetailerCatalogItemRead,
   type RetailerPaymentCreate,
   type RetailerPaymentRecordResponse,
@@ -32,6 +34,17 @@ export async function fetchShopRetailerWallet(retailerId: UUID) {
 export async function fetchShopRetailerBalance(retailerId: UUID) {
   const { data } = await apiClient.get<RetailerBalanceRead>(
     `/api/v1/shop/retailers/${retailerId}/balance`,
+  );
+  return data;
+}
+
+export async function settleShopRetailerOutstanding(
+  retailerId: UUID,
+  payload: RetailerBulkSettleCreate,
+) {
+  const { data } = await apiClient.post<RetailerBulkSettleRead>(
+    `/api/v1/shop/retailers/${retailerId}/settle-outstanding`,
+    payload,
   );
   return data;
 }
