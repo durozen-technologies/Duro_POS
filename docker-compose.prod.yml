@@ -127,6 +127,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     networks:
+      - edge
       - data
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-brolier_360}
