@@ -140,7 +140,7 @@ services:
     volumes:
       - ${POSTGRES_DATA_DIR:-/home/ubuntu/pos-postgress/data}:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:${POSTGRES_PUBLISH_PORT:-5432}:5432"
+      - "0.0.0.0:${POSTGRES_PUBLISH_PORT:-5432}:5432"
     healthcheck:
       test:
         [
