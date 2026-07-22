@@ -328,6 +328,23 @@ function itemExportHeaders(labels: ReturnType<typeof receiptLabels>) {
   };
 }
 
+function hasAppliedWalletCredit(walletAmount?: string | number | null) {
+  return Number(walletAmount ?? 0) > 0;
+}
+
+function walletReceiptExportFields(
+  labels: ReturnType<typeof receiptLabels>,
+  walletAmount?: string | number | null,
+) {
+  if (!hasAppliedWalletCredit(walletAmount)) {
+    return {};
+  }
+  return {
+    walletLabel: labels.wallet,
+    walletValue: formatReceiptCurrency(walletAmount),
+  };
+}
+
 function retailerTotalsTableHtml(
   labels: ReturnType<typeof receiptLabels>,
   payment: RetailerPaymentRead,
@@ -337,23 +354,28 @@ function retailerTotalsTableHtml(
   balanceAmount: string,
   totalBalance: string,
 ) {
+  const walletRow = hasAppliedWalletCredit(payment.wallet_amount)
+    ? `
+        <tr class="total-row">
+          <td>${labels.wallet}</td>
+          <td class="align-right">${formatReceiptCurrency(payment.wallet_amount)}</td>
+        </tr>`
+    : "";
+
   return `
       <table class="totals-section">
         <colgroup>
           <col class="col-total-label" />
           <col class="col-total-value" />
         </colgroup>
+        ${walletRow}
         <tr class="total-row">
           <td>${labels.cash}</td>
           <td class="align-right">${formatReceiptCurrency(payment.cash_amount)}</td>
         </tr>
         <tr class="total-row">
-          <td>${labels.upi}</td>
-          <td class="align-right">${formatReceiptCurrency(payment.upi_amount)}</td>
-        </tr>
-        <tr class="total-row">
-          <td class="upi-bottom-divider">${labels.wallet}</td>
-          <td class="align-right upi-bottom-divider">${formatReceiptCurrency(payment.wallet_amount ?? "0")}</td>
+          <td class="upi-bottom-divider">${labels.upi}</td>
+          <td class="align-right upi-bottom-divider">${formatReceiptCurrency(payment.upi_amount)}</td>
         </tr>
         <tr class="total-row grand-total">
           <td class="strong upi-bottom-divider">${labels.grandTotal}</td>
@@ -432,12 +454,11 @@ export function buildRetailerSaleInvoiceHtml(
     billText: `${labels.saleNo}: ${sale.sale_no}`,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
+    ...walletReceiptExportFields(labels, displayPayment.wallet_amount),
     cashLabel: labels.cash,
     cashValue: formatReceiptCurrency(displayPayment.cash_amount),
     upiLabel: labels.upi,
     upiValue: formatReceiptCurrency(displayPayment.upi_amount),
-    walletLabel: labels.wallet,
-    walletValue: formatReceiptCurrency(displayPayment.wallet_amount ?? "0"),
     totalLabel: labels.grandTotal,
     totalValue: `Rs. ${formatReceiptCurrency(sale.total_amount)}`,
     ...paymentSummaryExportFields(
@@ -498,12 +519,11 @@ export function buildRetailerBalancePaymentHtml(
     billText: `${labels.receiptNo}: ${receipt.receipt_number}`,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
+    ...walletReceiptExportFields(labels, payment.wallet_amount),
     cashLabel: labels.cash,
     cashValue: formatReceiptCurrency(payment.cash_amount),
     upiLabel: labels.upi,
     upiValue: formatReceiptCurrency(payment.upi_amount),
-    walletLabel: labels.wallet,
-    walletValue: formatReceiptCurrency(payment.wallet_amount ?? "0"),
     totalLabel: labels.grandTotal,
     totalValue: `Rs. ${formatReceiptCurrency(sale.total_amount)}`,
     ...paymentSummaryExportFields(

@@ -662,6 +662,11 @@ function buildReceiptImageExportScript() {
                 return Math.max(labelBlock.height, valueHeight);
               }
 
+              if (payload.walletLabel && payload.walletValue) {
+                y += drawTotalRow(payload.walletLabel, payload.walletValue, 18, 700);
+                y += 8;
+              }
+
               y += drawTotalRow(payload.cashLabel, payload.cashValue, 18, 700);
               y += 8;
 
@@ -836,6 +841,8 @@ type ReceiptExportPayload = {
   itemHeader: string;
   quantityHeader: string;
   totalHeader: string;
+  walletLabel?: string;
+  walletValue?: string;
   cashLabel: string;
   cashValue: string;
   upiLabel: string;
