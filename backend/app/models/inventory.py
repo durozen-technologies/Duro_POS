@@ -364,10 +364,18 @@ class InventoryMovement(Base, BaseModelMixin):
     )
     driver_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     vehicle_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    purchaser_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("purchasers.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    purchaser_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     shop = relationship("Shop", back_populates="inventory_movements")
     item = relationship("InventoryItem", back_populates="movements")
     category = relationship("InventoryCategory", back_populates="movements")
+    purchaser = relationship("Purchaser")
     splits = relationship(
         "InventoryMovementSplit", back_populates="movement", cascade="all, delete-orphan"
     )

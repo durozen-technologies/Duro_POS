@@ -1006,8 +1006,6 @@ async def create_retailer_sale(
     payload: RetailerSaleCheckoutCommitRequest,
 ) -> RetailerSaleRead:
     prepared = await _prepare_retailer_checkout(db, shop, payload)
-    if prepared.total_paid <= 0:
-        raise HTTPException(status_code=422, detail="At least some payment is required")
 
     token_payload = _decode_checkout_token(payload.checkout_token)
     if (

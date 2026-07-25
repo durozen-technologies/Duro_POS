@@ -12,6 +12,7 @@ from app.routers.admin import (
     global_image_templates,
     inventory,
     pricing,
+    purchasers,
     retailers,
     shops,
     transfers,
@@ -29,6 +30,7 @@ for module in (
     pricing,
     dashboard,
     transfers,
+    purchasers,
     retailers,
     global_image_templates,
 ):
@@ -130,6 +132,11 @@ from app.routers.admin.pricing import (  # noqa: E402, F401
     shop_daily_prices_partial,
     shop_price_history,
     shop_prices_bootstrap,
+)
+from app.routers.admin.purchasers import (  # noqa: E402, F401
+    admin_create_purchaser,
+    admin_list_purchasers,
+    admin_update_purchaser,
 )
 from app.routers.admin.shops import (  # noqa: E402, F401
     create_shop,

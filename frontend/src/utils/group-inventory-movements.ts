@@ -24,6 +24,7 @@ export type GroupedInventoryMovement = {
   created_at: string;
   driver_name?: string | null;
   vehicle_number?: string | null;
+  purchaser_name?: string | null;
   total_quantity: string;
   total_bird_count: number;
   categories: GroupedMovementCategoryLine[];
@@ -41,7 +42,7 @@ function movementTextFieldValue(value: unknown): string {
 
 function pickMovementTextField(
   rows: InventoryMovementRead[],
-  field: "driver_name" | "vehicle_number",
+  field: "driver_name" | "vehicle_number" | "purchaser_name",
 ): string | null {
   let best: string | null = null;
   for (const row of rows) {
@@ -93,6 +94,7 @@ export function groupInventoryMovements(movements: InventoryMovementRead[]): Gro
       created_at: head.created_at,
       driver_name: pickMovementTextField(rows, "driver_name"),
       vehicle_number: pickMovementTextField(rows, "vehicle_number"),
+      purchaser_name: pickMovementTextField(rows, "purchaser_name"),
       total_quantity: total.toString(),
       total_bird_count: totalBirdCount,
       categories,

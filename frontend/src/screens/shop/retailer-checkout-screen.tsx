@@ -79,7 +79,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
   );
   const paid = money(walletAmount).plus(money(cashAmount)).plus(money(upiAmount));
   const balance = money(totalAmount).minus(paid);
-  const canPrint = paid.greaterThan(0) && paid.lessThanOrEqualTo(money(totalAmount));
+  const canPrint = paid.greaterThanOrEqualTo(0) && paid.lessThanOrEqualTo(money(totalAmount));
 
   useLayoutEffect(() => {
     navigation.setOptions({

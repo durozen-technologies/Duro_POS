@@ -214,6 +214,8 @@ class InventoryMovementRead(BaseModel):
     unit: BaseUnit
     driver_name: str | None = None
     vehicle_number: str | None = None
+    purchaser_id: UUID | None = None
+    purchaser_name: str | None = None
     occurred_at: datetime
     created_at: datetime
 
@@ -229,6 +231,7 @@ class InventoryAddRequest(BaseModel):
     bird_count: int = Field(default=0, ge=0)
     driver_name: str = Field(min_length=1, max_length=100)
     vehicle_number: str = Field(min_length=2, max_length=120)
+    purchaser_id: UUID | None = None
     occurred_at: datetime | None = None
 
     @field_validator("driver_name", "vehicle_number", mode="before")

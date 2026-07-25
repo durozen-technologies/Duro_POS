@@ -93,6 +93,7 @@ from .pricing import (
     ItemPriceRead,
     ShopBootstrapResponse,
 )
+from .purchaser import PurchaserCreate, PurchaserRead, PurchaserUpdate
 from .transfer import (
     InventoryTransferCreate,
     InventoryTransferPage,
@@ -142,6 +143,9 @@ __all__ = [
     "PaymentSplitSummary",
     "PasswordResetRequest",
     "PasswordResetResponse",
+    "PurchaserCreate",
+    "PurchaserRead",
+    "PurchaserUpdate",
     "RegisterRequest",
     "ReceiptRead",
     "ShopBootstrapResponse",

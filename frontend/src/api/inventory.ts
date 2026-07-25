@@ -17,6 +17,7 @@ import {
   RetailerInventoryUsageBulkResult,
   RetailerInventoryUsagePage,
   TransferShopRead,
+  PurchaserRead,
   UUID,
 } from "@/types/api";
 
@@ -117,6 +118,11 @@ export async function transferInventoryStock(itemId: UUID, payload: InventoryTra
 
 export async function getActiveTransferShops() {
   const { data } = await apiClient.get<TransferShopRead[]>("/api/v1/shop/inventory/transfer-shops");
+  return data;
+}
+
+export async function getActivePurchasers() {
+  const { data } = await apiClient.get<PurchaserRead[]>("/api/v1/shop/inventory/purchasers");
   return data;
 }
 

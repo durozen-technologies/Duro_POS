@@ -2906,6 +2906,8 @@ def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:
         unit=item.base_unit if item is not None else BaseUnit.KG,
         driver_name=movement.driver_name,
         vehicle_number=movement.vehicle_number,
+        purchaser_id=movement.purchaser_id,
+        purchaser_name=movement.purchaser_name,
         occurred_at=movement.occurred_at,
         created_at=movement.created_at,
     )
@@ -3040,6 +3042,9 @@ async def add_shop_inventory_stock(
     item, allocation = await _get_allocated_inventory_item_for_shop(db, shop, item_id)
     quantity = _normalize_quantity(item.base_unit, payload.quantity)
     occurred_at = await _prepare_occurred_at(db, actor=actor, shop=shop, raw=payload.occurred_at)
+    from .purchasers import resolve_active_purchaser
+
+    purchaser_id, purchaser_name = await resolve_active_purchaser(db, payload.purchaser_id)
     movement = InventoryMovement(
         shop_id=shop.id,
         inventory_item_id=item.id,
@@ -3048,6 +3053,8 @@ async def add_shop_inventory_stock(
         bird_count=payload.bird_count,
         driver_name=payload.driver_name.strip(),
         vehicle_number=payload.vehicle_number.strip(),
+        purchaser_id=purchaser_id,
+        purchaser_name=purchaser_name,
         occurred_at=occurred_at,
     )
     db.add(movement)

@@ -32,6 +32,7 @@ from .item_category import ItemCategory
 from .item_change_event import ItemChangeEvent
 from .organization import Organization
 from .payment import Payment
+from .purchaser import Purchaser
 from .rbac import AdminRole, AdminRolePermission, AdminUserRole, Permission
 from .receipt import Receipt
 from .retailer import (
@@ -84,6 +85,7 @@ __all__ = [
     "ItemChangeEvent",
     "MonthlyBillSequence",
     "Payment",
+    "Purchaser",
     "Receipt",
     "Retailer",
     "RetailerItemPrice",

@@ -61,6 +61,9 @@ import {
   TransferShopCreate,
   TransferShopUpdate,
   TransferShopRead,
+  PurchaserCreate,
+  PurchaserUpdate,
+  PurchaserRead,
   InventoryTransferPage,
 } from "@/types/api";
 
@@ -1228,6 +1231,30 @@ export async function updateTransferShop(id: UUID, payload: TransferShopUpdate) 
 
 export async function deleteTransferShop(id: UUID) {
   await apiClient.delete(`/api/v1/admin/transfer-shops/${id}`);
+}
+
+export async function fetchPurchasers(
+  params?: { q?: string; active?: boolean | null },
+  options: ApiRequestOptions = {},
+) {
+  const { data } = await apiClient.get<PurchaserRead[]>("/api/v1/admin/purchasers", {
+    params: {
+      q: params?.q || undefined,
+      active: params?.active ?? undefined,
+    },
+    signal: options.signal,
+  });
+  return data;
+}
+
+export async function createPurchaser(payload: PurchaserCreate) {
+  const { data } = await apiClient.post<PurchaserRead>("/api/v1/admin/purchasers", payload);
+  return data;
+}
+
+export async function updatePurchaser(id: UUID, payload: PurchaserUpdate) {
+  const { data } = await apiClient.patch<PurchaserRead>(`/api/v1/admin/purchasers/${id}`, payload);
+  return data;
 }
 
 export async function fetchInventoryTransfersPage(

@@ -270,6 +270,8 @@ export interface InventoryMovementRead {
   unit: BaseUnit;
   driver_name?: string | null;
   vehicle_number?: string | null;
+  purchaser_id?: UUID | null;
+  purchaser_name?: string | null;
   occurred_at: string;
   created_at: string;
 }
@@ -285,6 +287,7 @@ export interface InventoryAddRequest {
   bird_count: number;
   driver_name: string;
   vehicle_number: string;
+  purchaser_id?: UUID | null;
   occurred_at?: string | null;
 }
 
@@ -1144,6 +1147,33 @@ export interface TransferShopRead {
   has_history: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface PurchaserRead {
+  id: UUID;
+  name: string;
+  shop_name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PurchaserCreate {
+  name: string;
+  shop_name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  is_active?: boolean;
+}
+
+export interface PurchaserUpdate {
+  name?: string | null;
+  shop_name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  is_active?: boolean | null;
 }
 
 export interface InventoryTransferCreate {

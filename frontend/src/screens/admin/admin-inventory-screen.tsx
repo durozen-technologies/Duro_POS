@@ -68,10 +68,11 @@ import { triggerHaptic, type ToastTone } from "./admin-dashboard-utils";
 import { ActionButton, IconButton, EmptyStateCard, SearchField, ToastBanner } from "./components/admin-dashboard-primitives";
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { AdminTransferShopsTab } from "./components/admin-transfer-shops-tab";
+import { AdminPurchasersTab } from "./components/admin-purchasers-tab";
 import { useAdminTheme } from "./use-admin-theme";
 import type { AdminInventoryScreenProps } from "@/navigation/types";
 
-type InventoryTab = "items" | "categories" | "purchaseRates" | "shops" | "transferShops";
+type InventoryTab = "items" | "categories" | "purchaseRates" | "purchasers" | "shops" | "transferShops";
 type MovementHistoryMode = "date" | "range";
 type MovementHistoryCalendarTarget = "date" | "start" | "end";
 const INVENTORY_ITEM_PAGE_SIZE = 50;
@@ -1227,6 +1228,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
             { key: "items", label: "Items", icon: "package-variant-closed" },
             { key: "categories", label: "Categories", icon: "shape-outline" },
             { key: "purchaseRates", label: "Purchase rate", icon: "currency-inr" },
+            { key: "purchasers", label: "Purchaser", icon: "account-tie-outline" },
             { key: "transferShops", label: "Transfer shops", icon: "swap-horizontal" },
           ] as const
         ).map((tab) => {
@@ -2010,8 +2012,14 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                   <Text style={[styles.itemMeta, { color: palette.textMuted }]}>
                     {movement.movement_type === InventoryMovementType.ADD ? "Added" : `Used for ${movement.category_name ?? "category"}`} · {formatInventoryQuantity(movement.quantity, movement.unit)}
                   </Text>
-                  {movement.movement_type === InventoryMovementType.ADD && (movement.driver_name || movement.vehicle_number) ? (
+                  {movement.movement_type === InventoryMovementType.ADD &&
+                  (movement.driver_name || movement.vehicle_number || movement.purchaser_name) ? (
                     <View style={styles.movementTransportDetails}>
+                      {movement.purchaser_name ? (
+                        <Text selectable style={[styles.itemMeta, styles.movementTransportText, { color: palette.textMuted }]}>
+                          Purchaser: {movement.purchaser_name.trim()}
+                        </Text>
+                      ) : null}
                       {movement.driver_name ? (
                         <Text selectable style={[styles.itemMeta, styles.movementTransportText, { color: palette.textMuted }]}>
                           Driver: {movement.driver_name.trim()}
@@ -2188,6 +2196,9 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
 
           {activeTab === "transferShops" && (
             <AdminTransferShopsTab />
+          )}
+          {activeTab === "purchasers" && (
+            <AdminPurchasersTab />
           )}
         </View>
       </KeyboardAvoidingView>

@@ -585,18 +585,21 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 zero_preview = await preview_retailer_sale(
                     db, current_shop, shop_user, zero_payload
                 )
-                with self.assertRaises(HTTPException):
-                    await create_retailer_sale(
-                        db,
-                        current_shop,
-                        shop_user,
-                        RetailerSaleCheckoutCommitRequest(
-                            retailer_id=zero_payload.retailer_id,
-                            items=zero_payload.items,
-                            payment=zero_payload.payment,
-                            checkout_token=zero_preview.checkout_token,
-                        ),
-                    )
+                zero_sale = await create_retailer_sale(
+                    db,
+                    current_shop,
+                    shop_user,
+                    RetailerSaleCheckoutCommitRequest(
+                        retailer_id=zero_payload.retailer_id,
+                        items=zero_payload.items,
+                        payment=zero_payload.payment,
+                        checkout_token=zero_preview.checkout_token,
+                    ),
+                )
+                self.assertEqual(zero_sale.status, RetailerSaleStatus.OPEN)
+                self.assertEqual(zero_sale.amount_paid_total, Decimal("0.00"))
+                self.assertEqual(zero_sale.balance_due, zero_sale.total_amount)
+                self.assertEqual(len(zero_sale.receipts), 1)
 
                 payload = RetailerSaleCheckoutRequest(
                     retailer_id=retailer.id,
@@ -896,11 +899,6 @@ class RetailerSalesIntegrationTests(BackendTestCase):
         if due > total:
             raise AssertionError("balance_due cannot exceed sale total")
         cash_paid = (total - due).quantize(Decimal("0.01"))
-        if cash_paid <= 0:
-            # Checkout requires a non-zero payment; bump quantity by 1 unit and pay that unit.
-            quantity = quantity + Decimal("1")
-            total = (quantity * Decimal("100.00")).quantize(Decimal("0.01"))
-            cash_paid = (total - due).quantize(Decimal("0.01"))
         payload = RetailerSaleCheckoutRequest(
             retailer_id=retailer.id,
             items=[RetailerSaleItemInput(item_id=chicken.id, quantity=quantity)],

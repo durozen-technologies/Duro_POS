@@ -38,6 +38,7 @@ from app.schemas.inventory import (
 )
 from app.schemas.inventory_policy import InventoryBackdatePolicyRead
 from app.schemas.pricing import DailyPriceCreate, DailyPriceRead, ShopBootstrapResponse
+from app.schemas.purchaser import PurchaserRead
 from app.schemas.retailer_inventory import (
     RetailerInventoryPurchaseCreate,
     RetailerInventoryPurchasePage,
@@ -91,6 +92,7 @@ from app.services.inventory import (
 )
 from app.services.inventory_policy import get_inventory_backdate_policy
 from app.services.pricing import create_daily_prices, get_shop_bootstrap, get_today_prices
+from app.services.purchasers import list_purchasers
 from app.services.retailer_inventory import (
     list_retailer_inventory_usages,
     record_retailer_inventory_usages_bulk,
@@ -551,6 +553,19 @@ async def list_active_transfer_shops(
 ) -> Sequence[TransferShopRead]:
     """Get active transfer shops for inventory transfers."""
     return await list_transfer_shops(db, active=True)
+
+
+@router.get(
+    "/inventory/purchasers",
+    response_model=list[PurchaserRead],
+    summary="Get Active Purchasers",
+)
+async def list_active_purchasers(
+    db: AsyncSession = Depends(get_tenant_db),
+    _shop: Shop = Depends(get_current_shop),
+) -> Sequence[PurchaserRead]:
+    """Get active purchasers for Add Stock selection."""
+    return await list_purchasers(db, active=True)
 
 
 @router.post(

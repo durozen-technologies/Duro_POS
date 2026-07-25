@@ -17,6 +17,7 @@ type InventoryMovementHistoryCardProps = {
     unknownCategory: string;
     driver: string;
     vehicle: string;
+    purchaser?: string;
     recordedAt: (dateTime: string) => string;
     birds?: string;
   };
@@ -62,6 +63,7 @@ export function InventoryMovementHistoryCard({
   const recordedLabel = movementRecordedLabel(entry.occurred_at, entry.created_at, labels.recordedAt);
   const vehicleNumber = movementTextValue(entry.vehicle_number);
   const driverName = movementTextValue(entry.driver_name);
+  const purchaserName = movementTextValue(entry.purchaser_name);
   const birdsLabel = labels.birds ?? "Count";
   const quantityLabel =
     entry.unit === BaseUnit.KG && entry.total_bird_count > 0
@@ -102,8 +104,11 @@ export function InventoryMovementHistoryCard({
         </View>
       </View>
 
-      {isAdd && (driverName || vehicleNumber) ? (
+      {isAdd && (driverName || vehicleNumber || purchaserName) ? (
         <View className="gap-2.5 border-t border-border/80 bg-surface px-3.5 py-2.5">
+          {purchaserName ? (
+            <TransportDetailRow label={labels.purchaser ?? "Purchaser"} value={purchaserName} />
+          ) : null}
           {driverName ? (
             <TransportDetailRow label={labels.driver} value={driverName} />
           ) : null}

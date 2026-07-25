@@ -56,6 +56,8 @@ ignore = ["E501"]
 "app/routers/admin/pricing.py" = ["F403", "F405"]
 "app/routers/admin/shops.py" = ["F403", "F405"]
 "app/routers/admin/transfers.py" = ["F403", "F405"]
+"app/routers/admin/purchasers.py" = ["F403", "F405"]
+"app/routers/admin/retailers.py" = ["F403", "F405"]
 # Star-import barrels in storage (paths -> images -> objects).
 "app/db/storage/paths.py" = ["F401"]
 "app/db/storage/images.py" = ["F403", "F405"]

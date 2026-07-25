@@ -14,6 +14,7 @@ import {
   useShopInventoryStock as postShopInventoryUse,
   useShopInventoryStockSplit as postShopInventoryUseSplit,
   getActiveTransferShops,
+  getActivePurchasers,
   transferInventoryStock,
 } from "@/api/inventory";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
@@ -30,6 +31,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { Screen } from "@/components/ui/screen";
 import { TextField } from "@/components/ui/text-field";
 import { TransferShopPicker } from "./components/transfer-shop-picker";
+import { PurchaserPicker } from "./components/purchaser-picker";
 import { InventoryMovementHistoryCard } from "./components/inventory-movement-history-card";
 import { InventoryTransferHistoryCard } from "./components/inventory-transfer-history-card";
 import { InventoryRetailerPurchaseHistoryCard } from "./components/inventory-retailer-purchase-history-card";
@@ -52,6 +54,7 @@ import {
   type RetailerInventoryUsageBulkResult,
   type UUID,
   type TransferShopRead,
+  type PurchaserRead,
 } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { groupInventoryMovements } from "@/utils/group-inventory-movements";
@@ -203,6 +206,8 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const { language, t } = useShopTranslation();
   const [items, setItems] = useState<InventoryItemStockRead[]>([]);
   const [transferShops, setTransferShops] = useState<TransferShopRead[]>([]);
+  const [purchasers, setPurchasers] = useState<PurchaserRead[]>([]);
+  const [purchaserId, setPurchaserId] = useState<UUID | null>(null);
   const [shopName, setShopName] = useState<string | null>(null);
   const [inventoryCursor, setInventoryCursor] = useState<InventoryCursor>(EMPTY_INVENTORY_CURSOR);
   const [inventoryHasMore, setInventoryHasMore] = useState(false);
@@ -327,6 +332,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       unknownCategory: t("inventory.unknownCategory"),
       driver: t("inventory.driverLabel"),
       vehicle: t("inventory.vehicleNumber"),
+      purchaser: t("inventory.purchaserLabel"),
       recordedAt: (dateTime: string) => t("inventory.recordedAt", { dateTime }),
       transferredTo: t("inventory.transferredTo"),
       retailer: t("inventory.retailerLabel", { defaultValue: "Retailer" }),
@@ -354,12 +360,13 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     }
     setErrorMessage(null);
     try {
-      const [page, activeShops, policy] = await Promise.all([
+      const [page, activeShops, activePurchasers, policy] = await Promise.all([
         fetchShopInventoryRows(
           { limit: SHOP_INVENTORY_PAGE_SIZE },
           { signal: controller.signal },
         ),
         getActiveTransferShops(),
+        getActivePurchasers(),
         fetchShopInventoryBackdatePolicy(),
       ]);
       if (controller.signal.aborted || requestId !== inventoryRequestIdRef.current) {
@@ -368,6 +375,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
       setShopName(page.shop_name);
       setItems(page.items);
       setTransferShops(activeShops);
+      setPurchasers(activePurchasers);
       setBackdatePolicy(policy);
       setInventoryHasMore(page.has_more);
       const nextCursor = {
@@ -564,6 +572,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
     setSelectedItem(item);
     setMode(nextMode);
     setTransferShopId(null);
+    setPurchaserId(null);
     setQuantity("");
     setBirdCount("");
     setDriverName("");
@@ -616,6 +625,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
   const closeMovement = useCallback(() => {
     setSelectedItem(null);
     setTransferShopId(null);
+    setPurchaserId(null);
     setQuantity("");
     setBirdCount("");
     setDriverName("");
@@ -918,6 +928,7 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
           bird_count: resolvedBirdCount,
           driver_name: normalizedDriverName,
           vehicle_number: normalizedVehicleNumber,
+          ...(purchaserId ? { purchaser_id: purchaserId } : {}),
           ...(occurredAt ? { occurred_at: occurredAt } : {}),
         });
         changedItem = result.item;
@@ -1593,6 +1604,26 @@ export function InventoryManagementScreen(_: InventoryManagementScreenProps) {
                         ) : null}
                         {mode === InventoryMovementType.ADD ? (
                           <View className="mt-4 gap-4">
+                            <PurchaserPicker
+                              purchasers={purchasers}
+                              selectedPurchaserId={purchaserId}
+                              loading={loading}
+                              palette={{
+                                border: "#D8CCB6",
+                                card: "#FFFFFF",
+                                textMuted: "#7A857E",
+                                textPrimary: "#111811",
+                                textSecondary: "#303A33",
+                                overlay: "rgba(0, 0, 0, 0.4)",
+                                items: HISTORY_BUTTON_GREEN,
+                                itemsSoft: "#E8F3EB",
+                                itemsStrong: HISTORY_BUTTON_GREEN,
+                                surfaceMuted: "#F7F5F0",
+                              }}
+                              onSelectPurchaser={setPurchaserId}
+                              label={t("inventory.purchaser" as any)}
+                              optionalHint={t("inventory.purchaserOptionalHint" as any)}
+                            />
                             <TextField
                               label={t("inventory.driverName" as any)}
                               placeholder={t("inventory.driverNamePlaceholder" as any)}

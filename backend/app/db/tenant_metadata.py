@@ -789,6 +789,48 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
     if any(name not in table_names for name in purchase_tables):
         create_tenant_tables(connection, safe)
 
+    if "purchasers" not in table_names:
+        create_tenant_tables(connection, safe)
+        table_names = set(inspector.get_table_names(schema=safe))
+
+    if "inventory_movements" in table_names:
+        movement_columns = {
+            column["name"] for column in inspector.get_columns("inventory_movements", schema=safe)
+        }
+        if "purchaser_id" not in movement_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_movements "
+                        "ADD COLUMN IF NOT EXISTS purchaser_id UUID"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_inventory_movements_purchaser_id "
+                        "ON inventory_movements (purchaser_id)"
+                    )
+                )
+            else:
+                connection.execute(
+                    text("ALTER TABLE inventory_movements ADD COLUMN purchaser_id CHAR(32)")
+                )
+        if "purchaser_name" not in movement_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_movements "
+                        "ADD COLUMN IF NOT EXISTS purchaser_name VARCHAR(120)"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_movements "
+                        "ADD COLUMN purchaser_name VARCHAR(120)"
+                    )
+                )
+
     if "retailer_inventory_purchases" in table_names:
         purchase_columns = {
             column["name"]
