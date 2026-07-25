@@ -4,10 +4,11 @@ import { memo, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { Alert, FlatList, Pressable, TextInput, View } from "react-native";
 
 import { fetchRetailerCatalog } from "@/api/retailer-sales";
-import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { formatApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CartActionBar } from "@/components/ui/cart-action-bar";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Screen } from "@/components/ui/screen";
@@ -110,6 +111,8 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
   const { retailerId, retailerName } = route.params;
   const { language, t } = useShopTranslation();
   const [catalog, setCatalog] = useState<RetailerCatalogItemRead[]>([]);
+  const [shopName, setShopName] = useState("");
+  const [pricesSet, setPricesSet] = useState(true);
   const [loading, setLoading] = useState(true);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const cartItems = useRetailerCartStore((s) => s.items);
@@ -119,9 +122,11 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await fetchRetailerCatalog(retailerId);
-      setCatalog(items);
-      prefetchItemThumbnails(items);
+      const response = await fetchRetailerCatalog(retailerId);
+      setCatalog(response.items);
+      setShopName(response.shop_name);
+      setPricesSet(response.prices_set);
+      prefetchItemThumbnails(response.items);
     } catch (error) {
       Alert.alert(t("retailers.loadFailed"), formatApiErrorMessage(error));
     } finally {
@@ -215,6 +220,21 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
   );
 
   if (loading) return <LoadingState label={t("retailers.loadingCatalog")} />;
+
+  if (!pricesSet) {
+    return (
+      <Screen>
+        <EmptyState
+          title={t("retailers.contactAdminTitle")}
+          description={t("retailers.contactAdminDescription", {
+            shopName: shopName || retailerName,
+          })}
+          actionLabel={t("action.tryAgain")}
+          onAction={handleRefresh}
+        />
+      </Screen>
+    );
+  }
 
   return (
     <View className="flex-1 bg-cream">

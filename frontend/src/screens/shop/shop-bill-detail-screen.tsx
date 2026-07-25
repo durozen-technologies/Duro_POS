@@ -25,6 +25,7 @@ import {
 import type { BillRead, ReceiptStatus } from "@/types/api";
 import { usePrinterStore } from "@/store/printer-store";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { usePrintingEnabled } from "@/utils/printing";
 import { ShopText as Text } from "@/components/ui/shop-text";
 
 function receiptStatusLabel(status: ReceiptStatus, t: ReturnType<typeof useShopTranslation>["t"]) {
@@ -50,6 +51,7 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
   const { billId } = route.params;
   const { language, t } = useShopTranslation();
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
+  const printingEnabled = usePrintingEnabled();
   const [bill, setBill] = useState<BillRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [reprinting, setReprinting] = useState(false);
@@ -86,7 +88,7 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
   }, [headerMenu, navigation]);
 
   async function handleReprint() {
-    if (!bill) return;
+    if (!bill || !printingEnabled) return;
     if (!preferredPrinter) {
       Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
       return;
@@ -127,7 +129,7 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
 
   return (
     <Screen topInset={false}>
-      {receiptImagePrintBridge}
+      {printingEnabled ? receiptImagePrintBridge : null}
       <View style={{ gap: 12, paddingBottom: 24 }}>
         <Card className="gap-3">
           <View className="flex-row items-start justify-between gap-3">
@@ -142,13 +144,17 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
                 </Text>
               ) : null}
             </View>
-            <StatusPill
-              label={receiptStatusLabel(bill.receipt.receipt_status, t)}
-              tone={receiptStatusTone(bill.receipt.receipt_status)}
-            />
+            {printingEnabled ? (
+              <StatusPill
+                label={receiptStatusLabel(bill.receipt.receipt_status, t)}
+                tone={receiptStatusTone(bill.receipt.receipt_status)}
+              />
+            ) : null}
           </View>
 
-          {bill.receipt.receipt_status === "failed" && bill.receipt.last_print_error ? (
+          {printingEnabled &&
+          bill.receipt.receipt_status === "failed" &&
+          bill.receipt.last_print_error ? (
             <Text className="text-sm leading-5 text-danger">{bill.receipt.last_print_error}</Text>
           ) : null}
 
@@ -183,27 +189,29 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
           ))}
         </Card>
 
-        <Card className="gap-3">
-          <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-            {t("common.savedPrinter")}
-          </Text>
-          <Text className="text-base font-semibold text-ink">
-            {printerLabel ?? t("printer.noPrinterSavedYet")}
-          </Text>
-          {printerDetail ? <Text className="text-sm text-muted">{printerDetail}</Text> : null}
-          <Button
-            label={
-              bill.receipt.receipt_status === "failed"
-                ? t("bills.reprintNow")
-                : t("bills.reprintReceipt")
-            }
-            onPress={() => {
-              void handleReprint();
-            }}
-            loading={reprinting}
-            className="self-start"
-          />
-        </Card>
+        {printingEnabled ? (
+          <Card className="gap-3">
+            <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+              {t("common.savedPrinter")}
+            </Text>
+            <Text className="text-base font-semibold text-ink">
+              {printerLabel ?? t("printer.noPrinterSavedYet")}
+            </Text>
+            {printerDetail ? <Text className="text-sm text-muted">{printerDetail}</Text> : null}
+            <Button
+              label={
+                bill.receipt.receipt_status === "failed"
+                  ? t("bills.reprintNow")
+                  : t("bills.reprintReceipt")
+              }
+              onPress={() => {
+                void handleReprint();
+              }}
+              loading={reprinting}
+              className="self-start"
+            />
+          </Card>
+        ) : null}
       </View>
     </Screen>
   );

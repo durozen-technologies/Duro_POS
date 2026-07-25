@@ -51,7 +51,7 @@ from app.schemas.retailers import (
     RetailerBalanceRead,
     RetailerBulkSettleCreate,
     RetailerBulkSettleRead,
-    RetailerCatalogItemRead,
+    RetailerCatalogRead,
     RetailerPaymentCreate,
     RetailerPaymentRecordResponse,
     RetailerRead,
@@ -754,14 +754,14 @@ async def shop_settle_retailer_outstanding(
 
 @router.get(
     "/retailers/{retailer_id}/catalog",
-    response_model=list[RetailerCatalogItemRead],
+    response_model=RetailerCatalogRead,
     summary="Retailer catalog for shop",
 )
 async def shop_retailer_catalog(
     retailer_id: UUID,
     db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
-) -> list[RetailerCatalogItemRead]:
+) -> RetailerCatalogRead:
     return await get_retailer_catalog(db, shop, retailer_id)
 
 

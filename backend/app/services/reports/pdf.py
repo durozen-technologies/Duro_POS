@@ -49,7 +49,7 @@ from app.schemas.admin import (
     AdminReportSection,
     AnalyticsPeriod,
 )
-from app.services.admin.catalogue import _get_period_bounds
+from app.services.report_blank_columns import _filter_empty_report_columns
 from app.services.billing import bill_counts_toward_sales_clause
 from app.services.retailer_sale_number import format_retailer_sale_bill_no
 from app.services.tenant_query import list_organization_shops, resolve_organization_display_name
@@ -1348,6 +1348,8 @@ async def _build_report_context(
             detail="detail_level must be summary or full.",
         )
 
+    from app.services.admin.catalogue import _get_period_bounds
+
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     unique_shop_ids = tuple(dict.fromkeys(shop_ids or []))
     unique_retailer_ids = tuple(dict.fromkeys(retailer_ids or []))
@@ -1963,7 +1965,7 @@ async def _write_retailers_section(
         .subquery()
     )
 
-    widths = [40, 36, 48, 48, 64, 42, 32, 34, 34, 36, 34, 32, 32]
+    widths = [40, 36, 48, 48, 64, 42, 32, 34, 34, 36, 32, 32, 34]
     alignments = [
         "left",
         "left",
@@ -1990,9 +1992,9 @@ async def _write_retailers_section(
         "Amount",
         "Wallet Credit",
         "Paid",
-        "Balance",
         "Cash",
         "UPI",
+        "Balance",
     ]
 
     rows = (
@@ -2086,9 +2088,9 @@ async def _write_retailers_section(
                     bill_amount,
                     bill_wallet,
                     bill_paid,
-                    bill_balance,
                     bill_cash,
                     bill_upi,
+                    bill_balance,
                 ]
             )
             continue
@@ -2108,26 +2110,46 @@ async def _write_retailers_section(
                     bill_amount if is_last else "",
                     bill_wallet if is_last else "",
                     bill_paid if is_last else "",
-                    bill_balance if is_last else "",
                     bill_cash if is_last else "",
                     bill_upi if is_last else "",
+                    bill_balance if is_last else "",
                 ]
             )
 
+    (
+        headers,
+        table_rows,
+        widths,
+        alignments,
+        kept_indices,
+    ) = _filter_empty_report_columns(
+        headers,
+        table_rows,
+        always_keep={0, 1, 2, 3, 4},
+        widths=widths,
+        aligns=alignments,
+    )
+    assert widths is not None and alignments is not None
     writer.sheet_table(headers, table_rows, widths, alignments, bold_borders=True)
 
     wallet_balances = await _retailer_wallet_balances_for_report(db, context)
     total_outstanding = (total_balance + opening_balances_total).quantize(Decimal("0.01"))
+    kept = set(kept_indices)
+    summary_rows: list[tuple[str, str]] = [
+        ("Total Kg", f"{float(total_kg):g} Kg"),
+        ("Total Unit", f"{float(total_unit):g} Units"),
+    ]
+    # Skip zero-only totals when their table columns were dropped.
+    if 8 in kept or total_wallet_credit != 0:
+        summary_rows.append(("Total Wallet Credit", _money(total_wallet_credit)))
+    if 9 in kept or total_paid != 0:
+        summary_rows.append(("Total Paid", _money(total_paid)))
+    if 12 in kept or total_outstanding != 0:
+        summary_rows.append(("Total Balance", _money(total_outstanding)))
     writer.split_financial_summary(
         "Current Wallet Credit",
         wallet_balances,
-        [
-            ("Total Kg", f"{float(total_kg):g} Kg"),
-            ("Total Unit", f"{float(total_unit):g} Units"),
-            ("Total Wallet Credit", _money(total_wallet_credit)),
-            ("Total Paid", _money(total_paid)),
-            ("Total Balance", _money(total_outstanding)),
-        ],
+        summary_rows,
     )
 
 

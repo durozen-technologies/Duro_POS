@@ -320,6 +320,9 @@ class ShopSalesSummary(BaseModel):
     shop_id: UUID
     shop_name: str
     total_sales: Decimal
+    total_paid: Decimal = Decimal("0")
+    retailer_sale_count: int = 0
+    outstanding_due: Decimal = Decimal("0")
     expense_cash_total: Decimal = Decimal("0")
     expense_upi_total: Decimal = Decimal("0")
     purchase_amount: Decimal = Decimal("0")
@@ -506,3 +509,4 @@ class AdminDashboardBootstrap(BaseModel):
     bills: AdminBillPage
     item_sales: list[ItemSalesSummary]
     branch_quota: OrganizationBranchQuota
+    total_outstanding_due: Decimal = Decimal("0")

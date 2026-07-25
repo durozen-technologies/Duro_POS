@@ -37,6 +37,7 @@ class OrganizationUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     max_branches: int | None = Field(default=None, ge=1, le=500)
     bill_number_prefix: str | None = Field(default=None, min_length=1, max_length=20)
+    printing_enabled: bool | None = None
     settings: dict[str, object] | None = None
 
 
@@ -53,6 +54,7 @@ class OrganizationRead(ORMModel):
     branch_count: int = 0
     remaining_branches: int = 0
     bill_number_prefix: str
+    printing_enabled: bool = True
     settings: dict[str, object]
     created_at: datetime
     updated_at: datetime

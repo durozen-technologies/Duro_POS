@@ -15,7 +15,12 @@ from app.models import (
     Item,
     Organization,
     Payment,
+    Retailer,
+    RetailerPayment,
+    RetailerSale,
+    RetailerSaleStatus,
     Shop,
+    ShopRetailerAllocation,
 )
 from app.schemas.admin import (
     AdminBillPage,
@@ -48,6 +53,51 @@ async def _branch_quota_for_organization(
         remaining_branches=remaining,
         can_create_branch=branch_count < max_branches,
     )
+
+
+_RETAILER_OPEN_STATUSES = (RetailerSaleStatus.OPEN, RetailerSaleStatus.PARTIAL)
+
+
+async def _dashboard_retailer_outstanding_due(
+    db: AsyncSession,
+    shop_ids: list[UUID],
+    *,
+    include_opening_balance: bool,
+) -> Decimal:
+    """Return outstanding for selected branch scope.
+
+    Sale balances are branch-owned. Opening balance is retailer-level and has
+    no branch owner, so it is included only for the all-branches view.
+    """
+    if not shop_ids:
+        return Decimal("0.00")
+
+    allocated_retailer_ids = (
+        select(ShopRetailerAllocation.retailer_id)
+        .where(
+            ShopRetailerAllocation.shop_id.in_(shop_ids),
+            ShopRetailerAllocation.is_active.is_(True),
+        )
+        .distinct()
+    )
+    opening_total = Decimal("0.00")
+    if include_opening_balance:
+        opening_total = Decimal(
+            await db.scalar(
+                select(func.coalesce(func.sum(Retailer.opening_balance), 0)).where(
+                    Retailer.id.in_(allocated_retailer_ids)
+                )
+            )
+            or 0
+        )
+    sales_total = await db.scalar(
+        select(func.coalesce(func.sum(RetailerSale.balance_due), 0)).where(
+            RetailerSale.retailer_id.in_(allocated_retailer_ids),
+            RetailerSale.shop_id.in_(shop_ids),
+            RetailerSale.status.in_(_RETAILER_OPEN_STATUSES),
+        )
+    )
+    return (opening_total + Decimal(sales_total or 0)).quantize(Decimal("0.01"))
 
 
 async def get_bill_by_id(db: AsyncSession, bill_id: UUID, organization_id: UUID) -> BillRead:
@@ -518,23 +568,90 @@ async def get_dashboard_bootstrap(
 
     combined_query = combined_query.group_by(Shop.id, Shop.name).order_by(Shop.name)
     combined_rows = (await db.execute(combined_query)).all()
+    shop_ids = [row.id for row in combined_rows]
     purchase_amounts = await compute_shop_purchase_amounts(
         db,
         start=start,
         end=end,
-        shop_ids=[row.id for row in combined_rows],
+        shop_ids=shop_ids,
     )
+
+    retailer_non_bill = (RetailerSaleStatus.CANCELLED, RetailerSaleStatus.VOID)
+    retailer_payments_by_shop: dict[UUID, object] = {}
+    retailer_sale_counts_by_shop: dict[UUID, int] = {}
+    total_outstanding_due = Decimal("0.00")
+
+    if shop_ids:
+        retailer_payment_rows = (
+            await db.execute(
+                select(
+                    RetailerSale.shop_id.label("shop_id"),
+                    func.coalesce(func.sum(RetailerPayment.cash_amount), 0).label("cash_total"),
+                    func.coalesce(func.sum(RetailerPayment.upi_amount), 0).label("upi_total"),
+                    func.coalesce(func.sum(RetailerPayment.total_paid), 0).label("total_paid"),
+                )
+                .join(RetailerSale, RetailerSale.id == RetailerPayment.retailer_sale_id)
+                .where(
+                    RetailerPayment.paid_at >= start,
+                    RetailerPayment.paid_at < end,
+                    RetailerSale.status.notin_(retailer_non_bill),
+                    RetailerSale.shop_id.in_(shop_ids),
+                )
+                .group_by(RetailerSale.shop_id)
+            )
+        ).all()
+        retailer_sale_count_rows = (
+            await db.execute(
+                select(
+                    RetailerSale.shop_id.label("shop_id"),
+                    func.count(RetailerSale.id).label("sale_count"),
+                )
+                .where(
+                    RetailerSale.created_at >= start,
+                    RetailerSale.created_at < end,
+                    RetailerSale.status.notin_(retailer_non_bill),
+                    RetailerSale.shop_id.in_(shop_ids),
+                )
+                .group_by(RetailerSale.shop_id)
+            )
+        ).all()
+        retailer_payments_by_shop = {row.shop_id: row for row in retailer_payment_rows}
+        retailer_sale_counts_by_shop = {
+            row.shop_id: int(row.sale_count) for row in retailer_sale_count_rows
+        }
+        total_outstanding_due = await _dashboard_retailer_outstanding_due(
+            db,
+            shop_ids,
+            include_opening_balance=shop_id is None,
+        )
 
     sales_summary = []
     payment_summary = []
     shop_stats = []
+    walkin_bill_count_total = 0
 
     for row in combined_rows:
+        walkin_bill_count = int(row.bill_count)
+        walkin_bill_count_total += walkin_bill_count
+        retailer_payment = retailer_payments_by_shop.get(row.id)
+        retailer_cash = Decimal(retailer_payment.cash_total) if retailer_payment else Decimal("0")
+        retailer_upi = Decimal(retailer_payment.upi_total) if retailer_payment else Decimal("0")
+        retailer_paid = Decimal(retailer_payment.total_paid) if retailer_payment else Decimal("0")
+        walkin_cash = Decimal(row.cash_total)
+        walkin_upi = Decimal(row.upi_total)
+        walkin_paid = walkin_cash + walkin_upi
+        retailer_sale_count = retailer_sale_counts_by_shop.get(row.id, 0)
+
         sales_summary.append(
             ShopSalesSummary(
                 shop_id=row.id,
                 shop_name=row.name,
                 total_sales=row.total_sales,
+                total_paid=walkin_paid + retailer_paid,
+                retailer_sale_count=retailer_sale_count,
+                # Per-shop field kept for compatibility; FE uses bootstrap total
+                # so multi-shop views do not double-count opening balances.
+                outstanding_due=Decimal("0.00"),
                 expense_cash_total=row.expense_cash_total,
                 expense_upi_total=row.expense_upi_total,
                 purchase_amount=purchase_amounts.get(row.id, Decimal("0")),
@@ -544,23 +661,25 @@ async def get_dashboard_bootstrap(
             PaymentSplitSummary(
                 shop_id=row.id,
                 shop_name=row.name,
-                cash_total=row.cash_total,
-                upi_total=row.upi_total,
+                cash_total=walkin_cash + retailer_cash,
+                upi_total=walkin_upi + retailer_upi,
             )
         )
         shop_stats.append(
             AdminBillShopStat(
-                shop_id=row.id, bill_count=int(row.bill_count), last_bill_at=row.last_bill_at
+                shop_id=row.id,
+                bill_count=walkin_bill_count + retailer_sale_count,
+                last_bill_at=row.last_bill_at,
             )
         )
 
     total_count = sum(stat.bill_count for stat in shop_stats)
-    if total_count == 0:
+    if walkin_bill_count_total == 0:
         bills_page = AdminBillPage(
             items=[],
             limit=bills_limit,
             has_more=False,
-            total_count=0,
+            total_count=total_count,
             largest_bill=None,
             shop_stats=shop_stats,
             next_cursor_created_at=None,
@@ -573,6 +692,7 @@ async def get_dashboard_bootstrap(
             bills=bills_page,
             item_sales=[],
             branch_quota=branch_quota,
+            total_outstanding_due=total_outstanding_due,
         )
 
     largest_result, item_sales = await asyncio.gather(
@@ -627,4 +747,5 @@ async def get_dashboard_bootstrap(
         bills=bills_page,
         item_sales=item_sales,
         branch_quota=branch_quota,
+        total_outstanding_due=total_outstanding_due,
     )

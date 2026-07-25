@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import type { NavigationProp } from "@react-navigation/native";
 
 import { logout } from "@/store/auth-store";
+import { usePrintingEnabled } from "@/utils/printing";
 
 type ShopStackNav = NavigationProp<Record<string, object | undefined>>;
 
@@ -11,6 +12,8 @@ type ShopHeaderMenuOptions = {
 };
 
 export function useShopHeaderMenu(navigation: ShopStackNav, options?: ShopHeaderMenuOptions) {
+  const printingEnabled = usePrintingEnabled();
+
   const onLogout = useCallback(() => {
     void logout();
   }, []);
@@ -40,7 +43,7 @@ export function useShopHeaderMenu(navigation: ShopStackNav, options?: ShopHeader
       onLogout,
       onInventory,
       onExpenses,
-      onPrinter,
+      onPrinter: printingEnabled ? onPrinter : undefined,
       onRetailers,
       onBills,
       onRefresh: options?.onRefresh,
@@ -55,6 +58,7 @@ export function useShopHeaderMenu(navigation: ShopStackNav, options?: ShopHeader
       onBills,
       options?.onRefresh,
       options?.refreshing,
+      printingEnabled,
     ],
   );
 }

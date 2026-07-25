@@ -147,6 +147,14 @@ class RetailerCatalogItemRead(ORMModel):
     image_thumb_path: str | None = None
 
 
+class RetailerCatalogRead(BaseModel):
+    """Shop retailer catalog for today only — no carry-forward prices."""
+
+    shop_name: str
+    prices_set: bool
+    items: list[RetailerCatalogItemRead]
+
+
 class RetailerOpenSaleSummary(ORMModel):
     id: UUID
     sale_no: str

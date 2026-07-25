@@ -59,6 +59,7 @@ export function SuperAdminOrgEditScreen() {
   const [billNumberPrefix, setBillNumberPrefix] = useState(
     initialOrg.bill_number_prefix || DEFAULT_BILL_PREFIX,
   );
+  const [printingEnabled, setPrintingEnabled] = useState(initialOrg.printing_enabled !== false);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +106,7 @@ export function SuperAdminOrgEditScreen() {
         setName(latest.name);
         setMaxBranches(String(latest.max_branches));
         setBillNumberPrefix(latest.bill_number_prefix || DEFAULT_BILL_PREFIX);
+        setPrintingEnabled(latest.printing_enabled !== false);
       }
       await loadBranches();
     } catch (reloadError) {
@@ -154,6 +156,8 @@ export function SuperAdminOrgEditScreen() {
         max_branches: limit !== org.max_branches ? limit : undefined,
         bill_number_prefix:
           normalizedPrefix !== org.bill_number_prefix ? normalizedPrefix : undefined,
+        printing_enabled:
+          printingEnabled !== (org.printing_enabled !== false) ? printingEnabled : undefined,
       });
       navigation.goBack();
     } catch (saveError) {
@@ -165,7 +169,8 @@ export function SuperAdminOrgEditScreen() {
   const hasChanges =
     name.trim() !== org.name ||
     Number.parseInt(maxBranches, 10) !== org.max_branches ||
-    normalizeBillPrefixInput(billNumberPrefix) !== org.bill_number_prefix;
+    normalizeBillPrefixInput(billNumberPrefix) !== org.bill_number_prefix ||
+    printingEnabled !== (org.printing_enabled !== false);
 
   return (
     <View className="flex-1 bg-background">
@@ -256,6 +261,44 @@ export function SuperAdminOrgEditScreen() {
                 All branches use this prefix. Example:{" "}
                 {exampleBillNumber(billNumberPrefix || DEFAULT_BILL_PREFIX)}
               </Text>
+            </View>
+
+            <View className="gap-2">
+              <Text className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Thermal printing
+              </Text>
+              <View className="flex-row items-center justify-between rounded-control border border-border bg-surface px-4 py-3">
+                <View className="flex-1 pr-3">
+                  <Text className="text-base font-semibold text-ink">
+                    {printingEnabled ? "Printing required" : "Printing disabled"}
+                  </Text>
+                  <Text className="mt-1 text-xs text-muted">
+                    {printingEnabled
+                      ? "Shops must print receipts during checkout."
+                      : "Shops can save bills without a printer."}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: printingEnabled }}
+                  accessibilityLabel={
+                    printingEnabled ? "Disable thermal printing" : "Enable thermal printing"
+                  }
+                  className={`min-h-[40px] min-w-[88px] items-center justify-center rounded-control ${
+                    printingEnabled ? "bg-successSoft" : "bg-surface border border-border"
+                  } active:opacity-80`}
+                  disabled={saving}
+                  onPress={() => setPrintingEnabled((current) => !current)}
+                >
+                  <Text
+                    className={`text-sm font-bold uppercase tracking-wider ${
+                      printingEnabled ? "text-success" : "text-muted"
+                    }`}
+                  >
+                    {printingEnabled ? "On" : "Off"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
             {error ? (

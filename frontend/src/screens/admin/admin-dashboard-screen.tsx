@@ -257,6 +257,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     deleteBranch,
     toggleBranchStatus,
     updateBranch,
+    totalOutstandingDue,
     visibleShopRows,
   } = useAdminDashboardData({
     analyticsPeriod,
@@ -339,6 +340,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     dailyBills,
     dailyBillsTotalCount,
     visibleShopRows,
+    totalOutstandingDue,
     largestBill,
     palette,
   });

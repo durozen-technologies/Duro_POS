@@ -45,6 +45,7 @@ from app.schemas.retailers import (
     RetailerBulkSettleRead,
     RetailerBulkSettleSaleLine,
     RetailerCatalogItemRead,
+    RetailerCatalogRead,
     RetailerPaymentCreate,
     RetailerPaymentRead,
     RetailerPaymentRecordResponse,
@@ -66,7 +67,7 @@ from app.services.retailer_receipt_number import balance_receipt_number, invoice
 from app.services.retailer_sale_number import retailer_sale_no_from_sequence
 from app.services.retailers import (
     is_retailer_allocated_to_shop,
-    retailer_item_prices_as_of_subquery,
+    retailer_item_prices_on_date_subquery,
 )
 from app.services.tenant_query import resolve_organization_display_name
 
@@ -641,14 +642,14 @@ async def _prepare_retailer_checkout(
     await _get_active_retailer(db, payload.retailer_id, shop=shop)
     item_ids = [line.item_id for line in payload.items]
 
-    price_as_of = retailer_item_prices_as_of_subquery(
+    price_today = retailer_item_prices_on_date_subquery(
         payload.retailer_id, shop.id, func.current_date()
     )
     price_rows = (
         await db.execute(
             select(
-                price_as_of.c.item_id,
-                price_as_of.c.price_per_unit,
+                price_today.c.item_id,
+                price_today.c.price_per_unit,
                 Item.name,
                 Item.tamil_name,
                 Item.unit_type,
@@ -656,7 +657,7 @@ async def _prepare_retailer_checkout(
                 ShopItemAllocation.display_name,
                 ShopItemAllocation.tamil_name.label("allocation_tamil_name"),
             )
-            .join(Item, Item.id == price_as_of.c.item_id)
+            .join(Item, Item.id == price_today.c.item_id)
             .join(
                 ShopRetailerItemAllocation,
                 and_(
@@ -673,9 +674,8 @@ async def _prepare_retailer_checkout(
                 ),
             )
             .where(
-                price_as_of.c.item_id.in_(item_ids),
-                price_as_of.c.rn == 1,
-                price_as_of.c.is_active.is_(True),
+                price_today.c.item_id.in_(item_ids),
+                price_today.c.is_active.is_(True),
                 Item.is_active.is_(True),
             )
         )
@@ -683,7 +683,10 @@ async def _prepare_retailer_checkout(
     price_map = {row.item_id: row for row in price_rows}
     missing = [str(i) for i in item_ids if i not in price_map]
     if missing:
-        raise HTTPException(status_code=422, detail=f"Items not mapped for retailer: {missing}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Today's retailer prices not set for items: {missing}",
+        )
 
     lines: list[PreparedRetailerLine] = []
     total_amount = Decimal("0.00")
@@ -865,14 +868,22 @@ async def _sale_to_read(db: AsyncSession, sale: RetailerSale) -> RetailerSaleRea
 
 async def get_retailer_catalog(
     db: AsyncSession, shop: Shop, retailer_id: UUID
-) -> list[RetailerCatalogItemRead]:
+) -> RetailerCatalogRead:
     await _get_active_retailer(db, retailer_id, shop=shop)
-    price_as_of = retailer_item_prices_as_of_subquery(retailer_id, shop.id, func.current_date())
+    has_allocations = await db.scalar(
+        select(ShopRetailerItemAllocation.id)
+        .where(
+            ShopRetailerItemAllocation.shop_id == shop.id,
+            ShopRetailerItemAllocation.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    price_today = retailer_item_prices_on_date_subquery(retailer_id, shop.id, func.current_date())
     rows = (
         await db.execute(
             select(
                 Item.id,
-                price_as_of.c.price_per_unit,
+                price_today.c.price_per_unit,
                 Item.name,
                 Item.tamil_name,
                 Item.unit_type,
@@ -884,7 +895,7 @@ async def get_retailer_catalog(
                 Item.global_image_template_id,
                 ShopItemAllocation.display_name,
             )
-            .join(Item, Item.id == price_as_of.c.item_id)
+            .join(Item, Item.id == price_today.c.item_id)
             .join(
                 ShopRetailerItemAllocation,
                 and_(
@@ -901,15 +912,14 @@ async def get_retailer_catalog(
                 ),
             )
             .where(
-                price_as_of.c.rn == 1,
-                price_as_of.c.is_active.is_(True),
+                price_today.c.is_active.is_(True),
                 Item.is_active.is_(True),
             )
             .order_by(Item.sort_order.asc(), Item.name.asc())
         )
     ).all()
     templates_by_id = await load_templates_for_item_rows(list(rows))
-    return [
+    items = [
         RetailerCatalogItemRead(
             item_id=row.id,
             item_name=(row.display_name or row.name).strip(),
@@ -922,6 +932,13 @@ async def get_retailer_catalog(
         )
         for row in rows
     ]
+    # Allocations exist but no today's prices → lock billing (admin must Update today).
+    prices_set = True if has_allocations is None else len(items) > 0
+    return RetailerCatalogRead(
+        shop_name=shop.name,
+        prices_set=prices_set,
+        items=items,
+    )
 
 
 async def preview_retailer_sale(

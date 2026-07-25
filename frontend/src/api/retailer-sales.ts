@@ -3,7 +3,7 @@ import {
   type RetailerBalanceRead,
   type RetailerBulkSettleCreate,
   type RetailerBulkSettleRead,
-  type RetailerCatalogItemRead,
+  type RetailerCatalogRead,
   type RetailerPaymentCreate,
   type RetailerPaymentRecordResponse,
   type RetailerSaleCheckoutCommitRequest,
@@ -18,7 +18,7 @@ import {
 } from "@/types/api";
 
 export async function fetchRetailerCatalog(retailerId: UUID) {
-  const { data } = await apiClient.get<RetailerCatalogItemRead[]>(
+  const { data } = await apiClient.get<RetailerCatalogRead>(
     `/api/v1/shop/retailers/${retailerId}/catalog`,
   );
   return data;

@@ -1154,15 +1154,12 @@ def _write_over_report_statement(
         writer.note("No allocated inventory items found for this branch and period.")
         return
 
+    from app.services.report_blank_columns import _filter_empty_report_columns
     from app.services.reports.pdf import get_over_report_sheet_config
 
-    headers, min_widths, aligns, h_aligns, p1_idx, p2_idx = get_over_report_sheet_config(
+    headers, min_widths, aligns, _h_aligns, p1_idx, p2_idx = get_over_report_sheet_config(
         use_tamil, statement.retailers
     )
-    sheet_headers = headers
-    inventory_headers = [headers[i] for i in p1_idx]
-    inventory_aligns = [aligns[i] for i in p1_idx]
-    inventory_min_widths = [min_widths[i] for i in p1_idx]
 
     mapped_items = [i for i in statement.inventory_items if i.billing_items]
     unmapped_items = [i for i in statement.inventory_items if not i.billing_items]
@@ -1171,34 +1168,48 @@ def _write_over_report_statement(
     mapped_rows = _over_report_sheet_rows(mapped_items, statement, use_tamil=use_tamil)
     unmapped_rows = _over_report_sheet_rows(unmapped_items, statement, use_tamil=use_tamil)
 
+    (
+        sheet_headers,
+        filtered_all_rows,
+        sheet_min_widths,
+        sheet_aligns,
+        kept_indices,
+    ) = _filter_empty_report_columns(
+        headers,
+        all_rows,
+        always_keep={0, 1, 11},
+        widths=min_widths,
+        aligns=aligns,
+    )
+    assert sheet_min_widths is not None and sheet_aligns is not None
+    kept = set(kept_indices)
+    p1_idx = [i for i in p1_idx if i in kept]
+    p2_idx = [i for i in p2_idx if i in kept]
+    del p2_idx  # ReportLab mapped table uses full kept columns; part2 unused here.
+    # Remap full-width rows to kept columns for the mapped table.
+    kept_mapped_rows = [[row[i] for i in kept_indices] for row in mapped_rows]
+    inventory_headers = [headers[i] for i in p1_idx]
+    inventory_aligns = [aligns[i] for i in p1_idx]
+    inventory_min_widths = [min_widths[i] for i in p1_idx]
+
     sheet_widths = _reportlab_over_report_sheet_widths(
         sheet_headers,
         writer._available_width,
-        min_widths,
-        all_rows,
+        sheet_min_widths,
+        filtered_all_rows,
     )
 
-    if mapped_rows:
+    if kept_mapped_rows:
         writer.sheet_table(
             sheet_headers,
-            mapped_rows,
+            kept_mapped_rows,
             sheet_widths,
-            aligns,
+            sheet_aligns,
         )
 
     if unmapped_rows:
         if mapped_rows:
             writer._y -= 12
-
-        writer._page_has_content = True
-        writer._ensure_space(20, repeat_table_header=False)
-        title = "No mapped billing Items"
-        writer._set_text_font(title, 8, bold=True)
-        writer._set_fill(writer._text)
-        writer._canvas.drawCentredString(
-            writer._margin + sum(sheet_widths[i] for i in p1_idx) / 2, writer._y - 12, title
-        )
-        writer._y -= 20
 
         inventory_widths = _reportlab_over_report_sheet_widths(
             inventory_headers,
@@ -1206,6 +1217,17 @@ def _write_over_report_statement(
             inventory_min_widths,
             [[row[i] for i in p1_idx] for row in unmapped_rows],
         )
+
+        writer._page_has_content = True
+        writer._ensure_space(20, repeat_table_header=False)
+        title = "No mapped billing Items"
+        writer._set_text_font(title, 8, bold=True)
+        writer._set_fill(writer._text)
+        writer._canvas.drawCentredString(
+            writer._margin + sum(inventory_widths) / 2, writer._y - 12, title
+        )
+        writer._y -= 20
+
         writer.sheet_table(
             inventory_headers,
             [[row[i] for i in p1_idx] for row in unmapped_rows],
@@ -2000,6 +2022,7 @@ async def _generate_over_report_fpdf_pdf(
             )
             continue
 
+        from app.services.report_blank_columns import _filter_empty_report_columns
         from app.services.reports.pdf import get_over_report_sheet_config
 
         retailers = statements[0].retailers if statements else []
@@ -2012,6 +2035,16 @@ async def _generate_over_report_fpdf_pdf(
             for stmt in statements
             for row in _over_report_sheet_rows(stmt.inventory_items, stmt, use_tamil=use_tamil)
         ]
+        _, _, _, _, kept_indices = _filter_empty_report_columns(
+            headers,
+            sheet_rows,
+            always_keep={0, 1, 11},
+            widths=min_widths,
+            aligns=aligns,
+        )
+        kept = set(kept_indices)
+        part1_indices = [i for i in part1_indices if i in kept]
+        part2_indices = [i for i in part2_indices if i in kept]
 
         headers1 = [headers[i] for i in part1_indices]
         headers2 = [headers[i] for i in part2_indices]

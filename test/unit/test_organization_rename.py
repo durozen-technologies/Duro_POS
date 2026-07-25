@@ -109,6 +109,57 @@ class OrganizationRenameTests(BackendTestCase):
 
         self.run_async(scenario())
 
+    def test_update_organization_toggles_printing_enabled(self) -> None:
+        async def scenario() -> None:
+            from sqlalchemy import select
+
+            from app.models import AuditLog
+
+            super_admin = User(
+                username="super-print",
+                password_hash="x",
+                role=UserRole.SUPER_ADMIN,
+                is_active=True,
+            )
+            org_id = uuid4()
+            with self.harness.session_factory() as session:
+                session.add(super_admin)
+                session.add(
+                    Organization(
+                        id=org_id,
+                        name="Print Org",
+                        slug="print-org",
+                        is_active=True,
+                        max_branches=5,
+                    )
+                )
+                session.commit()
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                updated = await org_service.update_organization(
+                    adapter,
+                    org_id,
+                    OrganizationUpdate(printing_enabled=False),
+                    super_admin,
+                )
+                self.assertFalse(updated.printing_enabled)
+                org = session.get(Organization, org_id)
+                assert org is not None
+                self.assertEqual(org.settings.get("printing_enabled"), False)
+                audit = await adapter.scalar(
+                    select(AuditLog).where(
+                        AuditLog.action == "organization.printing_toggled",
+                        AuditLog.entity_id == org_id,
+                    )
+                )
+                self.assertIsNotNone(audit)
+                assert audit is not None
+                self.assertEqual(audit.details["previous_printing_enabled"], True)
+                self.assertEqual(audit.details["updated_printing_enabled"], False)
+
+        self.run_async(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()

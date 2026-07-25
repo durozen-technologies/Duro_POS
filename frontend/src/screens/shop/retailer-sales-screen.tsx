@@ -42,6 +42,7 @@ import {
 import { usePriceStore } from "@/store/price-store";
 import { money } from "@/utils/decimal";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { usePrintingEnabled } from "@/utils/printing";
 import { computeSettleableOutstanding, sumPendingBillsBalance } from "@/utils/retailer-bulk-settle";
 import {
   createRetailerSalesFilterDraft,
@@ -96,6 +97,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  processHintCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: appTheme.border,
+    backgroundColor: appTheme.accentSoft,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  processHintText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "500",
+    color: appTheme.accentDeep,
   },
   searchField: {
     minHeight: 48,
@@ -538,7 +558,11 @@ const SalesFilterModal = memo(function SalesFilterModal({
     if (!query) {
       return retailers;
     }
-    return retailers.filter((retailer) => retailer.name.toLowerCase().includes(query));
+    return retailers.filter((retailer) => {
+      const name = retailer.name.toLowerCase();
+      const shopName = (retailer.shop_name ?? "").toLowerCase();
+      return name.includes(query) || shopName.includes(query);
+    });
   }, [retailerSearch, retailers]);
 
   return (
@@ -602,9 +626,16 @@ const SalesFilterModal = memo(function SalesFilterModal({
                         },
                       ]}
                     >
-                      <Text style={styles.retailerOptionText} numberOfLines={1}>
-                        {retailer.name}
-                      </Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.retailerOptionText} numberOfLines={1}>
+                          {retailer.name}
+                        </Text>
+                        {retailer.shop_name ? (
+                          <Text style={styles.saleMeta} numberOfLines={1}>
+                            {retailer.shop_name}
+                          </Text>
+                        ) : null}
+                      </View>
                       {selected ? <MaterialCommunityIcons name="check-circle" size={18} color={appTheme.accent} /> : null}
                     </Pressable>
                   );
@@ -843,6 +874,11 @@ const SalesListHeader = memo(function SalesListHeader({
 
   return (
     <View style={{ marginBottom: 16, gap: 12 }}>
+      <View style={styles.processHintCard}>
+        <MaterialCommunityIcons name="information-outline" size={16} color={appTheme.accentDeep} />
+        <Text style={styles.processHintText}>{t("retailers.salesProcessHint")}</Text>
+      </View>
+
       <ShopSegmentedTabs
         activeValue={tab}
         onChange={(val) => onTabChange(val as SalesTab)}
@@ -928,6 +964,7 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
   const { receiptImageShareBridge, startReceiptImageShare } = useReceiptImageShare();
   const { receiptImagePrintBridge, startReceiptHtmlPrintJob } = useReceiptImagePrintJob();
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
+  const printingEnabled = usePrintingEnabled();
   const shopBootstrap = usePriceStore((state) => state.bootstrap);
   const [sharingSaleId, setSharingSaleId] = useState<string | null>(null);
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
@@ -1130,17 +1167,19 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
 
   const handleBulkSettled = useCallback(
     async (result: RetailerBulkSettleRead) => {
-      if (!preferredPrinter) {
-        Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
-      } else {
-        try {
-          await startReceiptHtmlPrintJob(
-            [buildRetailerBulkSettleReceiptHtml(result, bulkSettleReceiptContext)],
-            preferredPrinter,
-            language,
-          );
-        } catch (error) {
-          Alert.alert(t("checkout.printFailedAfterSaveTitle"), formatApiErrorMessage(error));
+      if (printingEnabled) {
+        if (!preferredPrinter) {
+          Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
+        } else {
+          try {
+            await startReceiptHtmlPrintJob(
+              [buildRetailerBulkSettleReceiptHtml(result, bulkSettleReceiptContext)],
+              preferredPrinter,
+              language,
+            );
+          } catch (error) {
+            Alert.alert(t("checkout.printFailedAfterSaveTitle"), formatApiErrorMessage(error));
+          }
         }
       }
       Alert.alert(
@@ -1152,7 +1191,15 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
       );
       await load({ silent: true });
     },
-    [bulkSettleReceiptContext, language, load, preferredPrinter, startReceiptHtmlPrintJob, t],
+    [
+      bulkSettleReceiptContext,
+      language,
+      load,
+      preferredPrinter,
+      printingEnabled,
+      startReceiptHtmlPrintJob,
+      t,
+    ],
   );
 
   const activeFilterLabel = useMemo(
@@ -1370,7 +1417,7 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
         onClose={() => setCalendarTarget(null)}
       />
       {receiptImageShareBridge}
-      {receiptImagePrintBridge}
+      {printingEnabled ? receiptImagePrintBridge : null}
       {selectedRetailerId ? (
         <RetailerBulkSettleModal
           visible={collectModalOpen}
@@ -1390,7 +1437,11 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
             onPrimary: "#FFFFFF",
           }}
           title={t("retailers.collectPayment")}
-          confirmLabel={t("retailers.collectAndPrint")}
+          confirmLabel={
+            printingEnabled
+              ? t("retailers.collectAndPrint")
+              : t("retailers.collectWithoutPrint")
+          }
           onClose={() => setCollectModalOpen(false)}
           onSettle={handleBulkSettle}
           onSettled={handleBulkSettled}

@@ -106,6 +106,7 @@ class UserSession(ORMModel):
     created_at: datetime
     organization_id: UUID | None = None
     organization_name: str | None = None
+    printing_enabled: bool = True
     permissions: list[str] = Field(default_factory=list)
     shop_id: UUID | None = None
     shop_name: str | None = None

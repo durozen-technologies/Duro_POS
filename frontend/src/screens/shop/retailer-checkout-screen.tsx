@@ -21,6 +21,7 @@ import { getRetailerCartTotal, useRetailerCartStore } from "@/store/retailer-car
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
+import { usePrintingEnabled } from "@/utils/printing";
 import { resolveWalletCreditAmount } from "@/utils/retailer-wallet";
 import { ShopText as Text } from "@/components/ui/shop-text";
 
@@ -32,6 +33,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
   const cartItems = useRetailerCartStore((s) => s.items);
   const resetRetailerCart = useRetailerCartStore((s) => s.resetCart);
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
+  const printingEnabled = usePrintingEnabled();
   const [submitting, setSubmitting] = useState(false);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [outstandingBalance, setOutstandingBalance] = useState<string | null>(null);
@@ -90,7 +92,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
   const handleCheckout = useCallback(
     async (values: FormValues) => {
       if (!canPrint) return;
-      if (!preferredPrinter) {
+      if (printingEnabled && !preferredPrinter) {
         Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
         return;
       }
@@ -120,15 +122,20 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
           include_opening_balance: true,
         };
         const preview = await previewRetailerSale(payload);
-        const invoiceReceipt = preview.receipt ?? preview.receipts?.[0];
-        if (!invoiceReceipt) {
-          throw new Error("Preview receipt is unavailable");
+        if (printingEnabled) {
+          const invoiceReceipt = preview.receipt ?? preview.receipts?.[0];
+          if (!invoiceReceipt) {
+            throw new Error("Preview receipt is unavailable");
+          }
+          if (!preferredPrinter) {
+            throw new Error(t("printer.selectPrinterFirstMessage"));
+          }
+          await startReceiptHtmlPrintJob(
+            [buildRetailerSaleInvoiceHtml(preview, invoiceReceipt, language)],
+            preferredPrinter,
+            language,
+          );
         }
-        await startReceiptHtmlPrintJob(
-          [buildRetailerSaleInvoiceHtml(preview, invoiceReceipt, language)],
-          preferredPrinter,
-          language,
-        );
         await commitRetailerSale({ ...payload, checkout_token: preview.checkout_token });
         completedRef.current = true;
         resetRetailerCart();
@@ -146,6 +153,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
       language,
       navigation,
       preferredPrinter,
+      printingEnabled,
       resetRetailerCart,
       retailerId,
       startReceiptHtmlPrintJob,
@@ -270,13 +278,19 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
             />
           </View>
           <Button
-            label={canPrint ? t("action.printReceipt") : t("retailers.enterPayment")}
+            label={
+              canPrint
+                ? printingEnabled
+                  ? t("action.printReceipt")
+                  : t("action.saveBill")
+                : t("retailers.enterPayment")
+            }
             onPress={form.handleSubmit(handleCheckout)}
             disabled={!canPrint}
             loading={submitting}
         />
       </Card>
-      {receiptImagePrintBridge}
+      {printingEnabled ? receiptImagePrintBridge : null}
     </Screen>
   );
 }

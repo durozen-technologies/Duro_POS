@@ -130,6 +130,7 @@ type UseAdminDashboardAnalyticsOptions = {
   dailyBills: AdminBillSummary[];
   dailyBillsTotalCount: number;
   visibleShopRows: ShopDashboardRow[];
+  totalOutstandingDue: string;
   largestBill: AdminBillSummary | null;
   palette: ThemePalette;
 };
@@ -148,6 +149,7 @@ export function useAdminDashboardAnalytics({
   dailyBills,
   dailyBillsTotalCount,
   visibleShopRows,
+  totalOutstandingDue: totalOutstandingDueRaw,
   largestBill,
   palette,
 }: UseAdminDashboardAnalyticsOptions) {
@@ -171,6 +173,7 @@ export function useAdminDashboardAnalytics({
     () => visibleShopRows.reduce((sum, row) => sum.plus(money(row.totalSales)), money(0)),
     [visibleShopRows],
   );
+  const totalOutstandingDue = useMemo(() => money(totalOutstandingDueRaw), [totalOutstandingDueRaw]);
   const totalCash = useMemo(
     () => visibleShopRows.reduce((sum, row) => sum.plus(money(row.cashTotal)), money(0)),
     [visibleShopRows],
@@ -306,10 +309,10 @@ export function useAdminDashboardAnalytics({
     () => [
       {
         key: "revenue",
-        label: "Total Revenue",
+        label: "Total Paid Amount",
         value: totalRevenue.toNumber(),
         formatter: (value: number) => formatCurrency(value),
-        note: `${analyticsReferenceLabel} revenue`,
+        note: `${analyticsReferenceLabel} paid collections`,
         noteIcon: "calendar-range",
         icon: "cash-multiple",
         accent: palette.billing,
@@ -387,13 +390,26 @@ export function useAdminDashboardAnalytics({
         label: "Total Remaining Balance",
         value: totalRemainingBalance.toNumber(),
         formatter: (value: number) => formatCurrency(value),
-        note: `Revenue - Expenses - Purchase`,
+        note: `Paid - Expenses - Purchase`,
         noteIcon: "scale-balance",
         icon: "scale-balance",
         accent: palette.analytics,
         accentSoft: palette.analyticsSoft,
         sparklineLabel: "Net balance",
         sparklineValues: [totalRemainingBalance.toNumber()],
+      },
+      {
+        key: "outstanding-due",
+        label: "Total Outstanding Due",
+        value: totalOutstandingDue.toNumber(),
+        formatter: (value: number) => formatCurrency(value),
+        note: "Current retailer outstanding",
+        noteIcon: "account-cash-outline",
+        icon: "account-cash-outline",
+        accent: palette.billing,
+        accentSoft: palette.billingSoft,
+        sparklineLabel: "Outstanding",
+        sparklineValues: [totalOutstandingDue.toNumber()],
       },
     ],
     [
@@ -415,6 +431,7 @@ export function useAdminDashboardAnalytics({
       totalCash,
       totalExpenseCash,
       totalExpenseUpi,
+      totalOutstandingDue,
       totalRevenue,
       totalUpi,
       remainingCash,

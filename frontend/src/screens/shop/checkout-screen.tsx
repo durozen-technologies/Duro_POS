@@ -24,6 +24,7 @@ import { usePrinterStore } from "@/store/printer-store";
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
+import { usePrintingEnabled } from "@/utils/printing";
 import { ShopText as Text } from "@/components/ui/shop-text";
 
 type CheckoutFormValues = {
@@ -157,6 +158,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
   const cartItems = useCartStore((state) => state.items);
   const resetCart = useCartStore((state) => state.resetCart);
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
+  const printingEnabled = usePrintingEnabled();
   const [submitting, setSubmitting] = useState(false);
   const checkoutCompletedRef = useRef(false);
 
@@ -219,6 +221,12 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
         cashAmount: "0",
         upiAmount: "0",
       });
+
+      if (!printingEnabled) {
+        Alert.alert(t("checkout.billSavedTitle"), t("checkout.billSavedNoPrintMessage"));
+        navigation.replace("Billing");
+        return;
+      }
 
       if (!preferredPrinter) {
         Alert.alert(
@@ -289,7 +297,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
             />
           )}
         />
-        {!printerLabel ? (
+        {!printerLabel && printingEnabled ? (
           <CheckoutPrinterCard
             printerLabel={printerLabel}
             printerDetail={printerDetail}
@@ -306,7 +314,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
           onSubmit={form.handleSubmit(handleCheckout)}
         />
       </Card>
-      {receiptImagePrintBridge}
+      {printingEnabled ? receiptImagePrintBridge : null}
     </Screen>
   );
 }

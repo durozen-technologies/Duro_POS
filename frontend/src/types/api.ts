@@ -61,6 +61,7 @@ export interface UserSession {
   created_at: string;
   organization_id?: UUID | null;
   organization_name?: string | null;
+  printing_enabled?: boolean;
   permissions?: string[];
   shop_id?: UUID | null;
   shop_name?: string | null;
@@ -929,6 +930,9 @@ export interface ShopSalesSummary {
   shop_id: UUID;
   shop_name: string;
   total_sales: string;
+  total_paid?: string;
+  retailer_sale_count?: number;
+  outstanding_due?: string;
   expense_cash_total?: string;
   expense_upi_total?: string;
   purchase_amount?: string;
@@ -1115,6 +1119,7 @@ export interface AdminDashboardBootstrap {
   bills: AdminBillPage;
   item_sales: ItemSalesSummary[];
   branch_quota: OrganizationBranchQuota;
+  total_outstanding_due?: string;
 }
 
 export interface TransferShopCreate {
@@ -1319,6 +1324,12 @@ export interface RetailerCatalogItemRead {
   price_per_unit: string;
   image_path?: string | null;
   image_thumb_path?: string | null;
+}
+
+export interface RetailerCatalogRead {
+  shop_name: string;
+  prices_set: boolean;
+  items: RetailerCatalogItemRead[];
 }
 
 export interface RetailerOpenSaleSummary {

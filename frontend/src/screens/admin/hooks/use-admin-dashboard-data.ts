@@ -31,6 +31,7 @@ const BILL_PAGE_SIZE = 50;
 export type ShopDashboardRow = {
   shop: ShopRead;
   totalSales: string;
+  outstandingDue: string;
   cashTotal: string;
   upiTotal: string;
   expenseCashTotal: string;
@@ -74,6 +75,7 @@ export function useAdminDashboardData({
     largestBill: AdminBillSummary | null;
     itemSales: ItemSalesSummary[];
     branchQuota: OrganizationBranchQuota;
+    totalOutstandingDue: string;
   }>({
     shops: [],
     salesSummary: [],
@@ -87,6 +89,7 @@ export function useAdminDashboardData({
       remaining_branches: 0,
       can_create_branch: true,
     },
+    totalOutstandingDue: "0",
   });
 
   const [dailyBills, setDailyBills] = useState<AdminBillSummary[]>([]);
@@ -147,6 +150,7 @@ export function useAdminDashboardData({
         largestBill: data.bills.largest_bill ?? null,
         itemSales: data.item_sales,
         branchQuota: data.branch_quota,
+        totalOutstandingDue: data.total_outstanding_due ?? "0",
       });
 
       setDailyBills(data.bills.items);
@@ -254,7 +258,8 @@ export function useAdminDashboardData({
         dashboardData.salesSummary.map((item) => [
           item.shop_id,
           {
-            totalSales: item.total_sales,
+            totalSales: item.total_paid ?? item.total_sales,
+            outstandingDue: item.outstanding_due ?? "0",
             expenseCashTotal: item.expense_cash_total ?? "0",
             expenseUpiTotal: item.expense_upi_total ?? "0",
             purchaseTotal: item.purchase_amount ?? "0",
@@ -283,6 +288,7 @@ export function useAdminDashboardData({
       return {
         shop,
         totalSales: salesByShopId.get(shop.id)?.totalSales ?? "0",
+        outstandingDue: salesByShopId.get(shop.id)?.outstandingDue ?? "0",
         cashTotal: payment?.cashTotal ?? "0",
         upiTotal: payment?.upiTotal ?? "0",
         expenseCashTotal: salesByShopId.get(shop.id)?.expenseCashTotal ?? "0",
@@ -396,6 +402,7 @@ export function useAdminDashboardData({
     shopRows,
     shops: dashboardData.shops,
     branchQuota: dashboardData.branchQuota,
+    totalOutstandingDue: dashboardData.totalOutstandingDue,
     updateBranch,
     deleteBranch,
     toggleBranchStatus,

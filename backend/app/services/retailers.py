@@ -346,7 +346,7 @@ def retailer_item_prices_as_of_subquery(
     shop_id: UUID,
     target_date,
 ):
-    """Latest retailer item price on or before target_date (carry-forward daily prices)."""
+    """Latest retailer item price on or before target_date (carry-forward for admin history)."""
     return (
         select(
             RetailerItemPrice.id.label("id"),
@@ -368,6 +368,29 @@ def retailer_item_prices_as_of_subquery(
             RetailerItemPrice.retailer_id == retailer_id,
             RetailerItemPrice.shop_id == shop_id,
             RetailerItemPrice.effective_date <= target_date,
+        )
+        .subquery()
+    )
+
+
+def retailer_item_prices_on_date_subquery(
+    retailer_id: UUID,
+    shop_id: UUID,
+    target_date,
+):
+    """Retailer item prices for an exact date (shop billing — no carry-forward)."""
+    return (
+        select(
+            RetailerItemPrice.id.label("id"),
+            RetailerItemPrice.item_id.label("item_id"),
+            RetailerItemPrice.price_per_unit.label("price_per_unit"),
+            RetailerItemPrice.effective_date.label("effective_date"),
+            RetailerItemPrice.is_active.label("is_active"),
+        )
+        .where(
+            RetailerItemPrice.retailer_id == retailer_id,
+            RetailerItemPrice.shop_id == shop_id,
+            RetailerItemPrice.effective_date == target_date,
         )
         .subquery()
     )

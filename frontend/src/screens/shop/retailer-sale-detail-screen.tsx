@@ -27,6 +27,7 @@ import {
 } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
+import { usePrintingEnabled } from "@/utils/printing";
 import { formatRetailerSaleNoDisplay } from "@/utils/retailer-sale";
 import { resolveWalletCreditAmount } from "@/utils/retailer-wallet";
 import { ShopText as Text } from "@/components/ui/shop-text";
@@ -77,6 +78,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
   const [submitting, setSubmitting] = useState(false);
   const [reprintingId, setReprintingId] = useState<string | null>(null);
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
+  const printingEnabled = usePrintingEnabled();
   const form = useForm<FormValues>({
     defaultValues: { cashAmount: "", upiAmount: "" },
   });
@@ -125,6 +127,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
 
   const printReceipt = useCallback(
     async (targetSale: RetailerSaleRead, receipt: RetailerSaleReceiptRead) => {
+      if (!printingEnabled) return;
       if (!preferredPrinter) {
         Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
         return;
@@ -142,7 +145,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
         setReprintingId(null);
       }
     },
-    [language, preferredPrinter, startReceiptHtmlPrintJob, t],
+    [language, preferredPrinter, printingEnabled, startReceiptHtmlPrintJob, t],
   );
 
   const onCollect = form.handleSubmit(async (values) => {
@@ -163,7 +166,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
       Alert.alert(t("checkout.checkoutFailedTitle"), t("retailers.overpay"));
       return;
     }
-    if (!preferredPrinter) {
+    if (printingEnabled && !preferredPrinter) {
       Alert.alert(t("printer.selectPrinterFirstTitle"), t("printer.selectPrinterFirstMessage"));
       return;
     }
@@ -176,11 +179,13 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
           upi_amount: toMoneyString(values.upiAmount),
         },
       });
-      await startReceiptHtmlPrintJob(
-        [buildRetailerReceiptHtml(result.sale, result.payment_receipt, language)],
-        preferredPrinter,
-        language,
-      );
+      if (printingEnabled && preferredPrinter) {
+        await startReceiptHtmlPrintJob(
+          [buildRetailerReceiptHtml(result.sale, result.payment_receipt, language)],
+          preferredPrinter,
+          language,
+        );
+      }
       setSale(result.sale);
       form.reset({ cashAmount: "", upiAmount: "" });
       try {
@@ -304,7 +309,11 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
               )}
             />
             <Button
-              label={t("retailers.collectAndPrint")}
+              label={
+                printingEnabled
+                  ? t("retailers.collectAndPrint")
+                  : t("retailers.collectWithoutPrint")
+              }
               onPress={onCollect}
               loading={submitting}
             />
@@ -383,17 +392,19 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
                     </Text>
                   ) : null}
                 </View>
-                <Button
-                  label={t("retailers.reprintReceipt")}
-                  variant="secondary"
-                  onPress={() => void printReceipt(sale, receipt)}
-                  loading={reprintingId === receipt.id}
-                />
+                {printingEnabled ? (
+                  <Button
+                    label={t("retailers.reprintReceipt")}
+                    variant="secondary"
+                    onPress={() => void printReceipt(sale, receipt)}
+                    loading={reprintingId === receipt.id}
+                  />
+                ) : null}
               </View>
             ))}
           </Card>
         ) : null}
-      {receiptImagePrintBridge}
+      {printingEnabled ? receiptImagePrintBridge : null}
     </Screen>
   );
 }

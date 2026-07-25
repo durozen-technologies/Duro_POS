@@ -11,6 +11,7 @@ export interface OrganizationRead {
   branch_count: number;
   remaining_branches: number;
   bill_number_prefix: string;
+  printing_enabled: boolean;
   settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -324,7 +325,12 @@ export async function createOrganization(payload: {
 
 export async function patchOrganization(
   organizationId: UUID,
-  payload: { name?: string; max_branches?: number; bill_number_prefix?: string },
+  payload: {
+    name?: string;
+    max_branches?: number;
+    bill_number_prefix?: string;
+    printing_enabled?: boolean;
+  },
 ) {
   const { data } = await apiClient.patch<OrganizationRead>(
     `${SUPER_ADMIN_PREFIX}/organizations/${organizationId}`,

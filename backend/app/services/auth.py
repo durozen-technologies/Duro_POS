@@ -51,12 +51,13 @@ from app.schemas.auth import (
     UserSession,
     normalize_username,
 )
+from app.services.org_printing import printing_enabled_from_settings
 from app.services.session_invalidation import invalidate_user_sessions
 from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 
 logger = logging.getLogger(__name__)
 
-#region agent log
+# region agent log
 _DEBUG_LOG_PATHS = (
     Path(__file__).resolve().parents[3] / ".cursor" / "debug-3261f4.log",
     Path("/tmp/debug-3261f4.log"),
@@ -103,7 +104,7 @@ def _hash_fingerprint(hashed_password: str | None) -> dict[str, object]:
     }
 
 
-#endregion
+# endregion
 
 
 async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
@@ -156,16 +157,18 @@ async def _resolve_next_screen(db: AsyncSession, user: User, shop: Shop | None) 
     return "admin_dashboard"
 
 
-async def _organization_name_for_user(
+async def _organization_session_fields(
     platform_db: AsyncSession, user: User, shop: Shop | None
-) -> str | None:
+) -> tuple[str | None, bool]:
     org_id = user.organization_id
     if org_id is None and shop is not None:
         org_id = shop.organization_id
     if org_id is None:
-        return None
+        return None, True
     org = await platform_db.get(Organization, org_id)
-    return org.name if org is not None else None
+    if org is None:
+        return None, True
+    return org.name, printing_enabled_from_settings(org.settings)
 
 
 async def build_user_session(
@@ -179,7 +182,9 @@ async def build_user_session(
 
     permissions = sorted(await load_user_permissions(tenant_db, user))
     next_screen = await _resolve_next_screen(tenant_db, user, shop)
-    organization_name = await _organization_name_for_user(platform_db, user, shop)
+    organization_name, printing_enabled = await _organization_session_fields(
+        platform_db, user, shop
+    )
 
     return UserSession(
         id=user.id,
@@ -189,6 +194,7 @@ async def build_user_session(
         created_at=user.created_at,
         organization_id=user.organization_id or (shop.organization_id if shop else None),
         organization_name=organization_name,
+        printing_enabled=printing_enabled,
         permissions=permissions,
         shop_id=shop.id if shop else None,
         shop_name=shop.name if shop else None,
@@ -335,7 +341,9 @@ async def login_user(
             "found": super_admin is not None,
             "verified": super_admin_verified,
             "user_id": str(super_admin.id) if super_admin is not None else None,
-            "hash": _hash_fingerprint(super_admin.password_hash) if super_admin is not None else None,
+            "hash": _hash_fingerprint(super_admin.password_hash)
+            if super_admin is not None
+            else None,
         },
     )
     if super_admin is not None and super_admin_verified:
