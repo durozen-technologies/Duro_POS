@@ -338,7 +338,7 @@ function buildReceiptImageExportScript(canvasWidth: number, fontScale: number) {
                 y += 10;
 
                 y += drawWrappedText(measureContext, payload.billText, 0, y, receiptWidth, {
-                  size: 15,
+                  size: payload.billTextFontSize || 15,
                   weight: 600,
                   align: "center",
                   lineHeightRatio: 1.4,
@@ -547,7 +547,7 @@ function buildReceiptImageExportScript(canvasWidth: number, fontScale: number) {
               y += 10;
 
               y += drawWrappedText(context, payload.billText, 0, y, receiptWidth, {
-                size: 15,
+                size: payload.billTextFontSize || 15,
                 weight: 600,
                 align: "center",
                 lineHeightRatio: 1.4,
@@ -869,6 +869,7 @@ type ReceiptExportPayload = {
   companyName: string;
   shopName: string;
   billText: string;
+  billTextFontSize?: number;
   purchaserText?: string;
   shopNameMetaText?: string;
   dateText: string;
@@ -1030,6 +1031,10 @@ export function buildReceiptHtmlMarkup(
             font-weight: 800;
             line-height: 1.15;
           }
+          .bill-meta-sale-no {
+            font-size: ${fs(18)}px;
+            font-weight: 700;
+          }
           .balance-divider {
             border-top: 2.5px solid #000000;
             margin: 8px 0;
@@ -1164,6 +1169,7 @@ export function buildReceiptHtmlMarkup(
             .bill-meta-purchaser { font-size: ${fs(20)}px; }
             .bill-meta-shop { font-size: ${fs(17)}px; }
             .bill-meta-primary  { font-size: ${fs(17)}px; }
+            .bill-meta-sale-no  { font-size: ${fs(14)}px; }
             .item-name   { font-size: ${fs(16)}px; }
             .item-qty    { font-size: ${fs(17)}px; }
             .item-total  { font-size: ${fs(16)}px; }
@@ -1403,7 +1409,7 @@ export function retailerSaleToBillRead(
     id: sale.id,
     bill_no: sale.sale_no,
     shop_id: sale.shop_id,
-    shop_name: sale.shop_name,
+    shop_name: sale.branch_name || sale.shop_name,
     organization_name: `${sale.organization_name}\nRetailer Sale · ${sale.retailer_name}\n${sale.shop_name}`,
     total_amount: sale.total_amount,
     status:

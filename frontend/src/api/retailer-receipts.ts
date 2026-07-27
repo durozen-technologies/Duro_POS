@@ -149,11 +149,9 @@ function receiptLabels() {
   };
 }
 
-function receiptItemName(
-  item: RetailerSaleRead["items"][number],
-  language?: ShopLanguage,
-) {
-  return getLocalizedItemName(language === "ta" ? "ta" : "en", item.item_name, item.item_tamil_name);
+function receiptItemName(item: RetailerSaleRead["items"][number]) {
+  // Match normal billing receipts: item lines always print in Tamil.
+  return getLocalizedItemName("ta", item.item_name, item.item_tamil_name);
 }
 
 function formatReceiptHeaderName(name: string) {
@@ -165,8 +163,10 @@ function organizationName(sale: RetailerSaleRead) {
 }
 
 function retailerPurchaserHtml(sale: RetailerSaleRead, labels: ReturnType<typeof receiptLabels>) {
+  const retailerShop = sale.shop_name?.trim();
   return `
-        <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(sale.retailer_name)}</span>`;
+        <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(sale.retailer_name)}</span>
+        ${retailerShop ? `<span>${escapeHtml(retailerShop)}</span>` : ""}`;
 }
 
 function retailerBillMetaHtml(
@@ -183,7 +183,7 @@ function retailerBillMetaHtml(
         <div class="balance-divider"></div>
         <span class="bill-meta-primary opening-balance-row"><strong>${labels.openingBalance}:</strong> Rs. ${formatReceiptCurrency(openingBalance)}</span>
         <div class="balance-divider"></div>
-        <span><strong>${labels.saleNo}:</strong> ${escapeHtml(sale.sale_no)}</span>
+        <span class="bill-meta-sale-no"><strong>${labels.saleNo}:</strong> ${escapeHtml(sale.sale_no)}</span>
         <span><strong>${labels.saleDate}:</strong> ${escapeHtml(formatDateTime(sale.created_at))}</span>
       </div>`;
 }
@@ -199,36 +199,39 @@ function settledFooter(settled: boolean, labels: ReturnType<typeof receiptLabels
 
 function organizationHeader(sale: RetailerSaleRead) {
   const org = formatReceiptHeaderName(organizationName(sale));
-  const branch = formatReceiptHeaderName(sale.shop_name);
+  const branch = formatReceiptHeaderName((sale.branch_name || "").trim());
   return `
     <div class="center">
       <div class="strong header-main">${escapeHtml(org)}</div>
-      <div class="strong header-sub">${escapeHtml(branch)}</div>
+      ${branch ? `<div class="strong header-sub">${escapeHtml(branch)}</div>` : ""}
     </div>`;
 }
 
-function organizationHeaderFromName(organizationNameValue: string, shopName: string) {
+function organizationHeaderFromName(organizationNameValue: string, branchName: string) {
   const org = formatReceiptHeaderName(
     organizationNameValue.split("\n")[0]?.trim() || organizationNameValue,
   );
-  const branch = formatReceiptHeaderName(shopName);
+  const branch = formatReceiptHeaderName(branchName.trim());
   return `
     <div class="center">
       <div class="strong header-main">${escapeHtml(org)}</div>
-      <div class="strong header-sub">${escapeHtml(branch)}</div>
+      ${branch ? `<div class="strong header-sub">${escapeHtml(branch)}</div>` : ""}
     </div>`;
 }
 
 function retailerReceiptPartyExportFields(
   retailerName: string,
-  shopName: string,
+  branchName: string,
+  retailerShopName: string,
   labels: ReturnType<typeof receiptLabels>,
 ) {
-  const party = buildRetailerReceiptPartyText(retailerName, shopName, labels);
+  const party = buildRetailerReceiptPartyText(retailerName, retailerShopName, labels);
+  const retailerShop = retailerShopName.trim();
   return {
+    // Org branch under company (same slot as normal billing).
+    shopName: formatReceiptHeaderName(branchName.trim()),
     purchaserText: party.purchaserLine,
-    // Branch/shop sits under org in header (same as normal billing), not as meta line.
-    shopName: formatReceiptHeaderName(shopName),
+    ...(retailerShop ? { shopNameMetaText: retailerShop } : {}),
   };
 }
 
@@ -287,12 +290,12 @@ function paymentSummaryExportFields(
   };
 }
 
-function saleItemRowsHtml(sale: RetailerSaleRead, language?: ShopLanguage) {
+function saleItemRowsHtml(sale: RetailerSaleRead) {
   return sale.items
     .map(
       (item) => `
         <tr class="item-row">
-          <td class="item-name strong">${escapeHtml(receiptItemName(item, language))}</td>
+          <td class="item-name strong">${escapeHtml(receiptItemName(item))}</td>
           <td class="align-right item-qty">${escapeHtml(String(item.quantity))}&nbsp;${escapeHtml(formatUnit(item.unit))}</td>
           <td class="align-right item-total strong">${formatReceiptCurrency(item.line_total)}</td>
         </tr>`,
@@ -300,9 +303,9 @@ function saleItemRowsHtml(sale: RetailerSaleRead, language?: ShopLanguage) {
     .join("");
 }
 
-function saleItemsExport(sale: RetailerSaleRead, language?: ShopLanguage) {
+function saleItemsExport(sale: RetailerSaleRead) {
   return sale.items.map((item) => ({
-    itemName: receiptItemName(item, language),
+    itemName: receiptItemName(item),
     quantityText: `${item.quantity} ${formatUnit(item.unit)}`,
     lineTotal: formatReceiptCurrency(item.line_total),
   }));
@@ -451,14 +454,20 @@ export function buildRetailerSaleInvoiceHtml(
     settled = Number(currentBillBalance) <= 0;
     displayPayment = payment;
   }
-  const itemRows = saleItemRowsHtml(sale, language);
+  const itemRows = saleItemRowsHtml(sale);
 
   const orgName = organizationName(sale);
-  const partyFields = retailerReceiptPartyExportFields(sale.retailer_name, sale.shop_name, labels);
+  const partyFields = retailerReceiptPartyExportFields(
+    sale.retailer_name,
+    sale.branch_name,
+    sale.shop_name,
+    labels,
+  );
   const exportPayload = {
     companyName: formatReceiptHeaderName(orgName),
     ...partyFields,
     billText: `${labels.saleNo}: ${sale.sale_no}`,
+    billTextFontSize: 18,
     dateText: `${labels.date}: ${formatDateTime(receipt.printed_at)}`,
     ...itemExportHeaders(labels),
     ...walletReceiptExportFields(labels, displayPayment.wallet_amount),
@@ -479,7 +488,7 @@ export function buildRetailerSaleInvoiceHtml(
     thankYou: settled ? labels.paymentSettled : labels.thankYou,
     poweredBy: labels.poweredBy,
     provider: labels.provider,
-    items: saleItemsExport(sale, language),
+    items: saleItemsExport(sale),
   };
 
   const body = `
@@ -521,10 +530,15 @@ export function buildRetailerBalancePaymentHtml(
   const balances = retailerBalanceSummary(sale, receipt, payment);
   const { openingBalance, currentBillBalance, totalBalance } = balances;
   const settled = Number(currentBillBalance) <= 0;
-  const itemRows = saleItemRowsHtml(sale, language);
+  const itemRows = saleItemRowsHtml(sale);
 
   const orgName = organizationName(sale);
-  const partyFields = retailerReceiptPartyExportFields(sale.retailer_name, sale.shop_name, labels);
+  const partyFields = retailerReceiptPartyExportFields(
+    sale.retailer_name,
+    sale.branch_name,
+    sale.shop_name,
+    labels,
+  );
   const exportPayload = {
     companyName: formatReceiptHeaderName(orgName),
     ...partyFields,
@@ -549,7 +563,7 @@ export function buildRetailerBalancePaymentHtml(
     thankYou: settled ? labels.paymentSettled : labels.thankYou,
     poweredBy: labels.poweredBy,
     provider: labels.provider,
-    items: saleItemsExport(sale, language),
+    items: saleItemsExport(sale),
   };
 
   const body = `
@@ -578,7 +592,8 @@ export function buildRetailerBalancePaymentHtml(
 
 export type RetailerBulkSettleReceiptContext = {
   organizationName: string;
-  shopName: string;
+  branchName: string;
+  retailerShopName?: string;
 };
 
 function bulkSettleAllocationRows(result: RetailerBulkSettleRead) {
@@ -690,7 +705,13 @@ export function buildRetailerBulkSettleReceiptHtml(
   const orgName = formatReceiptHeaderName(
     context.organizationName.split("\n")[0]?.trim() || context.organizationName,
   );
-  const partyFields = retailerReceiptPartyExportFields(result.retailer_name, context.shopName, labels);
+  const retailerShopName = context.retailerShopName ?? "";
+  const partyFields = retailerReceiptPartyExportFields(
+    result.retailer_name,
+    context.branchName,
+    retailerShopName,
+    labels,
+  );
   const allocationRows = bulkSettleAllocationRows(result);
 
   const exportPayload = {
@@ -729,12 +750,17 @@ export function buildRetailerBulkSettleReceiptHtml(
 
   const body = `
     <div class="receipt-container">
-      ${organizationHeaderFromName(context.organizationName, context.shopName)}
+      ${organizationHeaderFromName(context.organizationName, context.branchName)}
       <div class="center" style="margin-bottom: 8px;">
         <div class="strong" style="font-size: 18px;">Outstanding Payment</div>
       </div>
       <div class="bill-meta">
         <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(result.retailer_name)}</span>
+        ${
+          retailerShopName.trim()
+            ? `<span>${escapeHtml(retailerShopName.trim())}</span>`
+            : ""
+        }
         <span class="bill-meta-primary"><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(printedAt))}</span>
       </div>
       ${bulkSettleAllocationsTableHtml(allocationRows)}

@@ -245,6 +245,7 @@ class RetailerSaleRead(ORMModel):
     retailer_name: str
     shop_id: UUID
     shop_name: str
+    branch_name: str
     organization_name: str
     total_amount: Decimal
     amount_paid_total: Decimal

@@ -1425,6 +1425,7 @@ export interface RetailerSaleRead {
   retailer_name: string;
   shop_id: UUID;
   shop_name: string;
+  branch_name: string;
   organization_name: string;
   total_amount: string;
   amount_paid_total: string;

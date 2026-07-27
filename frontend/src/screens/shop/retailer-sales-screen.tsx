@@ -1127,7 +1127,8 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
     const sample = sales.find((sale) => sale.retailer_id === selectedRetailerId);
     return {
       organizationName: sample?.organization_name ?? "DUROZEN",
-      shopName: sample?.shop_name ?? shopBootstrap?.shop_name ?? "Shop",
+      branchName: sample?.branch_name ?? shopBootstrap?.shop_name ?? "Shop",
+      retailerShopName: sample?.shop_name ?? "",
     };
   }, [sales, selectedRetailerId, shopBootstrap?.shop_name]);
 
