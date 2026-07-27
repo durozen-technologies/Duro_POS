@@ -24,7 +24,7 @@ import { usePrinterStore } from "@/store/printer-store";
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency } from "@/utils/format";
-import { usePrintingEnabled } from "@/utils/printing";
+import { usePrintingEnabled, useReceiptPaperMm } from "@/utils/printing";
 import { ShopText as Text } from "@/components/ui/shop-text";
 
 type CheckoutFormValues = {
@@ -159,6 +159,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
   const resetCart = useCartStore((state) => state.resetCart);
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const printingEnabled = usePrintingEnabled();
+  const receiptPaperMm = useReceiptPaperMm();
   const [submitting, setSubmitting] = useState(false);
   const checkoutCompletedRef = useRef(false);
 
@@ -238,7 +239,7 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
       }
 
       try {
-        await startReceiptImagePrintJob([savedBill], preferredPrinter, language);
+        await startReceiptImagePrintJob([savedBill], preferredPrinter, language, receiptPaperMm);
         await patchBillReceiptStatus(savedBill.id, { status: "printed" });
       } catch (error) {
         const printError =

@@ -12,6 +12,11 @@ import {
 import type { PrinterDevice } from "@/types/printer";
 import type { BillRead } from "@/types/api";
 import type { ShopLanguage } from "@/store/shop-language-store";
+import {
+  DEFAULT_RECEIPT_PAPER_MM,
+  getReceiptPaperProfile,
+  type ReceiptPaperMm,
+} from "@/utils/receipt-paper";
 
 type ReceiptPrintJob = {
   id: string;
@@ -19,6 +24,7 @@ type ReceiptPrintJob = {
   htmlPages?: string[];
   device: PrinterDevice;
   language?: ShopLanguage;
+  paperMm: ReceiptPaperMm;
 };
 
 type ReceiptBridgeProps = {
@@ -83,6 +89,7 @@ function ReceiptImagePrintBridge({
     job && (currentBill || currentHtml)
       ? `${job.id}:${currentIndex}:${currentAttempt}`
       : null;
+  const paperProfile = getReceiptPaperProfile(job?.paperMm);
 
   const retryReceiptExport = useCallback(
     (cause: Error) => {
@@ -140,7 +147,9 @@ function ReceiptImagePrintBridge({
 
       printInFlightRef.current = true;
 
-      void printReceiptImageBase64WithPrinter(message.payload, job.device)
+      void printReceiptImageBase64WithPrinter(message.payload, job.device, {
+        imageWidth: paperProfile.imageWidth,
+      })
         .then(() => {
           if (currentIndex >= pageCount - 1) {
             onComplete();
@@ -155,7 +164,16 @@ function ReceiptImagePrintBridge({
           );
         });
     },
-    [advanceToNextBill, currentIndex, currentExportKey, job, onComplete, pageCount, retryReceiptExport],
+    [
+      advanceToNextBill,
+      currentIndex,
+      currentExportKey,
+      job,
+      onComplete,
+      pageCount,
+      paperProfile.imageWidth,
+      retryReceiptExport,
+    ],
   );
 
   if (!job || (!currentBill && !currentHtml)) {
@@ -163,10 +181,14 @@ function ReceiptImagePrintBridge({
   }
 
   const sourceHtml =
-    currentHtml ?? (currentBill ? buildReceiptHtml(currentBill, job.language) : "");
+    currentHtml ??
+    (currentBill ? buildReceiptHtml(currentBill, job.language, job.paperMm) : "");
 
   return (
-    <View pointerEvents="none" style={styles.hiddenBridge}>
+    <View
+      pointerEvents="none"
+      style={[styles.hiddenBridge, { width: paperProfile.webViewWidth }]}
+    >
       <WebView
         ref={webViewRef}
         key={currentExportKey ?? job.id}
@@ -209,7 +231,12 @@ export function useReceiptImagePrintJob() {
   }, []);
 
   const startReceiptImagePrintJob = useCallback(
-    (bills: BillRead[], device: PrinterDevice, language?: ShopLanguage) =>
+    (
+      bills: BillRead[],
+      device: PrinterDevice,
+      language?: ShopLanguage,
+      paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+    ) =>
       new Promise<void>((resolve, reject) => {
         if (bills.length === 0) {
           resolve();
@@ -234,6 +261,7 @@ export function useReceiptImagePrintJob() {
           bills,
           device,
           language,
+          paperMm,
         });
       }),
     [],
@@ -263,7 +291,12 @@ export function useReceiptImagePrintJob() {
   );
 
   const startReceiptHtmlPrintJob = useCallback(
-    (htmlPages: string[], device: PrinterDevice, language?: ShopLanguage) =>
+    (
+      htmlPages: string[],
+      device: PrinterDevice,
+      language?: ShopLanguage,
+      paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+    ) =>
       new Promise<void>((resolve, reject) => {
         if (htmlPages.length === 0) {
           resolve();
@@ -288,6 +321,7 @@ export function useReceiptImagePrintJob() {
           htmlPages,
           device,
           language,
+          paperMm,
         });
       }),
     [],
@@ -306,7 +340,6 @@ const styles = StyleSheet.create({
     left: -10000,
     top: 0,
     opacity: 0.01,
-    width: 404,
     height: 1400,
   },
   hiddenWebView: {

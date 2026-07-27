@@ -30,6 +30,7 @@ import {
 } from "@/services/printer-service";
 import { usePrinterStore } from "@/store/printer-store";
 import { PrinterDevice } from "@/types/printer";
+import { useReceiptPaperMm } from "@/utils/printing";
 
 type IoniconProps = ComponentProps<typeof Ionicons>;
 
@@ -609,6 +610,7 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
   const setPreferredPrinter = usePrinterStore((s) => s.setPreferredPrinter);
   const clearPreferredPrinter = usePrinterStore((s) => s.clearPreferredPrinter);
+  const receiptPaperMm = useReceiptPaperMm();
 
   const [bluetoothDevices, setBluetoothDevices] = useState<PrinterDevice[]>([]);
   const [usbDevices, setUsbDevices] = useState<PrinterDevice[]>([]);
@@ -757,7 +759,7 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
     }
     try {
       setPrintingTest(true);
-      await printTestReceipt(preferredPrinter);
+      await printTestReceipt(preferredPrinter, receiptPaperMm);
       Alert.alert(t("printer.testSentTitle"), t("printer.testSentMessage"));
     } catch (e) { Alert.alert(t("printer.testFailedTitle"), `${e}`); }
     finally { setPrintingTest(false); }

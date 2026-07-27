@@ -160,6 +160,57 @@ class OrganizationRenameTests(BackendTestCase):
 
         self.run_async(scenario())
 
+    def test_update_organization_sets_receipt_paper_mm(self) -> None:
+        async def scenario() -> None:
+            from sqlalchemy import select
+
+            from app.models import AuditLog
+
+            super_admin = User(
+                username="super-paper",
+                password_hash="x",
+                role=UserRole.SUPER_ADMIN,
+                is_active=True,
+            )
+            org_id = uuid4()
+            with self.harness.session_factory() as session:
+                session.add(super_admin)
+                session.add(
+                    Organization(
+                        id=org_id,
+                        name="Paper Org",
+                        slug="paper-org",
+                        is_active=True,
+                        max_branches=5,
+                    )
+                )
+                session.commit()
+
+            with self.harness.session_factory() as session:
+                adapter = AsyncSessionAdapter(session)
+                updated = await org_service.update_organization(
+                    adapter,
+                    org_id,
+                    OrganizationUpdate(receipt_paper_mm=80),
+                    super_admin,
+                )
+                self.assertEqual(updated.receipt_paper_mm, 80)
+                org = session.get(Organization, org_id)
+                assert org is not None
+                self.assertEqual(org.settings.get("receipt_paper_mm"), 80)
+                audit = await adapter.scalar(
+                    select(AuditLog).where(
+                        AuditLog.action == "organization.receipt_paper_mm_updated",
+                        AuditLog.entity_id == org_id,
+                    )
+                )
+                self.assertIsNotNone(audit)
+                assert audit is not None
+                self.assertEqual(audit.details["previous_receipt_paper_mm"], 58)
+                self.assertEqual(audit.details["updated_receipt_paper_mm"], 80)
+
+        self.run_async(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()

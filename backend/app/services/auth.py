@@ -51,7 +51,10 @@ from app.schemas.auth import (
     UserSession,
     normalize_username,
 )
-from app.services.org_printing import printing_enabled_from_settings
+from app.services.org_printing import (
+    printing_enabled_from_settings,
+    receipt_paper_mm_from_settings,
+)
 from app.services.session_invalidation import invalidate_user_sessions
 from app.services.user_auth_index import upsert_auth_index, username_is_globally_taken
 
@@ -159,16 +162,20 @@ async def _resolve_next_screen(db: AsyncSession, user: User, shop: Shop | None) 
 
 async def _organization_session_fields(
     platform_db: AsyncSession, user: User, shop: Shop | None
-) -> tuple[str | None, bool]:
+) -> tuple[str | None, bool, int]:
     org_id = user.organization_id
     if org_id is None and shop is not None:
         org_id = shop.organization_id
     if org_id is None:
-        return None, True
+        return None, True, 58
     org = await platform_db.get(Organization, org_id)
     if org is None:
-        return None, True
-    return org.name, printing_enabled_from_settings(org.settings)
+        return None, True, 58
+    return (
+        org.name,
+        printing_enabled_from_settings(org.settings),
+        receipt_paper_mm_from_settings(org.settings),
+    )
 
 
 async def build_user_session(
@@ -182,7 +189,7 @@ async def build_user_session(
 
     permissions = sorted(await load_user_permissions(tenant_db, user))
     next_screen = await _resolve_next_screen(tenant_db, user, shop)
-    organization_name, printing_enabled = await _organization_session_fields(
+    organization_name, printing_enabled, receipt_paper_mm = await _organization_session_fields(
         platform_db, user, shop
     )
 
@@ -195,6 +202,7 @@ async def build_user_session(
         organization_id=user.organization_id or (shop.organization_id if shop else None),
         organization_name=organization_name,
         printing_enabled=printing_enabled,
+        receipt_paper_mm=receipt_paper_mm,
         permissions=permissions,
         shop_id=shop.id if shop else None,
         shop_name=shop.name if shop else None,

@@ -26,6 +26,7 @@ import type { RetailerBulkSettleRead, RetailerSaleRead, UUID } from "@/types/api
 import { RetailerSaleStatus } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { formatCurrency, formatDateTime } from "@/utils/format";
+import { useReceiptPaperMm } from "@/utils/printing";
 import { computeSettleableOutstanding, sumPendingBillsBalance } from "@/utils/retailer-bulk-settle";
 import {
   formatRetailerSaleNoDisplay,
@@ -206,6 +207,7 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [collectModalOpen, setCollectModalOpen] = useState(false);
   const [openingBalance, setOpeningBalance] = useState("0.00");
+  const receiptPaperMm = useReceiptPaperMm();
   const { receiptImageShareBridge, startReceiptImageShare } = useReceiptImageShare();
 
   const load = useCallback(
@@ -316,8 +318,9 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
           return;
         }
         await startReceiptImageShare(
-          buildRetailerShareReceiptHtml(sale, balance.outstanding_balance, "en"),
+          buildRetailerShareReceiptHtml(sale, balance.outstanding_balance, "en", receiptPaperMm),
           `Receipt ${sale.sale_no}`,
+          receiptPaperMm,
         );
       } catch (err) {
         Alert.alert("Share failed", formatApiErrorMessage(err));
@@ -325,7 +328,7 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
         setSharingSaleId(null);
       }
     },
-    [retailerId, startReceiptImageShare],
+    [receiptPaperMm, retailerId, startReceiptImageShare],
   );
 
   const handleCancelSale = useCallback(

@@ -1,4 +1,4 @@
-import { NativeModules, PermissionsAndroid, Platform } from "react-native";
+import { AppState, NativeModules, PermissionsAndroid, Platform } from "react-native";
 import {
   type IBLEPrinter,
   type IUSBPrinter,
@@ -19,8 +19,11 @@ import {
   formatDateTime,
   formatUnit,
 } from "@/utils/format";
-
-const PAPER_WIDTH_58 = 32;
+import {
+  DEFAULT_RECEIPT_PAPER_MM,
+  getReceiptPaperProfile,
+  type ReceiptPaperMm,
+} from "@/utils/receipt-paper";
 
 type ReceiptLineAlignment = "left" | "center";
 
@@ -36,6 +39,7 @@ type PrinterOptions = {
   cut?: boolean;
   tailingLine?: boolean;
   encoding?: string;
+  settleDelayMs?: number;
   onError?: (error: Error) => void;
 };
 
@@ -45,10 +49,33 @@ type PrinterRuntime = {
   connect: (device: PrinterDevice) => Promise<void>;
   closeConn: () => Promise<void>;
   printBill: (text: string, options?: PrinterOptions) => Promise<void>;
-  printImageBase64: (base64: string, options?: NativePrinterImageOptions) => Promise<void>;
+  printImageBase64: (
+    base64: string,
+    options?: NativePrinterImageOptions & { settleDelayMs?: number },
+  ) => Promise<void>;
 };
 
-const RECEIPT_IMAGE_WIDTH = 380;
+type ReceiptImagePrintOptions = {
+  imageWidth?: number;
+};
+
+type ImagePrintDispatchOptions = PrinterOptions & {
+  settleDelayMs?: number;
+};
+
+type ActivePrinterSession = {
+  deviceId: string;
+  device: PrinterDevice;
+  runtime: PrinterRuntime;
+};
+
+const IMAGE_SLICE_SETTLE_MS = 1800;
+const IMAGE_LAST_SLICE_SETTLE_MS = 2000;
+const DRAIN_FLOOR_MS = 1200;
+const DRAIN_CAP_MS = 6000;
+const DRAIN_BYTES_PER_SEC = 2500;
+const SESSION_IDLE_DISCONNECT_MS = 15_000;
+const ESC_INIT = "\x1B\x40";
 
 const RECEIPT_COPY = {
   en: {
@@ -97,8 +124,9 @@ function getThermalPrinterModule() {
   };
 }
 
-function getCommandText() {
+function getCommandText(paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM) {
   const { COMMANDS } = getThermalPrinterModule();
+  const profile = getReceiptPaperProfile(paperMm);
 
   return {
     CENTER: COMMANDS.TEXT_FORMAT.TXT_ALIGN_CT,
@@ -109,7 +137,7 @@ function getCommandText() {
       COMMANDS.TEXT_FORMAT.TXT_2HEIGHT +
       COMMANDS.TEXT_FORMAT.TXT_2WIDTH,
     NORMAL: COMMANDS.TEXT_FORMAT.TXT_NORMAL,
-    DIVIDER: COMMANDS.HORIZONTAL_LINE.HR3_58MM,
+    DIVIDER: COMMANDS.HORIZONTAL_LINE[profile.dividerKey],
   } as const;
 }
 
@@ -195,7 +223,11 @@ function wrapReceiptLine(value: string, width: number) {
   return lines;
 }
 
-function padColumns(left: string, right: string, width = PAPER_WIDTH_58) {
+function padColumns(
+  left: string,
+  right: string,
+  width = getReceiptPaperProfile(DEFAULT_RECEIPT_PAPER_MM).cols,
+) {
   const safeLeft = left.trim();
   const safeRight = right.trim();
   const spacing = Math.max(
@@ -215,7 +247,7 @@ function padColumns(left: string, right: string, width = PAPER_WIDTH_58) {
 function alignReceiptLine(
   value: string,
   align: ReceiptLineAlignment = "left",
-  width = PAPER_WIDTH_58,
+  width = getReceiptPaperProfile(DEFAULT_RECEIPT_PAPER_MM).cols,
 ) {
   if (align !== "center" || value.length >= width) {
     return value;
@@ -225,10 +257,15 @@ function alignReceiptLine(
   return `${" ".repeat(padding)}${value}`;
 }
 
-function buildPrintableReceiptLines(bill: BillRead): PrintableReceiptLine[] {
+function buildPrintableReceiptLines(
+  bill: BillRead,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+): PrintableReceiptLine[] {
   const language = getReceiptLanguage();
   const copy = getReceiptCopy(language);
-  const divider = "-".repeat(PAPER_WIDTH_58);
+  const cols = getReceiptPaperProfile(paperMm).cols;
+  const divider = "-".repeat(cols);
+  const nameWrapWidth = Math.max(12, Math.floor(cols * 0.56));
 
   const itemLines = bill.items.flatMap((item) => {
     const translatedItemName = getLocalizedItemName(
@@ -236,12 +273,13 @@ function buildPrintableReceiptLines(bill: BillRead): PrintableReceiptLine[] {
       item.item_name,
       item.item_tamil_name,
     );
-    const wrappedName = wrapReceiptLine(translatedItemName, 18);
+    const wrappedName = wrapReceiptLine(translatedItemName, nameWrapWidth);
     const lines: PrintableReceiptLine[] = [
       {
         text: padColumns(
           wrappedName[0] ?? translatedItemName,
           formatCurrency(item.line_total),
+          cols,
         ),
       },
       {
@@ -277,10 +315,10 @@ function buildPrintableReceiptLines(bill: BillRead): PrintableReceiptLine[] {
     { text: divider },
     ...itemLines,
     { text: divider },
-    { text: padColumns(copy.cash, formatCurrency(bill.payment.cash_amount)) },
-    { text: padColumns(copy.upi, formatCurrency(bill.payment.upi_amount)) },
+    { text: padColumns(copy.cash, formatCurrency(bill.payment.cash_amount), cols) },
+    { text: padColumns(copy.upi, formatCurrency(bill.payment.upi_amount), cols) },
     {
-      text: padColumns(copy.total, formatCurrency(bill.total_amount)),
+      text: padColumns(copy.total, formatCurrency(bill.total_amount), cols),
       bold: true,
     },
     { text: divider },
@@ -297,10 +335,13 @@ function buildPrintableReceiptLines(bill: BillRead): PrintableReceiptLine[] {
   ];
 }
 
-function buildPrintableReceipt(bill: BillRead) {
-  const COMMAND_TEXT = getCommandText();
+function buildPrintableReceipt(
+  bill: BillRead,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+) {
+  const COMMAND_TEXT = getCommandText(paperMm);
 
-  return buildPrintableReceiptLines(bill)
+  return buildPrintableReceiptLines(bill, paperMm)
     .map((line) => {
       const alignCommand =
         line.align === "center" ? COMMAND_TEXT.CENTER : COMMAND_TEXT.LEFT;
@@ -316,14 +357,21 @@ function buildPrintableReceipt(bill: BillRead) {
     .join("\n");
 }
 
-export function buildPrintableReceiptPreview(bill: BillRead) {
-  return buildPrintableReceiptLines(bill)
-    .map((line) => alignReceiptLine(line.text, line.align))
+export function buildPrintableReceiptPreview(
+  bill: BillRead,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+) {
+  const cols = getReceiptPaperProfile(paperMm).cols;
+  return buildPrintableReceiptLines(bill, paperMm)
+    .map((line) => alignReceiptLine(line.text, line.align, cols))
     .join("\n");
 }
 
-function buildTestReceipt(device: PrinterDevice) {
-  const COMMAND_TEXT = getCommandText();
+function buildTestReceipt(
+  device: PrinterDevice,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+) {
+  const COMMAND_TEXT = getCommandText(paperMm);
 
   return [
     `${COMMAND_TEXT.CENTER}${COMMAND_TEXT.BOLD_ON}PRINTER LINKED${COMMAND_TEXT.BOLD_OFF}`,
@@ -333,6 +381,7 @@ function buildTestReceipt(device: PrinterDevice) {
       ? `USB: ${device.vendorId}/${device.productId}`
       : "",
     `Checked: ${formatDateTime(new Date().toISOString())}`,
+    `Paper: ${paperMm}mm`,
     COMMAND_TEXT.DIVIDER,
     "Ready for live POS receipts.",
     "",
@@ -341,23 +390,29 @@ function buildTestReceipt(device: PrinterDevice) {
     .join("\n");
 }
 
-function getPrintOptions(onError?: (error: Error) => void): NativePrinterOptions {
+function getPrintOptions(
+  options: PrinterOptions = {},
+  onError?: (error: Error) => void,
+): NativePrinterOptions {
   return {
-    beep: true,
-    cut: true,
-    tailingLine: true,
-    encoding: "UTF8",
+    beep: options.beep ?? true,
+    cut: options.cut ?? true,
+    tailingLine: options.tailingLine ?? true,
+    encoding: options.encoding ?? "UTF8",
     onError,
   };
 }
 
-function getPrintImageOptions(onError?: (error: Error) => void): NativePrinterImageOptions {
+function getPrintImageOptions(
+  imageWidth: number,
+  onError?: (error: Error) => void,
+): NativePrinterImageOptions {
   return {
     beep: true,
     cut: true,
     tailingLine: true,
     encoding: "UTF8",
-    imageWidth: RECEIPT_IMAGE_WIDTH,
+    imageWidth,
     align: "center",
     onError,
   };
@@ -366,12 +421,13 @@ function getPrintImageOptions(onError?: (error: Error) => void): NativePrinterIm
 function getPrintImageSliceOptions(
   index: number,
   total: number,
+  imageWidth: number,
   onError?: (error: Error) => void,
 ): NativePrinterImageOptions {
   const isLastSlice = index === total - 1;
 
   return {
-    ...getPrintImageOptions(onError),
+    ...getPrintImageOptions(imageWidth, onError),
     beep: isLastSlice,
     cut: isLastSlice,
     tailingLine: isLastSlice,
@@ -391,22 +447,40 @@ function isNoDeviceFound(error: unknown) {
   return message.toLowerCase().includes("no device found");
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function estimateDecodedBytesFromBase64(chunks: string[]) {
+  const totalChars = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  return Math.max(1, Math.floor(totalChars * 0.75));
+}
+
+function computeImageDrainMs(base64Chunks: string[]) {
+  const bytes = estimateDecodedBytesFromBase64(base64Chunks);
+  const estimatedMs = Math.ceil((bytes / DRAIN_BYTES_PER_SEC) * 1000);
+  return Math.max(DRAIN_FLOOR_MS, Math.min(DRAIN_CAP_MS, estimatedMs));
+}
+
 function waitForPrintDispatch(
   dispatch: (options: NativePrinterOptions) => void,
-  options: PrinterOptions = {},
+  options: PrinterOptions & { settleDelayMs?: number } = {},
   settleDelayMs = 400,
 ) {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
+    const { settleDelayMs: _settleDelayMs, onError, ...printOptions } = options;
 
     dispatch(
-      getPrintOptions((error) => {
+      getPrintOptions(printOptions, (error) => {
         if (settled) {
           return;
         }
 
         settled = true;
-        options.onError?.(error);
+        onError?.(error);
         reject(toError(error));
       }),
     );
@@ -424,10 +498,12 @@ function waitForPrintDispatch(
 
 function waitForImagePrintDispatch(
   dispatch: (options: NativePrinterOptions) => void,
-  options: PrinterOptions = {},
+  options: ImagePrintDispatchOptions = {},
+  settleDelayMs = 900,
 ) {
   // Image printing takes longer than text on many thermal drivers.
-  return waitForPrintDispatch(dispatch, options, 900);
+  // Multi-slice jobs need extra settle time between chunks as a library fallback.
+  return waitForPrintDispatch(dispatch, options, settleDelayMs);
 }
 
 function normalizeBluetoothPrinter(printer: IBLEPrinter): PrinterDevice {
@@ -504,20 +580,31 @@ function createBluetoothRuntime(): PrinterRuntime {
       await BLEPrinter.connectPrinter(device.address);
     },
     closeConn: () => BLEPrinter.closeConn(),
-    printBill: (text, options = {}) =>
-      waitForPrintDispatch(
+    printBill: (text, options = {}) => {
+      const settleDelayMs = options.settleDelayMs ?? 400;
+      return waitForPrintDispatch(
         (nativeOptions) => BLEPrinter.printBill(text, nativeOptions),
         options,
-      ),
-    printImageBase64: (base64, options = {}) =>
-      waitForImagePrintDispatch(
+        settleDelayMs,
+      );
+    },
+    printImageBase64: (base64, options = {}) => {
+      const settleDelayMs = options.settleDelayMs ?? 900;
+      const { settleDelayMs: _settleDelayMs, ...imageOptions } = options;
+      return waitForImagePrintDispatch(
         (nativeOptions) =>
           BLEPrinter.printImageBase64(base64, {
-            ...getPrintImageOptions(nativeOptions.onError),
-            ...options,
+            ...getPrintImageOptions(
+              imageOptions.imageWidth ??
+                getReceiptPaperProfile(DEFAULT_RECEIPT_PAPER_MM).imageWidth,
+              nativeOptions.onError,
+            ),
+            ...imageOptions,
           }),
         options,
-      ),
+        settleDelayMs,
+      );
+    },
   };
 }
 
@@ -554,20 +641,31 @@ function createUsbRuntime(): PrinterRuntime {
       await USBPrinter.connectPrinter(device.vendorId, device.productId);
     },
     closeConn: () => USBPrinter.closeConn(),
-    printBill: (text, options = {}) =>
-      waitForPrintDispatch(
+    printBill: (text, options = {}) => {
+      const settleDelayMs = options.settleDelayMs ?? 400;
+      return waitForPrintDispatch(
         (nativeOptions) => USBPrinter.printBill(text, nativeOptions),
         options,
-      ),
-    printImageBase64: (base64, options = {}) =>
-      waitForImagePrintDispatch(
+        settleDelayMs,
+      );
+    },
+    printImageBase64: (base64, options = {}) => {
+      const settleDelayMs = options.settleDelayMs ?? 900;
+      const { settleDelayMs: _settleDelayMs, ...imageOptions } = options;
+      return waitForImagePrintDispatch(
         (nativeOptions) =>
           USBPrinter.printImageBase64(base64, {
-            ...getPrintImageOptions(nativeOptions.onError),
-            ...options,
+            ...getPrintImageOptions(
+              imageOptions.imageWidth ??
+                getReceiptPaperProfile(DEFAULT_RECEIPT_PAPER_MM).imageWidth,
+              nativeOptions.onError,
+            ),
+            ...imageOptions,
           }),
         options,
-      ),
+        settleDelayMs,
+      );
+    },
   };
 }
 
@@ -647,20 +745,121 @@ async function connectWithRetry(
   }
 }
 
-async function withPrinterConnection<T>(
+let printerJobQueue: Promise<unknown> = Promise.resolve();
+let activeSession: ActivePrinterSession | null = null;
+let idleDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingDrainMs = 0;
+let appStateSubscription: { remove: () => void } | null = null;
+
+function clearIdleDisconnectTimer() {
+  if (idleDisconnectTimer) {
+    clearTimeout(idleDisconnectTimer);
+    idleDisconnectTimer = null;
+  }
+}
+
+function enqueuePrinterJob<T>(job: () => Promise<T>): Promise<T> {
+  const run = printerJobQueue.then(job, job);
+  printerJobQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function disconnectActiveSession() {
+  clearIdleDisconnectTimer();
+  const session = activeSession;
+  activeSession = null;
+  pendingDrainMs = 0;
+  if (!session) {
+    return;
+  }
+  await closePrinterConnection(session.runtime);
+}
+
+function scheduleIdleDisconnect() {
+  clearIdleDisconnectTimer();
+  idleDisconnectTimer = setTimeout(() => {
+    void enqueuePrinterJob(async () => {
+      if (pendingDrainMs > 0) {
+        await delay(pendingDrainMs);
+        pendingDrainMs = 0;
+      }
+      await disconnectActiveSession();
+    });
+  }, SESSION_IDLE_DISCONNECT_MS);
+}
+
+function ensureAppStateDisconnectListener() {
+  if (appStateSubscription || Platform.OS === "web") {
+    return;
+  }
+
+  appStateSubscription = AppState.addEventListener("change", (nextState) => {
+    if (nextState === "background" || nextState === "inactive") {
+      void enqueuePrinterJob(async () => {
+        if (pendingDrainMs > 0) {
+          await delay(pendingDrainMs);
+          pendingDrainMs = 0;
+        }
+        await disconnectActiveSession();
+      });
+    }
+  });
+}
+
+async function acquirePrinterSession(device: PrinterDevice): Promise<PrinterRuntime> {
+  ensureAppStateDisconnectListener();
+  clearIdleDisconnectTimer();
+
+  if (activeSession && activeSession.deviceId === device.id) {
+    return activeSession.runtime;
+  }
+
+  if (activeSession) {
+    if (pendingDrainMs > 0) {
+      await delay(pendingDrainMs);
+      pendingDrainMs = 0;
+    }
+    await disconnectActiveSession();
+  }
+
+  const runtime = await getPrinterRuntime(device);
+  await connectWithRetry(runtime, device);
+  activeSession = {
+    deviceId: device.id,
+    device,
+    runtime,
+  };
+  return runtime;
+}
+
+function releasePrinterSession(options?: { drainMs?: number }) {
+  if (typeof options?.drainMs === "number" && options.drainMs > 0) {
+    pendingDrainMs = Math.max(pendingDrainMs, options.drainMs);
+  }
+  scheduleIdleDisconnect();
+}
+
+async function withPrinterSession<T>(
   device: PrinterDevice,
   run: (printer: PrinterRuntime) => Promise<T>,
-) {
-  const printer = await getPrinterRuntime(device);
+  options?: { drainMs?: number },
+): Promise<T> {
+  return enqueuePrinterJob(async () => {
+    if (pendingDrainMs > 0 && activeSession?.deviceId === device.id) {
+      await delay(pendingDrainMs);
+      pendingDrainMs = 0;
+    }
 
-  await closePrinterConnection(printer);
-  await connectWithRetry(printer, device);
-
-  try {
-    return await run(printer);
-  } finally {
-    await closePrinterConnection(printer);
-  }
+    const printer = await acquirePrinterSession(device);
+    try {
+      return await run(printer);
+    } finally {
+      releasePrinterSession({ drainMs: options?.drainMs });
+    }
+  });
 }
 
 export function getPrinterSupportState(): PrinterSupportState {
@@ -705,55 +904,86 @@ export async function loadUsbPrinters() {
 }
 
 export async function connectPrinterDevice(device: PrinterDevice) {
-  await withPrinterConnection(device, async () => undefined);
+  await withPrinterSession(device, async () => undefined);
   return device;
 }
 
-export async function printTestReceipt(device: PrinterDevice) {
-  await withPrinterConnection(device, async (printer) => {
-    await printer.printBill(buildTestReceipt(device));
-  });
+export async function printTestReceipt(
+  device: PrinterDevice,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+) {
+  await withPrinterSession(device, async (printer) => {
+    await printer.printBill(buildTestReceipt(device, paperMm));
+  }, { drainMs: DRAIN_FLOOR_MS });
 }
 
 export async function printBillWithPrinter(
   bill: BillRead,
   device: PrinterDevice,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
 ) {
-  await withPrinterConnection(device, async (printer) => {
-    await printer.printBill(buildPrintableReceipt(bill));
-  });
+  await withPrinterSession(device, async (printer) => {
+    await printer.printBill(buildPrintableReceipt(bill, paperMm));
+  }, { drainMs: DRAIN_FLOOR_MS });
 }
 
 export async function printReceiptImageBase64WithPrinter(
   base64Chunks: string[],
   device: PrinterDevice,
+  options?: ReceiptImagePrintOptions,
 ) {
   if (base64Chunks.length === 0) {
     return;
   }
 
-  await withPrinterConnection(device, async (printer) => {
-    for (let index = 0; index < base64Chunks.length; index += 1) {
-      const base64Chunk = base64Chunks[index];
-      await printer.printImageBase64(
-        base64Chunk,
-        getPrintImageSliceOptions(index, base64Chunks.length),
-      );
-    }
-  });
+  const imageWidth =
+    options?.imageWidth ?? getReceiptPaperProfile(DEFAULT_RECEIPT_PAPER_MM).imageWidth;
+  const drainMs = computeImageDrainMs(base64Chunks);
+
+  await withPrinterSession(
+    device,
+    async (printer) => {
+      const chunkCount = base64Chunks.length;
+      for (let index = 0; index < chunkCount; index += 1) {
+        const base64Chunk = base64Chunks[index];
+        const isLastSlice = index === chunkCount - 1;
+        const settleDelayMs = isLastSlice
+          ? IMAGE_LAST_SLICE_SETTLE_MS
+          : IMAGE_SLICE_SETTLE_MS;
+        await printer.printImageBase64(base64Chunk, {
+          ...getPrintImageSliceOptions(index, chunkCount, imageWidth),
+          settleDelayMs,
+        });
+      }
+
+      // Optional format reset only — does not replace drain/session reuse.
+      try {
+        await printer.printBill(ESC_INIT, {
+          beep: false,
+          cut: false,
+          tailingLine: false,
+          settleDelayMs: 300,
+        });
+      } catch {
+        // Some firmwares reject bare ESC @; ignore and rely on drain/session.
+      }
+    },
+    { drainMs },
+  );
 }
 
 export async function printBillsWithPrinter(
   bills: BillRead[],
   device: PrinterDevice,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
 ) {
   if (bills.length === 0) {
     return;
   }
 
-  await withPrinterConnection(device, async (printer) => {
+  await withPrinterSession(device, async (printer) => {
     for (const bill of bills) {
-      await printer.printBill(buildPrintableReceipt(bill));
+      await printer.printBill(buildPrintableReceipt(bill, paperMm));
     }
-  });
+  }, { drainMs: DRAIN_FLOOR_MS });
 }

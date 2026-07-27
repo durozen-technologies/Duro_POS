@@ -60,6 +60,9 @@ export function SuperAdminOrgEditScreen() {
     initialOrg.bill_number_prefix || DEFAULT_BILL_PREFIX,
   );
   const [printingEnabled, setPrintingEnabled] = useState(initialOrg.printing_enabled !== false);
+  const [receiptPaperMm, setReceiptPaperMm] = useState<58 | 80>(
+    initialOrg.receipt_paper_mm === 80 ? 80 : 58,
+  );
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +110,7 @@ export function SuperAdminOrgEditScreen() {
         setMaxBranches(String(latest.max_branches));
         setBillNumberPrefix(latest.bill_number_prefix || DEFAULT_BILL_PREFIX);
         setPrintingEnabled(latest.printing_enabled !== false);
+        setReceiptPaperMm(latest.receipt_paper_mm === 80 ? 80 : 58);
       }
       await loadBranches();
     } catch (reloadError) {
@@ -158,6 +162,8 @@ export function SuperAdminOrgEditScreen() {
           normalizedPrefix !== org.bill_number_prefix ? normalizedPrefix : undefined,
         printing_enabled:
           printingEnabled !== (org.printing_enabled !== false) ? printingEnabled : undefined,
+        receipt_paper_mm:
+          receiptPaperMm !== (org.receipt_paper_mm === 80 ? 80 : 58) ? receiptPaperMm : undefined,
       });
       navigation.goBack();
     } catch (saveError) {
@@ -170,7 +176,8 @@ export function SuperAdminOrgEditScreen() {
     name.trim() !== org.name ||
     Number.parseInt(maxBranches, 10) !== org.max_branches ||
     normalizeBillPrefixInput(billNumberPrefix) !== org.bill_number_prefix ||
-    printingEnabled !== (org.printing_enabled !== false);
+    printingEnabled !== (org.printing_enabled !== false) ||
+    receiptPaperMm !== (org.receipt_paper_mm === 80 ? 80 : 58);
 
   return (
     <View className="flex-1 bg-background">
@@ -299,6 +306,43 @@ export function SuperAdminOrgEditScreen() {
                   </Text>
                 </Pressable>
               </View>
+            </View>
+
+            <View className="gap-2">
+              <Text className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Receipt paper size
+              </Text>
+              <View className="flex-row gap-2">
+                {([58, 80] as const).map((mm) => {
+                  const selected = receiptPaperMm === mm;
+                  return (
+                    <Pressable
+                      key={mm}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`${mm} millimeter receipt paper`}
+                      className={`min-h-[48px] flex-1 items-center justify-center rounded-control border ${
+                        selected
+                          ? "border-ink bg-ink"
+                          : "border-border bg-surface"
+                      } active:opacity-80`}
+                      disabled={saving}
+                      onPress={() => setReceiptPaperMm(mm)}
+                    >
+                      <Text
+                        className={`text-base font-semibold ${
+                          selected ? "text-white" : "text-ink"
+                        }`}
+                      >
+                        {mm}mm
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text className="text-xs text-muted">
+                Applies to billing, reprint, collect payment, and related receipts.
+              </Text>
             </View>
 
             {error ? (

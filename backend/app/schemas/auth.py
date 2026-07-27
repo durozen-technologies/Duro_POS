@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
@@ -107,6 +108,7 @@ class UserSession(ORMModel):
     organization_id: UUID | None = None
     organization_name: str | None = None
     printing_enabled: bool = True
+    receipt_paper_mm: Literal[58, 80] = 58
     permissions: list[str] = Field(default_factory=list)
     shop_id: UUID | None = None
     shop_name: str | None = None

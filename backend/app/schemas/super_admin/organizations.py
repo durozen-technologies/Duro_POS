@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.schemas.common import ORMModel
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+ReceiptPaperMm = Literal[58, 80]
 
 
 def slugify_name(value: str) -> str:
@@ -38,6 +40,7 @@ class OrganizationUpdate(BaseModel):
     max_branches: int | None = Field(default=None, ge=1, le=500)
     bill_number_prefix: str | None = Field(default=None, min_length=1, max_length=20)
     printing_enabled: bool | None = None
+    receipt_paper_mm: ReceiptPaperMm | None = None
     settings: dict[str, object] | None = None
 
 
@@ -55,6 +58,7 @@ class OrganizationRead(ORMModel):
     remaining_branches: int = 0
     bill_number_prefix: str
     printing_enabled: bool = True
+    receipt_paper_mm: ReceiptPaperMm = 58
     settings: dict[str, object]
     created_at: datetime
     updated_at: datetime

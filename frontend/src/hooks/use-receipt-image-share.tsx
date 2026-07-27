@@ -4,11 +4,17 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { RECEIPT_SHARE_EXPORT_WEBVIEW_SCRIPT } from "@/api/receipts";
 import { shareReceiptPngBase64 } from "@/utils/share-receipt-image";
+import {
+  DEFAULT_RECEIPT_PAPER_MM,
+  getReceiptPaperProfile,
+  type ReceiptPaperMm,
+} from "@/utils/receipt-paper";
 
 type ReceiptShareJob = {
   id: string;
   html: string;
   dialogTitle: string;
+  paperMm: ReceiptPaperMm;
 };
 
 type ReceiptShareBridgeMessage =
@@ -99,8 +105,10 @@ function ReceiptImageShareBridge({
     return null;
   }
 
+  const webViewWidth = getReceiptPaperProfile(job.paperMm).webViewWidth;
+
   return (
-    <View pointerEvents="none" style={styles.hiddenBridge}>
+    <View pointerEvents="none" style={[styles.hiddenBridge, { width: webViewWidth }]}>
       <WebView
         ref={webViewRef}
         key={job.id}
@@ -143,7 +151,11 @@ export function useReceiptImageShare() {
   }, []);
 
   const startReceiptImageShare = useCallback(
-    (html: string, dialogTitle: string) =>
+    (
+      html: string,
+      dialogTitle: string,
+      paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+    ) =>
       new Promise<void>((resolve, reject) => {
         const nextJobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -158,6 +170,7 @@ export function useReceiptImageShare() {
           id: nextJobId,
           html,
           dialogTitle,
+          paperMm,
         });
       }),
     [],
@@ -198,7 +211,6 @@ const styles = StyleSheet.create({
     left: -10000,
     top: 0,
     opacity: 0.01,
-    width: 404,
     height: 1400,
   },
   hiddenWebView: {

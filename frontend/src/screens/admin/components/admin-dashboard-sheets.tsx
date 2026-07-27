@@ -31,6 +31,8 @@ import { formatApiErrorMessage } from "@/api/client";
 import { buildReceiptHtml } from "@/api/receipts";
 import { useReceiptImageShare } from "@/hooks/use-receipt-image-share";
 import type { BillRead } from "@/types/api";
+import { getReceiptPaperProfile } from "@/utils/receipt-paper";
+import { useReceiptPaperMm } from "@/utils/printing";
 
 import { adminElevation, type ThemePalette } from "../admin-dashboard-theme";
 import { triggerHaptic } from "../admin-dashboard-utils";
@@ -60,8 +62,6 @@ type BillPreviewSheetProps = {
   loading: boolean;
   bill: BillRead | null;
 };
-
-const RECEIPT_PREVIEW_CANVAS_WIDTH = 404;
 
 function useSwipeToClose(onClose: () => void) {
   const translateY = useRef(new Animated.Value(0)).current;
@@ -685,8 +685,13 @@ export function BillPreviewSheet({
   const { panResponder, translateY } = useSwipeToClose(onClose);
   const [receiptPreviewHeight, setReceiptPreviewHeight] = useState(320);
   const [sharing, setSharing] = useState(false);
+  const receiptPaperMm = useReceiptPaperMm();
+  const receiptPreviewWidth = getReceiptPaperProfile(receiptPaperMm).webViewWidth;
   const { receiptImageShareBridge, startReceiptImageShare } = useReceiptImageShare();
-  const receiptHtml = useMemo(() => (bill ? buildReceiptHtml(bill) : ""), [bill]);
+  const receiptHtml = useMemo(
+    () => (bill ? buildReceiptHtml(bill, undefined, receiptPaperMm) : ""),
+    [bill, receiptPaperMm],
+  );
 
   useEffect(() => {
     setReceiptPreviewHeight(320);
@@ -699,13 +704,17 @@ export function BillPreviewSheet({
     triggerHaptic();
     setSharing(true);
     try {
-      await startReceiptImageShare(buildReceiptHtml(bill), `Receipt ${bill.bill_no}`);
+      await startReceiptImageShare(
+        buildReceiptHtml(bill, undefined, receiptPaperMm),
+        `Receipt ${bill.bill_no}`,
+        receiptPaperMm,
+      );
     } catch (error) {
       Alert.alert("Share failed", formatApiErrorMessage(error));
     } finally {
       setSharing(false);
     }
-  }, [bill, sharing, startReceiptImageShare]);
+  }, [bill, receiptPaperMm, sharing, startReceiptImageShare]);
 
   const receiptPreviewScript = useMemo(
     () => `
@@ -797,7 +806,7 @@ export function BillPreviewSheet({
                         style={[
                           styles.receiptPreviewFrame,
                           {
-                            width: RECEIPT_PREVIEW_CANVAS_WIDTH,
+                            width: receiptPreviewWidth,
                             maxWidth: "100%",
                             backgroundColor: palette.card,
                             borderColor: palette.border,

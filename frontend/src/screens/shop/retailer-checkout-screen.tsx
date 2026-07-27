@@ -21,7 +21,7 @@ import { getRetailerCartTotal, useRetailerCartStore } from "@/store/retailer-car
 import { BaseUnit } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
-import { usePrintingEnabled } from "@/utils/printing";
+import { usePrintingEnabled, useReceiptPaperMm } from "@/utils/printing";
 import { resolveWalletCreditAmount } from "@/utils/retailer-wallet";
 import { ShopText as Text } from "@/components/ui/shop-text";
 
@@ -34,6 +34,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
   const resetRetailerCart = useRetailerCartStore((s) => s.resetCart);
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
   const printingEnabled = usePrintingEnabled();
+  const receiptPaperMm = useReceiptPaperMm();
   const [submitting, setSubmitting] = useState(false);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [outstandingBalance, setOutstandingBalance] = useState<string | null>(null);
@@ -131,9 +132,10 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
             throw new Error(t("printer.selectPrinterFirstMessage"));
           }
           await startReceiptHtmlPrintJob(
-            [buildRetailerSaleInvoiceHtml(preview, invoiceReceipt, language)],
+            [buildRetailerSaleInvoiceHtml(preview, invoiceReceipt, language, { paperMm: receiptPaperMm })],
             preferredPrinter,
             language,
+            receiptPaperMm,
           );
         }
         await commitRetailerSale({ ...payload, checkout_token: preview.checkout_token });
@@ -154,6 +156,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
       navigation,
       preferredPrinter,
       printingEnabled,
+      receiptPaperMm,
       resetRetailerCart,
       retailerId,
       startReceiptHtmlPrintJob,

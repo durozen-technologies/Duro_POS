@@ -42,7 +42,7 @@ import {
 import { usePriceStore } from "@/store/price-store";
 import { money } from "@/utils/decimal";
 import { formatCurrency, formatDateTime } from "@/utils/format";
-import { usePrintingEnabled } from "@/utils/printing";
+import { usePrintingEnabled, useReceiptPaperMm } from "@/utils/printing";
 import { computeSettleableOutstanding, sumPendingBillsBalance } from "@/utils/retailer-bulk-settle";
 import {
   createRetailerSalesFilterDraft,
@@ -965,6 +965,7 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
   const { receiptImagePrintBridge, startReceiptHtmlPrintJob } = useReceiptImagePrintJob();
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const printingEnabled = usePrintingEnabled();
+  const receiptPaperMm = useReceiptPaperMm();
   const shopBootstrap = usePriceStore((state) => state.bootstrap);
   const [sharingSaleId, setSharingSaleId] = useState<string | null>(null);
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
@@ -1173,9 +1174,10 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
         } else {
           try {
             await startReceiptHtmlPrintJob(
-              [buildRetailerBulkSettleReceiptHtml(result, bulkSettleReceiptContext)],
+              [buildRetailerBulkSettleReceiptHtml(result, bulkSettleReceiptContext, receiptPaperMm)],
               preferredPrinter,
               language,
+              receiptPaperMm,
             );
           } catch (error) {
             Alert.alert(t("checkout.printFailedAfterSaveTitle"), formatApiErrorMessage(error));
@@ -1197,6 +1199,7 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
       load,
       preferredPrinter,
       printingEnabled,
+      receiptPaperMm,
       startReceiptHtmlPrintJob,
       t,
     ],
@@ -1313,8 +1316,9 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
           return;
         }
         await startReceiptImageShare(
-          buildRetailerShareReceiptHtml(sale, outstandingBalance, language),
+          buildRetailerShareReceiptHtml(sale, outstandingBalance, language, receiptPaperMm),
           `${t("retailers.shareReceipt")} ${sale.sale_no}`,
+          receiptPaperMm,
         );
       } catch (error) {
         Alert.alert(t("retailers.shareReceiptFailed"), formatApiErrorMessage(error));
@@ -1322,7 +1326,7 @@ export function RetailerSalesScreen({ navigation }: RetailerSalesScreenProps) {
         setSharingSaleId(null);
       }
     },
-    [language, startReceiptImageShare, t],
+    [language, receiptPaperMm, startReceiptImageShare, t],
   );
 
   if (loading && sales.length === 0) {

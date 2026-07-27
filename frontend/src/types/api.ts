@@ -62,6 +62,7 @@ export interface UserSession {
   organization_id?: UUID | null;
   organization_name?: string | null;
   printing_enabled?: boolean;
+  receipt_paper_mm?: 58 | 80;
   permissions?: string[];
   shop_id?: UUID | null;
   shop_name?: string | null;

@@ -40,6 +40,7 @@ declare module "@haroldtran/react-native-thermal-printer" {
     };
     HORIZONTAL_LINE: {
       HR3_58MM: string;
+      HR3_80MM: string;
     };
   };
 

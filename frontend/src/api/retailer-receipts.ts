@@ -12,6 +12,10 @@ import {
 } from "@/types/api";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
 import {
+  DEFAULT_RECEIPT_PAPER_MM,
+  type ReceiptPaperMm,
+} from "@/utils/receipt-paper";
+import {
   buildRetailerReceiptPartyText,
   formatRetailerSaleNoDisplay,
   pickRetailerShareReceipt,
@@ -94,6 +98,7 @@ function aggregateRetailerPaymentTotals(sale: RetailerSaleRead): RetailerPayment
 type RetailerSaleInvoiceBuildOptions = {
   useCurrentSaleBalances?: boolean;
   retailerOutstandingBalance?: string;
+  paperMm?: ReceiptPaperMm;
 };
 
 function shareBalanceSummary(
@@ -160,10 +165,8 @@ function organizationName(sale: RetailerSaleRead) {
 }
 
 function retailerPurchaserHtml(sale: RetailerSaleRead, labels: ReturnType<typeof receiptLabels>) {
-  const party = buildRetailerReceiptPartyText(sale.retailer_name, sale.shop_name, labels);
   return `
-        <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(sale.retailer_name)}</span>
-        <span class="bill-meta-shop"><strong>${labels.shopName}:</strong> ${escapeHtml(sale.shop_name)}</span>`;
+        <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(sale.retailer_name)}</span>`;
 }
 
 function retailerBillMetaHtml(
@@ -196,19 +199,23 @@ function settledFooter(settled: boolean, labels: ReturnType<typeof receiptLabels
 
 function organizationHeader(sale: RetailerSaleRead) {
   const org = formatReceiptHeaderName(organizationName(sale));
+  const branch = formatReceiptHeaderName(sale.shop_name);
   return `
     <div class="center">
-      <div class="strong header-main header-main-divider">${escapeHtml(org)}</div>
+      <div class="strong header-main">${escapeHtml(org)}</div>
+      <div class="strong header-sub">${escapeHtml(branch)}</div>
     </div>`;
 }
 
-function organizationHeaderFromName(organizationNameValue: string) {
+function organizationHeaderFromName(organizationNameValue: string, shopName: string) {
   const org = formatReceiptHeaderName(
     organizationNameValue.split("\n")[0]?.trim() || organizationNameValue,
   );
+  const branch = formatReceiptHeaderName(shopName);
   return `
     <div class="center">
-      <div class="strong header-main header-main-divider">${escapeHtml(org)}</div>
+      <div class="strong header-main">${escapeHtml(org)}</div>
+      <div class="strong header-sub">${escapeHtml(branch)}</div>
     </div>`;
 }
 
@@ -220,8 +227,8 @@ function retailerReceiptPartyExportFields(
   const party = buildRetailerReceiptPartyText(retailerName, shopName, labels);
   return {
     purchaserText: party.purchaserLine,
-    shopNameMetaText: party.shopLine,
-    shopName: "",
+    // Branch/shop sits under org in header (same as normal billing), not as meta line.
+    shopName: formatReceiptHeaderName(shopName),
   };
 }
 
@@ -493,13 +500,18 @@ export function buildRetailerSaleInvoiceHtml(
       ${receiptFooter(settled, labels)}
     </div>`;
 
-  return buildReceiptHtmlMarkup(body, exportPayload);
+  return buildReceiptHtmlMarkup(
+    body,
+    exportPayload,
+    options?.paperMm ?? DEFAULT_RECEIPT_PAPER_MM,
+  );
 }
 
 export function buildRetailerBalancePaymentHtml(
   sale: RetailerSaleRead,
   receipt: RetailerSaleReceiptRead,
   language?: ShopLanguage,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
 ) {
   const labels = receiptLabels();
   const payment = findPayment(sale, receipt.retailer_payment_id);
@@ -561,7 +573,7 @@ export function buildRetailerBalancePaymentHtml(
       ${receiptFooter(settled, labels)}
     </div>`;
 
-  return buildReceiptHtmlMarkup(body, exportPayload);
+  return buildReceiptHtmlMarkup(body, exportPayload, paperMm);
 }
 
 export type RetailerBulkSettleReceiptContext = {
@@ -670,6 +682,7 @@ function bulkSettleTotalsTableHtml(
 export function buildRetailerBulkSettleReceiptHtml(
   result: RetailerBulkSettleRead,
   context: RetailerBulkSettleReceiptContext,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
 ) {
   const labels = receiptLabels();
   const settled = Number(result.outstanding_after) <= 0;
@@ -716,13 +729,12 @@ export function buildRetailerBulkSettleReceiptHtml(
 
   const body = `
     <div class="receipt-container">
-      ${organizationHeaderFromName(context.organizationName)}
+      ${organizationHeaderFromName(context.organizationName, context.shopName)}
       <div class="center" style="margin-bottom: 8px;">
         <div class="strong" style="font-size: 18px;">Outstanding Payment</div>
       </div>
       <div class="bill-meta">
         <span class="bill-meta-purchaser"><strong>${labels.purchaser}:</strong> ${escapeHtml(result.retailer_name)}</span>
-        <span class="bill-meta-shop"><strong>${labels.shopName}:</strong> ${escapeHtml(context.shopName)}</span>
         <span class="bill-meta-primary"><strong>${labels.date}:</strong> ${escapeHtml(formatDateTime(printedAt))}</span>
       </div>
       ${bulkSettleAllocationsTableHtml(allocationRows)}
@@ -731,24 +743,26 @@ export function buildRetailerBulkSettleReceiptHtml(
       ${receiptFooter(settled, labels)}
     </div>`;
 
-  return buildReceiptHtmlMarkup(body, exportPayload);
+  return buildReceiptHtmlMarkup(body, exportPayload, paperMm);
 }
 
 export function buildRetailerReceiptHtml(
   sale: RetailerSaleRead,
   receipt: RetailerSaleReceiptRead,
   language?: ShopLanguage,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
 ) {
   if (receipt.receipt_type === RetailerReceiptType.BALANCE_PAYMENT) {
-    return buildRetailerBalancePaymentHtml(sale, receipt, language);
+    return buildRetailerBalancePaymentHtml(sale, receipt, language, paperMm);
   }
-  return buildRetailerSaleInvoiceHtml(sale, receipt, language);
+  return buildRetailerSaleInvoiceHtml(sale, receipt, language, { paperMm });
 }
 
 export function buildRetailerShareReceiptHtml(
   sale: RetailerSaleRead,
   retailerOutstandingBalance: string,
   language?: ShopLanguage,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
 ) {
   const receipt = pickRetailerShareReceipt(sale);
   if (!receipt) {
@@ -757,5 +771,6 @@ export function buildRetailerShareReceiptHtml(
   return buildRetailerSaleInvoiceHtml(sale, receipt, language, {
     useCurrentSaleBalances: true,
     retailerOutstandingBalance,
+    paperMm,
   });
 }

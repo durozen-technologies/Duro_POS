@@ -2,6 +2,12 @@ import { BillRead, BillStatus, type RetailerSaleRead, type RetailerSaleReceiptRe
 import { getLocalizedItemName } from "@/hooks/use-shop-translation";
 import { ShopLanguage } from "@/store/shop-language-store";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
+import {
+  DEFAULT_RECEIPT_PAPER_MM,
+  getReceiptPaperProfile,
+  scaleReceiptFontSize,
+  type ReceiptPaperMm,
+} from "@/utils/receipt-paper";
 
 function formatReceiptCurrency(value?: string | number | null) {
   return formatCurrency(value).replace(/^Rs\.\s*/, "");
@@ -65,10 +71,12 @@ export const RECEIPT_EXPORT_WEBVIEW_SCRIPT =
 export const RECEIPT_SHARE_EXPORT_WEBVIEW_SCRIPT =
   "window.__EXPORT_RECEIPT_SHARE_IMAGE__ && window.__EXPORT_RECEIPT_SHARE_IMAGE__(); true;";
 
-function buildReceiptImageExportScript() {
+function buildReceiptImageExportScript(canvasWidth: number, fontScale: number) {
   return `
         <script>
           (function () {
+            var fontScale = ${fontScale};
+
             function postMessage(payload) {
               if (!window.ReactNativeWebView || typeof window.ReactNativeWebView.postMessage !== "function") {
                 return;
@@ -98,18 +106,23 @@ function buildReceiptImageExportScript() {
               return JSON.parse(payloadNode.textContent);
             }
 
+            function scaleFontSize(size) {
+              return Math.max(1, Math.round(Number(size) * fontScale));
+            }
+
             function setFont(context, size, weight) {
+              var scaledSize = scaleFontSize(size);
               context.font =
                 String(weight) +
                 " " +
-                String(size) +
+                String(scaledSize) +
                 'px "Noto Sans Tamil", "Nirmala UI", "Latha", Arial, Helvetica, sans-serif';
               context.textBaseline = "top";
               context.fillStyle = "#000000";
             }
 
             function getLineHeight(size, ratio) {
-              return Math.ceil(size * ratio);
+              return Math.ceil(scaleFontSize(size) * ratio);
             }
 
             function wrapText(context, value, maxWidth) {
@@ -241,7 +254,7 @@ function buildReceiptImageExportScript() {
             }
 
             function sliceCanvasToBase64Chunks(canvas) {
-              var maxSliceHeight = 900;
+              var maxSliceHeight = 2400;
               var chunks = [];
               var sliceTop = 0;
 
@@ -283,7 +296,7 @@ function buildReceiptImageExportScript() {
             }
 
             function renderReceiptToCanvas(payload) {
-              var receiptWidth = 380;
+              var receiptWidth = ${canvasWidth};
               var bottomFeedPadding = 70;
               var measureCanvas = document.createElement("canvas");
               var measureContext = measureCanvas.getContext("2d");
@@ -408,50 +421,73 @@ function buildReceiptImageExportScript() {
                 y += 10;
                 y += 4;
 
-                y += measureFittedTextHeight(measureContext, payload.cashValue, totalValueWidth, {
-                  size: 18,
-                  weight: 700,
-                  lineHeightRatio: 1.3,
-                });
+                function measureTotalRow(label, value, fontSize, fontWeight) {
+                  setFont(measureContext, fontSize, fontWeight);
+                  var labelLines = wrapText(measureContext, label, totalLabelWidth);
+                  var labelHeight =
+                    labelLines.length * getLineHeight(fontSize, 1.3);
+                  var valueHeight = measureFittedTextHeight(
+                    measureContext,
+                    value,
+                    totalValueWidth,
+                    {
+                      size: fontSize,
+                      weight: fontWeight,
+                      lineHeightRatio: 1.3,
+                    },
+                  );
+                  return Math.max(labelHeight, valueHeight);
+                }
+
+                if (payload.walletLabel && payload.walletValue) {
+                  y += measureTotalRow(
+                    payload.walletLabel,
+                    payload.walletValue,
+                    18,
+                    700,
+                  );
+                  y += 8;
+                }
+
+                y += measureTotalRow(payload.cashLabel, payload.cashValue, 18, 700);
                 y += 8;
-                y += measureFittedTextHeight(measureContext, payload.upiValue, totalValueWidth, {
-                  size: 18,
-                  weight: 700,
-                  lineHeightRatio: 1.3,
-                });
+                y += measureTotalRow(payload.upiLabel, payload.upiValue, 18, 700);
                 y += 12;
-                y += measureFittedTextHeight(measureContext, payload.totalValue, totalValueWidth, {
-                  size: payload.totalFontSize || 26,
-                  weight: 800,
-                  lineHeightRatio: 1.2,
-                });
+                y += measureTotalRow(
+                  payload.totalLabel,
+                  payload.totalValue,
+                  payload.totalFontSize || 26,
+                  800,
+                );
                 y += 8;
                 if (payload.paidAmountLabel || payload.balanceAmountLabel) {
                   y += 10;
                 }
                 if (payload.paidAmountLabel && payload.paidAmountValue) {
+                  y += measureTotalRow(
+                    payload.paidAmountLabel,
+                    payload.paidAmountValue,
+                    payload.paidAmountFontSize || 18,
+                    800,
+                  );
                   y += 8;
-                  y += measureFittedTextHeight(measureContext, payload.paidAmountValue, totalValueWidth, {
-                    size: payload.paidAmountFontSize || 18,
-                    weight: 800,
-                    lineHeightRatio: 1.3,
-                  });
                 }
                 if (payload.balanceAmountLabel && payload.balanceAmountValue) {
-                  y += measureFittedTextHeight(measureContext, payload.balanceAmountValue, totalValueWidth, {
-                    size: 18,
-                    weight: 800,
-                    lineHeightRatio: 1.3,
-                  });
+                  y += measureTotalRow(
+                    payload.balanceAmountLabel,
+                    payload.balanceAmountValue,
+                    18,
+                    800,
+                  );
                 }
                 if (payload.totalBalanceLabel && payload.totalBalanceValue) {
                   y += 10;
-                  y += 8;
-                  y += measureFittedTextHeight(measureContext, payload.totalBalanceValue, totalValueWidth, {
-                    size: 26,
-                    weight: 800,
-                    lineHeightRatio: 1.2,
-                  });
+                  y += measureTotalRow(
+                    payload.totalBalanceLabel,
+                    payload.totalBalanceValue,
+                    26,
+                    800,
+                  );
                 }
                 y += 18;
                 y += 14;
@@ -873,7 +909,10 @@ function serializeReceiptExportPayload(payload: ReceiptExportPayload) {
 export function buildReceiptHtmlMarkup(
   receiptMarkup: string,
   exportPayload?: ReceiptExportPayload,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
 ) {
+  const { canvasWidth, fontScale } = getReceiptPaperProfile(paperMm);
+  const fs = (size: number) => scaleReceiptFontSize(size, fontScale);
   return `
     <html lang="ta">
       <head>
@@ -901,7 +940,7 @@ export function buildReceiptHtmlMarkup(
             color: #000000;
             margin: 0;
             padding: 12px;
-            font-size: 14px;
+            font-size: ${fs(14)}px;
             line-height: 1.3;
             background: #fff;
             font-weight: 600;
@@ -921,7 +960,7 @@ export function buildReceiptHtmlMarkup(
 
           .receipt-container {
             width: 100%;
-            max-width: 380px;
+            max-width: ${canvasWidth}px;
             margin: 0 auto;
           }
 
@@ -935,7 +974,7 @@ export function buildReceiptHtmlMarkup(
           .strong { font-weight: 700; }
 
           .header-main {
-            font-size: 24px;
+            font-size: ${fs(24)}px;
             letter-spacing: -0.4px;
             line-height: 1.15;
             margin-bottom: 3px;
@@ -951,7 +990,7 @@ export function buildReceiptHtmlMarkup(
             margin-bottom: 10px;
           }
           .header-sub {
-            font-size: 19px;
+            font-size: ${fs(19)}px;
             line-height: 1.15;
             margin-bottom: 10px;
             border-bottom: 2.5px solid #000000;
@@ -963,7 +1002,7 @@ export function buildReceiptHtmlMarkup(
             font-weight: 800;
           }
           .bill-meta {
-            font-size: 15px;
+            font-size: ${fs(15)}px;
             line-height: 1.4;
             margin-bottom: 10px;
             color: #000000;
@@ -977,17 +1016,17 @@ export function buildReceiptHtmlMarkup(
             margin-bottom: 0;
           }
           .bill-meta-purchaser {
-            font-size: 24px;
+            font-size: ${fs(24)}px;
             font-weight: 800;
             line-height: 1.15;
           }
           .bill-meta-shop {
-            font-size: 19px;
+            font-size: ${fs(19)}px;
             font-weight: 800;
             line-height: 1.15;
           }
           .bill-meta-primary {
-            font-size: 19px;
+            font-size: ${fs(19)}px;
             font-weight: 800;
             line-height: 1.15;
           }
@@ -1017,7 +1056,7 @@ export function buildReceiptHtmlMarkup(
           .items-header { border-bottom: 2.5px solid #000000; border-top: 2.5px solid #000000; }
           .items-header th {
             padding: 7px 0;
-            font-size: 14px;
+            font-size: ${fs(14)}px;
             font-weight: 800;
             text-transform: uppercase;
             line-height: 1.2;
@@ -1037,7 +1076,7 @@ export function buildReceiptHtmlMarkup(
             line-height: 1.3;
           }
           .item-name {
-            font-size: 18px;
+            font-size: ${fs(18)}px;
             padding-right: 6px;
             color: #000000;
             font-weight: 800;
@@ -1046,7 +1085,7 @@ export function buildReceiptHtmlMarkup(
             overflow-wrap: anywhere;
           }
           .item-qty {
-            font-size: 22px;
+            font-size: ${fs(22)}px;
             text-align: right;
             white-space: nowrap;
             color: #000000;
@@ -1054,7 +1093,7 @@ export function buildReceiptHtmlMarkup(
             padding-right: 4px;
           }
           .item-total {
-            font-size: 17px;
+            font-size: ${fs(17)}px;
             text-align: right;
             white-space: nowrap;
             font-variant-numeric: tabular-nums;
@@ -1076,7 +1115,7 @@ export function buildReceiptHtmlMarkup(
           .totals-section { margin-top: 4px; width: 100%; table-layout: fixed; }
           .total-row td {
             padding: 4px 0;
-            font-size: 18px;
+            font-size: ${fs(18)}px;
             font-weight: 700;
             line-height: 1.3;
             color: #000000;
@@ -1086,16 +1125,16 @@ export function buildReceiptHtmlMarkup(
             font-variant-numeric: tabular-nums;
           }
           .grand-total td {
-            font-size: 26px;
+            font-size: ${fs(26)}px;
             font-weight: 800;
             padding-top: 8px;
             color: #000000;
           }
           .grand-total td:last-child {
-            font-size: 20px;
+            font-size: ${fs(20)}px;
           }
           .paid-this-visit-row td {
-            font-size: 15px;
+            font-size: ${fs(15)}px;
             font-weight: 700;
           }
 
@@ -1105,13 +1144,13 @@ export function buildReceiptHtmlMarkup(
             padding-top: 14px;
           }
           .thank-you {
-            font-size: 19px;
+            font-size: ${fs(19)}px;
             font-weight: 800;
             line-height: 1.3;
             color: #000000;
           }
           .footer-note {
-            font-size: 13px;
+            font-size: ${fs(13)}px;
             font-weight: 700;
             color: #000000;
             margin: 8px 0 6px;
@@ -1119,15 +1158,15 @@ export function buildReceiptHtmlMarkup(
           .total-divider { border-top: 2.5px solid #000000; margin: 8px 0; }
 
           @media (max-width: 360px) {
-            .header-main { font-size: 20px; }
-            .header-sub  { font-size: 17px; }
-            .bill-meta          { font-size: 13px; }
-            .bill-meta-purchaser { font-size: 20px; }
-            .bill-meta-shop { font-size: 17px; }
-            .bill-meta-primary  { font-size: 17px; }
-            .item-name   { font-size: 16px; }
-            .item-qty    { font-size: 17px; }
-            .item-total  { font-size: 16px; }
+            .header-main { font-size: ${fs(20)}px; }
+            .header-sub  { font-size: ${fs(17)}px; }
+            .bill-meta          { font-size: ${fs(13)}px; }
+            .bill-meta-purchaser { font-size: ${fs(20)}px; }
+            .bill-meta-shop { font-size: ${fs(17)}px; }
+            .bill-meta-primary  { font-size: ${fs(17)}px; }
+            .item-name   { font-size: ${fs(16)}px; }
+            .item-qty    { font-size: ${fs(17)}px; }
+            .item-total  { font-size: ${fs(16)}px; }
           }
         </style>
       </head>
@@ -1140,7 +1179,7 @@ export function buildReceiptHtmlMarkup(
             ? `<script id="receipt-export-data" type="application/json">${serializeReceiptExportPayload(exportPayload)}</script>`
             : ""
         }
-        ${buildReceiptImageExportScript()}
+        ${buildReceiptImageExportScript(canvasWidth, fontScale)}
       </body>
     </html>`;
 }
@@ -1320,15 +1359,28 @@ function buildReceiptExportPayload(bill: BillRead, language?: ShopLanguage): Rec
   };
 }
 
-export function buildReceiptHtml(bill: BillRead, language?: ShopLanguage) {
+export function buildReceiptHtml(
+  bill: BillRead,
+  language?: ShopLanguage,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+) {
   return buildReceiptHtmlMarkup(
     buildReceiptHtmlBody(bill, language),
     buildReceiptExportPayload(bill, language),
+    paperMm,
   );
 }
 
-export function buildBatchReceiptHtml(bills: BillRead[], language?: ShopLanguage) {
-  return buildReceiptHtmlMarkup(bills.map((bill) => buildReceiptHtmlBody(bill, language)).join(""));
+export function buildBatchReceiptHtml(
+  bills: BillRead[],
+  language?: ShopLanguage,
+  paperMm: ReceiptPaperMm = DEFAULT_RECEIPT_PAPER_MM,
+) {
+  return buildReceiptHtmlMarkup(
+    bills.map((bill) => buildReceiptHtmlBody(bill, language)).join(""),
+    undefined,
+    paperMm,
+  );
 }
 
 export function retailerSaleToBillRead(

@@ -25,7 +25,7 @@ import {
 import type { BillRead, ReceiptStatus } from "@/types/api";
 import { usePrinterStore } from "@/store/printer-store";
 import { formatCurrency, formatDateTime } from "@/utils/format";
-import { usePrintingEnabled } from "@/utils/printing";
+import { usePrintingEnabled, useReceiptPaperMm } from "@/utils/printing";
 import { ShopText as Text } from "@/components/ui/shop-text";
 
 function receiptStatusLabel(status: ReceiptStatus, t: ReturnType<typeof useShopTranslation>["t"]) {
@@ -52,6 +52,7 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
   const { language, t } = useShopTranslation();
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const printingEnabled = usePrintingEnabled();
+  const receiptPaperMm = useReceiptPaperMm();
   const [bill, setBill] = useState<BillRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [reprinting, setReprinting] = useState(false);
@@ -98,7 +99,7 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
     try {
       const printable = await reprintShopBill(bill.id);
       setBill(printable);
-      await startReceiptImagePrintJob([printable], preferredPrinter, language);
+      await startReceiptImagePrintJob([printable], preferredPrinter, language, receiptPaperMm);
       const updated = await patchBillReceiptStatus(printable.id, { status: "printed" });
       setBill(updated);
     } catch (error) {

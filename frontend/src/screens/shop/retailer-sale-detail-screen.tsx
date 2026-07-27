@@ -27,7 +27,7 @@ import {
 } from "@/types/api";
 import { money, toMoneyString } from "@/utils/decimal";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
-import { usePrintingEnabled } from "@/utils/printing";
+import { usePrintingEnabled, useReceiptPaperMm } from "@/utils/printing";
 import { formatRetailerSaleNoDisplay } from "@/utils/retailer-sale";
 import { resolveWalletCreditAmount } from "@/utils/retailer-wallet";
 import { ShopText as Text } from "@/components/ui/shop-text";
@@ -79,6 +79,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
   const [reprintingId, setReprintingId] = useState<string | null>(null);
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
   const printingEnabled = usePrintingEnabled();
+  const receiptPaperMm = useReceiptPaperMm();
   const form = useForm<FormValues>({
     defaultValues: { cashAmount: "", upiAmount: "" },
   });
@@ -135,9 +136,10 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
       setReprintingId(receipt.id);
       try {
         await startReceiptHtmlPrintJob(
-          [buildRetailerReceiptHtml(targetSale, receipt, language)],
+          [buildRetailerReceiptHtml(targetSale, receipt, language, receiptPaperMm)],
           preferredPrinter,
           language,
+          receiptPaperMm,
         );
       } catch (error) {
         Alert.alert(t("checkout.checkoutFailedTitle"), formatApiErrorMessage(error));
@@ -145,7 +147,7 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
         setReprintingId(null);
       }
     },
-    [language, preferredPrinter, printingEnabled, startReceiptHtmlPrintJob, t],
+    [language, preferredPrinter, printingEnabled, receiptPaperMm, startReceiptHtmlPrintJob, t],
   );
 
   const onCollect = form.handleSubmit(async (values) => {
@@ -181,9 +183,10 @@ export function RetailerSaleDetailScreen({ navigation, route }: RetailerSaleDeta
       });
       if (printingEnabled && preferredPrinter) {
         await startReceiptHtmlPrintJob(
-          [buildRetailerReceiptHtml(result.sale, result.payment_receipt, language)],
+          [buildRetailerReceiptHtml(result.sale, result.payment_receipt, language, receiptPaperMm)],
           preferredPrinter,
           language,
+          receiptPaperMm,
         );
       }
       setSale(result.sale);

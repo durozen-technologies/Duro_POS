@@ -12,6 +12,7 @@ export interface OrganizationRead {
   remaining_branches: number;
   bill_number_prefix: string;
   printing_enabled: boolean;
+  receipt_paper_mm: 58 | 80;
   settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -330,6 +331,7 @@ export async function patchOrganization(
     max_branches?: number;
     bill_number_prefix?: string;
     printing_enabled?: boolean;
+    receipt_paper_mm?: 58 | 80;
   },
 ) {
   const { data } = await apiClient.patch<OrganizationRead>(
