@@ -57,6 +57,8 @@ const config = {
       resizeMode: "contain",
       backgroundColor: splashBackgroundColor,
     },
+    // Keep focused login fields above soft keyboard on large font/display sizes.
+    softwareKeyboardLayoutMode: "resize",
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     permissions: [

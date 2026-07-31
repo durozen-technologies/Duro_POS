@@ -8,11 +8,12 @@ import {
   Animated,
   Keyboard,
   Linking,
+  PixelRatio,
+  Platform,
   Pressable,
   StatusBar,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
@@ -82,10 +83,10 @@ const VALIDATION = {
   },
 } as const;
 
-const SCROLL_OFFSET_BY_FIELD: Record<FieldName, number> = {
-  username: 160,
-  password: 260,
-} as const;
+const FONT_SCALE = Math.max(1, PixelRatio.getFontScale());
+// Extra clearance so "Enter workspace" stays above keyboard on large font/display.
+const KEYBOARD_EXTRA_SCROLL = Math.round(140 * FONT_SCALE);
+const KEYBOARD_EXTRA_HEIGHT = Math.round(180 * FONT_SCALE);
 
 const FALLBACK_ERROR_MESSAGE =
   "An unexpected error occurred. Please try again.";
@@ -361,6 +362,7 @@ function ErrorBanner({ message }: { message: string }) {
 export function LoginScreen() {
   const insets = useSafeAreaInsets();
   const passwordInputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<KeyboardAwareScrollView>(null);
 
   // Form state
   const {
@@ -379,6 +381,7 @@ export function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<FieldName | null>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   // Submission lock — prevents double-taps and rapid retries
   const submitLockRef = useRef(false);
@@ -431,6 +434,36 @@ export function LoginScreen() {
     animation.start();
     return () => animation.stop();
   }, [cardOpacity, cardTranslate, headerOpacity, headerTranslate]);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () =>
+      setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(hideEvent, () =>
+      setKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const ensureFocusedFieldVisible = useCallback((field: FieldName) => {
+    // Wait for keyboard + layout settle (worse on large display/font scale).
+    const delay = Platform.OS === "ios" ? 50 : 120;
+    setTimeout(() => {
+      if (field === "password") {
+        // Password sits above submit — scroll far enough that button clears keyboard.
+        scrollRef.current?.scrollToEnd(true);
+        return;
+      }
+      scrollRef.current?.scrollToPosition(0, Math.round(80 * FONT_SCALE), true);
+    }, delay);
+  }, []);
 
   // ── Submit Logic ───────────────────────────────────────────────────────
 
@@ -512,20 +545,20 @@ export function LoginScreen() {
     [updateValue, formError]
   );
 
-  const handleUsernameFocus = useCallback(
-    () => setFocusedField("username"),
-    []
-  );
+  const handleUsernameFocus = useCallback(() => {
+    setFocusedField("username");
+    ensureFocusedFieldVisible("username");
+  }, [ensureFocusedFieldVisible]);
 
   const handleUsernameBlur = useCallback(() => {
     setFocusedField(null);
     markTouched("username");
   }, [markTouched]);
 
-  const handlePasswordFocus = useCallback(
-    () => setFocusedField("password"),
-    []
-  );
+  const handlePasswordFocus = useCallback(() => {
+    setFocusedField("password");
+    ensureFocusedFieldVisible("password");
+  }, [ensureFocusedFieldVisible]);
 
   const handlePasswordBlur = useCallback(() => {
     setFocusedField(null);
@@ -583,214 +616,227 @@ export function LoginScreen() {
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#F2F7F4" />
 
-      <TouchableWithoutFeedback
-        onPress={Keyboard.dismiss}
-        accessible={false}
+      <KeyboardAwareScrollView
+        ref={scrollRef}
+        enableOnAndroid
+        enableAutomaticScroll
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        extraScrollHeight={KEYBOARD_EXTRA_SCROLL}
+        extraHeight={KEYBOARD_EXTRA_HEIGHT}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        className="flex-1 bg-background"
+        contentContainerStyle={{
+          flexGrow: 1,
+          // Center only when idle — centering fights keyboard scroll on large fonts.
+          justifyContent: keyboardVisible ? "flex-start" : "center",
+          paddingTop: keyboardVisible
+            ? insets.top + 12
+            : insets.top + 32,
+          paddingBottom: insets.bottom + (keyboardVisible ? 24 : 32),
+          paddingHorizontal: 20,
+        }}
       >
-        <KeyboardAwareScrollView
-          enableOnAndroid={true}
-          keyboardShouldPersistTaps="handled"
-          extraScrollHeight={30}
-          extraHeight={80}
-            keyboardDismissMode="interactive"
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-            className="flex-1 bg-background"
-            contentContainerStyle={{
-              flexGrow: 1,
-              justifyContent: "center",
-              paddingTop: insets.top + 32,
-              paddingBottom: insets.bottom + 32,
-              paddingHorizontal: 20,
+        <View className="w-full max-w-[420px] self-center">
+          {/* ── Header / Logo ─────────────────────────────────────── */}
+          <Animated.View
+            className={keyboardVisible ? "mb-4 items-center gap-2" : "mb-8 items-center gap-4"}
+            style={{
+              opacity: headerOpacity,
+              transform: [{ translateY: headerTranslate }],
             }}
           >
-            <View className="w-full max-w-[420px] self-center">
-              {/* ── Header / Logo ─────────────────────────────────────── */}
-              <Animated.View
-                className="mb-8 items-center gap-4"
-                style={{
-                  opacity: headerOpacity,
-                  transform: [{ translateY: headerTranslate }],
-                }}
+            {!keyboardVisible ? (
+              <View className="h-24 w-24 items-center justify-center rounded-3xl border border-accent/20 bg-accentSoft/50 shadow-sm">
+                <Image
+                  source={LOGO_SOURCE}
+                  style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 18,
+                    overflow: "hidden",
+                  }}
+                  contentFit="contain"
+                  accessibilityLabel={`${branding.appName} logo`}
+                />
+              </View>
+            ) : null}
+
+            <View className="items-center gap-1.5">
+              <Text
+                className={`text-center font-bold tracking-tight text-ink ${
+                  keyboardVisible ? "text-xl" : "text-3xl"
+                }`}
               >
-                <View className="h-24 w-24 items-center justify-center rounded-3xl border border-accent/20 bg-accentSoft/50 shadow-sm">
-                  <Image
-                    source={LOGO_SOURCE}
-                    style={{
-                      width: 80,
-                      height: 80,
-                      borderRadius: 18,
-                      overflow: "hidden",
-                    }}
-                    contentFit="contain"
-                    accessibilityLabel={`${branding.appName} logo`}
-                  />
-                </View>
-
-                <View className="items-center gap-1.5">
-                  <Text className="text-center text-3xl font-bold tracking-tight text-ink">
-                    {branding.appName}
-                  </Text>
-                  <Text className="text-center text-[13px] font-bold uppercase tracking-widest text-accent">
-                    Point of Sale
-                  </Text>
-                </View>
-              </Animated.View>
-
-              {/* ── Form Card ─────────────────────────────────────────── */}
-              <Animated.View
-                className="w-full gap-6 rounded-[24px] border border-border bg-card p-6 shadow-float"
-                style={{
-                  opacity: cardOpacity,
-                  transform: [{ translateY: cardTranslate }],
-                }}
-              >
-                <View className="gap-1.5">
-                  <Text className="text-xl font-bold tracking-tight text-ink">
-                    Welcome back
-                  </Text>
-                  <Text className="text-sm font-medium text-muted">
-                    Sign in with your staff credentials.
-                  </Text>
-                </View>
-
-                {/* ── Fields ──────────────────────────────────────────── */}
-                <View className="gap-5">
-                  <InputField
-                    field="username"
-                    label="Username"
-                    value={fields.username.value}
-                    error={fields.username.error}
-                    touched={fields.username.touched}
-                    isFocused={focusedField === "username"}
-                    isDisabled={submitting}
-                    onChangeText={handleUsernameChange}
-                    onFocus={handleUsernameFocus}
-                    onBlur={handleUsernameBlur}
-                    onSubmitEditing={handleUsernameSubmitEditing}
-                    returnKeyType="next"
-                  />
-
-                  <InputField
-                    field="password"
-                    label="Password"
-                    value={fields.password.value}
-                    error={fields.password.error}
-                    touched={fields.password.touched}
-                    isFocused={focusedField === "password"}
-                    isDisabled={submitting}
-                    onChangeText={handlePasswordChange}
-                    onFocus={handlePasswordFocus}
-                    onBlur={handlePasswordBlur}
-                    onSubmitEditing={handleLogin}
-                    returnKeyType="done"
-                    secureTextEntry={!showPassword}
-                    inputRef={passwordInputRef}
-                    trailingElement={passwordTrailing}
-                  />
-                </View>
-
-                {/* ── Form-level Error ────────────────────────────────── */}
-                {formError ? <ErrorBanner message={formError} /> : null}
-
-                {/* ── Submit Button ───────────────────────────────────── */}
-                <Animated.View
-                  style={{ transform: [{ scale: buttonScale }] }}
-                >
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Sign in to workspace"
-                    accessibilityState={{
-                      disabled: !isButtonActive,
-                      busy: submitting,
-                    }}
-                    onPress={handleLogin}
-                    onPressIn={
-                      shouldAnimateButton
-                        ? handlePressIn
-                        : undefined
-                    }
-                    onPressOut={
-                      shouldAnimateButton
-                        ? handlePressOut
-                        : undefined
-                    }
-                    disabled={submitting}
-                    className={`mt-2 min-h-[52px] flex-row items-center justify-center gap-2.5 rounded-card border ${
-                      isButtonActive
-                        ? "border-accentDeep bg-accent active:bg-accentDeep"
-                        : "border-border bg-surface"
-                    } ${submitting ? "opacity-80" : ""}`}
-                  >
-                    {submitting ? (
-                      <>
-                        <ActivityIndicator
-                          color={
-                            isButtonActive
-                              ? TINT.white
-                              : TINT.muted
-                          }
-                        />
-                        <Text
-                          className={`text-base font-bold ${
-                            isButtonActive
-                              ? "text-white"
-                              : "text-muted"
-                          }`}
-                        >
-                          Signing in…
-                        </Text>
-                      </>
-                    ) : (
-                      <>
-                        <LogIn
-                          size={18}
-                          color={
-                            isButtonActive
-                              ? TINT.white
-                              : TINT.muted
-                          }
-                          strokeWidth={2.5}
-                        />
-                        <Text
-                          className={`text-base font-bold ${
-                            isButtonActive
-                              ? "text-white"
-                              : "text-muted"
-                          }`}
-                        >
-                          Enter workspace
-                        </Text>
-                      </>
-                    )}
-                  </Pressable>
-                </Animated.View>
-              </Animated.View>
-
-              {/* ── Footer ────────────────────────────────────────────── */}
-              <Animated.View
-                className="mt-8 flex-row items-center justify-center"
-                style={{
-                  opacity: Animated.multiply(cardOpacity, 0.9),
-                }}
-              >
-                <Pressable 
-                  className="flex-row items-center gap-2 rounded-full border border-border bg-white px-4 py-2 shadow-sm active:bg-surface"
-                  onPress={() => Linking.openURL("https://durozen.in").catch(() => {})}
-                >
-                  <ShieldCheck
-                    size={14}
-                    color={TINT.accent}
-                    strokeWidth={2.5}
-                  />
-                  <Text className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                    Secure POS <Text className="text-accent/50">•</Text> By <Text className="text-accent">Durozen Tech</Text>
-                  </Text>
-                </Pressable>
-              </Animated.View>
+                {branding.appName}
+              </Text>
+              {!keyboardVisible ? (
+                <Text className="text-center text-[13px] font-bold uppercase tracking-widest text-accent">
+                  Point of Sale
+                </Text>
+              ) : null}
             </View>
-          </KeyboardAwareScrollView>
-        </TouchableWithoutFeedback>
+          </Animated.View>
+
+          {/* ── Form Card ─────────────────────────────────────────── */}
+          <Animated.View
+            className="w-full gap-6 rounded-[24px] border border-border bg-card p-6 shadow-float"
+            style={{
+              opacity: cardOpacity,
+              transform: [{ translateY: cardTranslate }],
+            }}
+          >
+            <View className="gap-1.5">
+              <Text className="text-xl font-bold tracking-tight text-ink">
+                Welcome back
+              </Text>
+              <Text className="text-sm font-medium text-muted">
+                Sign in with your staff credentials.
+              </Text>
+            </View>
+
+            {/* ── Fields ──────────────────────────────────────────── */}
+            <View className="gap-5">
+              <InputField
+                field="username"
+                label="Username"
+                value={fields.username.value}
+                error={fields.username.error}
+                touched={fields.username.touched}
+                isFocused={focusedField === "username"}
+                isDisabled={submitting}
+                onChangeText={handleUsernameChange}
+                onFocus={handleUsernameFocus}
+                onBlur={handleUsernameBlur}
+                onSubmitEditing={handleUsernameSubmitEditing}
+                returnKeyType="next"
+              />
+
+              <InputField
+                field="password"
+                label="Password"
+                value={fields.password.value}
+                error={fields.password.error}
+                touched={fields.password.touched}
+                isFocused={focusedField === "password"}
+                isDisabled={submitting}
+                onChangeText={handlePasswordChange}
+                onFocus={handlePasswordFocus}
+                onBlur={handlePasswordBlur}
+                onSubmitEditing={handleLogin}
+                returnKeyType="done"
+                secureTextEntry={!showPassword}
+                inputRef={passwordInputRef}
+                trailingElement={passwordTrailing}
+              />
+            </View>
+
+            {/* ── Form-level Error ────────────────────────────────── */}
+            {formError ? <ErrorBanner message={formError} /> : null}
+
+            {/* ── Submit Button ───────────────────────────────────── */}
+            <Animated.View
+              style={{ transform: [{ scale: buttonScale }] }}
+            >
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Sign in to workspace"
+                accessibilityState={{
+                  disabled: !isButtonActive,
+                  busy: submitting,
+                }}
+                onPress={handleLogin}
+                onPressIn={
+                  shouldAnimateButton
+                    ? handlePressIn
+                    : undefined
+                }
+                onPressOut={
+                  shouldAnimateButton
+                    ? handlePressOut
+                    : undefined
+                }
+                disabled={submitting}
+                className={`mt-2 min-h-[52px] flex-row items-center justify-center gap-2.5 rounded-card border ${
+                  isButtonActive
+                    ? "border-accentDeep bg-accent active:bg-accentDeep"
+                    : "border-border bg-surface"
+                } ${submitting ? "opacity-80" : ""}`}
+              >
+                {submitting ? (
+                  <>
+                    <ActivityIndicator
+                      color={
+                        isButtonActive
+                          ? TINT.white
+                          : TINT.muted
+                      }
+                    />
+                    <Text
+                      className={`text-base font-bold ${
+                        isButtonActive
+                          ? "text-white"
+                          : "text-muted"
+                      }`}
+                    >
+                      Signing in…
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <LogIn
+                      size={18}
+                      color={
+                        isButtonActive
+                          ? TINT.white
+                          : TINT.muted
+                      }
+                      strokeWidth={2.5}
+                    />
+                    <Text
+                      className={`text-base font-bold ${
+                        isButtonActive
+                          ? "text-white"
+                          : "text-muted"
+                      }`}
+                    >
+                      Enter workspace
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </Animated.View>
+          </Animated.View>
+
+          {/* ── Footer ────────────────────────────────────────────── */}
+          {!keyboardVisible ? (
+            <Animated.View
+              className="mt-8 flex-row items-center justify-center"
+              style={{
+                opacity: Animated.multiply(cardOpacity, 0.9),
+              }}
+            >
+              <Pressable
+                className="flex-row items-center gap-2 rounded-full border border-border bg-white px-4 py-2 shadow-sm active:bg-surface"
+                onPress={() =>
+                  Linking.openURL("https://durozen.in").catch(() => {})
+                }
+              >
+                <ShieldCheck
+                  size={14}
+                  color={TINT.accent}
+                  strokeWidth={2.5}
+                />
+                <Text className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                  Secure POS <Text className="text-accent/50">•</Text> By{" "}
+                  <Text className="text-accent">Durozen Tech</Text>
+                </Text>
+              </Pressable>
+            </Animated.View>
+          ) : null}
+        </View>
+      </KeyboardAwareScrollView>
     </>
   );
 }
