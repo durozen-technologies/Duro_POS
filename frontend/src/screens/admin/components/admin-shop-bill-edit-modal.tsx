@@ -101,13 +101,13 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
 
   const paymentMismatchMessage = useMemo(() => {
     if (totalAmount.isZero()) {
-      return "Bill total must be greater than zero.";
+      return t("billing.totalMustBePositive");
     }
     if (paidAmount.lessThan(totalAmount)) {
       return `Payment pending. Balance: ${formatCurrency(totalAmount.minus(paidAmount).toString())}`;
     }
     if (paidAmount.greaterThan(totalAmount)) {
-      return "Payment exceeds total amount. Receipt remains blocked until corrected";
+      return t("billing.paymentExceedsTotal");
     }
     return null;
   }, [paidAmount, totalAmount]);
@@ -119,7 +119,7 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
       return;
     }
     if (!canSave) {
-      setSaveError(paymentMismatchMessage ?? "Payment must equal bill total.");
+      setSaveError(paymentMismatchMessage ?? t("billing.paymentMustMatch"));
       return;
     }
 
@@ -179,7 +179,7 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
         <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
           <View style={styles.header}>
             <Text style={[adminTypography.section, { color: palette.textPrimary }]}>Edit bill</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close edit bill" hitSlop={12} onPress={onClose}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t("billing.closeEdit")} hitSlop={12} onPress={onClose}>
               <MaterialCommunityIcons name="close" size={22} color={palette.textSecondary} />
             </Pressable>
           </View>
@@ -290,8 +290,8 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
               ]}
             >
               {canSave
-                ? "Payment matches bill total"
-                : paymentMismatchMessage ?? "Enter cash and UPI to match the bill total"}
+                ? t("billing.paymentMatchesTotal")
+                : paymentMismatchMessage ?? t("billing.matchPaymentHint")}
             </Text>
             {saveError ? (
               <Text style={[adminTypography.caption, { color: palette.danger, fontWeight: "700" }]}>
@@ -309,7 +309,7 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
               disabled={saving}
             />
             <PrimaryButton
-              label="Save changes"
+              label={t("expenses.saveChanges")}
               palette={palette}
               loading={saving}
               disabled={saving || !canSave}

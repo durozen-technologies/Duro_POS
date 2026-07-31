@@ -122,10 +122,10 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
     }
     if (!canSave) {
       if (!walletWithinBalance) {
-        Alert.alert("Wallet limit", "Wallet amount exceeds available credit.");
+        Alert.alert(t("retailers.walletLimit"), t("retailers.walletExceedsCreditSentence"));
         return;
       }
-      Alert.alert("Invalid payment", "Enter cash, UPI, or wallet up to the bill total.");
+      Alert.alert(t("billing.invalidPayment"), t("billing.enterValidPayment"));
       return;
     }
 
@@ -149,7 +149,7 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
       onSaved(updated);
       onClose();
     } catch (error) {
-      Alert.alert("Edit failed", formatApiErrorMessage(error));
+      Alert.alert(t("billing.editFailed"), formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -175,7 +175,7 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
         <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
           <View style={styles.header}>
             <Text style={[adminTypography.section, { color: palette.textPrimary }]}>Edit bill</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close edit bill" hitSlop={12} onPress={onClose}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t("billing.closeEdit")} hitSlop={12} onPress={onClose}>
               <MaterialCommunityIcons name="close" size={22} color={palette.textSecondary} />
             </Pressable>
           </View>
@@ -301,13 +301,13 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
             >
               {canSave
                 ? balanceDue.isZero()
-                  ? "Fully paid"
+                  ? t("billing.fullyPaid")
                   : `Balance due: ${formatCurrency(balanceDue.toString())}`
                 : paidAmount.greaterThan(totalAmount)
                   ? `Payment exceeds bill total by ${formatCurrency(paidAmount.minus(totalAmount).toString())}`
                   : !walletWithinBalance
-                    ? "Wallet amount exceeds available credit"
-                    : "Enter at least some payment"}
+                    ? t("retailers.walletExceedsCredit")
+                    : t("billing.enterSomePayment")}
             </Text>
           </ScrollView>
 
@@ -320,7 +320,7 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
               disabled={saving}
             />
             <PrimaryButton
-              label="Save changes"
+              label={t("expenses.saveChanges")}
               palette={palette}
               loading={saving}
               disabled={saving || !canSave}

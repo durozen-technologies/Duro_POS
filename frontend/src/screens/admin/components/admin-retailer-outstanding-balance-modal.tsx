@@ -55,7 +55,7 @@ export const AdminRetailerOutstandingBalanceModal = memo(
 
     const handleSave = useCallback(async () => {
       if (!canSave) {
-        Alert.alert("Invalid amount", "Enter a valid outstanding balance.");
+        Alert.alert(t("retailers.invalidAmount"), t("retailers.enterValidBalance"));
         return;
       }
 
@@ -71,7 +71,7 @@ export const AdminRetailerOutstandingBalanceModal = memo(
         });
         onClose();
       } catch (error) {
-        Alert.alert("Update failed", formatApiErrorMessage(error));
+        Alert.alert(t("common.updateFailed"), formatApiErrorMessage(error));
       } finally {
         setSaving(false);
       }
@@ -115,7 +115,7 @@ export const AdminRetailerOutstandingBalanceModal = memo(
               Current: {formatCurrency(outstandingBalance)}
             </Text>
             <PrimaryButton
-              label="Save balance"
+              label={t("retailers.saveBalance")}
               palette={palette}
               loading={saving}
               disabled={!canSave || saving}

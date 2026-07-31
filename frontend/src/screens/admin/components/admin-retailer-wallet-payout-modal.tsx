@@ -72,10 +72,10 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
   const handleSave = useCallback(async () => {
     if (!canSave) {
       if (paidAmount.greaterThan(availableCredit)) {
-        Alert.alert("Amount too high", "Payout cannot exceed wallet credit.");
+        Alert.alert(t("retailers.amountTooHigh"), t("retailers.payoutExceedsCredit"));
         return;
       }
-      Alert.alert("Invalid amount", "Enter cash or UPI amount up to wallet credit.");
+      Alert.alert(t("retailers.invalidAmount"), t("retailers.enterValidPayout"));
       return;
     }
 
@@ -90,7 +90,7 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
       onSaved(result.credit_balance_after);
       onClose();
     } catch (error) {
-      Alert.alert("Payout failed", formatApiErrorMessage(error));
+      Alert.alert(t("retailers.payoutFailed"), formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -106,7 +106,7 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
             </Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close wallet payout"
+              accessibilityLabel={t("retailers.closeWalletPayout")}
               hitSlop={12}
               onPress={onClose}
             >
@@ -173,7 +173,7 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
             <TextInput
               value={notes}
               onChangeText={setNotes}
-              placeholder="Reference or remark"
+              placeholder={t("retailers.referenceOrRemark")}
               placeholderTextColor={palette.textMuted}
               style={[
                 styles.input,
@@ -196,13 +196,13 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
             >
               {canSave
                 ? remainingCredit.isZero()
-                  ? "Wallet credit will be fully cleared"
+                  ? t("retailers.walletCleared")
                   : `Remaining credit after payout: ${formatCurrency(remainingCredit.toString())}`
                 : paidAmount.greaterThan(availableCredit)
                   ? `Payout exceeds credit by ${formatCurrency(paidAmount.minus(availableCredit).toString())}`
                   : availableCredit.isZero()
-                    ? "No wallet credit to pay out"
-                    : "Enter at least some cash or UPI amount"}
+                    ? t("retailers.noWalletCredit")
+                    : t("retailers.enterPayout")}
             </Text>
           </ScrollView>
 
@@ -215,7 +215,7 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
               disabled={saving}
             />
             <PrimaryButton
-              label="Record payout"
+              label={t("retailers.recordPayout")}
               palette={palette}
               loading={saving}
               disabled={saving || !canSave}
