@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
-from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
+from test.support import AsyncSessionAdapter, BackendTestCase, bill_item  # isort: skip
 
 from app.core.ids import uuid7
 
@@ -2057,7 +2057,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     db,
                 )
                 checkout_payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    items=[bill_item(chicken.id, Decimal("1"), "120.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("120.00"),
                         upi_amount=Decimal("0.00"),
@@ -2129,7 +2129,7 @@ class BackendApiIntegrationTests(BackendTestCase):
                     db,
                 )
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("2"))],
+                    items=[bill_item(chicken.id, Decimal("2"), "90.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("180.00"),
                         upi_amount=Decimal("0.00"),
@@ -2288,10 +2288,14 @@ class BackendApiIntegrationTests(BackendTestCase):
                 checkout_payload = BillCheckoutRequest(
                     items=[
                         BillItemInput(
-                            item_id=duck_item.item_id, quantity=Decimal("1")
+                            item_id=duck_item.item_id,
+                            quantity=Decimal("1"),
+                            line_total=duck_item.current_price,
                         ),
                         BillItemInput(
-                            item_id=chicken_item.item_id, quantity=Decimal("2")
+                            item_id=chicken_item.item_id,
+                            quantity=Decimal("2"),
+                            line_total=chicken_item.current_price * Decimal("2"),
                         ),
                     ],
                     payment=CheckoutPaymentInput(

@@ -63,6 +63,9 @@ export function SuperAdminOrgEditScreen() {
   const [receiptPaperMm, setReceiptPaperMm] = useState<58 | 80>(
     initialOrg.receipt_paper_mm === 80 ? 80 : 58,
   );
+  const [billingEntryMode, setBillingEntryMode] = useState<"kg" | "amount">(
+    initialOrg.billing_entry_mode === "amount" ? "amount" : "kg",
+  );
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +114,7 @@ export function SuperAdminOrgEditScreen() {
         setBillNumberPrefix(latest.bill_number_prefix || DEFAULT_BILL_PREFIX);
         setPrintingEnabled(latest.printing_enabled !== false);
         setReceiptPaperMm(latest.receipt_paper_mm === 80 ? 80 : 58);
+        setBillingEntryMode(latest.billing_entry_mode === "amount" ? "amount" : "kg");
       }
       await loadBranches();
     } catch (reloadError) {
@@ -164,6 +168,10 @@ export function SuperAdminOrgEditScreen() {
           printingEnabled !== (org.printing_enabled !== false) ? printingEnabled : undefined,
         receipt_paper_mm:
           receiptPaperMm !== (org.receipt_paper_mm === 80 ? 80 : 58) ? receiptPaperMm : undefined,
+        billing_entry_mode:
+          billingEntryMode !== (org.billing_entry_mode === "amount" ? "amount" : "kg")
+            ? billingEntryMode
+            : undefined,
       });
       navigation.goBack();
     } catch (saveError) {
@@ -177,7 +185,8 @@ export function SuperAdminOrgEditScreen() {
     Number.parseInt(maxBranches, 10) !== org.max_branches ||
     normalizeBillPrefixInput(billNumberPrefix) !== org.bill_number_prefix ||
     printingEnabled !== (org.printing_enabled !== false) ||
-    receiptPaperMm !== (org.receipt_paper_mm === 80 ? 80 : 58);
+    receiptPaperMm !== (org.receipt_paper_mm === 80 ? 80 : 58) ||
+    billingEntryMode !== (org.billing_entry_mode === "amount" ? "amount" : "kg");
 
   return (
     <View className="flex-1 bg-background">
@@ -342,6 +351,50 @@ export function SuperAdminOrgEditScreen() {
               </View>
               <Text className="text-xs text-muted">
                 Applies to billing, reprint, collect payment, and related receipts.
+              </Text>
+            </View>
+
+            <View className="gap-2">
+              <Text className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Billing entry mode
+              </Text>
+              <View className="flex-row gap-2">
+                {(
+                  [
+                    { value: "kg" as const, label: "Kg" },
+                    { value: "amount" as const, label: "Amount" },
+                  ] as const
+                ).map((option) => {
+                  const selected = billingEntryMode === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`${option.label} billing entry mode`}
+                      className={`min-h-[48px] flex-1 items-center justify-center rounded-control border ${
+                        selected
+                          ? "border-ink bg-ink"
+                          : "border-border bg-surface"
+                      } active:opacity-80`}
+                      disabled={saving}
+                      onPress={() => setBillingEntryMode(option.value)}
+                    >
+                      <Text
+                        className={`text-base font-semibold ${
+                          selected ? "text-white" : "text-ink"
+                        }`}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text className="text-xs text-muted">
+                {billingEntryMode === "amount"
+                  ? "Shop enters rupee amount; weight/units are derived from price."
+                  : "Shop enters quantity (kg or units); amount is quantity × price."}
               </Text>
             </View>
 

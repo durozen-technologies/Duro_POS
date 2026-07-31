@@ -1,22 +1,22 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchShops } from "@/api/admin";
-import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { formatApiErrorMessage } from "@/api/client";
 import {
   fetchRetailerItemAllocations,
   fetchRetailers,
@@ -37,7 +37,7 @@ import { getItemThumbnailUri } from "@/utils/item-images";
 
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
 import { triggerHaptic } from "../admin-dashboard-utils";
-import { ChipButton, EmptyStateCard, SearchField, SectionHint } from "./admin-dashboard-primitives";
+import { ChipButton, EmptyStateCard, SearchField } from "./admin-dashboard-primitives";
 import { AdminSegmentedTabs } from "./admin-design-system";
 
 type WorkMode = "branch" | "prices";
@@ -59,6 +59,7 @@ type AdminRetailersAllocateItemsTabProps = {
   onRefreshComplete?: () => void;
   initialShopId?: UUID | null;
   initialRetailerId?: UUID | null;
+  onChromeVisibilityChange?: (visible: boolean) => void;
 };
 
 function defaultWholesalePrice(item: RetailerItemAllocationRead): string {
@@ -72,6 +73,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   onRefreshComplete,
   initialShopId = null,
   initialRetailerId = null,
+  onChromeVisibilityChange,
 }: AdminRetailersAllocateItemsTabProps) {
   const insets = useSafeAreaInsets();
 
@@ -93,7 +95,38 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   const [retailerPickerOpen, setRetailerPickerOpen] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<UUID>>(new Set());
   const [dirty, setDirty] = useState(false);
+  const [workMode, setWorkMode] = useState<WorkMode>("branch");
+  const [headerHeight, setHeaderHeight] = useState(220);
   const debouncedSearch = useDebouncedValue(search, 250);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const chromeVisibleRef = useRef(true);
+
+  const diffClampY = Animated.diffClamp(scrollY, 0, headerHeight);
+  const headerTranslateY = diffClampY.interpolate({
+    inputRange: [0, headerHeight],
+    outputRange: [0, -headerHeight],
+    extrapolate: "clamp",
+  });
+
+  const handleListScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+        listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+          const nextVisible = event.nativeEvent.contentOffset.y < 28;
+          if (nextVisible === chromeVisibleRef.current) return;
+          chromeVisibleRef.current = nextVisible;
+          onChromeVisibilityChange?.(nextVisible);
+        },
+      }),
+    [onChromeVisibilityChange, scrollY],
+  );
+
+  useEffect(() => {
+    return () => {
+      onChromeVisibilityChange?.(true);
+    };
+  }, [onChromeVisibilityChange]);
 
   const selectedBranch = useMemo(
     () => branches.find((row) => row.id === selectedShopId) ?? null,
@@ -166,14 +199,25 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         setAllocations(new Map());
         return;
       }
+      if (workMode === "prices" && !selectedRetailerId) {
+        setCatalogueItems([]);
+        setAllocations(new Map());
+        return;
+      }
 
       if (isRefresh) setRefreshing(true);
       else setLoadingItems(true);
       try {
-        const response = await fetchShopRetailerCatalog(selectedShopId, {
-          q: debouncedSearch || undefined,
-          limit: 200,
-        });
+        const response =
+          workMode === "prices" && selectedRetailerId
+            ? await fetchRetailerItemAllocations(selectedRetailerId, selectedShopId, {
+                q: debouncedSearch || undefined,
+                limit: 200,
+              })
+            : await fetchShopRetailerCatalog(selectedShopId, {
+                q: debouncedSearch || undefined,
+                limit: 200,
+              });
         const nextAllocations = new Map<UUID, AllocationDraft>();
         for (const item of response.items) {
           if (!item.is_allocated) continue;
@@ -202,7 +246,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         }
       }
     },
-    [debouncedSearch, onRefreshComplete, selectedRetailerId, selectedShopId],
+    [debouncedSearch, onRefreshComplete, selectedRetailerId, selectedShopId, workMode],
   );
 
   useFocusEffect(
@@ -318,36 +362,77 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
     [markDirty],
   );
 
-  const updatePrice = useCallback(
-    (itemId: UUID, price: string) => {
-      setAllocations((current) => {
-        const row = current.get(itemId);
-        if (!row) return current;
-        const next = new Map(current);
-        next.set(itemId, { ...row, price_per_unit: price });
-        return next;
-      });
-      markDirty();
-    },
-    [markDirty],
-  );
-
   const save = useCallback(async () => {
     if (!selectedShopId) return;
+    if (workMode === "prices" && !selectedRetailerId) {
+      Alert.alert("Select retailer", "Choose an active retailer for this branch before saving.");
+      return;
+    }
 
     setSaving(true);
     try {
-      await syncShopRetailerCatalog(selectedShopId, Array.from(allocations.keys()));
-      triggerHaptic();
-      setDirty(false);
-      await loadItems();
-      Alert.alert("Saved", `${allocations.size} item${allocations.size === 1 ? "" : "s"} allocated to branch.`);
+      if (workMode === "prices" && selectedRetailerId) {
+        const priceItems: RetailerItemPriceInput[] = [];
+        const missingPriceNames: string[] = [];
+        for (const draft of allocations.values()) {
+          const raw =
+            (draft.price_per_unit.trim() && Number(draft.price_per_unit) > 0
+              ? draft.price_per_unit.trim()
+              : null) ??
+            (draft.billing_price?.trim() && Number(draft.billing_price) > 0
+              ? draft.billing_price.trim()
+              : null);
+          if (!raw) {
+            missingPriceNames.push(draft.item_name);
+            continue;
+          }
+          priceItems.push({
+            item_id: draft.item_id,
+            price_per_unit: Number(raw).toFixed(2),
+            is_active: true,
+          });
+        }
+        if (missingPriceNames.length > 0) {
+          Alert.alert(
+            "Billing price missing",
+            `Set today's shop price for: ${missingPriceNames.slice(0, 3).join(", ")}${
+              missingPriceNames.length > 3 ? "…" : ""
+            }. Wholesale prices are set under Retailer prices.`,
+          );
+          setSaving(false);
+          return;
+        }
+        await syncRetailerItemPrices(selectedRetailerId, selectedShopId, priceItems);
+        triggerHaptic();
+        setDirty(false);
+        await loadItems();
+        Alert.alert(
+          "Saved",
+          `${priceItems.length} item${priceItems.length === 1 ? "" : "s"} allocated to ${selectedRetailer?.name ?? "retailer"}.`,
+        );
+      } else {
+        await syncShopRetailerCatalog(selectedShopId, Array.from(allocations.keys()));
+        triggerHaptic();
+        setDirty(false);
+        await loadItems();
+        Alert.alert(
+          "Saved",
+          `${allocations.size} item${allocations.size === 1 ? "" : "s"} allocated to branch.`,
+        );
+      }
     } catch (err) {
       Alert.alert("Save failed", formatApiErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [allocations, loadItems, selectedRetailer, selectedRetailerId, selectedShopId]);
+  }, [
+    allocations,
+    loadItems,
+    selectedRetailer,
+    selectedRetailerId,
+    selectedShopId,
+    workMode,
+  ]);
 
   const renderBranchPicker = () => (
     <Modal visible={branchPickerOpen} transparent animationType="fade" onRequestClose={() => setBranchPickerOpen(false)}>
@@ -430,9 +515,16 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
                     },
                   ]}
                 >
-                  <Text style={{ color: palette.textPrimary, fontWeight: active ? "800" : "600" }} numberOfLines={1}>
-                    {item.name}
-                  </Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: palette.textPrimary, fontWeight: active ? "800" : "600" }} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {item.shop_name || item.phone ? (
+                      <Text style={{ color: palette.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                        {[item.shop_name, item.phone].filter(Boolean).join(" · ")}
+                      </Text>
+                    ) : null}
+                  </View>
                   {active ? (
                     <MaterialCommunityIcons name="check-circle" size={18} color={palette.primary} />
                   ) : null}
@@ -485,108 +577,194 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       {renderBranchPicker()}
       {renderRetailerPicker()}
 
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Select branch"
-          onPress={() => setBranchPickerOpen(true)}
-          style={[styles.selector, { flex: 1, backgroundColor: palette.card, borderColor: palette.border }]}
-        >
-          <View style={styles.selectorText}>
-            <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Branch</Text>
-            <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
-              {selectedBranch?.name ?? "Select branch"}
-            </Text>
-          </View>
-          <MaterialCommunityIcons name="chevron-down" size={22} color={palette.textMuted} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Information"
-          onPress={() =>
-            Alert.alert(
-              "Information",
-              "Allocate billing catalogue items once per branch. These items become available for all retailers at this branch.",
-            )
-          }
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: palette.card,
-            borderWidth: 1,
-            borderColor: palette.border,
-            alignItems: "center",
-            justifyContent: "center",
+      <Animated.View
+        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          backgroundColor: palette.background,
+          gap: adminSpacing.sm,
+          paddingBottom: adminSpacing.sm,
+          transform: [{ translateY: headerTranslateY }],
+        }}
+      >
+        <AdminSegmentedTabs
+          items={[
+            { value: "branch", label: "Per branch", icon: "store-outline" },
+            { value: "prices", label: "Per retailer", icon: "account-outline" },
+          ]}
+          activeValue={workMode}
+          palette={palette}
+          onChange={(value) => {
+            triggerHaptic();
+            setWorkMode(value);
+            setSearch("");
+            setFilter("all");
+            setDirty(false);
+            scrollY.setValue(0);
+            chromeVisibleRef.current = true;
+            onChromeVisibilityChange?.(true);
           }}
-        >
-          <MaterialCommunityIcons name="exclamation" size={24} color={palette.textMuted} />
-        </Pressable>
-      </View>
+        />
 
-
-
-
-      {selectedShopId ? (
-        <>
-          <SearchField
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search branch billing items"
-            palette={palette}
-            accessibilityLabel="Search branch billing items"
-          />
-
-          <View style={styles.filterRow}>
-            {(
-              [
-                { value: "all", label: "All" },
-                {
-                  value: "allocated",
-                  label: `Allocated (${allocatedCount})`,
-                },
-                { value: "available", label: "Available" },
-              ] as const
-            ).map((chip) => (
-              <ChipButton
-                key={chip.value}
-                label={chip.label}
-                active={filter === chip.value}
-                onPress={() => setFilter(chip.value)}
-                palette={palette}
-              />
-            ))}
-          </View>
-
-          {pendingAddCount > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Allocate ${pendingAddCount} selected items`}
-              onPress={allocatePending}
-              style={[styles.bulkAction, { backgroundColor: palette.primarySoft, borderColor: palette.primary }]}
-            >
-              <MaterialCommunityIcons name="playlist-plus" size={18} color={palette.primary} />
-              <Text style={{ color: palette.primaryStrong, fontWeight: "800" }}>
-                Allocate {pendingAddCount} selected
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Select branch"
+            onPress={() => setBranchPickerOpen(true)}
+            style={[styles.selector, { flex: 1, backgroundColor: palette.card, borderColor: palette.border }]}
+          >
+            <View style={styles.selectorText}>
+              <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Branch</Text>
+              <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
+                {selectedBranch?.name ?? "Select branch"}
               </Text>
-            </Pressable>
-          ) : null}
+            </View>
+            <MaterialCommunityIcons name="chevron-down" size={22} color={palette.textMuted} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Information"
+            onPress={() =>
+              Alert.alert(
+                "Information",
+                workMode === "prices"
+                  ? "Select a branch and an active retailer, then allocate items from the branch catalogue to that retailer. Set wholesale prices later under Retailer prices. Allocate items to the branch first if the catalogue is empty."
+                  : "Allocate billing catalogue items once per branch. These items become available to assign to active retailers at this branch.",
+              )
+            }
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: palette.card,
+              borderWidth: 1,
+              borderColor: palette.border,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <MaterialCommunityIcons name="exclamation" size={24} color={palette.textMuted} />
+          </Pressable>
+        </View>
 
+        {workMode === "prices" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Select retailer"
+            disabled={!selectedShopId || loadingRetailers || retailers.length === 0}
+            onPress={() => setRetailerPickerOpen(true)}
+            style={[
+              styles.selector,
+              {
+                backgroundColor: palette.card,
+                borderColor: palette.border,
+                opacity: !selectedShopId || retailers.length === 0 ? 0.7 : 1,
+              },
+            ]}
+          >
+            <View style={styles.selectorText}>
+              <Text style={[adminTypography.caption, { color: palette.textMuted }]}>
+                Active retailer
+              </Text>
+              <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
+                {loadingRetailers
+                  ? "Loading retailers…"
+                  : selectedRetailer?.name ??
+                    (retailers.length === 0
+                      ? "No active retailers at this branch"
+                      : "Select retailer")}
+              </Text>
+              {selectedRetailer?.shop_name || selectedRetailer?.phone ? (
+                <Text style={[adminTypography.caption, { color: palette.textMuted }]} numberOfLines={1}>
+                  {[selectedRetailer.shop_name, selectedRetailer.phone].filter(Boolean).join(" · ")}
+                </Text>
+              ) : null}
+            </View>
+            <MaterialCommunityIcons name="chevron-down" size={22} color={palette.textMuted} />
+          </Pressable>
+        ) : null}
+
+        {selectedShopId && (workMode === "branch" || selectedRetailerId) ? (
+          <>
+            <SearchField
+              value={search}
+              onChangeText={setSearch}
+              placeholder={
+                workMode === "prices" ? "Search retailer items" : "Search branch billing items"
+              }
+              palette={palette}
+              accessibilityLabel={
+                workMode === "prices" ? "Search retailer items" : "Search branch billing items"
+              }
+            />
+
+            <View style={styles.filterRow}>
+              {(
+                [
+                  { value: "all", label: "All" },
+                  {
+                    value: "allocated",
+                    label: `Allocated (${allocatedCount})`,
+                  },
+                  { value: "available", label: "Available" },
+                ] as const
+              ).map((chip) => (
+                <ChipButton
+                  key={chip.value}
+                  label={chip.label}
+                  active={filter === chip.value}
+                  onPress={() => setFilter(chip.value)}
+                  palette={palette}
+                />
+              ))}
+            </View>
+
+            {pendingAddCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Allocate ${pendingAddCount} selected items`}
+                onPress={allocatePending}
+                style={[styles.bulkAction, { backgroundColor: palette.primarySoft, borderColor: palette.primary }]}
+              >
+                <MaterialCommunityIcons name="playlist-plus" size={18} color={palette.primary} />
+                <Text style={{ color: palette.primaryStrong, fontWeight: "800" }}>
+                  Allocate {pendingAddCount} selected
+                </Text>
+              </Pressable>
+            ) : null}
+          </>
+        ) : null}
+      </Animated.View>
+
+      {selectedShopId && (workMode === "branch" || selectedRetailerId) ? (
+        <>
           {loadingItems ? (
-            <View style={styles.centered}>
+            <View style={[styles.centered, { paddingTop: headerHeight }]}>
               <ActivityIndicator color={palette.primary} />
             </View>
           ) : (
-            <FlatList
+            <Animated.FlatList
               style={{ flex: 1 }}
               data={filteredItems}
               keyExtractor={(item) => item.item_id}
-              contentContainerStyle={{ paddingBottom: 96 + insets.bottom }}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{
+                paddingTop: headerHeight,
+                paddingBottom: 96 + insets.bottom,
+                flexGrow: 1,
+              }}
+              onScroll={handleListScroll}
+              scrollEventThrottle={16}
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={() => void loadItems(true)}
                   tintColor={palette.primary}
+                  progressViewOffset={headerHeight}
                 />
               }
               ItemSeparatorComponent={() => <View style={{ height: adminSpacing.xs }} />}
@@ -594,13 +772,21 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
                 <EmptyStateCard
                   title={
                     filter === "allocated"
-                      ? "No branch items allocated"
-                      : "No billing items found"
+                      ? workMode === "prices"
+                        ? "No items allocated to this retailer"
+                        : "No branch items allocated"
+                      : workMode === "prices"
+                        ? "No branch catalogue items"
+                        : "No billing items found"
                   }
                   subtitle={
                     filter === "allocated"
-                      ? "Select items from the billing catalogue for this branch."
-                      : "Try a different search or add items in the billing catalogue."
+                      ? workMode === "prices"
+                        ? "Select items from the branch catalogue for this active retailer."
+                        : "Select items from the billing catalogue for this branch."
+                      : workMode === "prices"
+                        ? "Allocate items to this branch first (Per branch), then assign them to the retailer."
+                        : "Try a different search or add items in the billing catalogue."
                   }
                   palette={palette}
                   icon="tag-off-outline"
@@ -608,7 +794,6 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
               }
               renderItem={({ item }) => {
                 const allocated = allocations.has(item.item_id);
-                const draft = allocations.get(item.item_id);
                 const pending = pendingIds.has(item.item_id);
                 const thumbUri = getItemThumbnailUri({
                   image_thumb_path: item.image_thumb_path,
@@ -702,10 +887,13 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
           >
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Save branch items"
+              accessibilityLabel={
+                workMode === "prices" ? "Save retailer items" : "Save branch items"
+              }
               disabled={
                 saving ||
                 !selectedShopId ||
+                (workMode === "prices" && !selectedRetailerId) ||
                 !dirty
               }
               onPress={() => void save()}
@@ -713,7 +901,12 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
                 styles.saveButton,
                 {
                   backgroundColor: palette.primary,
-                  opacity: saving || !dirty ? 0.72 : 1,
+                  opacity:
+                    saving ||
+                    !dirty ||
+                    (workMode === "prices" && !selectedRetailerId)
+                      ? 0.72
+                      : 1,
                 },
               ]}
             >
@@ -721,15 +914,29 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
                 <ActivityIndicator color={palette.onPrimary} />
               ) : (
                 <Text style={{ color: palette.onPrimary, fontWeight: "800" }}>
-                  Save branch items ({allocatedCount})
+                  {workMode === "prices"
+                    ? `Save retailer items (${allocatedCount})`
+                    : `Save branch items (${allocatedCount})`}
                 </Text>
               )}
             </Pressable>
           </View>
         </>
-      ) : null}
+      ) : (
+        <View style={{ flex: 1, paddingTop: headerHeight }}>
+          {workMode === "prices" && selectedShopId && !loadingRetailers && retailers.length === 0 ? (
+            <EmptyStateCard
+              title="No active retailers at this branch"
+              subtitle="Assign retailers to this branch before allocating items."
+              palette={palette}
+              icon="account-group-outline"
+            />
+          ) : null}
+        </View>
+      )}
     </View>
   );
+
 });
 
 const styles = StyleSheet.create({
@@ -800,17 +1007,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-  },
-  priceRow: {
-    marginTop: 10,
-    gap: 6,
-  },
-  priceInput: {
-    borderWidth: 1,
-    borderRadius: adminRadii.control,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
   },
   footer: {
     position: "absolute",

@@ -63,6 +63,7 @@ export interface UserSession {
   organization_name?: string | null;
   printing_enabled?: boolean;
   receipt_paper_mm?: 58 | 80;
+  billing_entry_mode?: "kg" | "amount";
   permissions?: string[];
   shop_id?: UUID | null;
   shop_name?: string | null;
@@ -747,6 +748,7 @@ export interface ShopBootstrapResponse {
   price_date: string;
   prices_set: boolean;
   next_screen: string;
+  billing_entry_mode?: "kg" | "amount";
   items: ItemPriceRead[];
 }
 
@@ -775,6 +777,7 @@ export interface DailyPriceRead {
 export interface BillItemInput {
   item_id: UUID;
   quantity: string;
+  line_total: string;
 }
 
 export interface CheckoutPaymentInput {

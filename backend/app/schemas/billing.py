@@ -12,6 +12,7 @@ from .common import ORMModel
 class BillItemInput(BaseModel):
     item_id: UUID
     quantity: Decimal = Field(gt=0)
+    line_total: Decimal = Field(gt=0)
 
 
 class CheckoutPaymentInput(BaseModel):

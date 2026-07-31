@@ -6,7 +6,7 @@ from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from test.support import AsyncSessionAdapter, BackendTestCase  # isort: skip
+from test.support import AsyncSessionAdapter, BackendTestCase, bill_item  # isort: skip
 
 from app.models import Bill, BillStatus, Item, Shop, User
 from app.schemas.billing import (
@@ -36,7 +36,7 @@ class ShopBillAdminIntegrationTests(BackendTestCase):
             select(Item).where(Item.name == "Chicken", Item.shop_id == current_shop.id)
         )
         payload = BillCheckoutRequest(
-            items=[BillItemInput(item_id=chicken.id, quantity=Decimal("2"))],
+            items=[bill_item(chicken.id, Decimal("2"), "100.00")],
             payment=CheckoutPaymentInput(
                 cash_amount=Decimal("200.00"),
                 upi_amount=Decimal("0.00"),
@@ -134,7 +134,7 @@ class ShopBillAdminIntegrationTests(BackendTestCase):
                     bill.id,
                     current_shop.organization_id,
                     BillEditRequest(
-                        items=[BillItemInput(item_id=chicken.id, quantity=Decimal("3"))],
+                        items=[bill_item(chicken.id, Decimal("3"), "100.00")],
                         payment=BillEditPaymentInput(
                             cash_amount=Decimal("150.00"),
                             upi_amount=Decimal("150.00"),
@@ -164,7 +164,7 @@ class ShopBillAdminIntegrationTests(BackendTestCase):
                         bill.id,
                         current_shop.organization_id,
                         BillEditRequest(
-                            items=[BillItemInput(item_id=chicken.id, quantity=Decimal("3"))],
+                            items=[bill_item(chicken.id, Decimal("3"), "100.00")],
                             payment=BillEditPaymentInput(
                                 cash_amount=Decimal("100.00"),
                                 upi_amount=Decimal("100.00"),
@@ -197,7 +197,7 @@ class ShopBillAdminIntegrationTests(BackendTestCase):
                         bill.id,
                         current_shop.organization_id,
                         BillEditRequest(
-                            items=[BillItemInput(item_id=duck.id, quantity=Decimal("1"))],
+                            items=[bill_item(duck.id, Decimal("1"), "100.00")],
                             payment=BillEditPaymentInput(
                                 cash_amount=Decimal("200.00"),
                                 upi_amount=Decimal("0.00"),

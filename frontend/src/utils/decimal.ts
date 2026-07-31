@@ -19,6 +19,35 @@ export function toQuantityString(value?: string | number | null, isUnit = false)
   return isUnit ? decimal.toFixed(0) : decimal.toFixed(3);
 }
 
+/** Derive billed quantity from entered amount and unit price. */
+export function quantityFromAmount(
+  amount: string | number,
+  pricePerUnit: string | number,
+  isUnit: boolean,
+) {
+  const price = money(pricePerUnit);
+  if (price.lessThanOrEqualTo(0)) {
+    return isUnit ? "0" : "0.000";
+  }
+  const raw = money(amount).div(price);
+  return isUnit ? raw.toFixed(0) : raw.toFixed(3);
+}
+
+/** Display weight with 2 decimals in amount mode; units stay integers. */
+export function formatDisplayQuantity(
+  quantity: string | number,
+  isUnit: boolean,
+  billingEntryMode: "kg" | "amount" = "kg",
+) {
+  if (isUnit) {
+    return money(quantity).toFixed(0);
+  }
+  if (billingEntryMode === "amount") {
+    return money(quantity).toFixed(2);
+  }
+  return toQuantityString(quantity, false);
+}
+
 export function sumMoney(values: (string | number | null | undefined)[]) {
   return values.reduce((total, value) => total.plus(money(value)), new Decimal(0));
 }

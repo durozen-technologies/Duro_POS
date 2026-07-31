@@ -62,4 +62,5 @@ class ShopBootstrapResponse(BaseModel):
     price_date: date
     prices_set: bool
     next_screen: str
+    billing_entry_mode: str = "kg"
     items: list[ItemPriceRead]

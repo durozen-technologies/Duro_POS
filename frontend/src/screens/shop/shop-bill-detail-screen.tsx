@@ -23,7 +23,10 @@ import {
   getSavedPrinterLabel,
 } from "@/services/printer-service";
 import type { BillRead, ReceiptStatus } from "@/types/api";
+import { BaseUnit } from "@/types/api";
+import { useAuthStore } from "@/store/auth-store";
 import { usePrinterStore } from "@/store/printer-store";
+import { formatDisplayQuantity } from "@/utils/decimal";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 import { usePrintingEnabled, useReceiptPaperMm } from "@/utils/printing";
 import { ShopText as Text } from "@/components/ui/shop-text";
@@ -53,6 +56,8 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
   const printingEnabled = usePrintingEnabled();
   const receiptPaperMm = useReceiptPaperMm();
+  const billingEntryMode =
+    useAuthStore((state) => state.user?.billing_entry_mode) === "amount" ? "amount" : "kg";
   const [bill, setBill] = useState<BillRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [reprinting, setReprinting] = useState(false);
@@ -182,7 +187,12 @@ export function ShopBillDetailScreen({ navigation, route }: ShopBillDetailScreen
               <Text className="font-semibold text-ink">{item.item_name}</Text>
               <View className="flex-row justify-between">
                 <Text className="text-sm text-muted">
-                  {item.quantity} × {formatCurrency(item.price_per_unit)}
+                  {formatDisplayQuantity(
+                    item.quantity,
+                    item.unit === BaseUnit.UNIT,
+                    billingEntryMode,
+                  )}{" "}
+                  × {formatCurrency(item.price_per_unit)}
                 </Text>
                 <Text className="text-sm font-semibold text-ink">{formatCurrency(item.line_total)}</Text>
               </View>

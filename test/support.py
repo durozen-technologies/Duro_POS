@@ -30,6 +30,26 @@ from app.db.database import Base  # noqa: E402
 from app.core.security import get_password_hash  # noqa: E402
 from app.models import BaseUnit, DailyPrice, Item, Organization, Shop, UnitType, User, UserRole  # noqa: E402
 
+
+def bill_item(
+    item_id: UUID,
+    quantity: Decimal | str | int,
+    price_per_unit: Decimal | str | int,
+):
+    """Build BillItemInput with line_total = round(qty × price, 2) for kg-mode tests."""
+    from decimal import ROUND_HALF_UP
+
+    from app.schemas.billing import BillItemInput
+
+    qty = Decimal(str(quantity))
+    price = Decimal(str(price_per_unit))
+    return BillItemInput(
+        item_id=item_id,
+        quantity=qty,
+        line_total=(price * qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+    )
+
+
 TEST_ITEM_DEFINITIONS = {
     "Chicken": {
         "tamil_name": "தோலுடன்",

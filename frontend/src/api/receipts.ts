@@ -1,6 +1,8 @@
-import { BillRead, BillStatus, type RetailerSaleRead, type RetailerSaleReceiptRead } from "@/types/api";
+import { BillRead, BillStatus, BaseUnit, type RetailerSaleRead, type RetailerSaleReceiptRead } from "@/types/api";
 import { getLocalizedItemName } from "@/hooks/use-shop-translation";
+import { useAuthStore } from "@/store/auth-store";
 import { ShopLanguage } from "@/store/shop-language-store";
+import { formatDisplayQuantity } from "@/utils/decimal";
 import { formatCurrency, formatDateTime, formatUnit } from "@/utils/format";
 import {
   DEFAULT_RECEIPT_PAPER_MM,
@@ -11,6 +13,15 @@ import {
 
 function formatReceiptCurrency(value?: string | number | null) {
   return formatCurrency(value).replace(/^Rs\.\s*/, "");
+}
+
+function receiptBillingEntryMode(): "kg" | "amount" {
+  return useAuthStore.getState().user?.billing_entry_mode === "amount" ? "amount" : "kg";
+}
+
+function formatReceiptQuantity(quantity: string, unit: BaseUnit | string) {
+  const isUnit = unit === BaseUnit.UNIT || unit === "unit";
+  return formatDisplayQuantity(quantity, isUnit, receiptBillingEntryMode());
 }
 
 const RECEIPT_COPY = {
@@ -1208,7 +1219,7 @@ export function buildReceiptText(bill: BillRead, language?: ShopLanguage) {
     "",
     ...bill.items.map(
       (item) =>
-        `${getLocalizedItemName("ta", item.item_name, item.item_tamil_name).padEnd(15)} ${item.quantity}${formatUnit(item.unit).padEnd(5)} x ${formatReceiptCurrency(item.price_per_unit)} = ${formatReceiptCurrency(item.line_total)}`,
+        `${getLocalizedItemName("ta", item.item_name, item.item_tamil_name).padEnd(15)} ${formatReceiptQuantity(item.quantity, item.unit)}${formatUnit(item.unit).padEnd(5)} x ${formatReceiptCurrency(item.price_per_unit)} = ${formatReceiptCurrency(item.line_total)}`,
     ),
     "",
     `----------------------------------------`,
@@ -1255,7 +1266,7 @@ function buildReceiptHtmlBody(bill: BillRead, language?: ShopLanguage) {
       (item) => `
         <tr class="item-row">
           <td class="item-name strong">${escapeHtml(getLocalizedItemName("ta", item.item_name, item.item_tamil_name))}</td>
-          <td class="align-right item-qty">${escapeHtml(String(item.quantity))}&nbsp;${escapeHtml(formatUnit(item.unit))}</td>
+          <td class="align-right item-qty">${escapeHtml(formatReceiptQuantity(String(item.quantity), item.unit))}&nbsp;${escapeHtml(formatUnit(item.unit))}</td>
           <td class="align-right item-total strong">${formatReceiptCurrency(item.line_total)}</td>
         </tr>
         `,
@@ -1359,7 +1370,7 @@ function buildReceiptExportPayload(bill: BillRead, language?: ShopLanguage): Rec
     provider: copy.provider,
     items: bill.items.map((item) => ({
       itemName: getLocalizedItemName("ta", item.item_name, item.item_tamil_name),
-      quantityText: `${item.quantity} ${formatUnit(item.unit)}`,
+      quantityText: `${formatReceiptQuantity(item.quantity, item.unit)} ${formatUnit(item.unit)}`,
       lineTotal: formatReceiptCurrency(item.line_total),
     })),
   };

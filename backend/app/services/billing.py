@@ -40,7 +40,6 @@ from app.models import (
     ShopItemAllocation,
     User,
 )
-from app.models.enums import BaseUnit
 from app.schemas.billing import (
     BillCheckoutCommitRequest,
     BillCheckoutPreviewRead,
@@ -53,13 +52,21 @@ from app.schemas.billing import (
     PaymentRead,
     ReceiptRead,
 )
-from app.services.admin.catalogue import _bill_to_read
 from app.services.bill_number import bill_no_from_sequence, bill_number_prefix_from_settings
 from app.services.inventory import _available_quantity_at
+from app.services.org_billing import billing_entry_mode_from_settings
 from app.services.tenant_query import resolve_organization_display_name
+
+
+def _bill_to_read(*args: Any, **kwargs: Any):
+    # Lazy import avoids circular import via app.services.admin.__init__.
+    from app.services.admin.catalogue import _bill_to_read as bill_to_read
+
+    return bill_to_read(*args, **kwargs)
 
 TWOPLACES = Decimal("0.01")
 THREEPLACES = Decimal("0.001")
+ONE = Decimal("1")
 CHECKOUT_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60
 CHECKOUT_SNAPSHOT_TTL = timedelta(hours=24)
 ADMIN_BILL_MODIFICATION_WINDOW = timedelta(hours=24)
@@ -98,6 +105,82 @@ class PreparedCheckout:
 
 def _round_money(value: Decimal) -> Decimal:
     return value.quantize(TWOPLACES, rounding=ROUND_HALF_UP)
+
+
+def _base_unit_value(base_unit: Any) -> str:
+    if base_unit is None:
+        return "kg"
+    return base_unit.value if hasattr(base_unit, "value") else str(base_unit)
+
+
+def _derive_quantity_from_amount(
+    line_total: Decimal,
+    price_per_unit: Decimal,
+    *,
+    base_unit: Any,
+    item_name: str,
+) -> Decimal:
+    raw = line_total / price_per_unit
+    if _base_unit_value(base_unit) == "unit":
+        quantity = raw.quantize(ONE, rounding=ROUND_HALF_UP)
+        if quantity < 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"{item_name} amount is too small for one unit at today's price",
+            )
+        return quantity
+    return raw.quantize(THREEPLACES, rounding=ROUND_HALF_UP)
+
+
+def _resolve_line_total_and_quantity(
+    *,
+    quantity: Decimal,
+    line_total: Decimal,
+    price_per_unit: Decimal,
+    base_unit: Any,
+    item_name: str,
+    billing_entry_mode: str,
+) -> tuple[Decimal, Decimal]:
+    """Return validated (quantity, line_total) for the org billing mode."""
+    rounded_line_total = _round_money(line_total)
+    if rounded_line_total <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{item_name} line total must be greater than 0",
+        )
+
+    if billing_entry_mode == "amount":
+        expected_quantity = _derive_quantity_from_amount(
+            rounded_line_total,
+            price_per_unit,
+            base_unit=base_unit,
+            item_name=item_name,
+        )
+        if quantity != expected_quantity:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"{item_name} quantity does not match amount mode derivation "
+                    f"(expected {expected_quantity})"
+                ),
+            )
+        return expected_quantity, rounded_line_total
+
+    if _base_unit_value(base_unit) == "unit" and quantity != quantity.to_integral_value():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{item_name} only accepts integer unit quantities",
+        )
+    expected_line_total = _round_money(price_per_unit * quantity)
+    if rounded_line_total != expected_line_total:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"{item_name} line total does not match quantity × price "
+                f"(expected {expected_line_total})"
+            ),
+        )
+    return quantity, expected_line_total
 
 
 async def _shop_organization_name(db: AsyncSession, shop: Shop) -> str:
@@ -202,6 +285,7 @@ def _payload_fingerprint(payload: BillCheckoutRequest) -> str:
             {
                 "item_id": str(line.item_id),
                 "quantity": _decimal_token(line.quantity),
+                "line_total": _decimal_token(_round_money(line.line_total)),
             }
             for line in payload.items
         ],
@@ -294,6 +378,11 @@ def _prepared_from_snapshot(snapshot_json: dict[str, Any]) -> PreparedCheckout:
 async def _org_bill_number_prefix(db: AsyncSession, shop: Shop) -> str:
     org = await db.get(Organization, shop.organization_id)
     return bill_number_prefix_from_settings(org.settings if org is not None else None)
+
+
+async def _org_billing_entry_mode(db: AsyncSession, shop: Shop) -> str:
+    org = await db.get(Organization, shop.organization_id)
+    return billing_entry_mode_from_settings(org.settings if org is not None else None)
 
 
 async def _allocate_bill_number(db: AsyncSession, shop: Shop, now: datetime) -> str:
@@ -520,6 +609,7 @@ async def _prepare_checkout(
             detail=f"Items not found or inactive: {missing_ids}",
         )
 
+    billing_entry_mode = await _org_billing_entry_mode(db, shop)
     bill_lines: list[PreparedBillLine] = []
     total_amount = Decimal("0.00")
 
@@ -527,11 +617,6 @@ async def _prepare_checkout(
         item = items_by_id[line.item_id]
         item_name = (item.display_name or item.name).strip()
         item_tamil_name = item.allocation_tamil_name or item.tamil_name
-        if item.base_unit.value == "unit" and line.quantity != line.quantity.to_integral_value():
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"{item_name} only accepts integer unit quantities",
-            )
 
         price_per_unit = price_map.get(item.id)
         if price_per_unit is None:
@@ -545,7 +630,14 @@ async def _prepare_checkout(
                 detail=f"Today's price for {item_name} must be greater than 0",
             )
 
-        line_total = _round_money(price_per_unit * line.quantity)
+        quantity, line_total = _resolve_line_total_and_quantity(
+            quantity=line.quantity,
+            line_total=line.line_total,
+            price_per_unit=price_per_unit,
+            base_unit=item.base_unit,
+            item_name=item_name,
+            billing_entry_mode=billing_entry_mode,
+        )
         total_amount += line_total
         bill_lines.append(
             PreparedBillLine(
@@ -554,7 +646,7 @@ async def _prepare_checkout(
                 item_tamil_name=item_tamil_name,
                 item_unit_type=item.unit_type,
                 item_base_unit=item.base_unit,
-                quantity=line.quantity,
+                quantity=quantity,
                 unit=item.base_unit,
                 price_per_unit=price_per_unit,
                 line_total=line_total,
@@ -842,6 +934,8 @@ def _assert_bill_admin_modifiable(bill: Bill) -> None:
 def _prepare_bill_edit_lines(
     bill: Bill,
     payload: BillEditRequest,
+    *,
+    billing_entry_mode: str,
 ) -> list[PreparedBillLine]:
     existing_by_item = {line.item_id: line for line in bill.items}
     payload_item_ids = {line.item_id for line in payload.items}
@@ -854,17 +948,16 @@ def _prepare_bill_edit_lines(
     lines: list[PreparedBillLine] = []
     for line_input in payload.items:
         existing = existing_by_item[line_input.item_id]
-        item_name = (existing.item_name or "").strip()
-        if (
-            existing.item_base_unit == BaseUnit.UNIT
-            and line_input.quantity != line_input.quantity.to_integral_value()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"{item_name or 'Item'} only accepts integer unit quantities",
-            )
+        item_name = (existing.item_name or "").strip() or "Item"
         price_per_unit = _round_money(existing.price_per_unit)
-        line_total = _round_money(price_per_unit * line_input.quantity)
+        quantity, line_total = _resolve_line_total_and_quantity(
+            quantity=line_input.quantity,
+            line_total=line_input.line_total,
+            price_per_unit=price_per_unit,
+            base_unit=existing.item_base_unit or existing.unit,
+            item_name=item_name,
+            billing_entry_mode=billing_entry_mode,
+        )
         lines.append(
             PreparedBillLine(
                 item_id=existing.item_id,
@@ -872,7 +965,7 @@ def _prepare_bill_edit_lines(
                 item_tamil_name=existing.item_tamil_name,
                 item_unit_type=existing.item_unit_type,
                 item_base_unit=existing.item_base_unit,
-                quantity=line_input.quantity,
+                quantity=quantity,
                 unit=existing.unit,
                 price_per_unit=price_per_unit,
                 line_total=line_total,
@@ -945,7 +1038,13 @@ async def edit_shop_bill(
     bill = await _load_bill_for_admin(db, bill_id, organization_id)
     _assert_bill_admin_modifiable(bill)
 
-    lines = _prepare_bill_edit_lines(bill, payload)
+    shop = bill.shop or await db.get(Shop, bill.shop_id)
+    billing_entry_mode = (
+        await _org_billing_entry_mode(db, shop)
+        if shop is not None
+        else billing_entry_mode_from_settings(None)
+    )
+    lines = _prepare_bill_edit_lines(bill, payload, billing_entry_mode=billing_entry_mode)
     total_amount = _round_money(sum((line.line_total for line in lines), Decimal("0.00")))
     cash_amount = _round_money(payload.payment.cash_amount)
     upi_amount = _round_money(payload.payment.upi_amount)
@@ -980,7 +1079,6 @@ async def edit_shop_bill(
     payment.balance = Decimal("0.00")
     payment.is_settled = True
 
-    shop = bill.shop or await db.get(Shop, bill.shop_id)
     db.add(
         AuditLog(
             user_id=user.id,

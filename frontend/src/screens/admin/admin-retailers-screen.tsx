@@ -33,6 +33,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
   const [activeTab, setActiveTab] = useState<AdminRetailersTab>(initialTab);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [showTabChrome, setShowTabChrome] = useState(true);
 
   const handleHeaderRefresh = useCallback(() => {
     setRefreshing(true);
@@ -48,6 +49,10 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
       setActiveTab(route.params.tab);
     }
   }, [route.params?.tab]);
+
+  useEffect(() => {
+    setShowTabChrome(true);
+  }, [activeTab]);
 
   const dynamicStyles = useMemo(
     () =>
@@ -108,13 +113,15 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.content}>
-        <AdminSegmentedTabs
-          items={TAB_ITEMS}
-          activeValue={activeTab}
-          palette={palette}
-          onChange={(value) => setActiveTab(value as AdminRetailersTab)}
-          scrollable
-        />
+        {showTabChrome || activeTab !== "allocateItems" ? (
+          <AdminSegmentedTabs
+            items={TAB_ITEMS}
+            activeValue={activeTab}
+            palette={palette}
+            onChange={(value) => setActiveTab(value as AdminRetailersTab)}
+            scrollable
+          />
+        ) : null}
 
         <View style={styles.tabBody}>
           {activeTab === "retailers" ? (
@@ -134,6 +141,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
               refreshNonce={refreshNonce}
               onRefreshComplete={handleRefreshComplete}
               initialRetailerId={initialRetailerId}
+              onChromeVisibilityChange={setShowTabChrome}
             />
           ) : null}
 

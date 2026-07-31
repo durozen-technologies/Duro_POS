@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
 
-from test.support import AsyncSessionAdapter, BackendTestCase
+from test.support import AsyncSessionAdapter, BackendTestCase, bill_item
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
@@ -735,10 +735,10 @@ class ServiceUnitTests(BackendTestCase):
                 )
                 payload = BillCheckoutRequest(
                     items=[
-                        BillItemInput(item_id=chicken.id, quantity=Decimal("10")),
-                        BillItemInput(item_id=mutton.id, quantity=Decimal("5")),
-                        BillItemInput(item_id=duck.id, quantity=Decimal("3")),
-                        BillItemInput(item_id=quail.id, quantity=Decimal("2")),
+                        bill_item(chicken.id, Decimal("10"), "120.00"),
+                        bill_item(mutton.id, Decimal("5"), "100.00"),
+                        bill_item(duck.id, Decimal("3"), "25.00"),
+                        bill_item(quail.id, Decimal("2"), "30.00"),
                     ],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("1835.00"),
@@ -2708,7 +2708,7 @@ class ServiceUnitTests(BackendTestCase):
                 duck = session.scalar(select(Item).where(Item.name == "Duck", Item.shop_id == shop.id))
                 db = AsyncSessionAdapter(session)
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=duck.id, quantity=Decimal("1.5"))],
+                    items=[bill_item(duck.id, Decimal("1.5"), "200.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("300.00"), upi_amount=Decimal("0.00")
                     ),
@@ -2739,7 +2739,7 @@ class ServiceUnitTests(BackendTestCase):
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id))
                 db = AsyncSessionAdapter(session)
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("2"))],
+                    items=[bill_item(chicken.id, Decimal("2"), "100.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("150.00"), upi_amount=Decimal("0.00")
                     ),
@@ -2770,7 +2770,7 @@ class ServiceUnitTests(BackendTestCase):
                 chicken = session.scalar(select(Item).where(Item.name == "Chicken", Item.shop_id == shop.id))
                 db = AsyncSessionAdapter(session)
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("2"))],
+                    items=[bill_item(chicken.id, Decimal("2"), "100.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("200.00"), upi_amount=Decimal("0.00")
                     ),
@@ -2858,7 +2858,7 @@ class ServiceUnitTests(BackendTestCase):
                 )
 
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("10"))],
+                    items=[bill_item(chicken.id, Decimal("10"), "120.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("1200.00"),
                         upi_amount=Decimal("0.00"),
@@ -2922,7 +2922,7 @@ class ServiceUnitTests(BackendTestCase):
                 db = AsyncSessionAdapter(session)
                 stored_actor = session.get(User, actor.id)
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    items=[bill_item(chicken.id, Decimal("1"), "100.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("100.00"), upi_amount=Decimal("0.00")
                     ),
@@ -2989,7 +2989,7 @@ class ServiceUnitTests(BackendTestCase):
                 stored_actor = session.get(User, actor.id)
                 current_shop = session.get(Shop, shop.id)
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    items=[bill_item(chicken.id, Decimal("1"), "50.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("50.00"), upi_amount=Decimal("0.00")
                     ),
@@ -3048,7 +3048,7 @@ class ServiceUnitTests(BackendTestCase):
                 stored_actor = session.get(User, actor.id)
                 current_shop = session.get(Shop, shop.id)
                 payload = BillCheckoutRequest(
-                    items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                    items=[bill_item(chicken.id, Decimal("1"), "80.00")],
                     payment=CheckoutPaymentInput(
                         cash_amount=Decimal("80.00"), upi_amount=Decimal("0.00")
                     ),
@@ -3092,7 +3092,7 @@ class ServiceUnitTests(BackendTestCase):
                 bill_numbers: list[str] = []
                 for _ in range(3):
                     payload = BillCheckoutRequest(
-                        items=[BillItemInput(item_id=chicken.id, quantity=Decimal("1"))],
+                        items=[bill_item(chicken.id, Decimal("1"), "60.00")],
                         payment=CheckoutPaymentInput(
                             cash_amount=Decimal("60.00"), upi_amount=Decimal("0.00")
                         ),

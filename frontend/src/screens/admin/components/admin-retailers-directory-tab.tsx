@@ -230,7 +230,7 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
           <SearchField
             value={search}
             onChangeText={setSearch}
-            placeholder="Search retailers"
+            placeholder="Search retailer name, shop name, or mobile"
             palette={palette}
             accessibilityLabel="Search retailers"
           />

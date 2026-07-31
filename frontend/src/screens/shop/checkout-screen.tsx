@@ -203,7 +203,11 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
       const checkoutPayload = {
         items: cartItems.map((item) => ({
           item_id: item.item_id,
-          quantity: item.base_unit === BaseUnit.UNIT ? money(item.quantity).toFixed(0) : money(item.quantity).toString(),
+          quantity:
+            item.base_unit === BaseUnit.UNIT
+              ? money(item.quantity).toFixed(0)
+              : money(item.quantity).toString(),
+          line_total: toMoneyString(item.line_total),
         })),
         payment: {
           cash_amount: toMoneyString(values.cashAmount),

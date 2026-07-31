@@ -184,11 +184,19 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
   );
 
   const renderCartFooter = useCallback(
-    () =>
-      cartItems.length === 0 ? null : (
-        <View className="pb-4 pt-2">
-          <SectionHeading title={t("billing.reviewBeforeCheckout")} />
-          {cartItems.map((line) => {
+    () => (
+      <View className="pb-4 pt-2">
+        <SectionHeading
+          title={t("billing.reviewBeforeCheckout")}
+          subtitle={t("billing.reviewBeforeCheckoutSubtitle")}
+        />
+        {cartItems.length === 0 ? (
+          <EmptyState
+            title={t("billing.cartEmpty")}
+            description={t("billing.cartEmptyDescription")}
+          />
+        ) : (
+          cartItems.map((line) => {
             const lineTotal = money(line.price_per_unit).mul(money(line.quantity)).toFixed(2);
             const displayName = getLocalizedItemName(
               language,
@@ -213,9 +221,10 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
                 </View>
               </Card>
             );
-          })}
-        </View>
-      ),
+          })
+        )}
+      </View>
+    ),
     [cartItems, language, removeItem, t],
   );
 

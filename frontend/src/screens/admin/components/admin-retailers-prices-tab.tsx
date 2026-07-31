@@ -15,6 +15,7 @@ import {
   Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
 import { fetchShops } from "@/api/admin";
 import { formatApiErrorMessage } from "@/api/client";
@@ -323,6 +324,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
   const [search, setSearch] = useState("");
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
   const [retailerPickerOpen, setRetailerPickerOpen] = useState(false);
+  const [retailerPickerSearch, setRetailerPickerSearch] = useState("");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
@@ -410,6 +412,16 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
     () => retailers.find((row) => row.id === selectedRetailerId) ?? null,
     [retailers, selectedRetailerId],
   );
+
+  const filteredPickerRetailers = useMemo(() => {
+    const query = retailerPickerSearch.trim().toLowerCase();
+    if (!query) return retailers;
+    return retailers.filter((row) => {
+      const name = row.name?.toLowerCase() ?? "";
+      const shopName = row.shop_name?.toLowerCase() ?? "";
+      return name.includes(query) || shopName.includes(query);
+    });
+  }, [retailerPickerSearch, retailers]);
 
   const loadBranches = useCallback(async () => {
     setLoadingBranches(true);
@@ -756,48 +768,95 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
   );
 
   const renderRetailerPicker = () => (
-    <Modal visible={retailerPickerOpen} transparent animationType="fade" onRequestClose={() => setRetailerPickerOpen(false)}>
-      <Pressable style={styles.modalBackdrop} onPress={() => setRetailerPickerOpen(false)}>
+    <Modal
+      visible={retailerPickerOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {
+        setRetailerPickerOpen(false);
+        setRetailerPickerSearch("");
+      }}
+    >
+      <Pressable
+        style={styles.modalBackdrop}
+        onPress={() => {
+          setRetailerPickerOpen(false);
+          setRetailerPickerSearch("");
+        }}
+      >
         <Pressable
           style={[styles.modalSheet, { backgroundColor: palette.card, borderColor: palette.border }]}
           onPress={() => undefined}
         >
-          <Text style={[adminTypography.section, { color: palette.textPrimary, marginBottom: adminSpacing.sm }]}>
-            Select retailer
-          </Text>
-          <FlatList
-            data={retailers}
-            keyExtractor={(item) => item.id}
-            style={{ maxHeight: 360 }}
-            renderItem={({ item }) => {
-              const active = item.id === selectedRetailerId;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  onPress={() => {
-                    triggerHaptic();
-                    setSelectedRetailerId(item.id);
-                    setRetailerPickerOpen(false);
-                  }}
-                  style={[
-                    styles.pickerOption,
-                    {
-                      backgroundColor: active ? palette.primarySoft : palette.surfaceMuted,
-                      borderColor: active ? palette.primary : palette.border,
-                    },
-                  ]}
-                >
-                  <Text style={{ color: palette.textPrimary, fontWeight: active ? "800" : "600" }} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  {active ? (
-                    <MaterialCommunityIcons name="check-circle" size={18} color={palette.primary} />
-                  ) : null}
-                </Pressable>
-              );
-            }}
-          />
+          <KeyboardAwareScrollView
+            enableOnAndroid={true}
+            extraScrollHeight={120}
+            keyboardShouldPersistTaps="handled"
+            enableAutomaticScroll
+            showsVerticalScrollIndicator={false}
+            style={{ maxHeight: 480 }}
+            contentContainerStyle={{ paddingBottom: 8 }}
+          >
+            <Text style={[adminTypography.section, { color: palette.textPrimary, marginBottom: adminSpacing.sm }]}>
+              Select retailer
+            </Text>
+            <View style={{ marginBottom: adminSpacing.sm }}>
+              <SearchField
+                value={retailerPickerSearch}
+                onChangeText={setRetailerPickerSearch}
+                placeholder="Search retailer name or shop name"
+                palette={palette}
+                accessibilityLabel="Search retailer name or shop name"
+              />
+            </View>
+            {filteredPickerRetailers.length === 0 ? (
+              <Text style={[adminTypography.body, { color: palette.textMuted, paddingVertical: 16 }]}>
+                No matching retailers
+              </Text>
+            ) : (
+              filteredPickerRetailers.map((item) => {
+                const active = item.id === selectedRetailerId;
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => {
+                      triggerHaptic();
+                      setSelectedRetailerId(item.id);
+                      setRetailerPickerOpen(false);
+                      setRetailerPickerSearch("");
+                    }}
+                    style={[
+                      styles.pickerOption,
+                      {
+                        backgroundColor: active ? palette.primarySoft : palette.surfaceMuted,
+                        borderColor: active ? palette.primary : palette.border,
+                        marginBottom: 8,
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text
+                        style={{ color: palette.textPrimary, fontWeight: active ? "800" : "600" }}
+                        numberOfLines={1}
+                      >
+                        {item.name}
+                      </Text>
+                      {item.shop_name ? (
+                        <Text style={{ color: palette.textMuted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                          {item.shop_name}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {active ? (
+                      <MaterialCommunityIcons name="check-circle" size={18} color={palette.primary} />
+                    ) : null}
+                  </Pressable>
+                );
+              })
+            )}
+          </KeyboardAwareScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -891,9 +950,16 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
           >
             <Text style={[adminTypography.caption, { color: palette.textMuted, textTransform: "uppercase" }]}>Retailer</Text>
             <View style={styles.selectorRow}>
-              <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
-                {loadingRetailers ? "Loading retailers…" : selectedRetailer?.name ?? "Select retailer"}
-              </Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
+                  {loadingRetailers ? "Loading retailers…" : selectedRetailer?.name ?? "Select retailer"}
+                </Text>
+                {!loadingRetailers && selectedRetailer?.shop_name ? (
+                  <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                    {selectedRetailer.shop_name}
+                  </Text>
+                ) : null}
+              </View>
               <MaterialCommunityIcons name="chevron-down" size={22} color={palette.textMuted} />
             </View>
           </Pressable>

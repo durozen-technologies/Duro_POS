@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { Alert, FlatList, ListRenderItem, Pressable, RefreshControl, View } from "react-native";
+import { Alert, FlatList, ListRenderItem, Pressable, RefreshControl, Text as RNText, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -28,9 +28,16 @@ import {
   getCartTotal,
   useCartStore,
 } from "@/store/cart-store";
+import { useAuthStore } from "@/store/auth-store";
 import { BaseUnit, ItemPriceRead, UUID } from "@/types/api";
 
-import { money, toQuantityString } from "@/utils/decimal";
+import {
+  formatDisplayQuantity,
+  money,
+  quantityFromAmount,
+  toMoneyString,
+  toQuantityString,
+} from "@/utils/decimal";
 import { formatCurrency, formatUnit } from "@/utils/format";
 import { cn } from "@/utils/cn";
 import { getItemThumbnailUri, prefetchItemThumbnails } from "@/utils/item-images";
@@ -270,6 +277,7 @@ type CartLineProps = {
   itemName: string;
   quantitySummary: string;
   totalText: string;
+  emphasizeTotal?: boolean;
   removeHelpText: string;
   removeButtonLabel: string;
   onRemove: (itemId: UUID) => void;
@@ -281,6 +289,7 @@ const CartLine = memo(
     itemName,
     quantitySummary,
     totalText,
+    emphasizeTotal = false,
     removeHelpText,
     removeButtonLabel,
     onRemove,
@@ -298,9 +307,16 @@ const CartLine = memo(
               </Text>
             </View>
 
-            <Text className="text-right text-base font-semibold tabular-nums text-ink">
+            <RNText
+              className="text-right tabular-nums text-ink"
+              style={
+                emphasizeTotal
+                  ? { fontSize: 32, lineHeight: 38, fontWeight: "700" }
+                  : { fontSize: 16, lineHeight: 24, fontWeight: "600" }
+              }
+            >
               {totalText}
-            </Text>
+            </RNText>
           </View>
 
           <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-border/70 pt-3">
@@ -325,6 +341,7 @@ const CartLine = memo(
     prev.itemName === next.itemName &&
     prev.quantitySummary === next.quantitySummary &&
     prev.totalText === next.totalText &&
+    prev.emphasizeTotal === next.emphasizeTotal &&
     prev.removeHelpText === next.removeHelpText &&
     prev.removeButtonLabel === next.removeButtonLabel &&
     prev.onRemove === next.onRemove,
@@ -339,6 +356,14 @@ export function BillingScreen({
     useShopBootstrap();
 
   const { language, t } = useShopTranslation();
+  const sessionBillingEntryMode = useAuthStore(
+    (state) => state.user?.billing_entry_mode,
+  );
+  const billingEntryMode: "kg" | "amount" =
+    bootstrap?.billing_entry_mode === "amount" ||
+    (!bootstrap?.billing_entry_mode && sessionBillingEntryMode === "amount")
+      ? "amount"
+      : "kg";
 
   const cartItems = useCartStore((state) => state.items);
 
@@ -462,12 +487,14 @@ export function BillingScreen({
 
   const handleAddToCart = useCallback(
     (item: ItemPriceRead, quantity: string) => {
-      const rawQuantity = quantity.trim();
+      const rawInput = quantity.trim();
       const itemName =
         translatedItemNames.get(item.item_id) ??
         item.item_name;
+      const isUnit = item.base_unit === BaseUnit.UNIT;
+      const price = item.current_price;
 
-      if (!item.current_price || money(item.current_price).lessThanOrEqualTo(0)) {
+      if (!price || money(price).lessThanOrEqualTo(0)) {
         Alert.alert(
           t("billing.alertPriceMissingTitle"),
           t("billing.alertPriceMissingMessage", {
@@ -478,18 +505,35 @@ export function BillingScreen({
         return;
       }
 
-      if (
-        !rawQuantity ||
-        money(rawQuantity).lessThanOrEqualTo(0)
-      ) {
+      if (!rawInput || money(rawInput).lessThanOrEqualTo(0)) {
         Alert.alert(
-          t("billing.alertInvalidQuantityTitle"),
-          t("billing.alertInvalidQuantityMessage", {
-            itemName,
-          }),
+          billingEntryMode === "amount"
+            ? t("billing.alertInvalidAmountTitle")
+            : t("billing.alertInvalidQuantityTitle"),
+          billingEntryMode === "amount"
+            ? t("billing.alertInvalidAmountMessage", { itemName })
+            : t("billing.alertInvalidQuantityMessage", { itemName }),
         );
 
         return;
+      }
+
+      let lineQuantity: string;
+      let lineTotal: string;
+
+      if (billingEntryMode === "amount") {
+        lineTotal = toMoneyString(rawInput);
+        lineQuantity = quantityFromAmount(lineTotal, price, isUnit);
+        if (isUnit && money(lineQuantity).lessThan(1)) {
+          Alert.alert(
+            t("billing.alertAmountTooSmallTitle"),
+            t("billing.alertAmountTooSmallMessage", { itemName }),
+          );
+          return;
+        }
+      } else {
+        lineQuantity = isUnit ? toQuantityString(rawInput, true) : rawInput;
+        lineTotal = toMoneyString(money(lineQuantity).mul(money(price)).toFixed(2));
       }
 
       const cartLine: CartItem = {
@@ -498,11 +542,9 @@ export function BillingScreen({
         item_tamil_name: item.item_tamil_name,
         base_unit: item.base_unit,
         unit_type: item.unit_type,
-        price_per_unit: item.current_price,
-        quantity:
-          item.base_unit === BaseUnit.UNIT
-            ? toQuantityString(rawQuantity, true)
-            : rawQuantity,
+        price_per_unit: price,
+        quantity: lineQuantity,
+        line_total: lineTotal,
       };
 
       addItem(cartLine);
@@ -512,7 +554,7 @@ export function BillingScreen({
         [item.item_id]: "",
       }));
     },
-    [addItem, t, translatedItemNames],
+    [addItem, billingEntryMode, t, translatedItemNames],
   );
 
   const cartTotal = formatCurrency(
@@ -562,13 +604,17 @@ export function BillingScreen({
     useCallback(
       ({ item }) => {
         const quantityLabel =
-          item.base_unit === BaseUnit.KG
-            ? t("common.quantityKg")
-            : t("common.quantityUnits");
+          billingEntryMode === "amount"
+            ? t("common.quantityAmount")
+            : item.base_unit === BaseUnit.KG
+              ? t("common.quantityKg")
+              : t("common.quantityUnits");
         const quantityPlaceholder =
-          item.base_unit === BaseUnit.KG
-            ? t("common.exampleKg")
-            : t("common.exampleUnits");
+          billingEntryMode === "amount"
+            ? t("common.exampleAmount")
+            : item.base_unit === BaseUnit.KG
+              ? t("common.exampleKg")
+              : t("common.exampleUnits");
 
         return (
           <ProductCard
@@ -595,6 +641,7 @@ export function BillingScreen({
         );
       },
       [
+        billingEntryMode,
         quantities,
         translatedItemNames,
         handleQuantityChange,
@@ -649,30 +696,44 @@ export function BillingScreen({
             description={t("billing.cartEmptyDescription")}
           />
         ) : (
-          cartItems.map((item) => (
-            <CartLine
-              key={item.item_id}
-              item={item}
-              itemName={
-                translatedItemNames.get(item.item_id) ??
-                getLocalizedItemName(language, item.item_name, item.item_tamil_name)
-              }
-              quantitySummary={`${item.quantity} ${formatUnit(item.base_unit)} x ${formatCurrency(item.price_per_unit)}`}
-              totalText={formatCurrency(
-                money(item.quantity)
-                  .mul(money(item.price_per_unit))
-                  .toFixed(2),
-              )}
-              removeHelpText={t("billing.removeLine")}
-              removeButtonLabel={t("action.remove")}
-              onRemove={handleRemoveItem}
-            />
-          ))
+          cartItems.map((item) => {
+            const displayQty = formatDisplayQuantity(
+              item.quantity,
+              item.base_unit === BaseUnit.UNIT,
+              billingEntryMode,
+            );
+            const unitLabel = formatUnit(item.base_unit);
+            const quantitySummary =
+              billingEntryMode === "amount"
+                ? `${formatCurrency(item.line_total)} @ ${formatCurrency(item.price_per_unit)} / ${unitLabel}`
+                : `${displayQty} ${unitLabel} x ${formatCurrency(item.price_per_unit)}`;
+            const totalText =
+              billingEntryMode === "amount"
+                ? `${displayQty} ${unitLabel}`
+                : formatCurrency(item.line_total);
+
+            return (
+              <CartLine
+                key={item.item_id}
+                item={item}
+                itemName={
+                  translatedItemNames.get(item.item_id) ??
+                  getLocalizedItemName(language, item.item_name, item.item_tamil_name)
+                }
+                quantitySummary={quantitySummary}
+                totalText={totalText}
+                emphasizeTotal={billingEntryMode === "amount"}
+                removeHelpText={t("billing.removeLine")}
+                removeButtonLabel={t("action.remove")}
+                onRemove={handleRemoveItem}
+              />
+            );
+          })
         )}
 
       </View>
     ),
-    [cartItems, handleRemoveItem, language, t, translatedItemNames],
+    [billingEntryMode, cartItems, handleRemoveItem, language, t, translatedItemNames],
   );
 
   if (loading && !bootstrap) {

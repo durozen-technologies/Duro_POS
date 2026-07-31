@@ -13,6 +13,7 @@ export interface OrganizationRead {
   bill_number_prefix: string;
   printing_enabled: boolean;
   receipt_paper_mm: 58 | 80;
+  billing_entry_mode: "kg" | "amount";
   settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -332,6 +333,7 @@ export async function patchOrganization(
     bill_number_prefix?: string;
     printing_enabled?: boolean;
     receipt_paper_mm?: 58 | 80;
+    billing_entry_mode?: "kg" | "amount";
   },
 ) {
   const { data } = await apiClient.patch<OrganizationRead>(

@@ -109,6 +109,7 @@ class UserSession(ORMModel):
     organization_name: str | None = None
     printing_enabled: bool = True
     receipt_paper_mm: Literal[58, 80] = 58
+    billing_entry_mode: Literal["kg", "amount"] = "kg"
     permissions: list[str] = Field(default_factory=list)
     shop_id: UUID | None = None
     shop_name: str | None = None

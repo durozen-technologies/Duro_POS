@@ -228,6 +228,7 @@ async def list_retailers(
         filters.append(
             or_(
                 func.lower(Retailer.name).like(pattern),
+                func.lower(func.coalesce(Retailer.shop_name, "")).like(pattern),
                 func.lower(func.coalesce(Retailer.phone, "")).like(pattern),
                 func.lower(func.coalesce(Retailer.alternate_phone, "")).like(pattern),
                 func.lower(func.coalesce(Retailer.address, "")).like(pattern),

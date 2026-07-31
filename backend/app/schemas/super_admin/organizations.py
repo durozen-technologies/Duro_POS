@@ -11,6 +11,7 @@ from app.schemas.common import ORMModel
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ReceiptPaperMm = Literal[58, 80]
+BillingEntryMode = Literal["kg", "amount"]
 
 
 def slugify_name(value: str) -> str:
@@ -41,6 +42,7 @@ class OrganizationUpdate(BaseModel):
     bill_number_prefix: str | None = Field(default=None, min_length=1, max_length=20)
     printing_enabled: bool | None = None
     receipt_paper_mm: ReceiptPaperMm | None = None
+    billing_entry_mode: BillingEntryMode | None = None
     settings: dict[str, object] | None = None
 
 
@@ -59,6 +61,7 @@ class OrganizationRead(ORMModel):
     bill_number_prefix: str
     printing_enabled: bool = True
     receipt_paper_mm: ReceiptPaperMm = 58
+    billing_entry_mode: BillingEntryMode = "kg"
     settings: dict[str, object]
     created_at: datetime
     updated_at: datetime

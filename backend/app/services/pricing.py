@@ -15,7 +15,7 @@ from app.core.redis_cache import (
     shop_bootstrap_cache_key,
 )
 from app.core.timezone import today_ist
-from app.models import DailyPrice, Item, Shop, ShopItemAllocation
+from app.models import DailyPrice, Item, Organization, Shop, ShopItemAllocation
 from app.schemas.admin import PriceStatus
 from app.schemas.pricing import (
     DailyPriceCreate,
@@ -29,6 +29,12 @@ from app.services.global_image_templates import (
     build_image_paths_for_row,
     load_templates_for_item_rows,
 )
+from app.services.org_billing import billing_entry_mode_from_settings
+
+
+async def _billing_entry_mode_for_shop(db: AsyncSession, shop: Shop) -> str:
+    org = await db.get(Organization, shop.organization_id)
+    return billing_entry_mode_from_settings(org.settings if org is not None else None)
 
 
 def _shop_visible_item_filter(shop_id: UUID):
@@ -260,13 +266,16 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
     today = today_ist()
     cache_key = await shop_bootstrap_cache_key(shop.id, today.isoformat())
     cached = await cache_get_json(cache_key)
+    billing_entry_mode = await _billing_entry_mode_for_shop(db, shop)
     if isinstance(cached, dict):
         try:
-            return ShopBootstrapResponse.model_validate(cached)
+            result = ShopBootstrapResponse.model_validate(cached)
+            return result.model_copy(update={"billing_entry_mode": billing_entry_mode})
         except Exception:
             pass
 
     result = await _get_shop_bootstrap_from_db(db, shop, today=today)
+    result = result.model_copy(update={"billing_entry_mode": billing_entry_mode})
     await cache_set_json(
         cache_key,
         result.model_dump(mode="json"),
@@ -429,6 +438,7 @@ async def get_shop_price_history(
     ).all()
     templates_by_id = await load_templates_for_item_rows(rows)
     has_prices = bool(rows) and all(row.price_date == target_date for row in rows)
+    billing_entry_mode = await _billing_entry_mode_for_shop(db, shop)
 
     return ShopBootstrapResponse(
         shop_id=shop.id,
@@ -436,6 +446,7 @@ async def get_shop_price_history(
         price_date=target_date,
         prices_set=has_prices,
         next_screen="billing" if has_prices else "daily_price_setup",
+        billing_entry_mode=billing_entry_mode,
         items=[
             ItemPriceRead(
                 item_id=row.id,

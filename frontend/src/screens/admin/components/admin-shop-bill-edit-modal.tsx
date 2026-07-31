@@ -125,13 +125,17 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
     setSaveError(null);
     try {
       const updated = await editAdminBill(bill.id, {
-        items: bill.items.map((line) => ({
-          item_id: line.item_id,
-          quantity:
+        items: bill.items.map((line) => {
+          const quantity =
             line.item_base_unit === BaseUnit.UNIT
               ? money(quantities[line.item_id] ?? "0").toFixed(0)
-              : money(quantities[line.item_id] ?? "0").toString(),
-        })),
+              : money(quantities[line.item_id] ?? "0").toString();
+          return {
+            item_id: line.item_id,
+            quantity,
+            line_total: toMoneyString(lineTotal(line, quantity).toFixed(2)),
+          };
+        }),
         payment: {
           cash_amount: toMoneyString(cashAmount),
           upi_amount: toMoneyString(upiAmount),

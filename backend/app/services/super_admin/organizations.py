@@ -40,6 +40,10 @@ from app.services.bill_number import (
     bill_number_prefix_from_settings,
     normalize_bill_number_prefix,
 )
+from app.services.org_billing import (
+    BILLING_ENTRY_MODE_SETTING,
+    billing_entry_mode_from_settings,
+)
 from app.services.org_printing import (
     PRINTING_ENABLED_SETTING,
     RECEIPT_PAPER_MM_SETTING,
@@ -102,6 +106,7 @@ def _org_to_read(org: Organization, *, branch_count: int = 0) -> OrganizationRea
         bill_number_prefix=bill_number_prefix_from_settings(org.settings),
         printing_enabled=printing_enabled_from_settings(org.settings),
         receipt_paper_mm=receipt_paper_mm_from_settings(org.settings),
+        billing_entry_mode=billing_entry_mode_from_settings(org.settings),
         settings=dict(org.settings or {}),
         created_at=org.created_at,
         updated_at=org.updated_at,
@@ -464,6 +469,27 @@ async def update_organization(
                 details={
                     "previous_receipt_paper_mm": previous_paper_mm,
                     "updated_receipt_paper_mm": payload.receipt_paper_mm,
+                    "modified_by": actor.username,
+                    "modified_at": modified_at,
+                },
+            )
+
+    if payload.billing_entry_mode is not None:
+        previous_mode = billing_entry_mode_from_settings(org.settings)
+        settings = dict(org.settings or {})
+        settings[BILLING_ENTRY_MODE_SETTING] = payload.billing_entry_mode
+        org.settings = settings
+        if payload.billing_entry_mode != previous_mode:
+            await record_super_admin_audit(
+                db,
+                actor=actor,
+                action="organization.billing_entry_mode_updated",
+                entity_type="organization",
+                entity_id=org.id,
+                organization_id=org.id,
+                details={
+                    "previous_billing_entry_mode": previous_mode,
+                    "updated_billing_entry_mode": payload.billing_entry_mode,
                     "modified_by": actor.username,
                     "modified_at": modified_at,
                 },
