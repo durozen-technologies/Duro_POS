@@ -1236,6 +1236,15 @@ export interface RetailerPage {
   total: number;
   page: number;
   page_size: number;
+  has_custom_order?: boolean;
+}
+
+export interface RetailerOrderUpdate {
+  retailer_ids: UUID[];
+}
+
+export interface RetailerOrderRead {
+  retailer_ids: UUID[];
 }
 
 export interface RetailerCreate {

@@ -72,6 +72,15 @@ class RetailerPage(BaseModel):
     total: int
     page: int
     page_size: int
+    has_custom_order: bool = False
+
+
+class RetailerOrderUpdate(BaseModel):
+    retailer_ids: list[UUID]
+
+
+class RetailerOrderRead(BaseModel):
+    retailer_ids: list[UUID]
 
 
 class RetailerItemPriceInput(BaseModel):

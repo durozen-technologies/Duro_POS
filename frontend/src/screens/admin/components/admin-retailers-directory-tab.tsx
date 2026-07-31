@@ -163,6 +163,7 @@ type AdminRetailersDirectoryTabProps = {
   onRefreshComplete?: () => void;
   onOpenRetailer: (retailer: RetailerRead) => void;
   onCreateRetailer: () => void;
+  onRearrangeRetailers: () => void;
 };
 
 export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryTab({
@@ -171,6 +172,7 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
   onRefreshComplete,
   onOpenRetailer,
   onCreateRetailer,
+  onRearrangeRetailers,
 }: AdminRetailersDirectoryTabProps) {
   const [retailers, setRetailers] = useState<RetailerRead[]>([]);
   const [statementRetailer, setStatementRetailer] = useState<RetailerRead | null>(null);
@@ -191,13 +193,15 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
         page_size: 100,
       });
       const items = page.items || [];
-      items.sort((a, b) => {
-        if (a.is_active && !b.is_active) return -1;
-        if (!a.is_active && b.is_active) return 1;
-        const balA = Number(a.outstanding_balance ?? 0);
-        const balB = Number(b.outstanding_balance ?? 0);
-        return balB - balA;
-      });
+      if (!page.has_custom_order) {
+        items.sort((a, b) => {
+          if (a.is_active && !b.is_active) return -1;
+          if (!a.is_active && b.is_active) return 1;
+          const balA = Number(a.outstanding_balance ?? 0);
+          const balB = Number(b.outstanding_balance ?? 0);
+          return balB - balA;
+        });
+      }
       setRetailers(items);
       setError(null);
     } catch (err) {
@@ -231,6 +235,17 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
             accessibilityLabel="Search retailers"
           />
         </View>
+        <ActionButton
+          icon="swap-vertical"
+          label="Rearrange"
+          tone="neutral"
+          palette={palette}
+          active
+          onPress={() => {
+            triggerHaptic();
+            onRearrangeRetailers();
+          }}
+        />
         <ActionButton
           icon="plus"
           label="Add"

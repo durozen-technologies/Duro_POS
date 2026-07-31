@@ -23,6 +23,7 @@ from app.models import (
     ShopItemAllocation,
     ShopRetailerAllocation,
     ShopRetailerItemAllocation,
+    UserRetailerOrder,
 )
 from app.schemas.retailers import (
     PriceHistoryEntry,
@@ -36,6 +37,7 @@ from app.schemas.retailers import (
     RetailerItemPriceInput,
     RetailerItemPriceRead,
     RetailerOpenSaleSummary,
+    RetailerOrderRead,
     RetailerPage,
     RetailerRead,
     RetailerUpdate,
@@ -88,9 +90,128 @@ async def retailer_has_billing_history(db: AsyncSession, retailer_id: UUID) -> b
     )
 
 
+async def user_has_retailer_order(db: AsyncSession, user_id: UUID) -> bool:
+    return bool(
+        await db.scalar(
+            select(UserRetailerOrder.id).where(UserRetailerOrder.user_id == user_id).limit(1)
+        )
+    )
+
+
+def _order_retailers_for_user(query, user_id: UUID | None):
+    """LEFT JOIN per-user order; unordered retailers sort last (name, id)."""
+    if user_id is None:
+        return query.order_by(Retailer.name.asc(), Retailer.id.asc())
+    return (
+        query.outerjoin(
+            UserRetailerOrder,
+            and_(
+                UserRetailerOrder.retailer_id == Retailer.id,
+                UserRetailerOrder.user_id == user_id,
+            ),
+        ).order_by(
+            UserRetailerOrder.sort_order.asc().nulls_last(),
+            Retailer.name.asc(),
+            Retailer.id.asc(),
+        )
+    )
+
+
+async def replace_user_retailer_order(
+    db: AsyncSession,
+    user_id: UUID,
+    ordered_ids: list[UUID],
+    *,
+    allowed_retailer_ids: set[UUID],
+) -> RetailerOrderRead:
+    ordered_item_ids = list(ordered_ids)
+    unique_item_ids = set(ordered_item_ids)
+    if len(unique_item_ids) != len(ordered_item_ids):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Order payload contains duplicate retailers",
+        )
+    missing_ids = allowed_retailer_ids - unique_item_ids
+    unknown_ids = unique_item_ids - allowed_retailer_ids
+    if missing_ids or unknown_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Order payload must include every allowed retailer exactly once",
+        )
+
+    existing_rows = (
+        await db.scalars(
+            select(UserRetailerOrder)
+            .where(UserRetailerOrder.user_id == user_id)
+            .with_for_update()
+        )
+    ).all()
+    rows_by_retailer_id = {row.retailer_id: row for row in existing_rows}
+
+    for index, retailer_id in enumerate(ordered_item_ids, start=1):
+        sort_order = index * 10
+        row = rows_by_retailer_id.pop(retailer_id, None)
+        if row is None:
+            db.add(
+                UserRetailerOrder(
+                    user_id=user_id,
+                    retailer_id=retailer_id,
+                    sort_order=sort_order,
+                )
+            )
+        elif row.sort_order != sort_order:
+            row.sort_order = sort_order
+
+    for stale in rows_by_retailer_id.values():
+        await db.delete(stale)
+
+    await db.commit()
+    return RetailerOrderRead(retailer_ids=ordered_item_ids)
+
+
+async def update_admin_retailers_order(
+    db: AsyncSession,
+    user_id: UUID,
+    retailer_ids: list[UUID],
+) -> RetailerOrderRead:
+    allowed = set(await db.scalars(select(Retailer.id)))
+    return await replace_user_retailer_order(
+        db,
+        user_id,
+        retailer_ids,
+        allowed_retailer_ids=allowed,
+    )
+
+
+async def update_shop_retailers_order(
+    db: AsyncSession,
+    user_id: UUID,
+    shop: Shop,
+    retailer_ids: list[UUID],
+) -> RetailerOrderRead:
+    allowed = set(
+        await db.scalars(
+            select(Retailer.id)
+            .join(ShopRetailerAllocation, ShopRetailerAllocation.retailer_id == Retailer.id)
+            .where(
+                Retailer.is_active.is_(True),
+                ShopRetailerAllocation.shop_id == shop.id,
+                ShopRetailerAllocation.is_active.is_(True),
+            )
+        )
+    )
+    return await replace_user_retailer_order(
+        db,
+        user_id,
+        retailer_ids,
+        allowed_retailer_ids=allowed,
+    )
+
+
 async def list_retailers(
     db: AsyncSession,
     *,
+    user_id: UUID | None = None,
     q: str | None = None,
     active: bool | None = None,
     shop_id: UUID | None = None,
@@ -179,7 +300,6 @@ async def list_retailers(
         .outerjoin(balance_sub, balance_sub.c.retailer_id == Retailer.id)
         .outerjoin(branch_names_sub, branch_names_sub.c.retailer_id == Retailer.id)
         .outerjoin(billed_retailers_sub, billed_retailers_sub.c.retailer_id == Retailer.id)
-        .order_by(Retailer.name.asc(), Retailer.id.asc())
     )
     if shop_id is not None:
         query = query.join(
@@ -191,8 +311,10 @@ async def list_retailers(
         )
     if filters:
         query = query.where(*filters)
+    query = _order_retailers_for_user(query, user_id)
     query = query.offset((page - 1) * page_size).limit(page_size)
     rows = (await db.execute(query)).all()
+    has_custom_order = bool(user_id) and await user_has_retailer_order(db, user_id)
     return RetailerPage(
         items=[
             _retailer_to_read(
@@ -211,6 +333,7 @@ async def list_retailers(
         total=total,
         page=page,
         page_size=page_size,
+        has_custom_order=has_custom_order,
     )
 
 
@@ -1081,6 +1204,7 @@ async def list_active_retailers_for_shop(
     db: AsyncSession,
     shop: Shop,
     *,
+    user_id: UUID | None = None,
     q: str | None = None,
 ) -> list[RetailerRead]:
     filters = [
@@ -1091,18 +1215,13 @@ async def list_active_retailers_for_shop(
     if q:
         pattern = f"%{q.strip().lower()}%"
         filters.append(func.lower(Retailer.name).like(pattern))
-    rows = (
-        (
-            await db.execute(
-                select(Retailer)
-                .join(ShopRetailerAllocation, ShopRetailerAllocation.retailer_id == Retailer.id)
-                .where(*filters)
-                .order_by(Retailer.name.asc())
-            )
-        )
-        .scalars()
-        .all()
+    query = (
+        select(Retailer)
+        .join(ShopRetailerAllocation, ShopRetailerAllocation.retailer_id == Retailer.id)
+        .where(*filters)
     )
+    query = _order_retailers_for_user(query, user_id)
+    rows = (await db.execute(query)).scalars().all()
     if not rows:
         return []
 

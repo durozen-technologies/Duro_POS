@@ -78,6 +78,11 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
     [navigation],
   );
 
+  const handleRearrangeRetailers = useCallback(
+    () => navigation.navigate("AdminRetailersOrder"),
+    [navigation],
+  );
+
   const handleOpenSale = useCallback(
     (saleId: string) => navigation.navigate("AdminRetailerSaleDetail", { saleId }),
     [navigation],
@@ -119,6 +124,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
               onRefreshComplete={handleRefreshComplete}
               onOpenRetailer={handleOpenRetailer}
               onCreateRetailer={handleCreateRetailer}
+              onRearrangeRetailers={handleRearrangeRetailers}
             />
           ) : null}
 

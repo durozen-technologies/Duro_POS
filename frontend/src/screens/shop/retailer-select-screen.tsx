@@ -208,6 +208,10 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
     navigation.navigate("RetailerSales");
   }, [navigation]);
 
+  const openRearrange = useCallback(() => {
+    navigation.navigate("ShopRetailersOrder");
+  }, [navigation]);
+
   const listHeader = useMemo(
     () => (
       <View>
@@ -219,12 +223,23 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
           pendingCount={pendingCount}
           onPressBills={openSales}
         />
-        <Text className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">
-          {t("retailers.selectToBill")}
-        </Text>
+        <View className="mb-2 flex-row items-center justify-between gap-2">
+          <Text className="flex-1 text-xs font-bold uppercase tracking-wide text-muted">
+            {t("retailers.selectToBill")}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("retailers.rearrange")}
+            onPress={openRearrange}
+            className="min-h-[36px] flex-row items-center gap-1.5 rounded-control border border-border bg-card px-2.5 active:opacity-90"
+          >
+            <MaterialCommunityIcons name="swap-vertical" size={16} color={appTheme.ink} />
+            <Text className="text-xs font-bold text-ink">{t("retailers.rearrange")}</Text>
+          </Pressable>
+        </View>
       </View>
     ),
-    [openSales, pendingCount, searchQuery, t],
+    [openRearrange, openSales, pendingCount, searchQuery, t],
   );
 
   if (loading) return <LoadingState label={t("retailers.loading")} />;

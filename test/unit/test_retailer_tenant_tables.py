@@ -20,6 +20,7 @@ class RetailerTenantTablesTests(unittest.TestCase):
             "retailer_inventory_purchase_lines",
             "shop_retailer_allocations",
             "shop_retailer_item_allocations",
+            "user_retailer_orders",
         }
         self.assertTrue(expected.issubset(names))
 

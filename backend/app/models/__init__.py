@@ -46,6 +46,7 @@ from .retailer import (
     RetailerWalletPayout,
     ShopRetailerAllocation,
     ShopRetailerItemAllocation,
+    UserRetailerOrder,
 )
 from .retailer_inventory import (
     RetailerInventoryPurchase,
@@ -110,6 +111,7 @@ __all__ = [
     "UnitType",
     "User",
     "UserAuthIndex",
+    "UserRetailerOrder",
     "UserRole",
     "TransferShop",
     "InventoryTransfer",

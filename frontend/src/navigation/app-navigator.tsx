@@ -134,6 +134,8 @@ const getAdminItemEditorScreen = () =>
   require("@/screens/admin/admin-item-editor-screen").AdminItemEditorScreen;
 const getAdminRetailersScreen = () =>
   require("@/screens/admin/admin-retailers-screen").AdminRetailersScreen;
+const getAdminRetailersOrderScreen = () =>
+  require("@/screens/admin/admin-retailers-order-screen").AdminRetailersOrderScreen;
 const getAdminRetailerEditorScreen = () =>
   require("@/screens/admin/admin-retailer-editor-screen").AdminRetailerEditorScreen;
 const getAdminRetailerDetailScreen = () =>
@@ -159,6 +161,8 @@ const getShopBillDetailScreen = () =>
   require("@/screens/shop/shop-bill-detail-screen").ShopBillDetailScreen;
 const getRetailerSelectScreen = () =>
   require("@/screens/shop/retailer-select-screen").RetailerSelectScreen;
+const getShopRetailersOrderScreen = () =>
+  require("@/screens/shop/shop-retailers-order-screen").ShopRetailersOrderScreen;
 const getRetailerSalesScreen = () =>
   require("@/screens/shop/retailer-sales-screen").RetailerSalesScreen;
 const getRetailerBillingScreen = () =>
@@ -397,6 +401,11 @@ function AdminStack() {
         options={HEADER_HIDDEN_OPTIONS}
       />
       <Stack.Screen
+        name="AdminRetailersOrder"
+        getComponent={getAdminRetailersOrderScreen}
+        options={HEADER_HIDDEN_OPTIONS}
+      />
+      <Stack.Screen
         name="AdminRetailerEditor"
         getComponent={getAdminRetailerEditorScreen}
         options={HEADER_HIDDEN_OPTIONS}
@@ -554,6 +563,13 @@ function ShopStack() {
         getComponent={getRetailerSelectScreen}
         options={{
           headerTitle: renderRetailerHeaderTitle,
+        }}
+      />
+      <Stack.Screen
+        name="ShopRetailersOrder"
+        getComponent={getShopRetailersOrderScreen}
+        options={{
+          headerTitle: "Rearrange retailers",
         }}
       />
       <Stack.Screen

@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     UniqueConstraint,
@@ -373,3 +374,43 @@ class MonthlyRetailerSaleSequence(Base):
 
     month_year: Mapped[str] = mapped_column(String(7), primary_key=True)
     current_value: Mapped[int] = mapped_column(nullable=False, default=0)
+
+
+class UserRetailerOrder(Base, BaseModelMixin):
+    """Per-user display order for retailers (metadata only; does not duplicate retailers)."""
+
+    __tablename__ = "user_retailer_orders"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "retailer_id",
+            name="uq_user_retailer_orders_user_retailer",
+        ),
+        Index(
+            "ix_user_retailer_orders_user_sort",
+            "user_id",
+            "sort_order",
+            "retailer_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    user_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    retailer_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("retailers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    retailer = relationship("Retailer")
+    user = relationship("User")

@@ -71,6 +71,7 @@ export type AppStackParamList = {
     shopId?: UUID;
   }
   | undefined;
+  AdminRetailersOrder: undefined;
   AdminRetailerEditor:
   | {
     initialRetailer?: import("@/types/api").RetailerRead;
@@ -100,6 +101,7 @@ export type AppStackParamList = {
   Billing: undefined;
   Checkout: undefined;
   RetailerSelect: undefined;
+  ShopRetailersOrder: undefined;
   RetailerSales: undefined;
   RetailerBilling: { retailerId: UUID; retailerName: string };
   RetailerCheckout: { retailerId: UUID; retailerName: string };
@@ -199,6 +201,10 @@ export type AdminRetailersScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "AdminRetailers"
 >;
+export type AdminRetailersOrderScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "AdminRetailersOrder"
+>;
 export type AdminRetailerEditorScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "AdminRetailerEditor"
@@ -238,6 +244,10 @@ export type CheckoutScreenProps = NativeStackScreenProps<
 export type RetailerSelectScreenProps = NativeStackScreenProps<
   AppStackParamList,
   "RetailerSelect"
+>;
+export type ShopRetailersOrderScreenProps = NativeStackScreenProps<
+  AppStackParamList,
+  "ShopRetailersOrder"
 >;
 export type RetailerSalesScreenProps = NativeStackScreenProps<
   AppStackParamList,

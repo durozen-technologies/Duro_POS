@@ -52,6 +52,8 @@ from app.schemas.retailers import (
     RetailerBulkSettleCreate,
     RetailerBulkSettleRead,
     RetailerCatalogRead,
+    RetailerOrderRead,
+    RetailerOrderUpdate,
     RetailerPaymentCreate,
     RetailerPaymentRecordResponse,
     RetailerRead,
@@ -117,6 +119,7 @@ from app.services.retailers import (
     get_shop_retailer_balance,
     get_shop_retailer_wallet,
     list_active_retailers_for_shop,
+    update_shop_retailers_order,
 )
 from app.services.shop_billing import get_shop_bill, list_shop_bills
 from app.services.transfer import create_inventory_transfer, list_transfer_shops
@@ -701,8 +704,25 @@ async def shop_list_retailers(
     q: str | None = Query(None, max_length=120),
     db: AsyncSession = Depends(get_tenant_db),
     shop: Shop = Depends(get_current_shop),
+    current_user: User = Depends(get_current_user),
 ) -> list[RetailerRead]:
-    return await list_active_retailers_for_shop(db, shop, q=q)
+    return await list_active_retailers_for_shop(db, shop, user_id=current_user.id, q=q)
+
+
+@router.put(
+    "/retailers/order",
+    response_model=RetailerOrderRead,
+    summary="Replace current shop user's retailer display order",
+)
+async def shop_update_retailers_order(
+    payload: RetailerOrderUpdate,
+    db: AsyncSession = Depends(get_tenant_db),
+    shop: Shop = Depends(get_current_shop),
+    current_user: User = Depends(get_current_user),
+) -> RetailerOrderRead:
+    return await update_shop_retailers_order(
+        db, current_user.id, shop, payload.retailer_ids
+    )
 
 
 @router.get(

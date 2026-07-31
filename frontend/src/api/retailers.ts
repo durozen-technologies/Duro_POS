@@ -10,6 +10,8 @@ import type {
   RetailerItemAllocationUpdate,
   RetailerItemPriceInput,
   RetailerItemPriceRead,
+  RetailerOrderRead,
+  RetailerOrderUpdate,
   RetailerPage,
   RetailerPaymentCreate,
   RetailerPaymentRecordResponse,
@@ -58,6 +60,22 @@ export async function fetchAllRetailers(params?: {
   } while (items.length < total);
 
   return items;
+}
+
+export async function updateAdminRetailersOrder(payload: RetailerOrderUpdate) {
+  const { data } = await apiClient.put<RetailerOrderRead>(
+    "/api/v1/admin/retailers/order",
+    payload,
+  );
+  return data;
+}
+
+export async function updateShopRetailersOrder(payload: RetailerOrderUpdate) {
+  const { data } = await apiClient.put<RetailerOrderRead>(
+    "/api/v1/shop/retailers/order",
+    payload,
+  );
+  return data;
 }
 
 export async function createRetailer(payload: RetailerCreate) {

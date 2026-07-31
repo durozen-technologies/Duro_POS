@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.auth.permission_codes import RETAILERS_MANAGE, RETAILERS_READ
 from app.auth.tenant_context import TenantContext, require_permission
 from app.models import RetailerSaleStatus
-from app.routers.admin._params import DBSession
+from app.routers.admin._params import AdminUserDep, DBSession
 from app.schemas.retailer_inventory import RetailerInventoryPurchasePage
 from app.schemas.retailers import (
     RetailerBalanceRead,
@@ -22,6 +22,8 @@ from app.schemas.retailers import (
     RetailerItemAllocationUpdate,
     RetailerItemPriceRead,
     RetailerItemPriceSync,
+    RetailerOrderRead,
+    RetailerOrderUpdate,
     RetailerOutstandingBalanceUpdate,
     RetailerPage,
     RetailerPaymentCreate,
@@ -63,6 +65,7 @@ from app.services.retailers import (
     sync_retailer_branch_allocations,
     sync_retailer_item_prices,
     sync_shop_retailer_item_catalog,
+    update_admin_retailers_order,
     update_retailer,
     update_retailer_item_allocation,
     update_retailer_outstanding_balance,
@@ -79,6 +82,7 @@ router = APIRouter()
 )
 async def admin_list_retailers(
     db: DBSession,
+    current_user: AdminUserDep,
     q: Annotated[str | None, Query(max_length=120)] = None,
     active: Annotated[bool | None, Query()] = None,
     shop_id: Annotated[UUID | None, Query()] = None,
@@ -86,8 +90,28 @@ async def admin_list_retailers(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> RetailerPage:
     return await list_retailers(
-        db, q=q, active=active, shop_id=shop_id, page=page, page_size=page_size
+        db,
+        user_id=current_user.id,
+        q=q,
+        active=active,
+        shop_id=shop_id,
+        page=page,
+        page_size=page_size,
     )
+
+
+@router.put(
+    "/retailers/order",
+    response_model=RetailerOrderRead,
+    dependencies=[Depends(require_permission(RETAILERS_READ))],
+    summary="Replace current admin's retailer display order",
+)
+async def admin_update_retailers_order(
+    payload: RetailerOrderUpdate,
+    db: DBSession,
+    current_user: AdminUserDep,
+) -> RetailerOrderRead:
+    return await update_admin_retailers_order(db, current_user.id, payload.retailer_ids)
 
 
 @router.post(
