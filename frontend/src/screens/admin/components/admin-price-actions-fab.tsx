@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import {
   adminElevation,
   adminPressOpacity,
@@ -82,6 +83,7 @@ type MainFabButtonProps = {
 };
 
 const MainFabButton = memo(function MainFabButton({ open, palette, progress, onPress }: MainFabButtonProps) {
+  const { t } = useAdminTranslation();
   const mainScale = useRef(new Animated.Value(1)).current;
   const mainOpacity = useRef(new Animated.Value(1)).current;
 
@@ -161,7 +163,7 @@ const MainFabButton = memo(function MainFabButton({ open, palette, progress, onP
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={open ? "Close price actions" : "Open price actions"}
+      accessibilityLabel={open ? t("items.closePriceActions") : t("items.openPriceActions")}
       accessibilityState={{ expanded: open }}
       onPress={onPress}
       onPressIn={onPressIn}
@@ -332,6 +334,7 @@ export const AdminPriceActionsFab = memo(function AdminPriceActionsFab({
   onUpdatePrice,
   onRetailerPrice,
 }: AdminPriceActionsFabProps) {
+  const { t } = useAdminTranslation();
   const reduceMotion = useReduceMotion();
   const [menuVisible, setMenuVisible] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
@@ -340,7 +343,7 @@ export const AdminPriceActionsFab = memo(function AdminPriceActionsFab({
     () => [
       {
         key: "purchaseRate",
-        label: "Purchase Rate",
+        label: t("inventory.purchaseRate"),
         icon: "cart-arrow-down",
         backgroundColor: palette.primary,
         textColor: palette.onPrimary,
@@ -348,7 +351,7 @@ export const AdminPriceActionsFab = memo(function AdminPriceActionsFab({
       },
       {
         key: "updatePrice",
-        label: "Update Price",
+        label: t("inventory.updatePrice"),
         icon: "cash-edit",
         backgroundColor: palette.success,
         textColor: palette.background,
@@ -356,14 +359,14 @@ export const AdminPriceActionsFab = memo(function AdminPriceActionsFab({
       },
       {
         key: "retailerPrice",
-        label: "Retailer Price",
+        label: t("inventory.retailerPrice"),
         icon: "tag-outline",
         backgroundColor: palette.warning,
         textColor: palette.background,
         onPress: onRetailerPrice,
       },
     ],
-    [onPurchaseRate, onRetailerPrice, onUpdatePrice, palette],
+    [onPurchaseRate, onRetailerPrice, onUpdatePrice, palette, t],
   );
 
   const runProgress = useCallback(
@@ -450,7 +453,7 @@ export const AdminPriceActionsFab = memo(function AdminPriceActionsFab({
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Close price actions menu"
+            accessibilityLabel={t("items.closePriceActions")}
             onPress={closeMenu}
             style={StyleSheet.absoluteFill}
           />

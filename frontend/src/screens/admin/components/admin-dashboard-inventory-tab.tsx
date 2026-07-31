@@ -2,6 +2,7 @@ import { memo } from "react";
 import { FlatList, Platform, RefreshControl, StyleSheet, View } from "react-native";
 
 import type { ItemSalesSummary } from "@/types/api";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 
 import type { ThemePalette } from "../admin-dashboard-theme";
 import { InventoryItemCard } from "./admin-dashboard-tab-cards";
@@ -40,6 +41,8 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
   onRefresh,
   onOpenBilling,
 }: AdminInventoryTabProps) {
+  const { t } = useAdminTranslation();
+
   return (
     <FlatList
       data={filteredItemSales}
@@ -51,35 +54,35 @@ export const AdminInventoryTab = memo(function AdminInventoryTab({
         <View style={styles.header}>
           <DashboardErrorBanner dashboardError={dashboardError} hasShops={hasShops} palette={palette} />
           <TabSectionHeader
-            title="Items Sold"
-            badgeLabel={`${filteredItemSales.length} items`}
+            title={t("inventory.itemsSold")}
+            badgeLabel={t("inventory.itemCount", { count: filteredItemSales.length })}
             badgeBackgroundColor={palette.analyticsSoft}
             badgeTextColor={palette.analyticsStrong}
             palette={palette}
           />
           <PrimaryButton
-            label="Show Bill"
+            label={t("inventory.showBill")}
             icon="receipt-text-outline"
             variant="success"
             fullWidth
             palette={palette}
             onPress={onOpenBilling}
-            accessibilityLabel="Show bill"
+            accessibilityLabel={t("inventory.showBill")}
           />
           <SearchField
             value={itemSearch}
             onChangeText={onChangeSearch}
-            placeholder="Search items"
-            accessibilityLabel="Search sold items"
+            placeholder={t("inventory.searchItems")}
+            accessibilityLabel={t("inventory.searchSoldItems")}
             palette={palette}
           />
         </View>
       }
       ListEmptyComponent={
         <EmptyStateCard
-          title={itemSearch.trim() ? "No matches found" : "No items sold"}
-          subtitle={itemSearch.trim() ? "Try a different search term." : "No sales data available for this period."}
-          actionLabel={itemSearch.trim() ? "Clear Search" : undefined}
+          title={itemSearch.trim() ? t("common.noResults") : t("inventory.noItemsSold")}
+          subtitle={itemSearch.trim() ? t("empty.tryDifferentSearch") : t("inventory.noSalesForPeriod")}
+          actionLabel={itemSearch.trim() ? t("common.clearSearch") : undefined}
           onAction={itemSearch.trim() ? () => onChangeSearch("") : undefined}
           icon="cart-off"
           palette={palette}

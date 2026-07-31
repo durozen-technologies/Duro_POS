@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,6 +27,7 @@ const TAB_ITEMS: { value: AdminRetailersTab; label: string; icon: "account-group
 ];
 
 export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreenProps) {
+  const { t } = useAdminTranslation();
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const initialTab = route.params?.tab ?? "retailers";

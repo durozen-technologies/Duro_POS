@@ -15,6 +15,7 @@ import {
 import { Button as TButton, Input, Spinner, XStack, YStack } from "tamagui";
 
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import {
   BaseUnit,
   ItemAssumptionStatus,
@@ -297,11 +298,12 @@ export function WorkspaceTabs({
   onShopItems: () => void;
   onPrices: () => void;
 }) {
+  const { t } = useAdminTranslation();
   const items: { value: AdminItemWorkspace; label: string; icon: IconName; onPress: () => void }[] = [
-    { value: AdminItemWorkspace.Catalogue, label: "Catalogue", icon: "shape-outline", onPress: onCatalogue },
-    { value: AdminItemWorkspace.Assumption, label: "Assumption", icon: "percent", onPress: onAssumption },
-    { value: AdminItemWorkspace.Shop, label: "Shop items", icon: "storefront-outline", onPress: onShopItems },
-    { value: AdminItemWorkspace.Prices, label: "Prices", icon: "cash-edit", onPress: onPrices },
+    { value: AdminItemWorkspace.Catalogue, label: t("items.catalogue"), icon: "shape-outline", onPress: onCatalogue },
+    { value: AdminItemWorkspace.Assumption, label: t("items.assumption"), icon: "percent", onPress: onAssumption },
+    { value: AdminItemWorkspace.Shop, label: t("items.shopItems"), icon: "storefront-outline", onPress: onShopItems },
+    { value: AdminItemWorkspace.Prices, label: t("items.prices"), icon: "cash-edit", onPress: onPrices },
   ];
   return (
     <View style={[styles.tabs, { borderColor: palette.border, backgroundColor: palette.surfaceMuted, padding: 0, gap: 0 }]}>

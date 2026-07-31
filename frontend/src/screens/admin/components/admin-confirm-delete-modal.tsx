@@ -7,11 +7,12 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
 
+import { AdminText as Text } from "@/components/ui/admin-text";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import type { ThemePalette } from "../admin-dashboard-theme";
 import { adminElevation, adminRadii } from "../admin-dashboard-theme";
 import { triggerHaptic } from "../admin-dashboard-utils";
@@ -46,6 +47,7 @@ export function AdminConfirmDeleteModal({
   onCancel,
   onConfirm,
 }: Props) {
+  const { t } = useAdminTranslation();
   const [username, setUsername] = useState(signedInUsername);
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -107,18 +109,18 @@ export function AdminConfirmDeleteModal({
 
             <View style={[styles.warnBox, { backgroundColor: palette.dangerSoft, borderColor: palette.danger }]}>
               <Text style={[styles.warnBody, { color: palette.danger }]}>{message}</Text>
-              <Text style={[styles.warnStrong, { color: palette.danger }]}>This cannot be undone</Text>
+              <Text style={[styles.warnStrong, { color: palette.danger }]}>{t("dialog.cannotUndo")}</Text>
             </View>
 
             <View style={styles.fields}>
               <View style={styles.field}>
-                <Text style={[styles.label, { color: palette.textMuted }]}>Admin username</Text>
+                <Text style={[styles.label, { color: palette.textMuted }]}>{t("dialog.adminUsername")}</Text>
                 <TextInput
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!busy}
-                  accessibilityLabel="Admin username"
-                  placeholder="Your username"
+                  accessibilityLabel={t("dialog.adminUsername")}
+                  placeholder={t("dialog.yourUsername")}
                   placeholderTextColor={palette.textMuted}
                   value={username}
                   onChangeText={setUsername}
@@ -133,14 +135,14 @@ export function AdminConfirmDeleteModal({
                 />
               </View>
               <View style={styles.field}>
-                <Text style={[styles.label, { color: palette.textMuted }]}>Admin password</Text>
+                <Text style={[styles.label, { color: palette.textMuted }]}>{t("dialog.adminPassword")}</Text>
                 <View style={styles.passwordRow}>
                   <TextInput
                     autoCapitalize="none"
                     autoCorrect={false}
                     editable={!busy}
-                    accessibilityLabel="Admin password"
-                    placeholder="Confirm your password"
+                    accessibilityLabel={t("dialog.adminPassword")}
+                    placeholder={t("dialog.confirmPassword")}
                     placeholderTextColor={palette.textMuted}
                     secureTextEntry={!passwordVisible}
                     value={password}
@@ -158,7 +160,7 @@ export function AdminConfirmDeleteModal({
                   />
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
+                    accessibilityLabel={passwordVisible ? t("a11y.hidePassword") : t("a11y.showPassword")}
                     disabled={busy}
                     onPress={() => setPasswordVisible((value) => !value)}
                     style={[
@@ -185,7 +187,7 @@ export function AdminConfirmDeleteModal({
             <View style={styles.actions}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Cancel delete"
+                accessibilityLabel={t("a11y.cancelDelete")}
                 disabled={busy}
                 onPress={onCancel}
                 style={[
@@ -193,11 +195,11 @@ export function AdminConfirmDeleteModal({
                   { backgroundColor: palette.backgroundElevated, borderColor: palette.border, opacity: busy ? 0.6 : 1 },
                 ]}
               >
-                <Text style={[styles.actionLabel, { color: palette.textPrimary }]}>Cancel</Text>
+                <Text style={[styles.actionLabel, { color: palette.textPrimary }]}>{t("action.cancel")}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Confirm delete"
+                accessibilityLabel={t("a11y.confirmDelete")}
                 disabled={!canSubmit}
                 onPress={handleConfirm}
                 style={[
@@ -212,7 +214,7 @@ export function AdminConfirmDeleteModal({
                 {busy ? (
                   <ActivityIndicator color={palette.onPrimary} />
                 ) : (
-                  <Text style={[styles.actionLabel, { color: palette.onPrimary }]}>Delete</Text>
+                  <Text style={[styles.actionLabel, { color: palette.onPrimary }]}>{t("action.delete")}</Text>
                 )}
               </Pressable>
             </View>

@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
@@ -29,6 +31,7 @@ export function AdminRetailerSaleDetailScreen({
   navigation,
   route,
 }: AdminRetailerSaleDetailScreenProps) {
+  const { t } = useAdminTranslation();
   const { saleId } = route.params;
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
@@ -143,19 +146,19 @@ export function AdminRetailerSaleDetailScreen({
             <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{sale.retailer_name}</Text>
             <Text style={{ color: palette.textMuted }}>{sale.shop_name}</Text>
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
-              <Text style={{ color: palette.textMuted }}>Total</Text>
+              <Text style={{ color: palette.textMuted }}>{t("retailers.total")}</Text>
               <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>
                 {formatCurrency(sale.total_amount)}
               </Text>
             </View>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ color: palette.textMuted }}>Paid</Text>
+              <Text style={{ color: palette.textMuted }}>{t("retailers.paid")}</Text>
               <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>
                 {formatCurrency(sale.amount_paid_total)}
               </Text>
             </View>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ color: palette.textMuted }}>Balance due</Text>
+              <Text style={{ color: palette.textMuted }}>{t("retailers.balanceDue")}</Text>
               <Text
                 style={{
                   color: hasBalance ? palette.warning : palette.success,
@@ -226,7 +229,7 @@ export function AdminRetailerSaleDetailScreen({
             >
               <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Record payment</Text>
               <View>
-                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>Cash</Text>
+                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>{t("retailers.cash")}</Text>
                 <TextInput
                   value={cashAmount}
                   onChangeText={setCashAmount}
@@ -244,7 +247,7 @@ export function AdminRetailerSaleDetailScreen({
                 />
               </View>
               <View>
-                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>UPI</Text>
+                <Text style={{ color: palette.textMuted, marginBottom: 6 }}>{t("retailers.upi")}</Text>
                 <TextInput
                   value={upiAmount}
                   onChangeText={setUpiAmount}

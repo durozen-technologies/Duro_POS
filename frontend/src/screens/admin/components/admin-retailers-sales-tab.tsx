@@ -1,5 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useFocusEffect } from "@react-navigation/native";
 
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
@@ -623,6 +625,7 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
   onOpenSale,
 
 }: AdminRetailersSalesTabProps) {
+  const { t } = useAdminTranslation();
 
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
 
@@ -1072,7 +1075,7 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
         <ActionButton
 
-          label="Filter"
+          label={t("retailers.filter")}
 
           icon="filter-variant"
 

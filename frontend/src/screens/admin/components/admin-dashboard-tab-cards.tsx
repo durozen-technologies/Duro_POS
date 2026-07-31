@@ -1,7 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
+import { AdminText as Text } from "@/components/ui/admin-text";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import { PrimaryButton } from "@/screens/admin/components/admin-dashboard-primitives";
 import type { ThemePalette } from "@/screens/admin/admin-dashboard-theme";
 import { adminRadii, adminSpacing, adminTypography } from "@/screens/admin/admin-dashboard-theme";
@@ -25,6 +27,7 @@ export const InventoryItemCard = memo(function InventoryItemCard({
   itemRevenueAverage,
   palette,
 }: InventoryItemCardProps) {
+  const { t } = useAdminTranslation();
   const itemTotal = Number(item.total_amount);
   const isHot = itemTotal >= itemRevenueAverage;
 
@@ -40,12 +43,15 @@ export const InventoryItemCard = memo(function InventoryItemCard({
           <View style={styles.itemTextWrap}>
             <Text style={[styles.itemTitle, { color: palette.textPrimary }]}>{item.item_name}</Text>
             <Text style={[styles.itemSubtitle, { color: palette.textMuted }]}>
-              {getUnitLabel(item.base_unit, item.quantity_sold)} · {item.bill_count} bills
+              {t("dashboard.itemSalesSummary", {
+                quantity: getUnitLabel(item.base_unit, item.quantity_sold),
+                bills: item.bill_count,
+              })}
             </Text>
           </View>
           <View style={[styles.stateChip, { backgroundColor: isHot ? palette.successSoft : palette.surfaceMuted }]}>
             <Text style={[styles.stateChipText, { color: isHot ? palette.success : palette.textMuted }]}>
-              {isHot ? "Hot" : "Steady"}
+              {isHot ? t("dashboard.hot") : t("dashboard.steady")}
             </Text>
           </View>
         </View>
@@ -72,6 +78,7 @@ export const BranchControlCard = memo(function BranchControlCard({
   onManage,
   onToggle,
 }: BranchControlCardProps) {
+  const { t } = useAdminTranslation();
   const statusColor =
     row.status === "ACTIVE"
       ? palette.success
@@ -100,23 +107,31 @@ export const BranchControlCard = memo(function BranchControlCard({
         </View>
         <View style={[styles.stateChip, { backgroundColor: `${statusColor}18` }]}>
           <View style={[styles.onlineDot, { backgroundColor: statusColor }]} />
-          <Text style={[styles.stateChipText, { color: statusColor }]}>{row.status}</Text>
+          <Text style={[styles.stateChipText, { color: statusColor }]}>
+            {row.status === "ACTIVE"
+              ? t("common.active")
+              : row.status === "IDLE"
+                ? t("dashboard.idle")
+                : row.status === "DISABLED"
+                  ? t("dashboard.disabled")
+                  : row.status}
+          </Text>
         </View>
       </View>
 
       <View style={styles.branchMetricsRow}>
         <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Revenue</Text>
+          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>{t("dashboard.revenue")}</Text>
           <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>
             {formatCompactCurrency(row.totalSales)}
           </Text>
         </View>
         <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Bills</Text>
+          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>{t("dashboard.bills")}</Text>
           <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>{row.billCount}</Text>
         </View>
         <View style={[styles.branchMetric, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
-          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>Last Active</Text>
+          <Text style={[styles.branchMetricLabel, { color: palette.textMuted }]}>{t("dashboard.lastActive")}</Text>
           <Text style={[styles.branchMetricValue, { color: palette.textPrimary }]}>
             {formatRelativeTime(row.lastActivityAt)}
           </Text>
@@ -127,7 +142,7 @@ export const BranchControlCard = memo(function BranchControlCard({
         <View style={styles.branchActionRow}>
           <View style={styles.branchActionButton}>
             <PrimaryButton
-              label="Manage Access"
+              label={t("settings.manageAccess")}
               onPress={() => onManage(row.shop)}
               variant="info"
               icon="pencil-box-outline"
@@ -137,7 +152,7 @@ export const BranchControlCard = memo(function BranchControlCard({
           </View>
           <View style={styles.branchActionButton}>
             <PrimaryButton
-              label={row.shop.is_active ? "Pause" : "Activate"}
+              label={row.shop.is_active ? t("action.pause") : t("action.activate")}
               onPress={() => onToggle(row.shop.id, !row.shop.is_active)}
               loading={statusUpdating}
               variant={row.shop.is_active ? "warning" : "success"}
@@ -158,6 +173,7 @@ type AdminLogoutCardProps = {
 };
 
 export const AdminLogoutCard = memo(function AdminLogoutCard({ palette, onLogout }: AdminLogoutCardProps) {
+  const { t } = useAdminTranslation();
   return (
     <Pressable
       onPress={onLogout}
@@ -168,8 +184,8 @@ export const AdminLogoutCard = memo(function AdminLogoutCard({ palette, onLogout
     >
       <MaterialCommunityIcons name="logout" size={20} color={palette.danger} />
       <View style={styles.logoutTextWrap}>
-        <Text style={[styles.logoutText, { color: palette.textPrimary }]}>Sign Out Admin</Text>
-        <Text style={[styles.logoutHint, { color: palette.textMuted }]}>Clears session and returns to login</Text>
+        <Text style={[styles.logoutText, { color: palette.textPrimary }]}>{t("settings.signOutAdmin")}</Text>
+        <Text style={[styles.logoutHint, { color: palette.textMuted }]}>{t("settings.signOutHint")}</Text>
       </View>
       <MaterialCommunityIcons name="chevron-right" size={20} color={palette.textPrimary} />
     </Pressable>

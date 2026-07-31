@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import * as FileSystem from "expo-file-system/legacy";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -112,10 +114,10 @@ const EMPTY_COUNTS: ExpenseItemCounts = {
   allocated: 0,
   available: 0,
 };
-const TABS: { key: ExpenseTab; label: string; icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"] }[] = [
-  { key: "items", label: "Items", icon: "playlist-plus" },
-  { key: "allocation", label: "Allocation", icon: "source-branch" },
-  { key: "history", label: "History", icon: "history" },
+const TABS: { key: ExpenseTab; labelKey: "expenses.expenseItems" | "expenses.branchAllocation" | "expenses.expenseHistory"; icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"] }[] = [
+  { key: "items", labelKey: "expenses.expenseItems", icon: "playlist-plus" },
+  { key: "allocation", labelKey: "expenses.branchAllocation", icon: "source-branch" },
+  { key: "history", labelKey: "expenses.expenseHistory", icon: "history" },
 ];
 
 async function loadImagePickerModule(): Promise<ExpoImagePickerModule | null> {
@@ -1346,6 +1348,7 @@ function HistoryRow({
 }
 
 export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenProps) {
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const { colorScheme, palette } = useAdminTheme();
   const [activeTab, setActiveTab] = useState<ExpenseTab>("items");
@@ -1935,7 +1938,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       />
       <View style={styles.headerActions}>
         <ActionButton
-          label="Arrange order"
+          label={t("items.arrangeOrder")}
           icon="sort"
           palette={palette}
           tone="info"
@@ -2141,7 +2144,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
           />
         )}
         ListHeaderComponent={<>{renderHeader()}{historyHeader()}</>}
-        ListEmptyComponent={<AdminEmptyState title="No expense history" description="Shop entries will appear here after they record expenses." palette={palette} />}
+        ListEmptyComponent={<AdminEmptyState title={t("expenses.noExpenseHistory")} description={t("expenses.noExpenseHistoryHint")} palette={palette} />}
         ListFooterComponent={historyLoadingMore ? <ActivityIndicator color={palette.cash} style={styles.footerLoader} /> : null}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} tintColor={palette.cash} />}
         onEndReached={loadMoreHistory}
@@ -2159,8 +2162,8 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
           <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text style={[styles.title, { color: palette.onShell }]}>Expenses</Text>
-          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>Standalone branch expense control</Text>
+          <Text style={[styles.title, { color: palette.onShell }]}>{t("expenses.title")}</Text>
+          {/* <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>{t("expenses.workspaceSubtitle")}</Text> */}
         </View>
         <AdminHeaderActions refreshing={refreshing} onRefresh={refreshCurrentTab} />
       </View>
@@ -2186,7 +2189,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
               ]}
             >
               <MaterialCommunityIcons name={tab.icon} size={17} color={selected ? palette.cash : palette.textMuted} />
-              <Text style={[styles.tabLabel, { color: selected ? palette.cash : palette.textPrimary }]}>{tab.label}</Text>
+              <Text style={[styles.tabLabel, { color: selected ? palette.cash : palette.textPrimary }]}>{t(tab.labelKey)}</Text>
             </Pressable>
           );
         })}
@@ -2217,7 +2220,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
             >
               <View style={styles.modalHeader}>
                 <View style={styles.rowBody}>
-                  <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>Edit expense entry</Text>
+                  <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>{t("expenses.editEntry")}</Text>
                   {editingHistoryEntry ? (
                     <Text numberOfLines={2} style={[styles.rowMeta, { color: palette.textMuted }]}>
                       {editingHistoryEntry.shop_name} · {editingHistoryEntry.expense_name}
@@ -2226,7 +2229,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Close expense history editor"
+                  accessibilityLabel={t("expenses.closeEditor")}
                   onPress={closeHistoryEditor}
                   style={[styles.modalCloseButton, { backgroundColor: palette.backgroundElevated, borderColor: palette.border }]}
                 >
@@ -2239,7 +2242,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
                 contentContainerStyle={styles.modalScrollContent}
               >
                 <AdminTextField
-                  label="Amount"
+                  label={t("expenses.amount")}
                   value={historyAmountDraft}
                   onChangeText={setHistoryAmountDraft}
                   placeholder="0.00"
@@ -2247,29 +2250,29 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
                   keyboardType="decimal-pad"
                 />
                 <CalendarDateField
-                  label="Spent date"
+                  label={t("expenses.spentDate")}
                   value={historyDateDraft}
                   colors={palette}
                   onPress={() => setHistoryDatePickerOpen(true)}
                 />
                 <TimePickerField
-                  label="Spent time"
+                  label={t("expenses.spentTime")}
                   value={historyTimeDraft}
                   colors={palette}
                   onPress={() => setHistoryTimePickerOpen(true)}
                 />
                 <AdminTextField
-                  label="Note"
+                  label={t("common.notes")}
                   value={historyNoteDraft}
                   onChangeText={setHistoryNoteDraft}
-                  placeholder="Optional note"
+                  placeholder={t("expenses.optionalNote")}
                   palette={palette}
                 />
               </ScrollView>
               <View style={styles.modalActions}>
-                <ActionButton label="Cancel" icon="close" palette={palette} tone="warning" onPress={closeHistoryEditor} />
+                <ActionButton label={t("action.cancel")} icon="close" palette={palette} tone="warning" onPress={closeHistoryEditor} />
                 <ActionButton
-                  label="Save changes"
+                  label={t("expenses.saveChanges")}
                   icon="content-save-outline"
                   palette={palette}
                   tone="success"
@@ -2285,7 +2288,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 
       <CalendarDatePickerModal
         visible={historyDatePickerOpen}
-        title="Select spent date"
+        title={t("expenses.selectSpentDate")}
         value={historyDateDraft}
         colors={palette}
         onSelect={(date) => {
@@ -2297,7 +2300,7 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 
       <TimePickerModal
         visible={historyTimePickerOpen}
-        title="Select spent time"
+        title={t("expenses.selectSpentTime")}
         value={historyTimeDraft}
         colors={palette}
         onSelect={(time) => {

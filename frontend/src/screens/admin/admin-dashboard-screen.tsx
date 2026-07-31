@@ -24,6 +24,7 @@ import { z } from "zod";
 import { formatApiErrorMessage, toApiError } from "@/api/client";
 import { cancelAdminBill } from "@/api/admin";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useAdminTranslation, type AdminTranslationKey } from "@/hooks/use-admin-translation";
 import type { AdminDashboardScreenProps } from "@/navigation/types";
 import { logout } from "@/store/auth-store";
 import { AnalyticsPeriod, type AdminBillSummary, type BillRead, type ShopRead, type UUID } from "@/types/api";
@@ -71,40 +72,22 @@ import {
   type ToastTone,
 } from "./admin-dashboard-utils";
 
-const usernameSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .min(3, "Login username is required")
-  .max(50, "Username is too long")
-  .regex(/^[a-z0-9._-]+$/, "Use only letters, numbers, dots, hyphens, or underscores");
-
-const createShopSchema = z.object({
-  name: z.string().min(2, "Shop name is required"),
-  username: usernameSchema,
-  password: z
-    .string()
-    .max(128, "Password is too long")
-    .refine((value) => value.trim().length >= 8, "Password must be at least 8 characters"),
-});
-
-const editShopSchema = z.object({
-  name: z.string().min(2, "Shop name is required"),
-  username: usernameSchema,
-  password: z
-    .string()
-    .max(128, "Password is too long")
-    .refine((value) => value.trim() === "" || value.trim().length >= 8, "Password must be at least 8 characters"),
-});
-
-type CreateShopFormValues = z.infer<typeof createShopSchema>;
-type EditShopFormValues = z.infer<typeof editShopSchema>;
-const PERIOD_OPTIONS: { key: AnalyticsPeriod; label: string }[] = [
-  { key: AnalyticsPeriod.DATE, label: "Day" },
-  { key: AnalyticsPeriod.RANGE, label: "Range" },
-  { key: AnalyticsPeriod.WEEK, label: "Week" },
-  { key: AnalyticsPeriod.MONTH, label: "Month" },
-  { key: AnalyticsPeriod.YEAR, label: "Year" },
+type CreateShopFormValues = {
+  name: string;
+  username: string;
+  password: string;
+};
+type EditShopFormValues = {
+  name: string;
+  username: string;
+  password: string;
+};
+const PERIOD_OPTION_KEYS: { key: AnalyticsPeriod; labelKey: AdminTranslationKey }[] = [
+  { key: AnalyticsPeriod.DATE, labelKey: "period.day" },
+  { key: AnalyticsPeriod.RANGE, labelKey: "period.range" },
+  { key: AnalyticsPeriod.WEEK, labelKey: "period.week" },
+  { key: AnalyticsPeriod.MONTH, labelKey: "period.month" },
+  { key: AnalyticsPeriod.YEAR, labelKey: "period.year" },
 ];
 
 const CALENDAR_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -151,8 +134,8 @@ function isDateBetween(value: string, start?: string | null, end?: string | null
   return Boolean(start && end && value >= start && value <= end);
 }
 
-function formatCalendarDateLabel(value?: string | null) {
-  return value ? calendarDateFormatter.format(parseLocalDateValue(value)) : "Select date";
+function formatCalendarDateLabel(value?: string | null, emptyLabel = "Select date") {
+  return value ? calendarDateFormatter.format(parseLocalDateValue(value)) : emptyLabel;
 }
 
 function isNewArchitectureEnabled() {
@@ -163,7 +146,59 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { colorScheme, palette, setThemePreference } = useAdminTheme();
-  const bottomNavItems = useMemo(() => NAV_ITEMS.map((item) => ({ ...item, icon: item.icon as never })), []);
+  const { t } = useAdminTranslation();
+  const bottomNavItems = useMemo(
+    () =>
+      NAV_ITEMS.map((item) => ({
+        key: item.key,
+        label: t(item.labelKey),
+        icon: item.icon as never,
+      })),
+    [t],
+  );
+  const periodOptions = useMemo(
+    () => PERIOD_OPTION_KEYS.map((option) => ({ key: option.key, label: t(option.labelKey) })),
+    [t],
+  );
+  const createShopSchemaLocalized = useMemo(
+    () =>
+      z.object({
+        name: z.string().min(2, t("forms.shopNameRequired")),
+        username: z
+          .string()
+          .trim()
+          .toLowerCase()
+          .min(3, t("forms.usernameRequired"))
+          .max(50, t("forms.usernameTooLong"))
+          .regex(/^[a-z0-9._-]+$/, t("forms.usernameInvalid")),
+        password: z
+          .string()
+          .max(128, t("forms.passwordTooLong"))
+          .refine((value) => value.trim().length >= 8, t("forms.passwordMinLength")),
+      }),
+    [t],
+  );
+  const editShopSchemaLocalized = useMemo(
+    () =>
+      z.object({
+        name: z.string().min(2, t("forms.shopNameRequired")),
+        username: z
+          .string()
+          .trim()
+          .toLowerCase()
+          .min(3, t("forms.usernameRequired"))
+          .max(50, t("forms.usernameTooLong"))
+          .regex(/^[a-z0-9._-]+$/, t("forms.usernameInvalid")),
+        password: z
+          .string()
+          .max(128, t("forms.passwordTooLong"))
+          .refine(
+            (value) => value.trim() === "" || value.trim().length >= 8,
+            t("forms.passwordMinLength"),
+          ),
+      }),
+    [t],
+  );
   const dateOptions = useMemo(() => buildDateOptions(), []);
   const monthOptions = useMemo(() => buildMonthOptions(), []);
   const weekOptions = useMemo(() => buildWeekOptions(), []);
@@ -227,12 +262,12 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   );
 
   const createForm = useForm<CreateShopFormValues>({
-    resolver: zodResolver(createShopSchema),
+    resolver: zodResolver(createShopSchemaLocalized),
     defaultValues: { name: "", username: "", password: "" },
   });
 
   const manageForm = useForm<EditShopFormValues>({
-    resolver: zodResolver(editShopSchema),
+    resolver: zodResolver(editShopSchemaLocalized),
     defaultValues: { name: "", username: "", password: "" },
   });
 
@@ -477,20 +512,20 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedShopId(shopId);
     setShopSelectorOpen(false);
-    showToast("success", shopId ? "Branch focus updated." : "Showing all branches.");
+    showToast("success", shopId ? t("i18n.branchFocusUpdated") : t("i18n.showingAllBranches"));
   }, [showToast]);
 
   const openCreateShopSheet = useCallback(() => {
     if (!branchQuota.can_create_branch) {
       showToast(
         "error",
-        "Branch limit reached. Contact Durozen Technologies to request additional capacity.",
+        t("settings.branchLimitReached"),
       );
       return;
     }
     createForm.reset({ name: "", username: "", password: "" });
     setCreateShopOpen(true);
-  }, [branchQuota.can_create_branch, createForm, showToast]);
+  }, [branchQuota.can_create_branch, createForm, showToast, t]);
 
   const openReportsScreen = useCallback(() => {
     navigation.navigate("AdminReports");
@@ -525,9 +560,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       });
       createForm.reset();
       setCreateShopOpen(false);
-      showToast("success", "New branch created successfully.");
+      showToast("success", t("i18n.branchCreated"));
     } catch (error) {
-      showToast("error", formatApiErrorMessage(error, "Unable to create branch."));
+      showToast("error", formatApiErrorMessage(error, t("i18n.unableCreateBranch")));
     } finally {
       setCreating(false);
     }
@@ -546,9 +581,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         password: values.password.trim() ? values.password : null,
       });
       closeManageShopSheet();
-      showToast("success", `${values.name.trim()} updated successfully.`);
+      showToast("success", t("i18n.branchUpdated", { name: values.name.trim() }));
     } catch (error) {
-      showToast("error", formatApiErrorMessage(error, "Unable to update branch."));
+      showToast("error", formatApiErrorMessage(error, t("i18n.unableUpdateBranch")));
     } finally {
       setUpdatingShop(false);
     }
@@ -557,12 +592,12 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
   const confirmDeleteShop = useCallback(
     (shop: ShopRead) => {
       Alert.alert(
-        "Delete Shop",
-        `Delete ${shop.name}? This is only allowed for shops without price or billing history.`,
+        t("i18n.deleteShop"),
+        t("i18n.deleteShopMessage", { name: shop.name }),
         [
-          { text: "Cancel", style: "cancel" },
+          { text: t("action.cancel"), style: "cancel" },
           {
-            text: "Delete",
+            text: t("action.delete"),
             style: "destructive",
             onPress: () => {
               void (async () => {
@@ -573,9 +608,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                     setSelectedShopId(null);
                   }
                   closeManageShopSheet();
-                  showToast("success", `${shop.name} deleted successfully.`);
+                  showToast("success", t("i18n.branchDeleted", { name: shop.name }));
                 } catch (error) {
-                  showToast("error", formatApiErrorMessage(error, "Unable to delete branch."));
+                  showToast("error", formatApiErrorMessage(error, t("i18n.unableDeleteBranch")));
                 } finally {
                   setDeletingShopId(null);
                 }
@@ -585,7 +620,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         ],
       );
     },
-    [closeManageShopSheet, deleteBranch, selectedShopId, showToast],
+    [closeManageShopSheet, deleteBranch, selectedShopId, showToast, t],
   );
 
   const handleDeleteShop = useCallback(() => {
@@ -609,14 +644,17 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         setSelectedManagedShop((current) =>
           current?.id === shopId ? { ...current, is_active: isActive } : current,
         );
-        showToast("success", `${shop.name} ${isActive ? "activated" : "paused"}.`);
+        showToast(
+          "success",
+          isActive ? t("i18n.branchActivated", { name: shop.name }) : t("i18n.branchPaused", { name: shop.name }),
+        );
       } catch (error) {
-        showToast("error", formatApiErrorMessage(error, "Unable to update branch."));
+        showToast("error", formatApiErrorMessage(error, t("i18n.unableUpdateBranch")));
       } finally {
         setStatusUpdatingShopId(null);
       }
     },
-    [shops, showToast, toggleBranchStatus],
+    [shops, showToast, t, toggleBranchStatus],
   );
 
   const openBillPreview = useCallback(async (billId: UUID) => {
@@ -629,11 +667,11 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
       setSelectedBillPreview(bill);
     } catch (error) {
       setBillPreviewOpen(false);
-      showToast("error", formatApiErrorMessage(error, "Unable to load bill preview."));
+      showToast("error", formatApiErrorMessage(error, t("i18n.unableLoadBillPreview")));
     } finally {
       setBillPreviewLoading(false);
     }
-  }, [loadBillDetail, showToast]);
+  }, [loadBillDetail, showToast, t]);
 
   function closeBillPreview() {
     setBillPreviewOpen(false);
@@ -647,16 +685,16 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
 
   const handleLoadMoreBills = useCallback(() => {
     void loadMoreBills().catch((error) => {
-      showToast("error", formatApiErrorMessage(error, "Unable to load more bills."));
+      showToast("error", formatApiErrorMessage(error, t("i18n.unableLoadMoreBills")));
     });
-  }, [loadMoreBills, showToast]);
+  }, [loadMoreBills, showToast, t]);
 
   const handleToggleTheme = useCallback(() => {
     const nextTheme = colorScheme === "dark" ? "light" : "dark";
     triggerHaptic(Haptics.ImpactFeedbackStyle.Light);
     setThemePreference(nextTheme);
-    showToast("success", `${nextTheme === "dark" ? "Dark" : "Light"} mode enabled.`);
-  }, [colorScheme, setThemePreference, showToast]);
+    showToast("success", nextTheme === "dark" ? t("i18n.darkModeEnabled") : t("i18n.lightModeEnabled"));
+  }, [colorScheme, setThemePreference, showToast, t]);
 
   const handleOpenBillPreview = useCallback((billId: UUID) => {
     void openBillPreview(billId);
@@ -678,18 +716,18 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
           void loadDashboard(true);
           return;
         }
-        showToast("error", formatApiErrorMessage(error, "Unable to load bill for editing."));
+        showToast("error", formatApiErrorMessage(error, t("i18n.unableLoadBillEdit")));
       });
-  }, [loadBillDetail, loadDashboard, showToast]);
+  }, [loadBillDetail, loadDashboard, showToast, t]);
 
   const handleCancelBill = useCallback((bill: AdminBillSummary) => {
     Alert.alert(
-      "Cancel bill?",
-      `Cancel ${bill.bill_no}? This cannot be undone.`,
+      t("i18n.cancelBill"),
+      t("i18n.cancelBillMessage", { billNumber: bill.bill_no }),
       [
-        { text: "Keep bill", style: "cancel" },
+        { text: t("i18n.keepBill"), style: "cancel" },
         {
-          text: "Cancel bill",
+          text: t("i18n.cancelBill"),
           style: "destructive",
           onPress: () => {
             void cancelAdminBill(bill.bill_id)
@@ -700,13 +738,13 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                   void loadDashboard(true);
                   return;
                 }
-                showToast("error", formatApiErrorMessage(error, "Unable to cancel bill."));
+                showToast("error", formatApiErrorMessage(error, t("i18n.unableCancelBill")));
               });
           },
         },
       ],
     );
-  }, [loadDashboard, showToast]);
+  }, [loadDashboard, showToast, t]);
 
   const handleToggleBranchStatus = useCallback((shopId: UUID, isActive: boolean) => {
     void handleToggleShop(shopId, isActive);
@@ -769,9 +807,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
         <StatusBar style="light" />
         <View style={styles.emptyWrap}>
           <EmptyStateCard
-            title="Unable to load admin dashboard"
+            title={t("i18n.unableLoadDashboard")}
             subtitle={dashboardError}
-            actionLabel="Retry"
+            actionLabel={t("action.retry")}
             onAction={handleQuickRefresh}
             palette={palette}
             icon="wifi-alert"
@@ -824,9 +862,9 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                   <MaterialCommunityIcons name="domain" size={16} color={palette.primary} />
                 </View>
                 <View style={styles.selectorOptionText}>
-                  <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>All Branches</Text>
+                  <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>{t("i18n.allBranches")}</Text>
                   <Text style={[styles.selectorOptionSubtitle, { color: palette.textMuted }]}>
-                    Network-wide analytics
+                    {t("i18n.networkAnalytics")}
                   </Text>
                 </View>
               </View>
@@ -843,7 +881,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                   <View style={styles.selectorOptionText}>
                     <Text style={[styles.selectorOptionTitle, { color: palette.textPrimary }]}>{shop.name}</Text>
                     <Text style={[styles.selectorOptionSubtitle, { color: palette.textMuted }]}>
-                      {shop.username} · {shop.is_active ? "Active" : "Disabled"}
+                      {shop.username} · {shop.is_active ? t("common.active") : t("i18n.disabled")}
                     </Text>
                   </View>
                 </View>
@@ -859,7 +897,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                       { color: shop.is_active ? palette.success : palette.danger },
                     ]}
                   >
-                    {shop.is_active ? "Active" : "Off"}
+                    {shop.is_active ? t("common.active") : t("i18n.off")}
                   </Text>
                 </View>
                 {selectedShopId === shop.id ? (
@@ -884,7 +922,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
           ]}
         >
           <View style={[styles.segmentRow, { padding: 12 }]}>
-            {PERIOD_OPTIONS.map((option) => {
+            {periodOptions.map((option) => {
               const active = analyticsPeriod === option.key;
               return (
                 <Pressable
@@ -917,7 +955,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
               <View style={styles.calendarHeader}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Previous month"
+                  accessibilityLabel={t("i18n.previousMonth")}
                   onPress={handleShowPreviousCalendarMonth}
                   style={[
                     styles.calendarIconButton,
@@ -928,7 +966,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                 </Pressable>
                 <View style={styles.calendarTitleWrap}>
                   <Text style={[styles.calendarModeLabel, { color: palette.textMuted }]}>
-                    {analyticsPeriod === AnalyticsPeriod.RANGE ? "Custom range" : "Select day"}
+                    {analyticsPeriod === AnalyticsPeriod.RANGE ? t("i18n.customRange") : t("i18n.selectDay")}
                   </Text>
                   <Text style={[styles.calendarMonthTitle, { color: palette.textPrimary }]}>
                     {calendarMonthLabel}
@@ -936,7 +974,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Next month"
+                  accessibilityLabel={t("i18n.nextMonth")}
                   onPress={handleShowNextCalendarMonth}
                   style={[
                     styles.calendarIconButton,
@@ -974,7 +1012,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                       <Pressable
                         accessibilityRole="button"
                         accessibilityState={{ selected }}
-                        accessibilityLabel={formatCalendarDateLabel(day.value)}
+                        accessibilityLabel={formatCalendarDateLabel(day.value, t("i18n.selectDate"))}
                         onPress={() => {
                           if (analyticsPeriod === AnalyticsPeriod.DATE) {
                             handleSelectCalendarDate(day.value);
@@ -1026,16 +1064,16 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                 >
                   <View style={styles.rangeDatesRow}>
                     <View style={styles.rangeDateBlock}>
-                      <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>Start</Text>
+                      <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>{t("i18n.start")}</Text>
                       <Text style={[styles.rangeDateValue, { color: palette.textPrimary }]} numberOfLines={1}>
-                        {formatCalendarDateLabel(draftRangeStartDate)}
+                        {formatCalendarDateLabel(draftRangeStartDate, t("i18n.selectDate"))}
                       </Text>
                     </View>
                     <View style={[styles.rangeDivider, { backgroundColor: palette.border }]} />
                     <View style={styles.rangeDateBlock}>
-                      <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>End</Text>
+                      <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>{t("i18n.end")}</Text>
                       <Text style={[styles.rangeDateValue, { color: palette.textPrimary }]} numberOfLines={1}>
-                        {formatCalendarDateLabel(draftRangeEndDate)}
+                        {formatCalendarDateLabel(draftRangeEndDate, t("i18n.selectDate"))}
                       </Text>
                     </View>
                   </View>
@@ -1054,7 +1092,7 @@ export function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) 
                         { color: canApplyDraftRange ? palette.onPrimary : palette.textMuted },
                       ]}
                     >
-                      Apply Range
+                      {t("i18n.applyRange")}
                     </Text>
                   </Pressable>
                 </View>

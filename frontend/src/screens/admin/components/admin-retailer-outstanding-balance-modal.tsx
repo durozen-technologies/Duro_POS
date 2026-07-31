@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo, useCallback, useEffect, useState } from "react";
 import {
   Alert,
@@ -38,6 +40,7 @@ export const AdminRetailerOutstandingBalanceModal = memo(
     onClose,
     onSaved,
   }: AdminRetailerOutstandingBalanceModalProps) {
+  const { t } = useAdminTranslation();
     const [amount, setAmount] = useState("");
     const [saving, setSaving] = useState(false);
 

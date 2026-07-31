@@ -14,6 +14,7 @@ import {
 } from "@/api/admin";
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import { useAdminItemsStore } from "@/store/admin-items-store";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -123,6 +124,7 @@ function AdminItemsRoute({
   workspace,
 }: ItemsRouteProps & { workspace: AdminItemWorkspace }) {
   const { colorScheme, palette } = useAdminTheme();
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const storedShopId = useAdminItemsStore((state) => state.selectedShopId);
@@ -189,11 +191,11 @@ function AdminItemsRoute({
   );
   const categoryFilterOptions = useMemo<CategoryFilterOption[]>(
     () => [
-      { key: ALL_CATEGORY_FILTER_KEY, label: "All categories" },
+      { key: ALL_CATEGORY_FILTER_KEY, label: t("items.allCategories") },
       ...itemCategories.map((category) => ({ key: category.id, label: category.name })),
-      { key: UNCATEGORIZED_CATEGORY_FILTER_KEY, label: "Uncategorized" },
+      { key: UNCATEGORIZED_CATEGORY_FILTER_KEY, label: t("items.uncategorized") },
     ],
-    [itemCategories],
+    [itemCategories, t],
   );
   const selectedShopItemQuery = useMemo(
     () => buildSelectedShopItemQuery(debouncedSearch, categoryFilterKey),
@@ -422,14 +424,14 @@ function AdminItemsRoute({
   const navigateArrangeOrder = useCallback(() => {
     if (!selectedShopId) {
       triggerHaptic();
-      showToast("error", "Select a shop before arranging items.");
+      showToast("error", t("items.selectShopBeforeArrange"));
       return;
     }
     navigation.navigate("AdminShopItemsOrder", {
       shopId: selectedShopId,
       shopName: selectedShop?.name,
     });
-  }, [navigation, selectedShop?.name, selectedShopId, showToast]);
+  }, [navigation, selectedShop?.name, selectedShopId, showToast, t]);
 
   const confirmDelete = useCallback((item: ShopItemRead) => {
     if (workspace !== AdminItemWorkspace.Catalogue && item.scope === ItemScope.Global) {
@@ -1118,16 +1120,16 @@ function AdminItemsRoute({
 
   const title =
     workspace === AdminItemWorkspace.Catalogue
-      ? "Catalogue"
+      ? t("items.catalogue")
       : workspace === AdminItemWorkspace.Assumption
-        ? "Assumption"
+        ? t("items.assumption")
         : workspace === AdminItemWorkspace.Prices
-          ? "Prices"
-          : "Shop items";
+          ? t("items.prices")
+          : t("items.shopItems");
   const subtitle =
     workspace === AdminItemWorkspace.Catalogue || workspace === AdminItemWorkspace.Assumption
-      ? "Global item workspace"
-      : selectedShop?.name ?? "Choose a shop";
+      ? t("items.globalWorkspace")
+      : selectedShop?.name ?? t("items.chooseShop");
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>

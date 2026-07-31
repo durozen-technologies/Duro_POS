@@ -7,12 +7,13 @@ import {
   ScrollView,
   StyleSheet,
   Switch,
-  Text,
   View,
 } from "react-native";
 
 import { fetchAdminInventoryBackdatePolicy, updateAdminInventoryBackdatePolicy } from "@/api/inventory";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { AdminText as Text } from "@/components/ui/admin-text";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import type { InventoryBackdatePolicyRead } from "@/types/api";
 
 import { type ThemePalette } from "../admin-dashboard-theme";
@@ -22,15 +23,18 @@ function getRequestMessage(error: unknown, fallback: string) {
 }
 
 const BACKDATE_WINDOW_OPTIONS = [
-  { value: 0, label: "Today only", subtitle: "No past dates" },
-  { value: 1, label: "1 day", subtitle: "Yesterday through today" },
-  { value: 3, label: "3 days", subtitle: "Up to 3 days back" },
-  { value: 7, label: "7 days", subtitle: "Up to 1 week back" },
-  { value: 30, label: "30 days", subtitle: "Up to 1 month back" },
+  { value: 0, labelKey: "settings.backdateTodayOnly", subtitleKey: "settings.backdateNoPastDates" },
+  { value: 1, labelKey: "settings.backdateOneDay", subtitleKey: "settings.backdateYesterdayThroughToday" },
+  { value: 3, labelKey: "settings.backdateThreeDays", subtitleKey: "settings.backdateUpToThreeDays" },
+  { value: 7, labelKey: "settings.backdateSevenDays", subtitleKey: "settings.backdateUpToOneWeek" },
+  { value: 30, labelKey: "settings.backdateThirtyDays", subtitleKey: "settings.backdateUpToOneMonth" },
 ] as const;
 
-function windowLabel(days: number | null | undefined) {
-  return BACKDATE_WINDOW_OPTIONS.find((option) => option.value === (days ?? 0))?.label ?? `${days ?? 0} days`;
+function windowLabel(
+  days: number | null | undefined,
+  options: Array<{ value: number; label: string }>,
+) {
+  return options.find((option) => option.value === (days ?? 0))?.label ?? `${days ?? 0} days`;
 }
 
 type ShopBackdatingPolicySectionProps = {
@@ -38,12 +42,18 @@ type ShopBackdatingPolicySectionProps = {
 };
 
 export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySectionProps) {
+  const { t } = useAdminTranslation();
   const [policy, setPolicy] = useState<InventoryBackdatePolicyRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [windowPickerOpen, setWindowPickerOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const backdateWindowOptions = BACKDATE_WINDOW_OPTIONS.map((option) => ({
+    ...option,
+    label: t(option.labelKey),
+    subtitle: t(option.subtitleKey),
+  }));
 
   const loadPolicy = useCallback(async () => {
     setErrorMessage(null);
@@ -51,11 +61,11 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
       const nextPolicy = await fetchAdminInventoryBackdatePolicy();
       setPolicy(nextPolicy);
     } catch (error) {
-      setErrorMessage(getRequestMessage(error, "Unable to load shop backdating settings."));
+      setErrorMessage(getRequestMessage(error, t("settings.backdateLoadError")));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadPolicy();
@@ -67,7 +77,7 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
         return;
       }
       if (allow && windowDays < 0) {
-        setValidationError("Select how far back branches may record inventory.");
+        setValidationError(t("settings.backdateWindowRequired"));
         return;
       }
       setValidationError(null);
@@ -80,12 +90,12 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
         });
         setPolicy(updated);
       } catch (error) {
-        setErrorMessage(getRequestMessage(error, "Unable to save shop backdating settings."));
+        setErrorMessage(getRequestMessage(error, t("settings.backdateSaveError")));
       } finally {
         setSaving(false);
       }
     },
-    [saving],
+    [saving, t],
   );
 
   const enabled = policy?.allow_shop_backdated_inventory ?? false;
@@ -115,9 +125,9 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
           <MaterialCommunityIcons name="calendar-clock-outline" size={20} color={palette.inventory} />
         </View>
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: palette.textPrimary }]}>Shop Backdating</Text>
+          <Text style={[styles.title, { color: palette.textPrimary }]}>{t("settings.shopBackdating")}</Text>
           <Text style={[styles.copy, { color: palette.textMuted }]}>
-            Allow branch users to record inventory with a past transaction date.
+            {t("settings.shopBackdatingHint")}
           </Text>
         </View>
       </View>
@@ -125,7 +135,7 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
       {loading ? (
         <View style={styles.loadingRow}>
           <ActivityIndicator color={palette.inventory} />
-          <Text style={[styles.loadingText, { color: palette.textMuted }]}>Loading settings...</Text>
+          <Text style={[styles.loadingText, { color: palette.textMuted }]}>{t("settings.loadingSettings")}</Text>
         </View>
       ) : (
         <>
@@ -140,15 +150,15 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
           >
             <View style={styles.toggleTextWrap}>
               <Text style={[styles.toggleLabel, { color: palette.textPrimary }]}>
-                {enabled ? "Enabled for branches" : "Disabled for branches"}
+                {enabled ? t("settings.enabledForBranches") : t("settings.disabledForBranches")}
               </Text>
               <Text style={[styles.toggleHint, { color: palette.textMuted }]}>
-                {enabled ? "Branches can choose a past date within the window." : "Only today is allowed."}
+                {enabled ? t("settings.backdateEnabledHint") : t("settings.backdateDisabledHint")}
               </Text>
             </View>
             <Switch
-              accessibilityLabel="Shop backdating"
-              accessibilityHint="Turn shop backdating on or off for all branches"
+              accessibilityLabel={t("settings.shopBackdating")}
+              accessibilityHint={t("settings.shopBackdatingA11yHint")}
               value={enabled}
               disabled={saving || !policy}
               onValueChange={handleToggle}
@@ -161,7 +171,7 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
             <View style={styles.dropdownWrap}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Select backdating window"
+                accessibilityLabel={t("settings.selectBackdatingWindow")}
                 accessibilityState={{ expanded: windowPickerOpen }}
                 disabled={saving}
                 onPress={() => setWindowPickerOpen(true)}
@@ -175,9 +185,9 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
                 ]}
               >
                 <View style={styles.dropdownTextWrap}>
-                  <Text style={[styles.dropdownLabel, { color: palette.textMuted }]}>Backdating window</Text>
+                  <Text style={[styles.dropdownLabel, { color: palette.textMuted }]}>{t("settings.backdatingWindow")}</Text>
                   <Text numberOfLines={1} style={[styles.dropdownValue, { color: palette.textPrimary }]}>
-                    {windowLabel(windowDays)}
+                    {windowLabel(windowDays, backdateWindowOptions)}
                   </Text>
                 </View>
                 {saving ? (
@@ -206,10 +216,10 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setWindowPickerOpen(false)} />
           <View style={[styles.dropdownSheet, { backgroundColor: palette.card, borderColor: palette.border }]}>
             <View style={styles.dropdownSheetHeader}>
-              <Text style={[styles.dropdownSheetTitle, { color: palette.textPrimary }]}>Backdating window</Text>
+              <Text style={[styles.dropdownSheetTitle, { color: palette.textPrimary }]}>{t("settings.backdatingWindow")}</Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close backdating window picker"
+                accessibilityLabel={t("a11y.closeBackdatingWindowPicker")}
                 onPress={() => setWindowPickerOpen(false)}
                 style={styles.dropdownClose}
               >
@@ -217,7 +227,7 @@ export function ShopBackdatingPolicySection({ palette }: ShopBackdatingPolicySec
               </Pressable>
             </View>
             <ScrollView contentContainerStyle={styles.dropdownOptionList}>
-              {BACKDATE_WINDOW_OPTIONS.map((option) => {
+              {backdateWindowOptions.map((option) => {
                 const selected = windowDays === option.value;
                 return (
                   <Pressable

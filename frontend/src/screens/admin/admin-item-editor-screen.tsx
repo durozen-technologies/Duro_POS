@@ -36,6 +36,7 @@ import {
 } from "@/api/admin";
 import { fetchAdminGlobalImageTemplates } from "@/api/global-image-templates";
 import { isApiRequestCanceled, resolveApiUrl, formatApiErrorMessage } from "@/api/client";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import { authenticatedImageSource, resolveEditorImageUri } from "@/utils/item-images";
 import {
   BaseUnit,
@@ -472,6 +473,7 @@ function buildTemplateMetadataPayload(selectedTemplateId: string | null): ItemMe
 
 export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const { mode, workspace, itemId, shopId, initialItem: routeInitialItem } = route.params;
   const isCreate = mode === AdminItemEditorMode.Create;
@@ -653,11 +655,11 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
 
   const title = isCreate
     ? workspace === AdminItemWorkspace.Catalogue
-      ? "Add catalogue item"
-      : "Add shop item"
+      ? t("items.addCatalogueItem")
+      : t("items.addShopItem")
     : isCustomize
-      ? "Customize shop item"
-      : "Edit item";
+      ? t("items.customizeShopItem")
+      : t("items.editItem");
   const storedImagePath = item?.image_path || item?.image_thumb_path || "";
   const hasStoredImage = Boolean(item?.image_path || item?.image_thumb_path);
   const storedImageUri = storedImagePath && !storedImageFailed ? resolveApiUrl(storedImagePath) : "";
@@ -698,7 +700,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
         return;
       }
       event.preventDefault();
-      Alert.alert("Discard item changes?", "Unsaved item changes will be lost.", [
+      Alert.alert(t("items.discardChanges"), t("items.discardChangesHint"), [
         { text: "Keep editing", style: "cancel" },
         {
           text: "Discard",
@@ -808,7 +810,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       { text: "Upload from device", onPress: () => void pickImageFromDevice() },
       { text: "Cancel", style: "cancel" },
     ];
-    Alert.alert("Item image", "Pick a shared template or upload your own square image.", options);
+    Alert.alert(t("items.image"), t("items.chooseImageSource"), options);
   }, [openTemplatePicker, pickImageFromDevice]);
 
   const selectImageTemplate = useCallback((templateId: string) => {
@@ -1113,7 +1115,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             {title}
           </Text>
           <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
-            {isCustomize ? "Shop-only overrides" : "Names, units, image, and category"}
+            {isCustomize ? t("items.shopOnlyOverrides") : t("items.editorSubtitle")}
           </Text>
         </View>
         <AdminHeaderActions
@@ -1126,7 +1128,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
       {loading ? (
         <View style={styles.center}>
           <Spinner color={palette.items} />
-          <Text style={[styles.helper, { color: palette.textMuted }]}>Loading item...</Text>
+          <Text style={[styles.helper, { color: palette.textMuted }]}>{t("items.loadingItem")}</Text>
         </View>
       ) : (
         <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -1188,10 +1190,10 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                 {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
                 {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
                 <XStack gap={adminSpacing.xs} flexWrap="wrap">
-                  <EditorButton label="Pick image" icon="image-edit-outline" onPress={chooseImageSource} palette={palette} tone="info" active />
+                  <EditorButton label={t("items.pickImage")} icon="image-edit-outline" onPress={chooseImageSource} palette={palette} tone="info" active />
                   {imageDraft || hasStoredImage || removeImageRequested || selectedTemplateId ? (
                     <EditorButton
-                      label={removeImageRequested ? "Undo remove" : imageDraft ? "Clear" : "Remove"}
+                      label={removeImageRequested ? t("items.undoRemove") : imageDraft ? t("action.clear") : t("action.remove")}
                       icon={removeImageRequested ? "undo" : "image-remove-outline"}
                       onPress={removeImage}
                       palette={palette}
@@ -1221,7 +1223,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             name="name"
             render={({ field }) => (
               <EditorField
-                label="English name"
+                label={t("forms.englishName")}
                 value={field.value}
                 placeholder="Chicken curry cut"
                 errorText={errors.name?.message}
@@ -1235,7 +1237,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             name="tamilName"
             render={({ field }) => (
               <EditorField
-                label="Tamil name"
+                label={t("forms.tamilName")}
                 value={field.value}
                 placeholder="தமிழ் பெயர்"
                 errorText={errors.tamilName?.message}
@@ -1249,7 +1251,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
             <>
               <XStack gap={adminSpacing.xs}>
                 <EditorButton
-                  label="Weight"
+                  label={t("items.weight")}
                   icon="scale-balance"
                   active={unitType === UnitType.WEIGHT}
                   onPress={() => {
@@ -1260,7 +1262,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                   flex
                 />
                 <EditorButton
-                  label="Count"
+                  label={t("items.count")}
                   icon="counter"
                   active={unitType === UnitType.COUNT}
                   onPress={() => {
@@ -1313,9 +1315,9 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
           </View>
 
           <XStack gap={adminSpacing.sm}>
-            <EditorButton label="Cancel" icon="close-circle-outline" onPress={() => navigation.goBack()} palette={palette} flex tone="warning" active />
+            <EditorButton label={t("action.cancel")} icon="close-circle-outline" onPress={() => navigation.goBack()} palette={palette} flex tone="warning" active />
             <EditorButton
-              label={saving ? "Saving..." : "Save item"}
+              label={saving ? t("action.saving") : t("items.saveItem")}
               icon="content-save-outline"
               onPress={saveItem}
               palette={palette}
@@ -1379,7 +1381,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
                   No shared templates yet. Upload from your device instead.
                 </Text>
                 <EditorButton
-                  label="Upload from device"
+                  label={t("items.uploadFromDevice")}
                   icon="image-edit-outline"
                   onPress={() => {
                     setTemplatePickerOpen(false);
@@ -1442,7 +1444,7 @@ export function AdminItemEditorScreen({ navigation, route }: AdminItemEditorScre
               </ScrollView>
             )}
             <EditorButton
-              label="Close"
+              label={t("action.close")}
               icon="close"
               onPress={() => setTemplatePickerOpen(false)}
               palette={palette}
@@ -1666,7 +1668,7 @@ function CategoryManager({
                 ItemSeparatorComponent={() => <View style={{ height: 6 }} />}
                 ListHeaderComponent={
                   <CategoryOption
-                    label="No category"
+                    label={t("items.noCategory")}
                     icon="close-circle-outline"
                     selected={selectedCategoryId === ""}
                     palette={palette}
@@ -1750,19 +1752,20 @@ function AttributeEditor({
   onCycleType: (index: number, valueType: AttributeValueType) => void;
   onToggleBoolean: (index: number, currentValue: string) => void;
 }) {
+  const { t } = useAdminTranslation();
   return (
     <View style={[styles.attributesPanel, { borderColor: palette.border, backgroundColor: palette.card }]}>
       <XStack alignItems="center" justifyContent="space-between" gap={adminSpacing.sm}>
         <YStack flex={1} minWidth={0}>
-          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Custom attributes</Text>
-          <Text style={[styles.sectionHint, { color: palette.textMuted }]}>Typed key/value details for future filtering and shop customization.</Text>
+          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("items.customAttributes")}</Text>
+          <Text style={[styles.sectionHint, { color: palette.textMuted }]}>{t("items.attributesHint")}</Text>
         </YStack>
-        <EditorButton label="Add" icon="plus" onPress={onAppend} palette={palette} tone="success" active />
+        <EditorButton label={t("action.add")} icon="plus" onPress={onAppend} palette={palette} tone="success" active />
       </XStack>
 
       {fields.length === 0 ? (
         <View style={[styles.emptyAttributes, { backgroundColor: palette.surfaceMuted }]}>
-          <Text style={[styles.sectionHint, { color: palette.textMuted }]}>No attributes yet.</Text>
+          <Text style={[styles.sectionHint, { color: palette.textMuted }]}>{t("items.noAttributes")}</Text>
         </View>
       ) : (
         <YStack gap={adminSpacing.sm}>

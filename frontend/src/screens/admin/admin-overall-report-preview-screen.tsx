@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { requireOptionalNativeModule } from "expo-modules-core";
 import { StatusBar } from "expo-status-bar";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
@@ -608,6 +610,7 @@ export function AdminOverallReportPreviewScreen({
   navigation,
   route,
 }: AdminOverallReportPreviewScreenProps) {
+  const { t, language: uiLanguage } = useAdminTranslation();
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const [report, setReport] = useState<OverallReportRead | null>(null);
@@ -615,7 +618,7 @@ export function AdminOverallReportPreviewScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [language, setLanguage] = useState<ReportLanguage>(route.params.language ?? "en");
+  const [language, setLanguage] = useState<ReportLanguage>(route.params.language ?? uiLanguage);
 
   const reportParams = useMemo<FetchOverallReportParams>(
     () => ({
@@ -647,13 +650,13 @@ export function AdminOverallReportPreviewScreen({
         const nextReport = await fetchAdminOverallReport(reportParams);
         setReport(nextReport);
       } catch (error) {
-        setErrorMessage(formatApiErrorMessage(error, "Overall report preview could not be loaded."));
+        setErrorMessage(formatApiErrorMessage(error, t("i18n.unableLoadReport")));
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [reportParams],
+    [reportParams, t],
   );
 
   useEffect(() => {
@@ -665,7 +668,7 @@ export function AdminOverallReportPreviewScreen({
       .catch((error) => {
         if (!isApiRequestCanceled(error)) {
           setErrorMessage(
-            formatApiErrorMessage(error, "Overall report preview could not be loaded."),
+            formatApiErrorMessage(error, t("i18n.unableLoadReport")),
           );
         }
       })
@@ -673,7 +676,7 @@ export function AdminOverallReportPreviewScreen({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [reportParams]);
+  }, [reportParams, t]);
 
   const handleGenerate = useCallback(
     async (lang: ReportLanguage) => {
@@ -696,7 +699,7 @@ export function AdminOverallReportPreviewScreen({
           if (sharingAvailable) {
             await sharingModule
               .shareAsync(result.uri, {
-                dialogTitle: "Admin report",
+                dialogTitle: t("i18n.adminReport"),
                 mimeType: "application/pdf",
                 UTI: "com.adobe.pdf",
               })
@@ -705,15 +708,15 @@ export function AdminOverallReportPreviewScreen({
           }
         }
         if (!shared) {
-          Alert.alert("Report downloaded", result.filename);
+          Alert.alert(t("i18n.reportDownloaded"), result.filename);
         }
       } catch (error) {
-        setErrorMessage(formatApiErrorMessage(error, "Report could not be generated."));
+        setErrorMessage(formatApiErrorMessage(error, t("i18n.reportCouldNotGenerate")));
       } finally {
         setGenerating(false);
       }
     },
-    [canGenerate, reportParams, route.params.sections],
+    [canGenerate, reportParams, route.params.sections, t],
   );
 
   const renderStatement = useCallback(
@@ -845,8 +848,8 @@ export function AdminOverallReportPreviewScreen({
         )}
         <Text style={[styles.generateButtonText, { color: palette.onPrimary }]}>
           {generating
-            ? "Generating..."
-            : `Generate PDF`}
+            ? t("i18n.generating")
+            : t("action.generatePdf")}
         </Text>
       </Pressable>
     </View>
@@ -877,7 +880,7 @@ export function AdminOverallReportPreviewScreen({
         </Pressable>
         <View style={styles.titleWrap}>
           <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
-            Overall Report
+            {t("reports.overall")}
           </Text>
           <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
             {subtitle}
@@ -901,7 +904,7 @@ export function AdminOverallReportPreviewScreen({
           !loading && !errorMessage ? (
             <View style={[styles.reportEmptyRow, { backgroundColor: palette.surfaceMuted }]}>
               <Text style={[styles.reportEmptyText, { color: palette.textMuted }]}>
-                No branch data available
+                {t("i18n.noBranchData")}
               </Text>
             </View>
           ) : null

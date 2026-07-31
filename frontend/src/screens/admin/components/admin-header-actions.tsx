@@ -1,8 +1,11 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { triggerHaptic } from "../admin-dashboard-utils";
 import { useAdminTheme } from "../use-admin-theme";
+import { AdminLanguageToggle } from "./admin-language-toggle";
 
 type AdminHeaderActionsProps = {
   onRefresh?: () => void | Promise<void>;
@@ -16,15 +19,18 @@ export function AdminHeaderActions({
   refreshDisabled = false,
 }: AdminHeaderActionsProps) {
   const { colorScheme, palette, setThemePreference } = useAdminTheme();
+  const { t } = useAdminTranslation();
   const nextTheme = colorScheme === "dark" ? "light" : "dark";
   const themeIcon = colorScheme === "dark" ? "white-balance-sunny" : "weather-night";
   const refreshUnavailable = !onRefresh || refreshDisabled || refreshing;
 
   return (
     <View style={styles.actions}>
+      <AdminLanguageToggle palette={palette} compact />
+
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Refresh"
+        accessibilityLabel={t("a11y.refresh")}
         accessibilityState={{ disabled: refreshUnavailable }}
         disabled={refreshUnavailable}
         onPress={() => {
@@ -49,7 +55,7 @@ export function AdminHeaderActions({
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Switch to ${nextTheme} mode`}
+        accessibilityLabel={nextTheme === "light" ? t("a11y.switchToLight") : t("a11y.switchToDark")}
         onPress={() => {
           triggerHaptic();
           setThemePreference(nextTheme);
@@ -73,7 +79,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 40,
+    gap: 8,
   },
   iconButton: {
     width: 38,

@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
@@ -34,6 +36,7 @@ type RouteProps = AdminExpenseItemEditorScreenProps["route"];
 type NavProps = AdminExpenseItemEditorScreenProps["navigation"];
 
 export function AdminExpenseItemEditorScreen() {
+  const { t } = useAdminTranslation();
   const route = useRoute<RouteProps>();
   const navigation = useNavigation<NavProps>();
   const { palette } = useAdminTheme();
@@ -121,8 +124,9 @@ export function AdminExpenseItemEditorScreen() {
     chooseImageSourceAlert({
       onChooseTemplate: () => void openTemplatePicker(),
       onUploadFromDevice: () => void pickImageFromDevice(),
+      t,
     });
-  }, [openTemplatePicker, pickImageFromDevice]);
+  }, [openTemplatePicker, pickImageFromDevice, t]);
 
   const removeImage = useCallback(() => {
     if (imageDraft) {
@@ -151,7 +155,7 @@ export function AdminExpenseItemEditorScreen() {
     const tamilName = tamilNameDraft.trim();
     const sortOrder = editingItem?.sort_order ?? 0;
     if (name.length < 2 || !tamilName) {
-      Alert.alert("Check expense item", "Enter name and Tamil name.");
+      Alert.alert(t("i18n.checkExpenseItem"), t("i18n.enterExpenseNames"));
       return;
     }
     setSavingItem(true);
@@ -206,7 +210,7 @@ export function AdminExpenseItemEditorScreen() {
       triggerHaptic();
       navigation.goBack();
     } catch (error) {
-      Alert.alert("Save failed", formatApiErrorMessage(error, "Unable to save expense item."));
+      Alert.alert(t("i18n.saveFailed"), formatApiErrorMessage(error, t("i18n.unableSaveExpenseItem")));
     } finally {
       setSavingItem(false);
     }
@@ -220,14 +224,15 @@ export function AdminExpenseItemEditorScreen() {
     selectedTemplateId,
     tamilNameDraft,
     navigation,
+    t,
   ]);
 
   const handleDelete = useCallback(() => {
     if (!editingItem) return;
-    Alert.alert("Delete Expense Item", `Are you sure you want to delete ${editingItem.name}?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("i18n.deleteExpenseItem"), t("i18n.deleteExpenseItemMessage", { name: editingItem.name }), [
+      { text: t("action.cancel"), style: "cancel" },
       {
-        text: "Delete",
+        text: t("action.delete"),
         style: "destructive",
         onPress: async () => {
           setDeletingItem(true);
@@ -236,13 +241,13 @@ export function AdminExpenseItemEditorScreen() {
             triggerHaptic();
             navigation.goBack();
           } catch (error) {
-            Alert.alert("Delete failed", formatApiErrorMessage(error, "Unable to delete expense item."));
+            Alert.alert(t("action.delete"), formatApiErrorMessage(error, t("i18n.unableDeleteExpenseItem")));
             setDeletingItem(false);
           }
         },
       },
     ]);
-  }, [editingItem, navigation]);
+  }, [editingItem, navigation, t]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.background }} edges={["left", "right"]}>
@@ -264,7 +269,7 @@ export function AdminExpenseItemEditorScreen() {
           <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <Text style={{ flex: 1, fontSize: 20, fontWeight: "900", color: palette.onShell }}>
-          {editingItem ? "Edit expense item" : "New expense item"}
+          {editingItem ? t("i18n.editExpenseItem") : t("i18n.newExpenseItem")}
         </Text>
       </View>
 
@@ -275,8 +280,8 @@ export function AdminExpenseItemEditorScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <AdminTextField label="Name" value={nameDraft} onChangeText={setNameDraft} placeholder="Example: Transport" palette={palette} />
-        <AdminTextField label="Tamil name" value={tamilNameDraft} onChangeText={setTamilNameDraft} placeholder="தமிழ் பெயர்" palette={palette} />
+        <AdminTextField label={t("expenses.name")} value={nameDraft} onChangeText={setNameDraft} placeholder={t("expenses.name")} palette={palette} />
+        <AdminTextField label={t("forms.tamilName")} value={tamilNameDraft} onChangeText={setTamilNameDraft} placeholder="தமிழ் பெயர்" palette={palette} />
         
         <View style={[styles.imagePanel, { backgroundColor: palette.card, borderColor: palette.border }]}>
               <ItemThumbnail
@@ -291,9 +296,9 @@ export function AdminExpenseItemEditorScreen() {
                 iconSize={28}
               />
               <View style={styles.rowBody}>
-                <Text style={[styles.switchTitle, { color: palette.textPrimary }]}>Image</Text>
+                <Text style={[styles.switchTitle, { color: palette.textPrimary }]}>{t("i18n.expenseImage")}</Text>
                 <Text style={[styles.switchSubtitle, { color: palette.textMuted }]}>
-                  Optional square image for expense rows.
+                  {t("i18n.expenseImageHint")}
                 </Text>
                 {imageStatus ? <Text style={[styles.imageMessage, { color: palette.textMuted }]}>{imageStatus}</Text> : null}
                 {imageError ? <Text style={[styles.imageMessage, { color: palette.danger }]}>{imageError}</Text> : null}
@@ -309,7 +314,7 @@ export function AdminExpenseItemEditorScreen() {
                     style={[styles.imageActionButton, { backgroundColor: palette.card, borderColor: palette.border }]}
                   >
                     <MaterialCommunityIcons name="image-edit-outline" size={16} color={palette.textPrimary} />
-                    <Text style={[styles.imageActionText, { color: palette.textPrimary }]}>Pick image</Text>
+                    <Text style={[styles.imageActionText, { color: palette.textPrimary }]}>{t("items.pickImage")}</Text>
                   </Pressable>
                   {imageDraft || hasStoredImage || removeImageRequested || selectedTemplateId ? (
                     <Pressable
@@ -319,7 +324,7 @@ export function AdminExpenseItemEditorScreen() {
                     >
                       <MaterialCommunityIcons name="image-remove-outline" size={16} color={palette.danger} />
                       <Text style={[styles.imageActionText, { color: palette.danger }]}>
-                        {removeImageRequested ? "Undo" : imageDraft ? "Clear" : "Remove"}
+                        {removeImageRequested ? t("action.undo") : imageDraft ? t("action.clear") : t("action.remove")}
                       </Text>
                     </Pressable>
                   ) : null}
@@ -340,7 +345,7 @@ export function AdminExpenseItemEditorScreen() {
               padding: 14,
             }}
           >
-            <Text style={{ color: palette.textPrimary, fontWeight: "600" }}>Active</Text>
+            <Text style={{ color: palette.textPrimary, fontWeight: "600" }}>{t("expenses.active")}</Text>
             <Switch value={activeDraft} onValueChange={setActiveDraft} />
           </View>
         )}
@@ -359,7 +364,7 @@ export function AdminExpenseItemEditorScreen() {
           {savingItem ? (
             <ActivityIndicator color={palette.onPrimary} />
           ) : (
-            <Text style={{ color: palette.onPrimary, fontWeight: "700" }}>Save expense item</Text>
+            <Text style={{ color: palette.onPrimary, fontWeight: "700" }}>{t("i18n.saveExpenseItem")}</Text>
           )}
         </Pressable>
         {editingItem && (
@@ -381,7 +386,7 @@ export function AdminExpenseItemEditorScreen() {
               <ActivityIndicator color={palette.danger} />
             ) : (
               <Text style={{ color: palette.danger, fontWeight: "700" }}>
-                {editingItem.can_delete ? "Delete item" : "Cannot delete — has billing history"}
+                {editingItem.can_delete ? t("items.deleteItem") : t("i18n.cannotDeleteBillingHistory")}
               </Text>
             )}
           </Pressable>

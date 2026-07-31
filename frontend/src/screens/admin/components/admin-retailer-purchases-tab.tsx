@@ -1,5 +1,7 @@
 import { ActivityIndicator, Text, View } from "react-native";
 
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import type { RetailerInventoryPurchaseRead } from "@/types/api";
 import { formatCurrency, formatDateTime } from "@/utils/format";
 
@@ -21,6 +23,7 @@ export function AdminRetailerPurchasesTab({
   palette,
   onRetry,
 }: AdminRetailerPurchasesTabProps) {
+  const { t } = useAdminTranslation();
   if (loading) {
     return <ActivityIndicator color={palette.textPrimary} style={{ marginTop: 24 }} />;
   }

@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useFocusEffect } from "@react-navigation/native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -75,6 +77,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   initialRetailerId = null,
   onChromeVisibilityChange,
 }: AdminRetailersAllocateItemsTabProps) {
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
 
   const [branches, setBranches] = useState<ShopRead[]>([]);
@@ -365,7 +368,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   const save = useCallback(async () => {
     if (!selectedShopId) return;
     if (workMode === "prices" && !selectedRetailerId) {
-      Alert.alert("Select retailer", "Choose an active retailer for this branch before saving.");
+      Alert.alert(t("retailers.selectRetailer"), t("retailers.selectActiveRetailerHint"));
       return;
     }
 
@@ -394,10 +397,10 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         }
         if (missingPriceNames.length > 0) {
           Alert.alert(
-            "Billing price missing",
-            `Set today's shop price for: ${missingPriceNames.slice(0, 3).join(", ")}${
-              missingPriceNames.length > 3 ? "…" : ""
-            }. Wholesale prices are set under Retailer prices.`,
+            t("retailers.billingPriceMissing"),
+            t("retailers.billingPriceMissingHint", {
+              items: `${missingPriceNames.slice(0, 3).join(", ")}${missingPriceNames.length > 3 ? "…" : ""}`,
+            }),
           );
           setSaving(false);
           return;
@@ -407,8 +410,11 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         setDirty(false);
         await loadItems();
         Alert.alert(
-          "Saved",
-          `${priceItems.length} item${priceItems.length === 1 ? "" : "s"} allocated to ${selectedRetailer?.name ?? "retailer"}.`,
+          t("common.success"),
+          t("retailers.itemsAllocatedToRetailer", {
+            count: priceItems.length,
+            retailer: selectedRetailer?.name ?? t("retailers.retailer"),
+          }),
         );
       } else {
         await syncShopRetailerCatalog(selectedShopId, Array.from(allocations.keys()));
@@ -416,12 +422,12 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         setDirty(false);
         await loadItems();
         Alert.alert(
-          "Saved",
-          `${allocations.size} item${allocations.size === 1 ? "" : "s"} allocated to branch.`,
+          t("common.success"),
+          t("retailers.itemsAllocatedToBranch", { count: allocations.size }),
         );
       }
     } catch (err) {
-      Alert.alert("Save failed", formatApiErrorMessage(err));
+      Alert.alert(t("retailers.saveFailed"), formatApiErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -432,6 +438,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
     selectedRetailerId,
     selectedShopId,
     workMode,
+    t,
   ]);
 
   const renderBranchPicker = () => (
@@ -442,7 +449,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
           onPress={() => undefined}
         >
           <Text style={[adminTypography.section, { color: palette.textPrimary, marginBottom: adminSpacing.sm }]}>
-            Select branch
+            {t("retailers.selectBranch")}
           </Text>
           <FlatList
             data={branches}
@@ -490,7 +497,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
           onPress={() => undefined}
         >
           <Text style={[adminTypography.section, { color: palette.textPrimary, marginBottom: adminSpacing.sm }]}>
-            Select retailer
+            {t("retailers.selectRetailer")}
           </Text>
           <FlatList
             data={retailers}
@@ -542,7 +549,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       <View style={styles.centered}>
         <ActivityIndicator color={palette.primary} />
         <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: adminSpacing.sm }]}>
-          Loading branches…
+          {t("retailers.loadingBranches")}
         </Text>
       </View>
     );
@@ -551,9 +558,9 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   if (error && branches.length === 0) {
     return (
       <EmptyStateCard
-        title="Unable to load branches"
+        title={t("retailers.loadBranchesFailed")}
         subtitle={error}
-        actionLabel="Retry"
+        actionLabel={t("action.retry")}
         onAction={() => void loadBranches()}
         palette={palette}
         icon="store-alert"
@@ -564,8 +571,8 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   if (branches.length === 0) {
     return (
       <EmptyStateCard
-        title="No active branches"
-        subtitle="Create a branch first, then allocate billing items here."
+        title={t("retailers.noActiveBranches")}
+        subtitle={t("retailers.allocateItemsBranchHint")}
         palette={palette}
         icon="store-off-outline"
       />
@@ -593,14 +600,14 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       >
         <AdminSegmentedTabs
           items={[
-            { value: "branch", label: "Per branch", icon: "store-outline" },
-            { value: "prices", label: "Per retailer", icon: "account-outline" },
+            { value: "branch", label: t("retailers.perBranch"), icon: "store-outline" },
+            { value: "prices", label: t("retailers.perRetailer"), icon: "account-outline" },
           ]}
           activeValue={workMode}
           palette={palette}
           onChange={(value) => {
             triggerHaptic();
-            setWorkMode(value);
+            setWorkMode(value as WorkMode);
             setSearch("");
             setFilter("all");
             setDirty(false);
@@ -613,27 +620,27 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Select branch"
+            accessibilityLabel={t("retailers.selectBranch")}
             onPress={() => setBranchPickerOpen(true)}
             style={[styles.selector, { flex: 1, backgroundColor: palette.card, borderColor: palette.border }]}
           >
             <View style={styles.selectorText}>
-              <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Branch</Text>
+              <Text style={[adminTypography.caption, { color: palette.textMuted }]}>{t("retailers.branch")}</Text>
               <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
-                {selectedBranch?.name ?? "Select branch"}
+                {selectedBranch?.name ?? t("retailers.selectBranch")}
               </Text>
             </View>
             <MaterialCommunityIcons name="chevron-down" size={22} color={palette.textMuted} />
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Information"
+              accessibilityLabel={t("common.information")}
             onPress={() =>
               Alert.alert(
-                "Information",
+                t("common.information"),
                 workMode === "prices"
-                  ? "Select a branch and an active retailer, then allocate items from the branch catalogue to that retailer. Set wholesale prices later under Retailer prices. Allocate items to the branch first if the catalogue is empty."
-                  : "Allocate billing catalogue items once per branch. These items become available to assign to active retailers at this branch.",
+                  ? t("retailers.allocationRetailerInfo")
+                  : t("retailers.allocationBranchInfo"),
               )
             }
             style={{
@@ -654,7 +661,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
         {workMode === "prices" ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Select retailer"
+            accessibilityLabel={t("retailers.selectRetailer")}
             disabled={!selectedShopId || loadingRetailers || retailers.length === 0}
             onPress={() => setRetailerPickerOpen(true)}
             style={[
@@ -668,15 +675,15 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
           >
             <View style={styles.selectorText}>
               <Text style={[adminTypography.caption, { color: palette.textMuted }]}>
-                Active retailer
+                {t("retailers.activeRetailer")}
               </Text>
               <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
                 {loadingRetailers
-                  ? "Loading retailers…"
+                  ? t("retailers.loadingRetailers")
                   : selectedRetailer?.name ??
                     (retailers.length === 0
-                      ? "No active retailers at this branch"
-                      : "Select retailer")}
+                      ? t("retailers.noActiveRetailers")
+                      : t("retailers.selectRetailer"))}
               </Text>
               {selectedRetailer?.shop_name || selectedRetailer?.phone ? (
                 <Text style={[adminTypography.caption, { color: palette.textMuted }]} numberOfLines={1}>
@@ -694,23 +701,23 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
               value={search}
               onChangeText={setSearch}
               placeholder={
-                workMode === "prices" ? "Search retailer items" : "Search branch billing items"
+                workMode === "prices" ? t("retailers.searchRetailerItems") : t("retailers.searchBranchItems")
               }
               palette={palette}
               accessibilityLabel={
-                workMode === "prices" ? "Search retailer items" : "Search branch billing items"
+                workMode === "prices" ? t("retailers.searchRetailerItems") : t("retailers.searchBranchItems")
               }
             />
 
             <View style={styles.filterRow}>
               {(
                 [
-                  { value: "all", label: "All" },
+                  { value: "all", label: t("common.all") },
                   {
                     value: "allocated",
-                    label: `Allocated (${allocatedCount})`,
+                    label: t("retailers.allocatedCount", { count: allocatedCount }),
                   },
-                  { value: "available", label: "Available" },
+                  { value: "available", label: t("common.available") },
                 ] as const
               ).map((chip) => (
                 <ChipButton

@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -29,12 +31,12 @@ import { ChipButton, PrimaryButton } from "./admin-dashboard-primitives";
 
 const DATE_MODE_OPTIONS: {
   key: StatementDateScope;
-  label: string;
+  labelKey: "statement.allBills" | "statement.singleDate" | "statement.dateRange";
   icon: ComponentProps<typeof MaterialCommunityIcons>["name"];
 }[] = [
-  { key: "all", label: "All Bills", icon: "calendar-blank-outline" },
-  { key: "single", label: "Single Date", icon: "calendar" },
-  { key: "range", label: "Date Range", icon: "calendar-range" },
+  { key: "all", labelKey: "statement.allBills", icon: "calendar-blank-outline" },
+  { key: "single", labelKey: "statement.singleDate", icon: "calendar" },
+  { key: "range", labelKey: "statement.dateRange", icon: "calendar-range" },
 ];
 
 type AdminRetailerStatementModalProps = {
@@ -50,6 +52,7 @@ export const AdminRetailerStatementModal = memo(function AdminRetailerStatementM
   palette,
   onClose,
 }: AdminRetailerStatementModalProps) {
+  const { t } = useAdminTranslation();
   const [draft, setDraft] = useState<StatementDateDraft>(() => createStatementDateDraft());
   const [calendarTarget, setCalendarTarget] = useState<"date" | "start" | "end" | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -212,7 +215,7 @@ export const AdminRetailerStatementModal = memo(function AdminRetailerStatementM
                   return (
                     <ChipButton
                       key={option.key}
-                      label={option.label}
+                      label={t(option.labelKey)}
                       icon={option.icon}
                       active={active}
                       palette={palette}
@@ -235,7 +238,7 @@ export const AdminRetailerStatementModal = memo(function AdminRetailerStatementM
                 <View style={styles.dateRangeRow}>
                   <View style={styles.dateRangeField}>
                     <CalendarDateField
-                      label="From"
+                      label={t("common.from")}
                       value={draft.startDate}
                       colors={calendarColors}
                       icon="calendar-start"
@@ -244,7 +247,7 @@ export const AdminRetailerStatementModal = memo(function AdminRetailerStatementM
                   </View>
                   <View style={styles.dateRangeField}>
                     <CalendarDateField
-                      label="To"
+                      label={t("common.to")}
                       value={draft.endDate}
                       colors={calendarColors}
                       icon="calendar-end"
@@ -257,7 +260,7 @@ export const AdminRetailerStatementModal = memo(function AdminRetailerStatementM
 
             <View style={[styles.modalActions, { borderTopColor: palette.border }]}>
               <PrimaryButton
-                label="Cancel"
+                label={t("action.cancel")}
                 variant="secondary"
                 palette={palette}
                 onPress={onClose}

@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo } from "react";
 import {
   ActivityIndicator,
@@ -193,6 +195,7 @@ export const AdminBillingTab = memo(function AdminBillingTab({
   onLoadMore,
   onBackToSales,
 }: AdminBillingTabProps) {
+  const { t } = useAdminTranslation();
   const hasBills = visibleBillsLength > 0;
 
   return (
@@ -219,18 +222,18 @@ export const AdminBillingTab = memo(function AdminBillingTab({
           <DashboardErrorBanner dashboardError={dashboardError} hasShops={hasShops} palette={palette} />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to sales"
+            accessibilityLabel={t("billing.backToSales")}
             onPress={onBackToSales}
             style={[styles.backRow, { borderColor: palette.border, backgroundColor: palette.card }]}
           >
             <MaterialCommunityIcons name="chevron-left" size={22} color={palette.billingStrong} />
-            <Text style={[styles.backText, { color: palette.billingStrong }]}>Sales</Text>
+            <Text style={[styles.backText, { color: palette.billingStrong }]}>{t("reports.sales")}</Text>
           </Pressable>
           <View style={styles.headerTitleRow}>
             <View style={styles.headerTitle}>
               <TabSectionHeader
-                title="Billing Feed"
-                badgeLabel={`${visibleBillCount} bills`}
+                title={t("billing.feed")}
+                badgeLabel={t("billing.billCount", { count: visibleBillCount })}
                 badgeBackgroundColor={palette.billingSoft}
                 badgeTextColor={palette.billingStrong}
                 palette={palette}
@@ -239,12 +242,12 @@ export const AdminBillingTab = memo(function AdminBillingTab({
           </View>
           {hasBills ? (
             <View style={styles.statRow}>
-              <BillingStat icon="receipt-text-outline" label="Total" value={`${visibleBillCount}`} palette={palette} />
-              <BillingStat icon="playlist-check" label="Shown" value={`${visibleBillsLength}`} palette={palette} tone="neutral" />
+              <BillingStat icon="receipt-text-outline" label={t("reports.total")} value={`${visibleBillCount}`} palette={palette} />
+              <BillingStat icon="playlist-check" label={t("billing.shown")} value={`${visibleBillsLength}`} palette={palette} tone="neutral" />
               <BillingStat
                 icon={dailyBillsHasMore ? "history" : "check-circle-outline"}
-                label="Older"
-                value={dailyBillsHasMore ? "More" : "Done"}
+                label={t("billing.older")}
+                value={dailyBillsHasMore ? t("billing.more") : t("action.done")}
                 palette={palette}
                 tone="neutral"
               />
@@ -255,9 +258,9 @@ export const AdminBillingTab = memo(function AdminBillingTab({
       ListEmptyComponent={
         <View style={styles.emptyContainer}>
           <EmptyStateCard
-            title="No bills in this range"
-            subtitle="This branch and period have no receipts yet."
-            actionLabel="Refresh"
+            title={t("billing.noBillsInRange")}
+            subtitle={t("billing.noBillsInRangeHint")}
+            actionLabel={t("action.refresh")}
             onAction={onRefresh}
             icon="receipt-text-remove-outline"
             palette={palette}
@@ -268,12 +271,12 @@ export const AdminBillingTab = memo(function AdminBillingTab({
         dailyBillsLoadingMore ? (
           <View style={[styles.billingListFooter, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
             <ActivityIndicator color={palette.billing} />
-            <Text style={[styles.footerText, { color: palette.textMuted }]}>Loading older bills...</Text>
+            <Text style={[styles.footerText, { color: palette.textMuted }]}>{t("billing.loadingOlder")}</Text>
           </View>
         ) : dailyBillsHasMore ? (
           <View style={[styles.billingListFooter, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
             <MaterialCommunityIcons name="history" size={16} color={palette.billing} />
-            <Text style={[styles.footerText, { color: palette.textMuted }]}>More bills available</Text>
+            <Text style={[styles.footerText, { color: palette.textMuted }]}>{t("billing.moreAvailable")}</Text>
           </View>
         ) : dailyBillsLength > 0 ? (
           <View style={[styles.billingListFooter, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>

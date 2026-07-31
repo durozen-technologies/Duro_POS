@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
@@ -27,6 +29,7 @@ function getRequestMessage(error: unknown, fallback: string) {
 }
 
 export function AdminPurchasersTab() {
+  const { t } = useAdminTranslation();
   const { palette } = useAdminTheme();
 
   const [purchasers, setPurchasers] = useState<PurchaserRead[]>([]);
@@ -167,7 +170,7 @@ export function AdminPurchasersTab() {
                 { color: item.is_active ? palette.inventory : palette.textMuted },
               ]}
             >
-              {item.is_active ? "Active" : "Inactive"}
+              {item.is_active ? t("common.active") : t("common.inactive")}
             </Text>
           </View>
         </XStack>
@@ -186,7 +189,7 @@ export function AdminPurchasersTab() {
 
       <XStack paddingTop={16} borderTopWidth={1} borderTopColor={palette.border} gap={12}>
         <ActionButton
-          label="Edit"
+          label={t("retailers.edit")}
           icon="pencil-outline"
           palette={palette}
           onPress={() => {
@@ -221,12 +224,12 @@ export function AdminPurchasersTab() {
           <SearchField
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search purchasers..."
+            placeholder={t("purchasers.search")}
             palette={palette}
           />
         </YStack>
         <ActionButton
-          label="Add"
+          label={t("retailers.add")}
           icon="plus"
           palette={palette}
           tone="success"
@@ -251,7 +254,7 @@ export function AdminPurchasersTab() {
         ListEmptyComponent={
           !loading ? (
             <EmptyStateCard
-              title="No purchasers found"
+              title={t("purchasers.none")}
               subtitle={
                 searchQuery
                   ? "Try a different search query."
@@ -259,7 +262,7 @@ export function AdminPurchasersTab() {
               }
               icon="account-tie-outline"
               palette={palette}
-              actionLabel={!searchQuery ? "Add purchaser" : undefined}
+              actionLabel={!searchQuery ? t("purchasers.add") : undefined}
               onAction={!searchQuery ? () => setCreateModalOpen(true) : undefined}
             />
           ) : null
@@ -273,7 +276,7 @@ export function AdminPurchasersTab() {
         >
           <View style={[styles.modalContent, { backgroundColor: palette.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>Add Purchaser</Text>
+              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>{t("purchasers.add")}</Text>
               <Pressable
                 hitSlop={12}
                 onPress={() => {
@@ -286,21 +289,21 @@ export function AdminPurchasersTab() {
             </View>
             <YStack padding={20} gap={16}>
               <AdminTextField
-                label="Name"
-                placeholder="Purchaser name"
+                label={t("retailers.name")}
+                placeholder={t("forms.purchaserName")}
                 value={draftName}
                 onChangeText={setDraftName}
                 palette={palette}
               />
               <AdminTextField
-                label="Shop name"
-                placeholder="Shop / business name"
+                label={t("forms.shopName")}
+                placeholder={t("forms.businessName")}
                 value={draftShopName}
                 onChangeText={setDraftShopName}
                 palette={palette}
               />
               <AdminTextField
-                label="Mobile"
+                label={t("retailers.mobile")}
                 placeholder="Mobile number"
                 value={draftPhone}
                 onChangeText={setDraftPhone}
@@ -308,15 +311,15 @@ export function AdminPurchasersTab() {
                 keyboardType="phone-pad"
               />
               <AdminTextField
-                label="Address"
-                placeholder="Address"
+                label={t("retailers.address")}
+                placeholder={t("retailers.address")}
                 value={draftAddress}
                 onChangeText={setDraftAddress}
                 palette={palette}
               />
               <XStack paddingTop={8}>
                 <ActionButton
-                  label="Create Purchaser"
+                  label={t("purchasers.create")}
                   icon="check"
                   palette={palette}
                   tone="success"
@@ -338,33 +341,33 @@ export function AdminPurchasersTab() {
         >
           <View style={[styles.modalContent, { backgroundColor: palette.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>Edit Purchaser</Text>
+              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>{t("purchasers.edit")}</Text>
               <Pressable hitSlop={12} onPress={() => setEditingPurchaser(null)}>
                 <MaterialCommunityIcons name="close" size={24} color={palette.textSecondary} />
               </Pressable>
             </View>
             <YStack padding={20} gap={16}>
               <AdminTextField
-                label="Name"
+                label={t("retailers.name")}
                 value={editName}
                 onChangeText={setEditName}
                 palette={palette}
               />
               <AdminTextField
-                label="Shop name"
+                label={t("forms.shopName")}
                 value={editShopName}
                 onChangeText={setEditShopName}
                 palette={palette}
               />
               <AdminTextField
-                label="Mobile"
+                label={t("retailers.mobile")}
                 value={editPhone}
                 onChangeText={setEditPhone}
                 palette={palette}
                 keyboardType="phone-pad"
               />
               <AdminTextField
-                label="Address"
+                label={t("retailers.address")}
                 value={editAddress}
                 onChangeText={setEditAddress}
                 palette={palette}
@@ -372,7 +375,7 @@ export function AdminPurchasersTab() {
               <XStack alignItems="center" justifyContent="space-between" paddingTop={4}>
                 <YStack gap={2}>
                   <Text style={[styles.modalTitle, { fontSize: 15, color: palette.textPrimary }]}>
-                    Active
+                    {t("common.active")}
                   </Text>
                   <Text
                     style={{
@@ -395,7 +398,7 @@ export function AdminPurchasersTab() {
               </XStack>
               <XStack paddingTop={8}>
                 <ActionButton
-                  label="Save Changes"
+                  label={t("action.saveChanges")}
                   icon="content-save-outline"
                   palette={palette}
                   tone="success"

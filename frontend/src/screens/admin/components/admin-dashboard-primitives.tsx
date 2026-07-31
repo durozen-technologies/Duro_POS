@@ -18,6 +18,7 @@ import {
 } from "react-native";
 
 import { SkeletonDashboard } from "@/components/ui/skeleton";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import {
   adminElevation,
   adminPressOpacity,
@@ -28,6 +29,7 @@ import {
   type ThemePalette,
 } from "../admin-dashboard-theme";
 import { triggerHaptic, type ToastTone } from "../admin-dashboard-utils";
+import { AdminLanguageToggle } from "./admin-language-toggle";
 
 type MetricCardProps = {
   label: string;
@@ -295,6 +297,8 @@ export const SearchField = memo(function SearchField({
   palette,
   accessibilityLabel,
 }: SearchFieldProps) {
+  const { t } = useAdminTranslation();
+
   return (
     <View style={[styles.searchField, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
       <MaterialCommunityIcons name="magnify" size={16} color={palette.textMuted} />
@@ -310,7 +314,7 @@ export const SearchField = memo(function SearchField({
       {value ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Clear search"
+          accessibilityLabel={t("common.clearSearch")}
           onPress={() => onChangeText("")}
           hitSlop={12}
         >
@@ -605,6 +609,7 @@ export function ToastBanner({ toast, palette, animatedValue }: ToastBannerProps)
 }
 
 export function DashboardSkeleton({ palette }: { palette: ThemePalette }) {
+  const { t } = useAdminTranslation();
   return (
     <View style={{ flex: 1, backgroundColor: palette.background }}>
       <SkeletonDashboard
@@ -613,7 +618,7 @@ export function DashboardSkeleton({ palette }: { palette: ThemePalette }) {
           highlight: palette.glass,
           border: palette.border,
         }}
-        label="Loading dashboard"
+        label={t("common.loading")}
       />
     </View>
   );
@@ -740,6 +745,8 @@ export const TopAppBar = memo(function TopAppBar({
   isDark = false,
   onRefresh,
 }: TopAppBarProps) {
+  const { t } = useAdminTranslation();
+
   return (
     <View
       style={[
@@ -749,30 +756,31 @@ export const TopAppBar = memo(function TopAppBar({
     >
       {/* LEFT: Shop + Period stacked */}
       <View style={styles.topAppLeft}>
-        <TopAppBarIconRow onPress={onShopPress} label="Switch branch" palette={palette} isPeriod={false}>
+        <TopAppBarIconRow onPress={onShopPress} label={t("a11y.switchBranch")} palette={palette} isPeriod={false}>
           <MaterialCommunityIcons name="storefront-outline" size={16} color={palette.primary} />
           <Text style={[styles.topAppShopName, { color: palette.onShell }]} numberOfLines={1}>{shopName}</Text>
           <MaterialCommunityIcons name="chevron-down" size={18} color={palette.onShellMuted} />
         </TopAppBarIconRow>
-        <TopAppBarIconRow onPress={onPeriodPress} label="Change analytics period" palette={palette} isPeriod={true}>
+        <TopAppBarIconRow onPress={onPeriodPress} label={t("a11y.changePeriod")} palette={palette} isPeriod={true}>
           <View style={[styles.liveDot, { backgroundColor: isOffline ? palette.gold : palette.success }]} />
           <Text style={[styles.topAppPeriodText, { color: palette.onShellMuted }]}>{periodLabel}</Text>
           <MaterialCommunityIcons name="chevron-down" size={14} color={palette.onShellMuted} />
         </TopAppBarIconRow>
       </View>
 
-      {/* RIGHT: Action icons */}
+      {/* RIGHT: Language + action icons */}
       <View style={styles.topAppActions}>
+        <AdminLanguageToggle palette={palette} compact />
         <TopAppBarIconButton
           onPress={onRefresh}
-          label="Refresh"
+          label={t("a11y.refresh")}
           palette={palette}
         >
           <MaterialCommunityIcons name="refresh" size={19} color={palette.onShell} />
         </TopAppBarIconButton>
         <TopAppBarIconButton
           onPress={onThemeToggle}
-          label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          label={isDark ? t("a11y.switchToLight") : t("a11y.switchToDark")}
           palette={palette}
         >
           <MaterialCommunityIcons

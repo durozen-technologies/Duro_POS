@@ -1,5 +1,6 @@
 import * as Haptics from "expo-haptics";
 
+import type { AdminTranslationKey } from "@/hooks/use-admin-translation";
 import { AnalyticsPeriod, BaseUnit, type ShopRead } from "@/types/api";
 import { money } from "@/utils/decimal";
 import { APP_TIME_ZONE, addCalendarDays, createDateTimeFormat, formatDate, parseCalendarDate, todayDateValue } from "@/utils/format";
@@ -21,14 +22,14 @@ export type SeverityMeta = {
   chipText: string;
 };
 
-export const NAV_ITEMS: { key: AdminNavTab; label: string; icon: string }[] = [
-  { key: "dashboard", label: "Dashboard", icon: "view-dashboard-outline" },
-  { key: "sales", label: "Sales", icon: "chart-line" },
-  { key: "items", label: "Items", icon: "playlist-edit" },
-  { key: "inventory", label: "Inventory", icon: "warehouse" },
-  { key: "expenses", label: "Expenses", icon: "cash-minus" },
-  { key: "retailers", label: "Retailers", icon: "store-outline" },
-  { key: "settings", label: "Settings", icon: "cog-outline" },
+export const NAV_ITEMS: { key: AdminNavTab; labelKey: AdminTranslationKey; icon: string }[] = [
+  { key: "dashboard", labelKey: "nav.dashboard", icon: "view-dashboard-outline" },
+  { key: "sales", labelKey: "nav.sales", icon: "chart-line" },
+  { key: "items", labelKey: "nav.items", icon: "playlist-edit" },
+  { key: "inventory", labelKey: "nav.inventory", icon: "warehouse" },
+  { key: "expenses", labelKey: "nav.expenses", icon: "cash-minus" },
+  { key: "retailers", labelKey: "nav.retailers", icon: "store-outline" },
+  { key: "settings", labelKey: "nav.settings", icon: "cog-outline" },
 ];
 
 // ponytail: Hermes on Android does not support Intl.NumberFormat { notation: "compact" } —

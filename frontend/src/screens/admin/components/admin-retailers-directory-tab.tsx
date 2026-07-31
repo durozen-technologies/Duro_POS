@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useFocusEffect } from "@react-navigation/native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -174,6 +176,7 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
   onCreateRetailer,
   onRearrangeRetailers,
 }: AdminRetailersDirectoryTabProps) {
+  const { t } = useAdminTranslation();
   const [retailers, setRetailers] = useState<RetailerRead[]>([]);
   const [statementRetailer, setStatementRetailer] = useState<RetailerRead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -248,7 +251,7 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
         />
         <ActionButton
           icon="plus"
-          label="Add"
+          label={t("retailers.add")}
           tone="success"
           palette={palette}
           active
@@ -261,14 +264,14 @@ export const AdminRetailersDirectoryTab = memo(function AdminRetailersDirectoryT
 
       <View style={styles.filterRow}>
         <ChipButton
-          label="Active"
+          label={t("retailers.active")}
           active={activeOnly}
           onPress={() => setActiveOnly(true)}
           palette={palette}
           icon="check-circle-outline"
         />
         <ChipButton
-          label="All"
+          label={t("common.all")}
           active={!activeOnly}
           onPress={() => setActiveOnly(false)}
           palette={palette}

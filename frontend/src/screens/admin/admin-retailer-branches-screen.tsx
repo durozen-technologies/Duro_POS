@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useMemo, useState } from "react";
@@ -34,6 +36,7 @@ export function AdminRetailerBranchesScreen({
   navigation,
   route,
 }: AdminRetailerBranchesScreenProps) {
+  const { t } = useAdminTranslation();
   const { retailerId, retailerName, requireSelection = false } = route.params;
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
@@ -227,7 +230,7 @@ export function AdminRetailerBranchesScreen({
                 onPress={clearAll}
                 style={[styles.summaryButton, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}
               >
-                <Text style={{ color: palette.textPrimary, fontWeight: "700", fontSize: 13 }}>Clear</Text>
+                <Text style={{ color: palette.textPrimary, fontWeight: "700", fontSize: 13 }}>{t("action.clear")}</Text>
               </Pressable>
             </View>
           </View>

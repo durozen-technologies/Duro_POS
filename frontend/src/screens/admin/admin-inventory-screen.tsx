@@ -40,6 +40,7 @@ import {
   adminSetRetailerInventoryStock,
 } from "@/api/admin";
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import {
   CalendarDateField,
   CalendarDatePickerModal,
@@ -374,6 +375,7 @@ function patchStockItem(
 
 export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<InventoryTab>(route.params?.tab ?? "shops");
   const [items, setItems] = useState<InventoryItemRead[]>([]);
@@ -972,17 +974,17 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   }, [navigation]);
 
   const confirmDeleteItem = useCallback((item: InventoryItemRead) => {
-    Alert.alert("Delete inventory item", `Delete ${item.name}?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("inventory.deleteItem"), t("inventory.deleteItemMessage", { name: item.name }), [
+      { text: t("action.cancel"), style: "cancel" },
       {
-        text: "Delete",
+        text: t("action.delete"),
         style: "destructive",
         onPress: () => {
           void deleteInventoryItem(item.id)
             .then(() => loadBaseData(true))
             .catch((error) => {
               triggerHaptic();
-              setErrorMessage(getRequestMessage(error, "Unable to delete inventory item."));
+              setErrorMessage(getRequestMessage(error, t("inventory.deleteFailed")));
             });
         },
       },
@@ -1164,7 +1166,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
   const handleSavePurchaseRate = useCallback(async (itemId: UUID) => {
     const nextRate = editingPurchaseRateValue.trim();
     if (!nextRate || money(nextRate).lessThan(0)) {
-      Alert.alert("Invalid purchase rate", "Enter a valid amount.");
+      Alert.alert(t("inventory.invalidPurchaseRate"), t("inventory.enterValidAmount"));
       return;
     }
     setSavingPurchaseRateId(itemId);
@@ -1200,7 +1202,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       if (editingPurchaseRateId) {
         const nextRate = editingPurchaseRateValue.trim();
         if (!nextRate || money(nextRate).lessThan(0)) {
-          Alert.alert("Invalid purchase rate", "Enter a valid amount before saving.");
+          Alert.alert(t("inventory.invalidPurchaseRate"), t("inventory.enterValidAmountBeforeSaving"));
           return;
         }
         await updateInventoryItemPurchaseRate(editingPurchaseRateId, money(nextRate).toFixed(2));
@@ -1210,7 +1212,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       await confirmInventoryPurchaseRatesToday();
       setConfirmedTodayNonce((nonce) => nonce + 1);
       await loadInventoryRows();
-      setToast({ tone: "success", message: "Today Prices is update for report." });
+      setToast({ tone: "success", message: t("inventory.todayPricesUpdated") });
     } catch (error) {
       triggerHaptic();
       setErrorMessage(getRequestMessage(error, "Unable to save today's purchase rates."));
@@ -1224,12 +1226,12 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
       <View style={[styles.tabs, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
         {(
           [
-            { key: "shops", label: "Branch stock", icon: "storefront-outline" },
-            { key: "items", label: "Items", icon: "package-variant-closed" },
-            { key: "categories", label: "Categories", icon: "shape-outline" },
-            { key: "purchaseRates", label: "Purchase rate", icon: "currency-inr" },
-            { key: "purchasers", label: "Purchaser", icon: "account-tie-outline" },
-            { key: "transferShops", label: "Transfer shops", icon: "swap-horizontal" },
+            { key: "shops", label: t("inventory.branchStock"), icon: "storefront-outline" },
+            { key: "items", label: t("nav.items"), icon: "package-variant-closed" },
+            { key: "categories", label: t("items.categories"), icon: "shape-outline" },
+            { key: "purchaseRates", label: t("inventory.purchaseRate"), icon: "currency-inr" },
+            { key: "purchasers", label: t("purchasers.title"), icon: "account-tie-outline" },
+            { key: "transferShops", label: t("transfer.title"), icon: "swap-horizontal" },
           ] as const
         ).map((tab) => {
         const active = activeTab === tab.key;
@@ -2057,8 +2059,8 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
           <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text style={[styles.title, { color: palette.onShell }]}>Inventory</Text>
-          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>Items, categories, purchase rates, and branch stock</Text>
+          <Text style={[styles.title, { color: palette.onShell }]}>{t("inventory.title")}</Text>
+          {/* <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>{t("inventory.workspaceSubtitle")}</Text> */}
         </View>
         <AdminHeaderActions
           refreshing={refreshing}
@@ -2087,11 +2089,11 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
                     <SearchField
                       value={search}
                       onChangeText={setSearch}
-                      placeholder="Search inventory"
+                      placeholder={t("inventory.searchInventory")}
                       palette={palette}
                     />
                   </View>
-                  <ActionButton label="Add" icon="plus" palette={palette} tone="success" active onPress={openCreateEditor} />
+                  <ActionButton label={t("action.add")} icon="plus" palette={palette} tone="success" active onPress={openCreateEditor} />
                 </View>
               </View>
               <FlatList

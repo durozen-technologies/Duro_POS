@@ -13,6 +13,7 @@ import {
 } from "@/api/admin";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import type { AdminShopItemsOrderScreenProps } from "@/navigation/types";
 import { UnitType, type ShopItemRead, type UUID } from "@/types/api";
 import { getItemThumbnailUri } from "@/utils/item-images";
@@ -235,6 +236,7 @@ export function AdminShopItemsOrderScreen({
   route,
 }: AdminShopItemsOrderScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const { shopId, shopName } = route.params;
   const [groups, setGroups] = useState<OrderGroup[]>([]);
@@ -322,10 +324,10 @@ export function AdminShopItemsOrderScreen({
         </Pressable>
         <View style={styles.titleWrap}>
           <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
-            Arrange order
+            {t("items.arrangeOrder")}
           </Text>
           <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
-            {(shopName || "Selected shop")} · {itemCount} items
+            {(shopName || t("items.selectedShop"))} · {t("items.itemCount", { count: itemCount })}
           </Text>
         </View>
         <AdminHeaderActions
@@ -334,7 +336,7 @@ export function AdminShopItemsOrderScreen({
           onRefresh={loadItems}
         />
         <ActionButton
-          label="Save order"
+          label={t("items.saveOrder")}
           icon="content-save-outline"
           palette={palette}
           tone="primary"
@@ -417,8 +419,8 @@ export function AdminShopItemsOrderScreen({
             </YStack>
           ) : (
             <EmptyState
-              title="No selected items"
-              message="Import catalogue items to arrange this shop."
+              title={t("items.noSelectedItems")}
+              message={t("items.importToArrange")}
               icon="playlist-remove"
               palette={palette}
             />

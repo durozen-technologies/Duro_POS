@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
 import {
@@ -23,6 +25,7 @@ import { useAdminTheme } from "./use-admin-theme";
 import { money, toMoneyString } from "@/utils/decimal";
 
 export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEditorScreenProps) {
+  const { t } = useAdminTranslation();
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const initial = route.params?.initialRetailer;
@@ -44,23 +47,23 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
     const trimmedPhone = phone.trim();
 
     if (!trimmedName) {
-      Alert.alert("Required field", "Enter a retailer name.");
+      Alert.alert(t("retailers.requiredField"), t("retailers.enterName"));
       return;
     }
     if (!trimmedShopName) {
-      Alert.alert("Required field", "Enter a shop name.");
+      Alert.alert(t("retailers.requiredField"), t("retailers.enterShopName"));
       return;
     }
     if (!trimmedPhone) {
-      Alert.alert("Required field", "Enter a mobile number.");
+      Alert.alert(t("retailers.requiredField"), t("retailers.enterMobile"));
       return;
     }
     if (trimmedPhone.length < 10) {
-      Alert.alert("Invalid phone", "Enter a valid mobile number.");
+      Alert.alert(t("retailers.invalidPhone"), t("forms.mobileInvalid"));
       return;
     }
     if (!initial && openingBalance.trim() && money(openingBalance).lessThan(0)) {
-      Alert.alert("Invalid amount", "Opening balance cannot be negative.");
+      Alert.alert(t("retailers.invalidAmount"), t("retailers.openingBalanceNegative"));
       return;
     }
 
@@ -91,11 +94,11 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
         });
       }
     } catch (error) {
-      Alert.alert("Save failed", formatApiErrorMessage(error));
+      Alert.alert(t("retailers.saveFailed"), formatApiErrorMessage(error));
     } finally {
       setSaving(false);
     }
-  }, [address, alternatePhone, initial, isActive, name, navigation, openingBalance, phone, shopName]);
+  }, [address, alternatePhone, initial, isActive, name, navigation, openingBalance, phone, shopName, t]);
 
   const confirmDelete = useCallback(() => {
     if (!initial) {
@@ -103,14 +106,14 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
     }
     if (!canDelete) {
       Alert.alert(
-        "Cannot delete retailer",
-        "This retailer already has billing history and cannot be deleted.",
+        t("retailers.deleteRetailer"),
+        t("retailers.cannotDeleteHistory"),
       );
       return;
     }
     Alert.alert(
-      "Delete retailer",
-      `Permanently delete "${initial.name}"? This cannot be undone.`,
+      t("retailers.deleteRetailerConfirm"),
+      t("retailers.deleteRetailerMessage", { name: initial.name }),
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -124,7 +127,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
                 triggerHaptic();
                 navigation.navigate("AdminRetailers");
               } catch (error) {
-                Alert.alert("Delete failed", formatApiErrorMessage(error));
+                Alert.alert(t("retailers.deleteFailed"), formatApiErrorMessage(error));
               } finally {
                 setDeleting(false);
               }
@@ -133,7 +136,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
         },
       ],
     );
-  }, [canDelete, initial, navigation]);
+  }, [canDelete, initial, navigation, t]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: palette.background }} edges={["left", "right"]}>
@@ -155,7 +158,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
           <MaterialCommunityIcons name="arrow-left" size={20} color={palette.onShell} />
         </Pressable>
         <Text style={{ flex: 1, fontSize: 20, fontWeight: "900", color: palette.onShell }}>
-          {initial ? "Edit retailer" : "New retailer"}
+          {initial ? t("retailers.editRetailer") : t("retailers.newRetailer")}
         </Text>
       </View>
       <KeyboardAwareScrollView
@@ -164,29 +167,29 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
         enableOnAndroid
         keyboardShouldPersistTaps="handled"
       >
-          <AdminTextField label="Retailer Name *" palette={palette} value={name} onChangeText={setName} />
+          <AdminTextField label={`${t("retailers.name")} *`} palette={palette} value={name} onChangeText={setName} />
           <AdminTextField
-            label="Shop Name *"
+            label={`${t("forms.shopName")} *`}
             palette={palette}
             value={shopName}
             onChangeText={setShopName}
           />
           <AdminTextField
-            label="Mobile Number *"
+            label={`${t("forms.mobile")} *`}
             palette={palette}
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
           />
           <AdminTextField
-            label="Alternate Mobile Number"
+            label={t("forms.alternateMobile")}
             palette={palette}
             value={alternatePhone}
             onChangeText={setAlternatePhone}
             keyboardType="phone-pad"
           />
           <AdminTextField
-            label="Address (optional)"
+            label={`${t("forms.address")} (${t("common.optional")})`}
             palette={palette}
             value={address}
             onChangeText={setAddress}
@@ -194,7 +197,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
           />
           {!initial ? (
             <AdminTextField
-              label="Opening balance (optional)"
+              label={`${t("forms.openingBalance")} (${t("common.optional")})`}
               palette={palette}
               value={openingBalance}
               onChangeText={setOpeningBalance}
@@ -215,7 +218,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
                 padding: 14,
               }}
             >
-              <Text style={{ color: palette.textPrimary, fontWeight: "600" }}>Active</Text>
+              <Text style={{ color: palette.textPrimary, fontWeight: "600" }}>{t("retailers.active")}</Text>
               <Switch value={isActive} onValueChange={setIsActive} />
             </View>
           ) : null}
@@ -234,7 +237,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
             {saving ? (
               <ActivityIndicator color={palette.onPrimary} />
             ) : (
-              <Text style={{ color: palette.onPrimary, fontWeight: "700" }}>Save retailer</Text>
+              <Text style={{ color: palette.onPrimary, fontWeight: "700" }}>{t("retailers.saveRetailer")}</Text>
             )}
           </Pressable>
           {initial ? (
@@ -256,7 +259,7 @@ export function AdminRetailerEditorScreen({ navigation, route }: AdminRetailerEd
                 <ActivityIndicator color={palette.danger} />
               ) : (
                 <Text style={{ color: palette.danger, fontWeight: "700" }}>
-                  {canDelete ? "Delete retailer" : "Cannot delete — has billing history"}
+                  {canDelete ? t("retailers.deleteRetailer") : t("retailers.cannotDeleteHistory")}
                 </Text>
               )}
             </Pressable>

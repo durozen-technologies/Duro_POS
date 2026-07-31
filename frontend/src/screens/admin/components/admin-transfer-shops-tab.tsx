@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -47,6 +49,7 @@ function getRequestMessage(error: unknown, fallback: string) {
 }
 
 export function AdminTransferShopsTab() {
+  const { t } = useAdminTranslation();
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   
@@ -193,12 +196,12 @@ export function AdminTransferShopsTab() {
       return;
     }
     Alert.alert(
-      "Delete transfer shop",
+      t("transfer.deleteShop"),
       `Permanently delete "${editingShop.name}"? This cannot be undone.`,
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("action.cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("action.delete"),
           style: "destructive",
           onPress: () => {
             void (async () => {
@@ -220,7 +223,7 @@ export function AdminTransferShopsTab() {
         },
       ],
     );
-  }, [editingShop, loadData]);
+  }, [editingShop, loadData, t]);
 
   const loadHistory = async (shop: TransferShopRead, filters = {
     search: historySearch,
@@ -283,7 +286,7 @@ export function AdminTransferShopsTab() {
           <Text style={[styles.rowTitle, { color: palette.textPrimary }]}>{item.name}</Text>
           <View style={[styles.badge, { backgroundColor: item.is_active ? palette.inventorySoft : palette.surfaceMuted }]}>
             <Text style={[styles.badgeText, { color: item.is_active ? palette.inventory : palette.textMuted }]}>
-              {item.is_active ? "Active" : "Inactive"}
+              {item.is_active ? t("common.active") : t("common.inactive")}
             </Text>
           </View>
         </XStack>
@@ -298,7 +301,7 @@ export function AdminTransferShopsTab() {
         flexWrap="wrap"
       >
         <ActionButton 
-          label="Edit" 
+          label={t("retailers.edit")} 
           icon="pencil-outline" 
           palette={palette} 
           onPress={() => {
@@ -309,7 +312,7 @@ export function AdminTransferShopsTab() {
           }} 
         />
         <ActionButton 
-          label="History" 
+          label={t("retailers.history")} 
           icon="history" 
           palette={palette} 
           tone="info"
@@ -335,12 +338,12 @@ export function AdminTransferShopsTab() {
           <SearchField 
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search transfer shops..."
+            placeholder={t("transfer.search")}
             palette={palette}
           />
         </YStack>
         <ActionButton 
-          label="Add shop" 
+          label={t("transfer.addShop")} 
           icon="plus" 
           palette={palette} 
           tone="success" 
@@ -360,11 +363,11 @@ export function AdminTransferShopsTab() {
         ListEmptyComponent={
           !loading ? (
             <EmptyStateCard 
-              title="No transfer shops found" 
+              title={t("transfer.noShops")} 
               subtitle={searchQuery ? "Try a different search query." : "You haven't added any transfer shops yet."} 
               icon="storefront-outline" 
               palette={palette} 
-              actionLabel={!searchQuery ? "Add a shop" : undefined}
+              actionLabel={!searchQuery ? t("transfer.addShop") : undefined}
               onAction={!searchQuery ? () => setCreateModalOpen(true) : undefined}
             />
           ) : null
@@ -379,29 +382,29 @@ export function AdminTransferShopsTab() {
         >
           <View style={[styles.modalContent, { backgroundColor: palette.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>Add Transfer Shop</Text>
+              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>{t("transfer.addShop")}</Text>
               <Pressable hitSlop={12} onPress={() => setCreateModalOpen(false)}>
                 <MaterialCommunityIcons name="close" size={24} color={palette.textSecondary} />
               </Pressable>
             </View>
             <YStack padding={20} gap={16}>
               <AdminTextField
-                label="English Name"
-                placeholder="Shop Name"
+                label={t("forms.englishName")}
+                placeholder={t("forms.shopName")}
                 value={draftName}
                 onChangeText={setDraftName}
                 palette={palette}
               />
               <AdminTextField
-                label="Tamil Name"
-                placeholder="Shop Tamil Name"
+                label={t("forms.tamilName")}
+                placeholder={t("forms.tamilName")}
                 value={draftTamilName}
                 onChangeText={setDraftTamilName}
                 palette={palette}
               />
               <XStack paddingTop={8}>
                 <ActionButton 
-                  label="Create Shop" 
+                  label={t("settings.createShop")} 
                   icon="check" 
                   palette={palette} 
                   tone="success" 
@@ -424,29 +427,29 @@ export function AdminTransferShopsTab() {
         >
           <View style={[styles.modalContent, { backgroundColor: palette.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>Edit Shop</Text>
+              <Text style={[styles.modalTitle, { color: palette.textPrimary }]}>{t("transfer.editShop")}</Text>
               <Pressable hitSlop={12} onPress={() => setEditingShop(null)}>
                 <MaterialCommunityIcons name="close" size={24} color={palette.textSecondary} />
               </Pressable>
             </View>
             <YStack padding={20} gap={16}>
               <AdminTextField
-                label="English Name"
+                label={t("forms.englishName")}
                 value={editName}
                 onChangeText={setEditName}
                 palette={palette}
               />
               <AdminTextField
-                label="Tamil Name"
+                label={t("forms.tamilName")}
                 value={editTamilName}
                 onChangeText={setEditTamilName}
                 palette={palette}
               />
               <XStack alignItems="center" justifyContent="space-between" paddingTop={4}>
                 <YStack gap={2}>
-                  <Text style={[styles.modalTitle, { fontSize: 15, color: palette.textPrimary }]}>Status</Text>
+                  <Text style={[styles.modalTitle, { fontSize: 15, color: palette.textPrimary }]}>{t("retailers.status")}</Text>
                   <Text style={{ fontSize: 13, color: palette.textSecondary, fontFamily: "Inter-Regular" }}>
-                    {editIsActive ? "Active (Can receive transfers)" : "Inactive (Hidden from transfers)"}
+                    {editIsActive ? t("transfer.activeHint") : t("transfer.inactiveHint")}
                   </Text>
                 </YStack>
                 <Switch
@@ -458,7 +461,7 @@ export function AdminTransferShopsTab() {
               </XStack>
               <XStack paddingTop={8}>
                 <ActionButton 
-                  label="Save Changes" 
+                  label={t("action.saveChanges")} 
                   icon="content-save-outline" 
                   palette={palette} 
                   tone="success" 
@@ -471,10 +474,10 @@ export function AdminTransferShopsTab() {
 
               <View style={[styles.deleteSection, { borderTopColor: palette.border }]}>
                 <Text style={[styles.deleteSectionLabel, { color: palette.textMuted }]}>
-                  Danger zone
+                  {t("common.dangerZone")}
                 </Text>
                 <ActionButton
-                  label="Delete shop"
+                  label={t("transfer.deleteShop")}
                   icon="trash-can-outline"
                   palette={palette}
                   tone="danger"
@@ -484,11 +487,11 @@ export function AdminTransferShopsTab() {
                 />
                 {editingShop?.has_history ? (
                   <Text style={[styles.deleteBlockedText, { color: palette.warning }]}>
-                    Cannot Delete, has Billing History.
+                    {t("transfer.cannotDeleteHistory")}
                   </Text>
                 ) : (
                   <Text style={[styles.deleteHintText, { color: palette.textMuted }]}>
-                    Only shops without transfer history can be deleted.
+                    {t("transfer.deleteHint")}
                   </Text>
                 )}
               </View>
@@ -504,7 +507,7 @@ export function AdminTransferShopsTab() {
             <Pressable hitSlop={12} onPress={() => setHistoryShop(null)}>
               <MaterialCommunityIcons name="close" size={24} color={palette.onShell} />
             </Pressable>
-            <Text style={[styles.fullModalTitle, { color: palette.onShell }]}>{historyShop?.name} Transfers</Text>
+            <Text style={[styles.fullModalTitle, { color: palette.onShell }]}>{historyShop?.name} {t("transfer.history")}</Text>
             <View style={{ width: 24 }} />
           </View>
           
@@ -512,7 +515,7 @@ export function AdminTransferShopsTab() {
             <SearchField 
               value={historySearch}
               onChangeText={setHistorySearch}
-              placeholder="Search items or branch..."
+              placeholder={t("transfer.searchHistory")}
               palette={palette}
             />
             <XStack gap={8} flexWrap="wrap">
@@ -599,7 +602,7 @@ export function AdminTransferShopsTab() {
                       style={[styles.dropdownOption, { backgroundColor: !historySourceShopId ? palette.inventorySoft : "transparent", borderColor: !historySourceShopId ? palette.inventory : "transparent" }]}
                     >
                       <Text style={[styles.dropdownOptionText, { color: !historySourceShopId ? palette.inventoryStrong : palette.textPrimary }]}>
-                        All Branches
+                        {t("reports.allBranches")}
                       </Text>
                     </Pressable>
                     {branchShops.map(shop => {
@@ -635,8 +638,8 @@ export function AdminTransferShopsTab() {
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               ListEmptyComponent={
                 <EmptyStateCard 
-                  title="No transfer history" 
-                  subtitle="No items have been transferred to this shop yet." 
+                  title={t("transfer.noHistory")} 
+                  subtitle={t("transfer.noHistoryHint")} 
                   icon="history" 
                   palette={palette} 
                 />

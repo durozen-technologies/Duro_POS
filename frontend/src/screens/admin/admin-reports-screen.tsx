@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { requireOptionalNativeModule } from "expo-modules-core";
 import { StatusBar } from "expo-status-bar";
 import type { ComponentProps } from "react";
@@ -24,6 +26,7 @@ import {
 import { fetchAllRetailers } from "@/api/retailers";
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminReportsScreenProps } from "@/navigation/types";
+import { useAdminLanguageStore } from "@/store/admin-language-store";
 import { AnalyticsPeriod, type RetailerRead, type ShopRead, type UUID } from "@/types/api";
 
 import { adminElevation, adminRadii, type ThemePalette, adminSpacing, adminTypography } from "./admin-dashboard-theme";
@@ -402,6 +405,7 @@ const SectionCard = memo(function SectionCard({
 });
 
 export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
+  const { t, language: uiLanguage } = useAdminTranslation();
   const { colorScheme, palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
   const [shops, setShops] = useState<ShopRead[]>([]);
@@ -424,7 +428,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const [selectedRetailerIds, setSelectedRetailerIds] = useState<UUID[]>([]);
   const [retailerDropdownOpen, setRetailerDropdownOpen] = useState(false);
   const [selectedSections, setSelectedSections] = useState<AdminReportSection[]>(["sales"]);
-  const [language, setLanguage] = useState<"en" | "ta">("en");
+  const [language, setLanguage] = useState(() => useAdminLanguageStore.getState().language ?? uiLanguage);
   const [todayIso] = useState(todayValue);
 
   const dateOptions = useMemo(() => buildDateOptions(), []);
@@ -437,7 +441,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     [calendarMonthValue],
   );
   const selectedShopIdSet = useMemo(() => new Set(selectedShopIds), [selectedShopIds]);
-  const branchSelectionLabel = allBranches ? "All branches" : pluralizeBranch(selectedShopIds.length);
+  const branchSelectionLabel = allBranches ? t("reports.allBranches") : t("reports.branchCount", { count: selectedShopIds.length });
   const branchSelectionDetail = allBranches
     ? pluralizeBranch(shops.length)
     : formatSelectedBranchNames(shops, selectedShopIds);
@@ -446,7 +450,9 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const hasOverallReport = selectedSectionSet.has("over_report");
   const hasRetailersReport = selectedSectionSet.has("retailers");
   const selectedRetailerIdSet = useMemo(() => new Set(selectedRetailerIds), [selectedRetailerIds]);
-  const retailerSelectionLabel = allRetailers ? "All retailers" : pluralizeRetailer(selectedRetailerIds.length);
+  const retailerSelectionLabel = allRetailers
+    ? t("reports.allRetailers")
+    : t("reports.retailerCount", { count: selectedRetailerIds.length });
   const retailerSelectionDetail = allRetailers
     ? pluralizeRetailer(retailers.length)
     : formatSelectedRetailerNames(retailers, selectedRetailerIds);
@@ -663,7 +669,11 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     if (!canGenerate) {
       return;
     }
-    const rangeError = period === AnalyticsPeriod.RANGE ? validateRange(rangeStartDate, rangeEndDate) : "";
+    const rangeError = period === AnalyticsPeriod.RANGE && (!rangeStartDate || !rangeEndDate)
+      ? t("reports.validationStartEnd")
+      : period === AnalyticsPeriod.RANGE
+        ? validateRange(rangeStartDate, rangeEndDate)
+        : "";
     if (rangeError) {
       setErrorMessage(rangeError);
       return;
@@ -694,7 +704,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         if (sharingAvailable) {
           await sharingModule
             .shareAsync(result.uri, {
-              dialogTitle: "Admin report",
+              dialogTitle: t("reports.title"),
               mimeType: "application/pdf",
               UTI: "com.adobe.pdf",
             })
@@ -707,7 +717,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         }
       }
       if (!shared) {
-        Alert.alert("Report downloaded", result.filename);
+        Alert.alert(t("reports.downloaded"), result.filename);
       }
     } catch (error) {
       setErrorMessage(formatApiErrorMessage(error, "Report could not be generated."));
@@ -728,6 +738,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     selectedShopIds,
     allRetailers,
     selectedRetailerIds,
+    t,
   ]);
 
   const handlePreviewOverallReport = useCallback(() => {
@@ -786,7 +797,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         </Pressable>
         <View style={styles.calendarTitleWrap}>
           <Text style={[styles.calendarModeLabel, { color: palette.textMuted }]}>
-            {period === AnalyticsPeriod.RANGE ? "Custom range" : "Select day"}
+            {period === AnalyticsPeriod.RANGE ? t("reports.customRange") : t("reports.selectDay")}
           </Text>
           <Text style={[styles.calendarMonthTitle, { color: palette.textPrimary }]}>
             {calendarMonthLabel}
@@ -846,14 +857,14 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         <View style={[styles.rangeFooter, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
           <View style={styles.rangeDatesRow}>
             <View style={styles.rangeDateBlock}>
-              <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>Start</Text>
+              <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>{t("common.start")}</Text>
               <Text style={[styles.rangeDateValue, { color: palette.textPrimary }]} numberOfLines={1}>
                 {formatCalendarDateLabel(rangeStartDate)}
               </Text>
             </View>
             <View style={[styles.rangeDivider, { backgroundColor: palette.border }]} />
             <View style={styles.rangeDateBlock}>
-              <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>End</Text>
+              <Text style={[styles.rangeDateLabel, { color: palette.textMuted }]}>{t("common.end")}</Text>
               <Text style={[styles.rangeDateValue, { color: palette.textPrimary }]} numberOfLines={1}>
                 {formatCalendarDateLabel(rangeEndDate)}
               </Text>
@@ -875,7 +886,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       ) : null}
 
       <View style={styles.sectionBlock}>
-        <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Period</Text>
+        <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.period")}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.periodScroller}>
           {PERIOD_OPTIONS.map((option) => {
             const selected = option.value === period;
@@ -938,7 +949,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       </View>
 
       <View style={styles.sectionBlock}>
-        <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Detail</Text>
+        <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.detail")}</Text>
         <View style={[styles.segmentedControl, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
           {(["summary", "full"] as AdminReportDetailLevel[]).map((level) => {
             const selected = detailLevel === level;
@@ -960,7 +971,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                 ]}
               >
                 <Text style={[styles.segmentText, { color: selected ? palette.textPrimary : palette.textMuted }]}>
-                  {level === "summary" ? "Summary" : "Full"}
+                  {level === "summary" ? t("reports.summary") : t("reports.full")}
                 </Text>
               </Pressable>
             );
@@ -969,7 +980,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       </View>
 
       <View style={styles.sectionBlock}>
-        <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Reports</Text>
+        <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.title")}</Text>
         <View style={styles.sectionGrid}>
           {SECTION_OPTIONS.map((option) => (
             <SectionCard
@@ -985,7 +996,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
 
       <View style={styles.sectionBlock}>
         <View style={styles.branchHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Branches</Text>
+          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.branches")}</Text>
           <Text style={[styles.branchCount, { color: palette.textMuted }]}>{branchSelectionLabel}</Text>
         </View>
         <Pressable
@@ -1037,7 +1048,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                 />
               </View>
               <View style={styles.branchTextWrap}>
-                <Text style={[styles.branchName, { color: palette.textPrimary }]}>All branches</Text>
+                <Text style={[styles.branchName, { color: palette.textPrimary }]}>{t("reports.allBranches")}</Text>
                 <Text style={[styles.branchMeta, { color: palette.textMuted }]}>{pluralizeBranch(shops.length)}</Text>
               </View>
               <MaterialCommunityIcons
@@ -1074,7 +1085,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                 onPress={() => setBranchDropdownOpen(false)}
                 style={[styles.branchDoneButton, { backgroundColor: palette.primary, borderColor: palette.primary }]}
               >
-                <Text style={[styles.branchDoneText, { color: palette.onPrimary }]}>Done</Text>
+                <Text style={[styles.branchDoneText, { color: palette.onPrimary }]}>{t("action.done")}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -1083,7 +1094,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
 
       {hasOverallReport ? (
         <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Language</Text>
+          <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.language")}</Text>
           <View style={[styles.segmentedControl, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
             {(["en", "ta"] as ("en" | "ta")[]).map((lang) => {
               const selected = language === lang;
@@ -1105,7 +1116,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                   ]}
                 >
                   <Text style={[styles.segmentText, { color: selected ? palette.textPrimary : palette.textMuted }]}>
-                    {lang === "en" ? "English" : "Tamil"}
+                    {lang === "en" ? t("reports.english") : t("reports.tamil")}
                   </Text>
                 </Pressable>
               );
@@ -1117,7 +1128,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
       {hasRetailersReport ? (
         <View style={styles.sectionBlock}>
           <View style={styles.branchHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Retailers</Text>
+            <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.retailers")}</Text>
             <Text style={[styles.branchCount, { color: palette.textMuted }]}>{retailerSelectionLabel}</Text>
           </View>
           <Pressable
@@ -1169,7 +1180,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                   />
                 </View>
                 <View style={styles.branchTextWrap}>
-                  <Text style={[styles.branchName, { color: palette.textPrimary }]}>All retailers</Text>
+                  <Text style={[styles.branchName, { color: palette.textPrimary }]}>{t("reports.allRetailers")}</Text>
                   <Text style={[styles.branchMeta, { color: palette.textMuted }]}>{pluralizeRetailer(retailers.length)}</Text>
                 </View>
                 <MaterialCommunityIcons
@@ -1206,7 +1217,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                   onPress={() => setRetailerDropdownOpen(false)}
                   style={[styles.branchDoneButton, { backgroundColor: palette.primary, borderColor: palette.primary }]}
                 >
-                  <Text style={[styles.branchDoneText, { color: palette.onPrimary }]}>Done</Text>
+                  <Text style={[styles.branchDoneText, { color: palette.onPrimary }]}>{t("action.done")}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -1242,7 +1253,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
           />
         )}
         <Text style={[styles.generateButtonText, { color: palette.onPrimary }]}>
-          {generating ? "Generating..." : `Generate PDF`}
+          {generating ? t("reports.generating") : t("reports.generatePdf")}
         </Text>
       </Pressable>
     </View>
@@ -1262,7 +1273,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         </Pressable>
         <View style={styles.titleWrap}>
           <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
-            Reports
+            {t("reports.title")}
           </Text>
           <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
             {branchSelectionLabel}

@@ -28,6 +28,7 @@ import {
   type ItemImageUploadFile,
 } from "@/api/admin";
 import { toApiError, formatApiErrorMessage } from "@/api/client";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import {
   BaseUnit,
   UnitType,
@@ -160,6 +161,7 @@ export function AdminInventoryItemEditorScreen({
   route,
 }: AdminInventoryItemEditorScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const initialItem = route.params?.initialItem ?? null;
   const itemId = route.params?.itemId ?? initialItem?.id ?? null;
@@ -248,12 +250,12 @@ export function AdminInventoryItemEditorScreen({
       setRemoveImage(false);
     } catch (error) {
       triggerHaptic();
-      setSaveError(getRequestMessage(error, "Unable to load inventory item editor."));
+      setSaveError(getRequestMessage(error, t("inventory.loadEditorFailed")));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [initialItem, itemId, setSelectedTemplateId]);
+  }, [initialItem, itemId, setSelectedTemplateId, t]);
 
   useEffect(() => {
     void loadEditorData();
@@ -275,7 +277,7 @@ export function AdminInventoryItemEditorScreen({
       setSaveError(null);
     } catch (error) {
       triggerHaptic();
-      setSaveError(getRequestMessage(error, "Unable to pick image."));
+      setSaveError(getRequestMessage(error, t("items.pickImageFailed")));
     }
   }, []);
 
@@ -283,8 +285,9 @@ export function AdminInventoryItemEditorScreen({
     chooseImageSourceAlert({
       onChooseTemplate: () => void openTemplatePicker(),
       onUploadFromDevice: () => void pickImageFromDevice(),
+      t,
     });
-  }, [openTemplatePicker, pickImageFromDevice]);
+  }, [openTemplatePicker, pickImageFromDevice, t]);
 
   const toggleCategory = useCallback((categoryId: UUID) => {
     setValues((current) => {
@@ -353,7 +356,7 @@ export function AdminInventoryItemEditorScreen({
     }
     if (!values.name.trim() || !values.tamilName.trim()) {
       triggerHaptic();
-      setSaveError("Enter both English and Tamil names.");
+      setSaveError(t("forms.englishAndTamilRequired"));
       return;
     }
     savingRef.current = true;
@@ -411,7 +414,7 @@ export function AdminInventoryItemEditorScreen({
       savingRef.current = false;
       setSaving(false);
     }
-  }, [effectiveItemId, imageDraft, isEdit, item?.global_image_template_id, navigation, removeImage, selectedTemplateId, setSelectedTemplateId, values]);
+  }, [effectiveItemId, imageDraft, isEdit, item?.global_image_template_id, navigation, removeImage, selectedTemplateId, setSelectedTemplateId, t, values]);
 
   const confirmDeleteItem = useCallback(() => {
     if (!effectiveItemId || savingRef.current) {
@@ -419,25 +422,25 @@ export function AdminInventoryItemEditorScreen({
     }
     if (item?.can_delete === false) {
       triggerHaptic();
-      setSaveError("Cannot delete inventory item after billing usage history.");
+      setSaveError(t("inventory.cannotDeleteHistory"));
       return;
     }
-    Alert.alert("Delete inventory item", `Delete ${item?.name ?? "this item"}?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("inventory.deleteItem"), t("inventory.deleteItemMessage", { name: item?.name ?? t("inventory.thisItem") }), [
+      { text: t("action.cancel"), style: "cancel" },
       {
-        text: "Delete",
+        text: t("action.delete"),
         style: "destructive",
         onPress: () => {
           void deleteInventoryItem(effectiveItemId)
             .then(() => navigation.goBack())
             .catch((error) => {
               triggerHaptic();
-              setSaveError(getRequestMessage(error, "Unable to delete inventory item."));
+              setSaveError(getRequestMessage(error, t("inventory.deleteFailed")));
             });
         },
       },
     ]);
-  }, [effectiveItemId, item?.can_delete, item?.name, navigation]);
+  }, [effectiveItemId, item?.can_delete, item?.name, navigation, t]);
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "left", "right"]}>
@@ -453,9 +456,9 @@ export function AdminInventoryItemEditorScreen({
         </Pressable>
         <View style={styles.titleWrap}>
           <Text style={[styles.title, { color: palette.onShell }]}>
-            {isEdit ? "Edit inventory item" : "Add inventory item"}
+            {isEdit ? t("inventory.editItem") : t("inventory.addItem")}
           </Text>
-          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>Image, names, unit, and categories</Text>
+          <Text style={[styles.subtitle, { color: palette.onShellMuted }]}>{t("inventory.editorSubtitle")}</Text>
         </View>
         <AdminHeaderActions
           refreshing={refreshing}
@@ -477,7 +480,7 @@ export function AdminInventoryItemEditorScreen({
           </View>
         ) : null}
         {loading ? (
-          <Text style={[styles.loadingText, { color: palette.textMuted }]}>Loading item...</Text>
+          <Text style={[styles.loadingText, { color: palette.textMuted }]}>{t("items.loadingItem")}</Text>
         ) : (
           <>
             <View style={[styles.imagePanel, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
@@ -488,10 +491,10 @@ export function AdminInventoryItemEditorScreen({
               )}
             </View>
             <View style={styles.row}>
-              <ActionButton label="Pick image" icon="image-edit-outline" palette={palette} tone="info" onPress={chooseImageSource} />
+              <ActionButton label={t("items.pickImage")} icon="image-edit-outline" palette={palette} tone="info" onPress={chooseImageSource} />
               {canRemoveImage ? (
                 <ActionButton
-                  label={removeImage ? "Undo" : "Remove"}
+                  label={removeImage ? t("action.undo") : t("action.remove")}
                   icon={removeImage ? "undo" : "image-remove-outline"}
                   palette={palette}
                   tone={removeImage ? "warning" : "danger"}
@@ -501,25 +504,25 @@ export function AdminInventoryItemEditorScreen({
             </View>
             {selectedTemplate ? (
               <Text style={[styles.templateHint, { color: palette.textMuted }]}>
-                Shared template: {selectedTemplate.name}
+                {t("items.sharedTemplate", { name: selectedTemplate.name })}
               </Text>
             ) : null}
 
             <EditorField
-              label="English name"
+              label={t("forms.englishName")}
               value={values.name}
               onChangeText={(name) => setValues((current) => ({ ...current, name }))}
               palette={palette}
             />
             <EditorField
-              label="Tamil name"
+              label={t("forms.tamilName")}
               value={values.tamilName}
               onChangeText={(tamilName) => setValues((current) => ({ ...current, tamilName }))}
               palette={palette}
             />
             <View style={styles.row}>
               <ActionButton
-                label="Weight"
+                label={t("items.weight")}
                 icon="scale-balance"
                 palette={palette}
                 active={values.unitType === UnitType.WEIGHT}
@@ -534,7 +537,7 @@ export function AdminInventoryItemEditorScreen({
                 }
               />
               <ActionButton
-                label="Count"
+                label={t("items.count")}
                 icon="counter"
                 palette={palette}
                 active={values.unitType === UnitType.COUNT}
@@ -595,7 +598,7 @@ export function AdminInventoryItemEditorScreen({
               </View>
             ) : (
               <InventoryBillingMappingDropdown
-                label="Inventory item"
+                label={t("inventory.title")}
                 existingMappedItem={existingMappedItemsByKey.get(ITEM_MAPPING_KEY)}
                 open={openMappingKey === ITEM_MAPPING_KEY}
                 options={matchingBillingItems}
@@ -615,19 +618,19 @@ export function AdminInventoryItemEditorScreen({
               style={[styles.toggleRow, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}
             >
               <MaterialCommunityIcons name={values.isActive ? "toggle-switch" : "toggle-switch-off-outline"} size={28} color={values.isActive ? palette.inventory : palette.textMuted} />
-              <Text style={[styles.itemName, { color: palette.textPrimary }]}>{values.isActive ? "Active" : "Inactive"}</Text>
+              <Text style={[styles.itemName, { color: palette.textPrimary }]}>{values.isActive ? t("common.active") : t("inventory.inactive")}</Text>
             </Pressable>
 
             <View style={styles.row}>
-              <ActionButton label="Cancel" icon="close-circle-outline" palette={palette} onPress={() => navigation.goBack()} />
-              <ActionButton label={saving ? "Saving" : "Save"} icon="content-save-outline" palette={palette} tone="primary" active loading={saving} onPress={() => void saveItem()} />
+              <ActionButton label={t("action.cancel")} icon="close-circle-outline" palette={palette} onPress={() => navigation.goBack()} />
+              <ActionButton label={saving ? t("action.saving") : t("action.save")} icon="content-save-outline" palette={palette} tone="primary" active loading={saving} onPress={() => void saveItem()} />
             </View>
             {isEdit ? (
               <ActionButton
                 label={
                   item?.can_delete === false
-                    ? "Cannot delete - has billing history"
-                    : "Delete item"
+                    ? t("inventory.cannotDeleteHistory")
+                    : t("items.deleteItem")
                 }
                 icon="trash-can-outline"
                 palette={palette}
@@ -690,7 +693,8 @@ function InventoryBillingMappingDropdown({
     existingMappedItem && selectedId === existingMappedItem.billing_item_id && !optionIds.has(existingMappedItem.billing_item_id)
       ? existingMappedItem
       : null;
-  const selectedLabel = selectedOption?.name ?? inactiveSelectedItem?.billing_item_name ?? "No billing item";
+  const { t } = useAdminTranslation();
+  const selectedLabel = selectedOption?.name ?? inactiveSelectedItem?.billing_item_name ?? t("inventory.noMappedBillingItem");
   return (
     <View style={styles.dropdownWrap}>
       <Pressable
@@ -733,7 +737,7 @@ function InventoryBillingMappingDropdown({
               size={16}
               color={selectedId === null ? palette.inventory : palette.textMuted}
             />
-            <Text style={[styles.dropdownOptionText, { color: palette.textPrimary }]}>No mapped billing item</Text>
+            <Text style={[styles.dropdownOptionText, { color: palette.textPrimary }]}>{t("inventory.noMappedBillingItem")}</Text>
           </Pressable>
           {inactiveSelectedItem ? (
             <Pressable
@@ -752,14 +756,14 @@ function InventoryBillingMappingDropdown({
                   {inactiveSelectedItem.billing_item_name}
                 </Text>
                 <Text numberOfLines={1} style={[styles.dropdownOptionSubtext, { color: palette.textMuted }]}>
-                  Existing mapping
+                  {t("inventory.existingMapping")}
                 </Text>
               </View>
             </Pressable>
           ) : null}
           {options.length === 0 ? (
             <Text style={[styles.dropdownEmpty, { color: palette.textMuted }]}>
-              No active {unit} billing items found.
+              {t("inventory.noActiveBillingItems", { unit })}
             </Text>
           ) : (
             options.map((billingItem) => {
@@ -790,11 +794,11 @@ function InventoryBillingMappingDropdown({
                     </Text>
                     {billingItem.tamil_name ? (
                       <Text numberOfLines={1} style={[styles.dropdownOptionSubtext, { color: palette.textMuted }]}>
-                        {disabled ? "Already mapped" : billingItem.tamil_name}
+                        {disabled ? t("inventory.alreadyMapped") : billingItem.tamil_name}
                       </Text>
                     ) : disabled ? (
                       <Text numberOfLines={1} style={[styles.dropdownOptionSubtext, { color: palette.textMuted }]}>
-                        Already mapped
+                        {t("inventory.alreadyMapped")}
                       </Text>
                     ) : null}
                   </View>

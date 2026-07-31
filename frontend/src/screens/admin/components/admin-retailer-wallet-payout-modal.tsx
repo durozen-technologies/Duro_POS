@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -38,6 +40,7 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
   onClose,
   onSaved,
 }: AdminRetailerWalletPayoutModalProps) {
+  const { t } = useAdminTranslation();
   const [cashAmount, setCashAmount] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
   const [notes, setNotes] = useState("");
@@ -205,7 +208,7 @@ export const AdminRetailerWalletPayoutModal = memo(function AdminRetailerWalletP
 
           <View style={[styles.actions, { borderTopColor: palette.border }]}>
             <PrimaryButton
-              label="Cancel"
+              label={t("action.cancel")}
               variant="secondary"
               palette={palette}
               onPress={onClose}

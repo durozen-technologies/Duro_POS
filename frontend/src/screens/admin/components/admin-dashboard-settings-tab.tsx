@@ -1,7 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 
+import { AdminText as Text } from "@/components/ui/admin-text";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import type { OrganizationBranchQuota, ShopRead, UUID } from "@/types/api";
 
 import { type ThemePalette } from "../admin-dashboard-theme";
@@ -50,12 +52,13 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
   onToggleBranch,
   onLogout,
 }: AdminSettingsTabProps) {
+  const { t } = useAdminTranslation();
   const listHeader = (
     <View style={styles.header}>
       <DashboardErrorBanner dashboardError={dashboardError} hasShops={hasShops} palette={palette} />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <View style={{ flex: 1 }}>
-          <TabSectionHeader title="Branch Access & Settings" palette={palette} />
+          <TabSectionHeader title={t("settings.title")} palette={palette} />
         </View>
         <Pressable
           accessibilityRole="button"
@@ -75,16 +78,19 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
           ]}
         >
           <MaterialCommunityIcons name="logout" size={24} color={palette.danger} />
-          <Text style={{ color: palette.danger, fontSize: 13, fontWeight: "600" }}>Logout</Text>
+          <Text style={{ color: palette.danger, fontSize: 13, fontWeight: "600" }}>{t("settings.logout")}</Text>
         </Pressable>
       </View>
       <SectionHint
-        text="Open a branch to update access or delete a shop that has no billing or price history."
+        text={t("settings.openBranchHint")}
         palette={palette}
       />
       <Text style={[styles.quotaText, { color: palette.textMuted }]}>
-        Branch quota: {branchQuota.branch_count}/{branchQuota.max_branches} used ·{" "}
-        {branchQuota.remaining_branches} remaining
+        {t("settings.branchQuota", {
+          used: branchQuota.branch_count,
+          limit: branchQuota.max_branches,
+          remaining: branchQuota.remaining_branches,
+        })}
       </Text>
       {!branchQuota.can_create_branch ? (
         <View
@@ -94,7 +100,7 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
           ]}
         >
           <Text style={[styles.quotaBannerText, { color: palette.warning }]}>
-            Branch limit reached. Contact Durozen Technologies to request additional capacity.
+            {t("settings.branchLimitReached")}
           </Text>
         </View>
       ) : null}
@@ -110,7 +116,9 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         ]}
       >
         <MaterialCommunityIcons name="store-plus-outline" size={20} color={palette.background} />
-        <Text style={[styles.createShopBtnText, { color: palette.background }]}>+ Create New Branch</Text>
+        <Text style={[styles.createShopBtnText, { color: palette.background }]}>
+          + {t("settings.createNewBranch")}
+        </Text>
       </Pressable>
       <Pressable
         onPress={onOpenReports}
@@ -120,7 +128,7 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
         ]}
       >
         <MaterialCommunityIcons name="file-chart-outline" size={20} color={palette.primary} />
-        <Text style={[styles.reportBtnText, { color: palette.textPrimary }]}>Generate Reports</Text>
+        <Text style={[styles.reportBtnText, { color: palette.textPrimary }]}>{t("settings.generateReports")}</Text>
       </Pressable>
     </View>
   );
@@ -142,9 +150,9 @@ export const AdminSettingsTab = memo(function AdminSettingsTab({
       ListHeaderComponent={listHeader}
       ListEmptyComponent={
         <EmptyStateCard
-          title="No branches available"
-          subtitle="Create a branch to start tracking sales."
-          actionLabel="Create Branch"
+          title={t("settings.noBranchesTitle")}
+          subtitle={t("settings.noBranchesDescription")}
+          actionLabel={t("settings.createBranch")}
           onAction={onCreateBranch}
           icon="store-off-outline"
           palette={palette}

@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Modal,
@@ -64,6 +66,7 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
   onSaved,
   onConflict,
 }: AdminShopBillEditModalProps) {
+  const { t } = useAdminTranslation();
   const [quantities, setQuantities] = useState<QuantityState>({});
   const [cashAmount, setCashAmount] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
@@ -238,7 +241,7 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
             <Text style={[adminTypography.caption, { color: palette.textMuted, marginBottom: 8 }]}>
               Cash and UPI must equal the bill total.
             </Text>
-            <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Cash</Text>
+            <Text style={[adminTypography.caption, { color: palette.textMuted }]}>{t("reports.cash")}</Text>
             <TextInput
               value={cashAmount}
               onChangeText={(value) => {
@@ -257,7 +260,7 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
                 },
               ]}
             />
-            <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 8 }]}>UPI</Text>
+            <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 8 }]}>{t("reports.upi")}</Text>
             <TextInput
               value={upiAmount}
               onChangeText={(value) => {
@@ -299,7 +302,7 @@ export const AdminShopBillEditModal = memo(function AdminShopBillEditModal({
 
           <View style={[styles.actions, { borderTopColor: palette.border }]}>
             <PrimaryButton
-              label="Cancel"
+              label={t("action.cancel")}
               variant="secondary"
               palette={palette}
               onPress={onClose}

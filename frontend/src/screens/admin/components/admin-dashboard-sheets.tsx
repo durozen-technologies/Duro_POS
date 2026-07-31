@@ -12,7 +12,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -29,6 +28,8 @@ import { WebView } from "react-native-webview";
 
 import { formatApiErrorMessage } from "@/api/client";
 import { buildReceiptHtml } from "@/api/receipts";
+import { AdminText as Text } from "@/components/ui/admin-text";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import { useReceiptImageShare } from "@/hooks/use-receipt-image-share";
 import type { BillRead } from "@/types/api";
 import { getReceiptPaperProfile } from "@/utils/receipt-paper";
@@ -115,6 +116,7 @@ export function ShopEditorSheet({
   onDelete,
   onToggleActive,
 }: ShopEditorSheetProps) {
+  const { t } = useAdminTranslation();
   const isEdit = mode === "edit";
   const [passwordVisible, setPasswordVisible] = useState(false);
 
@@ -158,16 +160,16 @@ export function ShopEditorSheet({
                     lineHeight={27}
                     fontWeight="800"
                   >
-                    Manage Access
+                    {t("settings.manageAccess")}
                   </TText>
                   <TText color={palette.textMuted} fontSize={13} lineHeight={19} fontWeight="600">
-                    Update branch details, change login credentials, or pause this branch account.
+                    {t("settings.manageAccessHint")}
                   </TText>
                 </YStack>
 
                 <TButton
                   accessibilityRole="button"
-                  accessibilityLabel="Close manage access popup"
+                  accessibilityLabel={t("a11y.closeManageAccess")}
                   width={42}
                   height={42}
                   padding={0}
@@ -202,12 +204,12 @@ export function ShopEditorSheet({
                           textTransform="uppercase"
                           letterSpacing={0.9}
                         >
-                          Shop Name
+                          {t("forms.shopName")}
                         </TText>
                         <Input
                           value={field.value}
                           onChangeText={field.onChange}
-                          placeholder="Enter branch name"
+                          placeholder={t("forms.enterBranchName")}
                           placeholderTextColor={palette.textMuted as never}
                           color={palette.textPrimary}
                           fontSize={15}
@@ -218,7 +220,7 @@ export function ShopEditorSheet({
                           borderColor={fieldState.error ? palette.danger : palette.border}
                           backgroundColor={palette.backgroundElevated}
                           paddingHorizontal={15}
-                          accessibilityLabel="Enter shop name"
+                          accessibilityLabel={t("forms.enterShopName")}
                         />
                         {fieldState.error ? (
                           <TText color={palette.danger} fontSize={12} lineHeight={18}>
@@ -241,12 +243,12 @@ export function ShopEditorSheet({
                           textTransform="uppercase"
                           letterSpacing={0.9}
                         >
-                          Login Username
+                          {t("forms.loginUsername")}
                         </TText>
                         <Input
                           value={field.value}
                           onChangeText={field.onChange}
-                          placeholder="Enter login username"
+                          placeholder={t("forms.enterLoginUsername")}
                           autoCapitalize="none"
                           autoCorrect={false}
                           placeholderTextColor={palette.textMuted as never}
@@ -259,7 +261,7 @@ export function ShopEditorSheet({
                           borderColor={fieldState.error ? palette.danger : palette.border}
                           backgroundColor={palette.backgroundElevated}
                           paddingHorizontal={15}
-                          accessibilityLabel="Enter login username"
+                          accessibilityLabel={t("forms.enterLoginUsername")}
                         />
                         {fieldState.error ? (
                           <TText color={palette.danger} fontSize={12} lineHeight={18}>
@@ -282,7 +284,7 @@ export function ShopEditorSheet({
                           textTransform="uppercase"
                           letterSpacing={0.9}
                         >
-                          Reset Password
+                          {t("forms.resetPassword")}
                         </TText>
                         <XStack
                           alignItems="center"
@@ -299,7 +301,7 @@ export function ShopEditorSheet({
                             unstyled
                             value={field.value}
                             onChangeText={field.onChange}
-                            placeholder="Leave blank to keep the current password"
+                            placeholder={t("forms.leavePasswordBlank")}
                             autoCapitalize="none"
                             autoCorrect={false}
                             secureTextEntry={!passwordVisible}
@@ -308,11 +310,11 @@ export function ShopEditorSheet({
                             fontSize={15}
                             fontWeight="700"
                             paddingVertical={14}
-                            accessibilityLabel="Enter login password"
+                            accessibilityLabel={t("forms.enterLoginPassword")}
                           />
                           <TButton
                             accessibilityRole="button"
-                            accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
+                            accessibilityLabel={passwordVisible ? t("a11y.hidePassword") : t("a11y.showPassword")}
                             width={36}
                             height={36}
                             padding={0}
@@ -358,7 +360,7 @@ export function ShopEditorSheet({
                       <MaterialCommunityIcons name="content-save-outline" size={18} color={palette.settings} />
                     )}
                     <TText color={palette.settingsStrong} fontSize={14} fontWeight="800">
-                      {loading ? "Saving..." : "Save Changes"}
+                      {loading ? t("action.saving") : t("action.saveChanges")}
                     </TText>
                   </XStack>
                 </TButton>
@@ -393,7 +395,7 @@ export function ShopEditorSheet({
                           fontSize={13}
                           fontWeight="800"
                         >
-                          {isActive ? "Pause Access" : "Activate Shop"}
+                          {isActive ? t("settings.pauseAccess") : t("settings.activateShop")}
                         </TText>
                       </XStack>
                     </TButton>
@@ -420,7 +422,7 @@ export function ShopEditorSheet({
                           <MaterialCommunityIcons name="delete-outline" size={18} color={palette.danger} />
                         )}
                         <TText color={palette.danger} fontSize={13} fontWeight="800">
-                          {deleting ? "Deleting..." : "Delete Shop"}
+                          {deleting ? t("action.deleting") : t("settings.deleteShop")}
                         </TText>
                       </XStack>
                     </TButton>
@@ -460,16 +462,18 @@ export function ShopEditorSheet({
           >
             <View style={styles.sheetHeader}>
               <View style={styles.headerTextWrap}>
-                <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>{isEdit ? "Manage Shop" : "Create Shop"}</Text>
+                <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>
+                  {isEdit ? t("settings.manageShop") : t("settings.createShop")}
+                </Text>
                 <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
                   {isEdit
-                    ? "Update branch details, change the login password, or remove a branch that has no history yet."
-                    : "Add a new branch account with shop details and login credentials."}
+                    ? t("settings.manageShopHint")
+                    : t("settings.createShopHint")}
                 </Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={isEdit ? "Close manage shop sheet" : "Close create shop sheet"}
+                accessibilityLabel={isEdit ? t("a11y.closeManageShop") : t("a11y.closeCreateShop")}
                 onPress={onClose}
                 style={[styles.iconButton, { backgroundColor: palette.backgroundElevated, borderColor: palette.border }]}
               >
@@ -484,7 +488,7 @@ export function ShopEditorSheet({
                   name="name"
                   render={({ field, fieldState }) => (
                     <View style={styles.fieldGroup}>
-                      <Text style={[styles.fieldLabel, { color: palette.textMuted }]}>Shop Name</Text>
+                      <Text style={[styles.fieldLabel, { color: palette.textMuted }]}>{t("forms.shopName")}</Text>
                       <View
                         style={[
                           styles.sheetField,
@@ -497,10 +501,10 @@ export function ShopEditorSheet({
                         <TextInput
                           value={field.value}
                           onChangeText={field.onChange}
-                          placeholder="Enter branch name"
+                          placeholder={t("forms.enterBranchName")}
                           placeholderTextColor={palette.textMuted}
                           style={[styles.sheetInput, { color: palette.textPrimary }]}
-                          accessibilityLabel="Enter shop name"
+                          accessibilityLabel={t("forms.enterShopName")}
                         />
                       </View>
                       {fieldState.error ? <Text style={[styles.inlineError, { color: palette.danger }]}>{fieldState.error.message}</Text> : null}
@@ -514,7 +518,7 @@ export function ShopEditorSheet({
                   name="username"
                   render={({ field, fieldState }) => (
                     <View style={styles.fieldGroup}>
-                      <Text style={[styles.fieldLabel, { color: palette.textMuted }]}>Login Username</Text>
+                      <Text style={[styles.fieldLabel, { color: palette.textMuted }]}>{t("forms.loginUsername")}</Text>
                       <View
                         style={[
                           styles.sheetField,
@@ -527,12 +531,12 @@ export function ShopEditorSheet({
                         <TextInput
                           value={field.value}
                           onChangeText={field.onChange}
-                          placeholder="Enter login username"
+                          placeholder={t("forms.enterLoginUsername")}
                           autoCapitalize="none"
                           autoCorrect={false}
                           placeholderTextColor={palette.textMuted}
                           style={[styles.sheetInput, { color: palette.textPrimary }]}
-                          accessibilityLabel="Enter login username"
+                          accessibilityLabel={t("forms.enterLoginUsername")}
                         />
                       </View>
                       {fieldState.error ? <Text style={[styles.inlineError, { color: palette.danger }]}>{fieldState.error.message}</Text> : null}
@@ -546,7 +550,7 @@ export function ShopEditorSheet({
                   render={({ field, fieldState }) => (
                     <View style={styles.fieldGroup}>
                       <Text style={[styles.fieldLabel, { color: palette.textMuted }]}>
-                        {isEdit ? "Reset Password" : "Login Password"}
+                        {isEdit ? t("forms.resetPassword") : t("forms.loginPassword")}
                       </Text>
                       <View
                         style={[
@@ -560,17 +564,17 @@ export function ShopEditorSheet({
                         <TextInput
                           value={field.value}
                           onChangeText={field.onChange}
-                          placeholder={isEdit ? "Leave blank to keep the current password" : "Enter login password"}
+                          placeholder={isEdit ? t("forms.leavePasswordBlank") : t("forms.enterLoginPassword")}
                           autoCapitalize="none"
                           autoCorrect={false}
                           secureTextEntry={!passwordVisible}
                           placeholderTextColor={palette.textMuted}
                           style={[styles.sheetInput, { color: palette.textPrimary }]}
-                          accessibilityLabel="Enter login password"
+                          accessibilityLabel={t("forms.enterLoginPassword")}
                         />
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
+                          accessibilityLabel={passwordVisible ? t("a11y.hidePassword") : t("a11y.showPassword")}
                           onPress={() => setPasswordVisible((current) => !current)}
                           style={styles.inputIconButton}
                         >
@@ -592,7 +596,7 @@ export function ShopEditorSheet({
             {isEdit ? (
               <View style={styles.editActionsColumn}>
                 <PrimaryButton
-                  label="Save Changes"
+                  label={t("action.saveChanges")}
                   onPress={onSubmit}
                   loading={loading}
                   disabled={deleting || statusLoading}
@@ -606,7 +610,7 @@ export function ShopEditorSheet({
                   {onToggleActive ? (
                     <View style={styles.sheetActionButton}>
                       <PrimaryButton
-                        label={isActive ? "Pause Access" : "Activate Shop"}
+                        label={isActive ? t("settings.pauseAccess") : t("settings.activateShop")}
                         onPress={onToggleActive}
                         loading={statusLoading}
                         disabled={loading || deleting}
@@ -620,7 +624,7 @@ export function ShopEditorSheet({
                   {onDelete ? (
                     <View style={styles.sheetActionButton}>
                       <PrimaryButton
-                        label="Delete Shop"
+                        label={t("settings.deleteShop")}
                         onPress={onDelete}
                         loading={deleting}
                         disabled={loading || statusLoading}
@@ -645,7 +649,7 @@ export function ShopEditorSheet({
                 <View style={styles.actionsRow}>
                   <View style={styles.sheetActionButton}>
                     <PrimaryButton
-                      label="Cancel"
+                      label={t("action.cancel")}
                       onPress={onClose}
                       variant="secondary"
                       icon="close"
@@ -655,7 +659,7 @@ export function ShopEditorSheet({
                   </View>
                   <View style={styles.sheetActionButton}>
                     <PrimaryButton
-                      label="Create Account"
+                      label={t("settings.createAccount")}
                       onPress={onSubmit}
                       loading={loading}
                       icon="store-plus-outline"
@@ -682,6 +686,7 @@ export function BillPreviewSheet({
   loading,
   bill,
 }: BillPreviewSheetProps) {
+  const { t } = useAdminTranslation();
   const { panResponder, translateY } = useSwipeToClose(onClose);
   const [receiptPreviewHeight, setReceiptPreviewHeight] = useState(320);
   const [sharing, setSharing] = useState(false);
@@ -706,15 +711,15 @@ export function BillPreviewSheet({
     try {
       await startReceiptImageShare(
         buildReceiptHtml(bill, undefined, receiptPaperMm),
-        `Receipt ${bill.bill_no}`,
+        t("billing.receiptNumber", { billNumber: bill.bill_no }),
         receiptPaperMm,
       );
     } catch (error) {
-      Alert.alert("Share failed", formatApiErrorMessage(error));
+      Alert.alert(t("billing.shareFailed"), formatApiErrorMessage(error));
     } finally {
       setSharing(false);
     }
-  }, [bill, receiptPaperMm, sharing, startReceiptImageShare]);
+  }, [bill, receiptPaperMm, sharing, startReceiptImageShare, t]);
 
   const receiptPreviewScript = useMemo(
     () => `
@@ -774,14 +779,14 @@ export function BillPreviewSheet({
               <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
               <View style={styles.sheetHeader}>
                 <View style={styles.headerTextWrap}>
-                  <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>Bill Preview</Text>
+                  <Text style={[styles.sheetTitle, { color: palette.textPrimary }]}>{t("billing.billPreview")}</Text>
                   <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
-                    Review receipt details, purchased items, and payment totals.
+                    {t("billing.billPreviewHint")}
                   </Text>
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Close bill preview"
+                  accessibilityLabel={t("a11y.closeBillPreview")}
                   onPress={onClose}
                   style={[styles.iconButton, { backgroundColor: palette.backgroundElevated, borderColor: palette.border }]}
                 >
@@ -792,7 +797,7 @@ export function BillPreviewSheet({
               {loading ? (
                 <View style={styles.loadingWrap}>
                   <ActivityIndicator color={palette.billing} />
-                  <Text style={[styles.loadingText, { color: palette.textSecondary }]}>Loading bill preview...</Text>
+                  <Text style={[styles.loadingText, { color: palette.textSecondary }]}>{t("billing.loadingBillPreview")}</Text>
                 </View>
               ) : bill ? (
                 <>
@@ -835,7 +840,7 @@ export function BillPreviewSheet({
                   </ScrollView>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Share receipt for ${bill.bill_no}`}
+                    accessibilityLabel={t("a11y.shareReceipt", { billNumber: bill.bill_no })}
                     accessibilityState={{ disabled: sharing }}
                     disabled={sharing}
                     onPress={() => {
@@ -857,16 +862,16 @@ export function BillPreviewSheet({
                         <MaterialCommunityIcons name="share-variant" size={18} color={palette.primary} />
                       )}
                       <Text style={[styles.shareButtonLabel, { color: palette.primary }]}>
-                        {sharing ? "Preparing…" : "Share receipt"}
+                        {sharing ? t("action.preparing") : t("billing.shareReceipt")}
                       </Text>
                     </View>
                   </Pressable>
                 </>
               ) : (
                 <EmptyStateCard
-                  title="Bill preview unavailable"
-                  subtitle="Open another bill to preview its details."
-                  actionLabel="Close"
+                  title={t("billing.billPreviewUnavailable")}
+                  subtitle={t("billing.billPreviewUnavailableHint")}
+                  actionLabel={t("action.close")}
                   onAction={onClose}
                   palette={palette}
                   icon="receipt-text-remove-outline"

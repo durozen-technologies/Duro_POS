@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -21,6 +23,7 @@ export const AdminShopBillActionRow = memo(function AdminShopBillActionRow({
   onEdit,
   onCancel,
 }: AdminShopBillActionRowProps) {
+  const { t } = useAdminTranslation();
   if (!canAdminModifyShopBill(bill)) {
     return null;
   }
@@ -43,7 +46,7 @@ export const AdminShopBillActionRow = memo(function AdminShopBillActionRow({
         ]}
       >
         <MaterialCommunityIcons name="pencil-outline" size={18} color={palette.primary} />
-        <Text style={{ color: palette.primary, fontWeight: "700", fontSize: 13 }}>Edit</Text>
+        <Text style={{ color: palette.primary, fontWeight: "700", fontSize: 13 }}>{t("reports.edit")}</Text>
       </Pressable>
       <Pressable
         accessibilityRole="button"
@@ -61,7 +64,7 @@ export const AdminShopBillActionRow = memo(function AdminShopBillActionRow({
         ]}
       >
         <MaterialCommunityIcons name="close-circle-outline" size={18} color={palette.danger} />
-        <Text style={{ color: palette.danger, fontWeight: "700", fontSize: 13 }}>Cancel</Text>
+        <Text style={{ color: palette.danger, fontWeight: "700", fontSize: 13 }}>{t("action.cancel")}</Text>
       </Pressable>
     </View>
   );

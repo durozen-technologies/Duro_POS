@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
@@ -80,6 +82,7 @@ function OrderEmptyState({ palette }: { palette: ThemePalette }) {
 }
 
 export function AdminRetailersOrderScreen({ navigation }: AdminRetailersOrderScreenProps) {
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const { colorScheme, palette } = useAdminTheme();
   const [items, setItems] = useState<RetailerRead[]>([]);

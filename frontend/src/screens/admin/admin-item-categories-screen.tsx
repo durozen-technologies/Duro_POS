@@ -19,6 +19,7 @@ import {
   updateItemCategory,
 } from "@/api/admin";
 import { isApiRequestCanceled, formatApiErrorMessage } from "@/api/client";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import type { AdminItemCategoriesScreenProps } from "@/navigation/types";
 import type { ItemCategoryRead, UUID } from "@/types/api";
 
@@ -37,6 +38,7 @@ function getRequestErrorMessage(error: unknown, fallback: string) {
 
 export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScreenProps) {
   const { colorScheme, palette } = useAdminTheme();
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const [categories, setCategories] = useState<ItemCategoryRead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,7 +66,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
         return;
       }
       triggerHaptic();
-      setErrorMessage(getRequestErrorMessage(requestError, "Unable to load categories."));
+      setErrorMessage(getRequestErrorMessage(requestError, t("categories.loadFailed")));
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -94,7 +96,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
       setDraftName("");
     } catch (requestError) {
       triggerHaptic();
-      setErrorMessage(getRequestErrorMessage(requestError, "Unable to create category."));
+      setErrorMessage(getRequestErrorMessage(requestError, t("categories.createFailed")));
     } finally {
       setCreating(false);
     }
@@ -134,7 +136,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
       cancelRename();
     } catch (requestError) {
       triggerHaptic();
-      setErrorMessage(getRequestErrorMessage(requestError, "Unable to rename category."));
+      setErrorMessage(getRequestErrorMessage(requestError, t("categories.renameFailed")));
     } finally {
       setSavingId(null);
     }
@@ -151,17 +153,17 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
       }
     } catch (requestError) {
       triggerHaptic();
-      setErrorMessage(getRequestErrorMessage(requestError, "Unable to delete category."));
+      setErrorMessage(getRequestErrorMessage(requestError, t("categories.deleteFailed")));
     } finally {
       setDeletingId(null);
     }
   }, [cancelRename, editingId]);
 
   const confirmDelete = useCallback((category: ItemCategoryRead) => {
-    Alert.alert("Delete category", `Delete ${category.name}? Items using it will become uncategorized.`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("categories.deleteTitle"), t("categories.deleteMessage", { name: category.name }), [
+      { text: t("action.cancel"), style: "cancel" },
       {
-        text: "Delete",
+        text: t("action.delete"),
         style: "destructive",
         onPress: () => {
           void deleteCategory(category);
@@ -189,7 +191,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
             <Input
               value={draftName}
               onChangeText={setDraftName}
-              placeholder="New category"
+              placeholder={t("categories.newPlaceholder")}
               placeholderTextColor={palette.textMuted as never}
               flex={1}
               minHeight={46}
@@ -205,7 +207,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
               onSubmitEditing={() => void addCategory()}
             />
             <CategoryButton
-              label={creating ? "Adding" : "Save"}
+              label={creating ? t("categories.adding") : t("action.save")}
               icon="folder-plus"
               palette={palette}
               tone="success"
@@ -236,10 +238,10 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
         </Pressable>
         <View style={styles.titleWrap}>
           <Text numberOfLines={1} style={[styles.title, { color: palette.onShell }]}>
-            Categories
+            {t("items.categories")}
           </Text>
           <Text numberOfLines={1} style={[styles.subtitle, { color: palette.onShellMuted }]}>
-            Manage catalogue groups
+            {t("items.manageCategories")}
           </Text>
         </View>
         <AdminHeaderActions
@@ -251,7 +253,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
       {loading ? (
         <View style={styles.center}>
           <Spinner color={palette.items} />
-          <Text style={[styles.helper, { color: palette.textMuted }]}>Loading categories...</Text>
+          <Text style={[styles.helper, { color: palette.textMuted }]}>{t("items.loadingCategories")}</Text>
         </View>
       ) : (
         <FlatList
@@ -266,8 +268,8 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
           ListEmptyComponent={
             <View style={[styles.emptyBox, { backgroundColor: palette.card, borderColor: palette.border }]}>
               <MaterialCommunityIcons name="shape-outline" size={26} color={palette.textMuted} />
-              <Text style={[styles.emptyTitle, { color: palette.textPrimary }]}>No categories yet</Text>
-              <Text style={[styles.emptyText, { color: palette.textMuted }]}>Add the first category above.</Text>
+              <Text style={[styles.emptyTitle, { color: palette.textPrimary }]}>{t("items.noCategories")}</Text>
+              <Text style={[styles.emptyText, { color: palette.textMuted }]}>{t("items.addFirstCategory")}</Text>
             </View>
           }
           renderItem={({ item }) => {
@@ -280,7 +282,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                     <Input
                       value={editingName}
                       onChangeText={setEditingName}
-                      placeholder="Category name"
+                      placeholder={t("categories.namePlaceholder")}
                       placeholderTextColor={palette.textMuted as never}
                       flex={1}
                       minHeight={44}
@@ -297,7 +299,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                     />
                     <IconAction
                       icon="check"
-                      label="Save category name"
+                      label={t("categories.saveName")}
                       color={palette.primary}
                       disabled={rowBusy}
                       loading={savingId === item.id}
@@ -305,7 +307,7 @@ export function AdminItemCategoriesScreen({ navigation }: AdminItemCategoriesScr
                     />
                     <IconAction
                       icon="close"
-                      label="Cancel rename"
+                      label={t("categories.cancelRename")}
                       color={palette.warning}
                       disabled={rowBusy}
                       onPress={cancelRename}

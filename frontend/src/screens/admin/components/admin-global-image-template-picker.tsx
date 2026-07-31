@@ -6,6 +6,11 @@ import { Spinner } from "tamagui";
 
 import { fetchAdminGlobalImageTemplates } from "@/api/global-image-templates";
 import { isApiRequestCanceled, resolveApiUrl } from "@/api/client";
+import {
+  type AdminTranslationKey,
+  translateAdminText,
+  useAdminTranslation,
+} from "@/hooks/use-admin-translation";
 import { authenticatedImageSource } from "@/utils/item-images";
 import type { GlobalImageTemplateRead } from "@/types/api";
 
@@ -90,14 +95,17 @@ export function useGlobalImageTemplatePicker({
 export function chooseImageSourceAlert({
   onChooseTemplate,
   onUploadFromDevice,
+  t,
 }: {
   onChooseTemplate: () => void;
   onUploadFromDevice: () => void;
+  t?: (key: AdminTranslationKey) => string;
 }) {
-  Alert.alert("Pick image", "Choose a shared template or upload from your device.", [
-    { text: "Choose shared template", onPress: onChooseTemplate },
-    { text: "Upload from device", onPress: onUploadFromDevice },
-    { text: "Cancel", style: "cancel" },
+  const text = (key: AdminTranslationKey) => t?.(key) ?? translateAdminText("en", key);
+  Alert.alert(text("items.pickImage"), text("items.chooseImageSource"), [
+    { text: text("items.chooseSharedTemplate"), onPress: onChooseTemplate },
+    { text: text("items.uploadFromDevice"), onPress: onUploadFromDevice },
+    { text: text("action.cancel"), style: "cancel" },
   ]);
 }
 
@@ -124,6 +132,7 @@ export function AdminGlobalImageTemplatePickerModal({
   onSelect,
   onUploadFromDevice,
 }: AdminGlobalImageTemplatePickerModalProps) {
+  const { t } = useAdminTranslation();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable accessibilityRole="button" style={styles.backdrop} onPress={onClose}>
@@ -132,19 +141,19 @@ export function AdminGlobalImageTemplatePickerModal({
           style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}
           onPress={(event) => event.stopPropagation()}
         >
-          <Text style={[styles.title, { color: palette.textPrimary }]}>Shared image templates</Text>
+          <Text style={[styles.title, { color: palette.textPrimary }]}>{t("items.sharedImageTemplates")}</Text>
           <Text style={[styles.hint, { color: palette.textMuted }]}>
-            Tap a template. Custom upload still overrides template when you save.
+            {t("items.templatePickerHint")}
           </Text>
           {loading ? (
             <View style={styles.state}>
               <Spinner color={accentColor} />
-              <Text style={[styles.hint, { color: palette.textMuted }]}>Loading templates...</Text>
+              <Text style={[styles.hint, { color: palette.textMuted }]}>{t("items.loadingTemplates")}</Text>
             </View>
           ) : templates.length === 0 ? (
             <View style={styles.state}>
               <Text style={[styles.hint, { color: palette.textMuted }]}>
-                No shared templates yet. Upload from your device instead.
+                {t("items.noSharedTemplates")}
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -155,7 +164,7 @@ export function AdminGlobalImageTemplatePickerModal({
                 }}
               >
                 <MaterialCommunityIcons name="image-edit-outline" size={16} color={accentColor} />
-                <Text style={[styles.actionText, { color: palette.textPrimary }]}>Upload from device</Text>
+                <Text style={[styles.actionText, { color: palette.textPrimary }]}>{t("items.uploadFromDevice")}</Text>
               </Pressable>
             </View>
           ) : (

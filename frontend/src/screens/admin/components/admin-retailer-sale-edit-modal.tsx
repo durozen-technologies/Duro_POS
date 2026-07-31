@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -69,6 +71,7 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
   onClose,
   onSaved,
 }: AdminRetailerSaleEditModalProps) {
+  const { t } = useAdminTranslation();
   const [quantities, setQuantities] = useState<QuantityState>({});
   const [cashAmount, setCashAmount] = useState("");
   const [upiAmount, setUpiAmount] = useState("");
@@ -238,7 +241,7 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
                 Wallet credit available: {formatCurrency(walletBalance)}
               </Text>
             ) : null}
-            <Text style={[adminTypography.caption, { color: palette.textMuted }]}>Cash</Text>
+            <Text style={[adminTypography.caption, { color: palette.textMuted }]}>{t("retailers.cash")}</Text>
             <TextInput
               value={cashAmount}
               onChangeText={setCashAmount}
@@ -254,7 +257,7 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
                 },
               ]}
             />
-            <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 8 }]}>UPI</Text>
+            <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 8 }]}>{t("retailers.upi")}</Text>
             <TextInput
               value={upiAmount}
               onChangeText={setUpiAmount}
@@ -310,7 +313,7 @@ export const AdminRetailerSaleEditModal = memo(function AdminRetailerSaleEditMod
 
           <View style={[styles.actions, { borderTopColor: palette.border }]}>
             <PrimaryButton
-              label="Cancel"
+              label={t("action.cancel")}
               variant="secondary"
               palette={palette}
               onPress={onClose}

@@ -15,6 +15,7 @@ import {
 } from "tamagui";
 
 import { resolveApiUrl } from "@/api/client";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import { authenticatedImageSource } from "@/utils/item-images";
 import {
   BaseUnit,
@@ -124,11 +125,11 @@ type Tone = "primary" | "gold" | "danger" | "neutral";
 
 const unitTypeOptions: {
   value: UnitType;
-  label: string;
+  labelKey: "items.weight" | "items.count";
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 }[] = [
-    { value: UnitType.WEIGHT, label: "Weight", icon: "scale-balance" },
-    { value: UnitType.COUNT, label: "Count", icon: "counter" },
+    { value: UnitType.WEIGHT, labelKey: "items.weight", icon: "scale-balance" },
+    { value: UnitType.COUNT, labelKey: "items.count", icon: "counter" },
   ];
 
 const baseUnitOptions: { value: BaseUnit; label: string }[] = [
@@ -138,29 +139,29 @@ const baseUnitOptions: { value: BaseUnit; label: string }[] = [
 
 const filterOptions: {
   value: ItemFilter;
-  label: string;
+  labelKey: "common.all" | "items.allocated" | "items.available" | "items.catalogue" | "common.shop" | "items.priced" | "items.needsPrice" | "items.stalePrice" | "items.paused";
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 }[] = [
-    { value: AdminItemFilter.All, label: "All", icon: "format-list-bulleted" },
-    { value: AdminItemFilter.Allocated, label: "Allocated", icon: "link-variant" },
-    { value: AdminItemFilter.Available, label: "Available", icon: "link-variant-off" },
-    { value: AdminItemFilter.Catalogue, label: "Catalogue", icon: "shape-outline" },
-    { value: AdminItemFilter.Shop, label: "Shop", icon: "storefront-outline" },
-    { value: AdminItemFilter.Priced, label: "Priced", icon: "cash-check" },
-    { value: AdminItemFilter.NeedsPrice, label: "Needs price", icon: "cash-clock" },
-    { value: AdminItemFilter.StalePrice, label: "Stale price", icon: "calendar-alert" },
-    { value: AdminItemFilter.Paused, label: "Paused", icon: "pause-circle-outline" },
+    { value: AdminItemFilter.All, labelKey: "common.all", icon: "format-list-bulleted" },
+    { value: AdminItemFilter.Allocated, labelKey: "items.allocated", icon: "link-variant" },
+    { value: AdminItemFilter.Available, labelKey: "items.available", icon: "link-variant-off" },
+    { value: AdminItemFilter.Catalogue, labelKey: "items.catalogue", icon: "shape-outline" },
+    { value: AdminItemFilter.Shop, labelKey: "common.shop", icon: "storefront-outline" },
+    { value: AdminItemFilter.Priced, labelKey: "items.priced", icon: "cash-check" },
+    { value: AdminItemFilter.NeedsPrice, labelKey: "items.needsPrice", icon: "cash-clock" },
+    { value: AdminItemFilter.StalePrice, labelKey: "items.stalePrice", icon: "calendar-alert" },
+    { value: AdminItemFilter.Paused, labelKey: "items.paused", icon: "pause-circle-outline" },
   ];
 
 const workspacePageOptions: {
   value: AdminItemWorkspace.Catalogue | AdminItemWorkspace.Shop | AdminItemWorkspace.Prices;
-  label: string;
-  detail: string;
+  labelKey: "items.catalogue" | "items.shopItems" | "items.prices";
+  detailKey: "items.globalItems" | "items.allocations" | "items.dailySetup";
   icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 }[] = [
-    { value: AdminItemWorkspace.Catalogue, label: "Catalogue", detail: "Global items", icon: "shape-outline" },
-    { value: AdminItemWorkspace.Shop, label: "Shop items", detail: "Allocations", icon: "storefront-outline" },
-    { value: AdminItemWorkspace.Prices, label: "Prices", detail: "Daily setup", icon: "cash-edit" },
+    { value: AdminItemWorkspace.Catalogue, labelKey: "items.catalogue", detailKey: "items.globalItems", icon: "shape-outline" },
+    { value: AdminItemWorkspace.Shop, labelKey: "items.shopItems", detailKey: "items.allocations", icon: "storefront-outline" },
+    { value: AdminItemWorkspace.Prices, labelKey: "items.prices", detailKey: "items.dailySetup", icon: "cash-edit" },
   ];
 
 const catalogueFilterSet = new Set<ItemFilter>([
@@ -1179,6 +1180,7 @@ const WorkspaceNav = memo(function WorkspaceNav({
   onChangeWorkspace: (mode: ManageableItemWorkspace) => void;
   onOpenPrices: () => void;
 }) {
+  const { t } = useAdminTranslation();
   return (
     <YStack gap={10}>
       <XStack alignItems="center" justifyContent="space-between" gap={10}>
@@ -1233,9 +1235,9 @@ const WorkspaceNav = memo(function WorkspaceNav({
                 </Stack>
                 <YStack flex={1} minWidth={0} gap={1}>
                   <Text numberOfLines={1} style={{ color: colors.fg, fontSize: 13, fontWeight: "900" }}>
-                    {option.label}
+                    {t(option.labelKey)}
                   </Text>
-                  <SmallText color={active ? colors.fg : palette.textMuted} numberOfLines={1}>{option.detail}</SmallText>
+                  <SmallText color={active ? colors.fg : palette.textMuted} numberOfLines={1}>{t(option.detailKey)}</SmallText>
                 </YStack>
               </XStack>
             </TButton>
@@ -1528,6 +1530,7 @@ const ItemsToolbar = memo(function ItemsToolbar({
   onChangeFilter: (value: ItemFilter) => void;
   onOpenCreate: (scope: AdminItemFormScope) => void;
 }) {
+  const { t } = useAdminTranslation();
   return (
     <YStack gap={10}>
       <XStack alignItems="flex-start" justifyContent="space-between" gap={10}>
@@ -1536,7 +1539,7 @@ const ItemsToolbar = memo(function ItemsToolbar({
           <SmallText color={palette.textMuted}>{subtitle}</SmallText>
         </YStack>
         <ActionButton
-          label={viewMode === AdminItemWorkspace.Catalogue ? "Add catalogue" : "Add item"}
+          label={viewMode === AdminItemWorkspace.Catalogue ? t("items.addCatalogue") : t("items.addItem")}
           icon="plus-circle-outline"
           onPress={() =>
             onOpenCreate(
@@ -1552,7 +1555,7 @@ const ItemsToolbar = memo(function ItemsToolbar({
         <YStack gap={12}>
           <SearchField
             value={itemSearch}
-            placeholder="Search English, Tamil, unit"
+            placeholder={t("items.searchEnglishTamilUnit")}
             palette={palette}
             onChangeText={onChangeSearch}
           />
@@ -1560,7 +1563,7 @@ const ItemsToolbar = memo(function ItemsToolbar({
             {visibleFilterOptions.map((option) => (
               <Chip
                 key={option.value}
-                label={option.label}
+                label={t(option.labelKey)}
                 icon={option.icon}
                 count={filterCounts[option.value]}
                 active={filter === option.value}
@@ -1634,6 +1637,7 @@ export function AdminItemsTab({
   onSaveSelectedPrice,
   onSavePrice,
 }: AdminItemsTabProps) {
+  const { t } = useAdminTranslation();
   const selectedShop = useMemo(() => shops.find((s) => s.id === selectedShopId) || null, [shops, selectedShopId]);
   const hasSelectedShop = Boolean(selectedShop);
 
@@ -1661,11 +1665,11 @@ export function AdminItemsTab({
     return filterOptions.filter((opt) => opt.value !== AdminItemFilter.Catalogue);
   }, [viewMode]);
 
-  const itemsTitle = viewMode === AdminItemWorkspace.Catalogue ? "Catalogue items" : "Shop allocations";
+  const itemsTitle = viewMode === AdminItemWorkspace.Catalogue ? t("items.catalogueItems") : t("items.shopAllocations");
   const itemsSubtitle =
     viewMode === AdminItemWorkspace.Catalogue
-      ? "Global master data for all shops."
-      : `Managing items specifically for ${selectedShop?.name || "shop"}.`;
+      ? t("items.globalMasterData")
+      : t("items.managingShopItems", { shop: selectedShop?.name || t("common.shop") });
 
   const visibleItems = items;
   const itemListData = visibleItems;
@@ -1837,6 +1841,7 @@ export function AdminItemsTab({
     onSubmit,
     itemsTitle,
     itemsSubtitle,
+    t,
     itemSearch,
     filter,
     visibleFilterOptions,

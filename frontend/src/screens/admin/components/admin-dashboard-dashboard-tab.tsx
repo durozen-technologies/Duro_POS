@@ -1,6 +1,8 @@
 import { memo } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
+import { AdminText as Text } from "@/components/ui/admin-text";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
 import type { UUID } from "@/types/api";
 
 import { type ThemePalette } from "../admin-dashboard-theme";
@@ -32,6 +34,7 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
   metricCards,
   useCompactMetricCards,
 }: AdminDashboardTabProps) {
+  const { t } = useAdminTranslation();
   return (
     <ScrollView
       contentContainerStyle={[styles.content, { paddingBottom: bottomSpacer }]}
@@ -59,7 +62,7 @@ export const AdminDashboardTab = memo(function AdminDashboardTab({
         ]}
       >
         <Text style={[styles.cardTitle, { color: palette.textPrimary }]}>
-          Performance Snapshot
+          {t("dashboard.performanceSnapshot")}
         </Text>
 
         <View

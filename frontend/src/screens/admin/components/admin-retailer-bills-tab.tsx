@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -197,6 +199,7 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
   onOpenSale,
   onSettled,
 }: AdminRetailerBillsTabProps) {
+  const { t } = useAdminTranslation();
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -426,7 +429,7 @@ export const AdminRetailerBillsTab = memo(function AdminRetailerBillsTab({
             ]}
           >
             <MaterialCommunityIcons name="cash-multiple" size={18} color={palette.onPrimary} />
-            <Text style={{ color: palette.onPrimary, fontWeight: "800" }}>Collect payment</Text>
+            <Text style={{ color: palette.onPrimary, fontWeight: "800" }}>{t("retailers.collectPayment")}</Text>
           </Pressable>
         ) : null}
       </View>

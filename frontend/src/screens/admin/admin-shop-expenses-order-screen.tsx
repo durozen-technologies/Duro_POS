@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
@@ -120,6 +122,7 @@ export function AdminShopExpensesOrderScreen({
   navigation,
   route,
 }: AdminShopExpensesOrderScreenProps) {
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const { colorScheme, palette } = useAdminTheme();
   const { shopId, shopName } = route.params;

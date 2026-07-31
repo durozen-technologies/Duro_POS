@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useFocusEffect } from "@react-navigation/native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -308,6 +310,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
   initialShopId = null,
   initialRetailerId = null,
 }: AdminRetailersPricesTabProps) {
+  const { t } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const [branches, setBranches] = useState<ShopRead[]>([]);
   const [selectedShopId, setSelectedShopId] = useState<UUID | null>(initialShopId);
@@ -923,7 +926,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
           onPress={() => setBranchPickerOpen(true)}
           style={[styles.selector, { backgroundColor: palette.card, borderColor: palette.border }]}
         >
-          <Text style={[adminTypography.caption, { color: palette.textMuted, textTransform: "uppercase" }]}>Branch</Text>
+          <Text style={[adminTypography.caption, { color: palette.textMuted, textTransform: "uppercase" }]}>{t("retailers.branch")}</Text>
           <View style={styles.selectorRow}>
             <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
               {selectedBranch?.name ?? "Select branch"}
@@ -948,7 +951,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
               },
             ]}
           >
-            <Text style={[adminTypography.caption, { color: palette.textMuted, textTransform: "uppercase" }]}>Retailer</Text>
+            <Text style={[adminTypography.caption, { color: palette.textMuted, textTransform: "uppercase" }]}>{t("retailers.retailer")}</Text>
             <View style={styles.selectorRow}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
@@ -1036,7 +1039,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                 ) : (
                   <>
                     <MaterialCommunityIcons name="content-save-outline" size={20} color={savingAll || loadingPreview || isHistoricalDate || !allPricesEntered ? palette.textMuted : palette.card} />
-                    <Text style={[adminTypography.bodyStrong, { color: savingAll || loadingPreview || isHistoricalDate || !allPricesEntered ? palette.textMuted : palette.card }]}>Save</Text>
+                    <Text style={[adminTypography.bodyStrong, { color: savingAll || loadingPreview || isHistoricalDate || !allPricesEntered ? palette.textMuted : palette.card }]}>{t("retailers.save")}</Text>
                   </>
                 )}
               </Pressable>
@@ -1226,7 +1229,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                   { borderColor: palette.border, backgroundColor: palette.surfaceMuted },
                 ]}
               >
-                <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Cancel</Text>
+                <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{t("action.cancel")}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"

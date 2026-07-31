@@ -1,4 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAdminTranslation } from "@/hooks/use-admin-translation";
+
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
@@ -45,6 +47,7 @@ import { useAdminTheme } from "./use-admin-theme";
 type DetailTab = "overview" | "bills" | "purchases";
 
 export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDetailScreenProps) {
+  const { t } = useAdminTranslation();
   const retailer = route.params.retailer;
   const { palette } = useAdminTheme();
   const insets = useSafeAreaInsets();
@@ -177,7 +180,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                   fontSize: 12,
                 }}
               >
-                {tab === "overview" ? "Overview" : tab === "bills" ? "Bills" : "Purchases"}
+                {tab === "overview" ? t("common.overview") : tab === "bills" ? t("common.bills") : t("common.purchases")}
               </Text>
             </Pressable>
           );
@@ -208,9 +211,9 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
         <ActivityIndicator color={palette.primary} style={{ marginTop: 24 }} />
       ) : error ? (
         <EmptyStateCard
-          title="Unable to load retailer"
+          title={t("retailers.loadFailed")}
           subtitle={error}
-          actionLabel="Retry"
+          actionLabel={t("action.retry")}
           onAction={() => void loadOverview()}
           palette={palette}
           icon="alert-circle-outline"
@@ -227,7 +230,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
             }}
           >
             <Text style={{ color: palette.textMuted, fontSize: 12, fontWeight: "600" }}>
-              OUTSTANDING BALANCE
+              {t("retailers.outstandingBalance")}
             </Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
               <Text style={{ color: palette.textPrimary, fontSize: 28, fontWeight: "800", flex: 1 }}>
@@ -251,7 +254,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
               </Pressable>
             </View>
             <Text style={{ color: palette.textMuted, fontSize: 12, fontWeight: "600", marginTop: 14 }}>
-              WALLET CREDIT
+              {t("retailers.walletCredit")}
             </Text>
             <Text style={{ color: palette.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 6 }}>
               {formatCurrency(balance?.credit_balance ?? "0")}
@@ -275,7 +278,7 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 opacity: canPayOutWallet ? 1 : 0.55,
               }}
             >
-              <Text style={{ color: "#ffffff", fontWeight: "700", fontSize: 13 }}>Pay out credit</Text>
+              <Text style={{ color: "#ffffff", fontWeight: "700", fontSize: 13 }}>{t("retailers.payOutCredit")}</Text>
             </Pressable>
           </View>
           <View style={{ flexDirection: "row", gap: 12 }}>
@@ -296,11 +299,11 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 padding: 14,
               }}
             >
-              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Assign branches</Text>
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{t("retailers.assignBranches")}</Text>
               <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
                 {allocatedShopCount
                   ? `${allocatedShopCount} branch${allocatedShopCount === 1 ? "" : "es"}`
-                  : "None assigned"}
+                  : t("common.noneAssigned")}
               </Text>
             </Pressable>
             <Pressable
@@ -317,9 +320,9 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 padding: 14,
               }}
             >
-              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Edit retailer</Text>
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{t("retailers.editRetailer")}</Text>
               <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
-                Update details
+                {t("retailers.updateDetails")}
               </Text>
             </Pressable>
           </View>
@@ -343,11 +346,11 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 opacity: canCollectPayment ? 1 : 0.55,
               }}
             >
-              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Collect payment</Text>
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{t("retailers.collectPayment")}</Text>
               <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
                 {canCollectPayment
-                  ? "FIFO Cash/UPI across opening + pending bills"
-                  : "No outstanding balance to collect"}
+                  ? t("retailers.fifoCollectionHint")
+                  : t("retailers.noOutstanding")}
               </Text>
             </Pressable>
             <Pressable
@@ -369,11 +372,11 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 opacity: canShareStatement ? 1 : 0.55,
               }}
             >
-              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>Share Statement</Text>
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{t("retailers.shareStatement")}</Text>
               <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
                 {canShareStatement
-                  ? "PDF statement with outstanding bills only"
-                  : "No outstanding bills to share"}
+                  ? t("retailers.statementHint")
+                  : t("retailers.noBillsToShare")}
               </Text>
             </Pressable>
           </View>
@@ -392,9 +395,9 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
                 padding: 14,
               }}
             >
-              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>View bills</Text>
+              <Text style={{ color: palette.textPrimary, fontWeight: "700" }}>{t("retailers.viewBills")}</Text>
               <Text style={{ color: palette.textMuted, marginTop: 4, fontSize: 13 }}>
-                Pending and fully paid retailer bills
+                {t("retailers.billsHint")}
               </Text>
             </Pressable>
           </View>
@@ -459,8 +462,11 @@ export function AdminRetailerDetailScreen({ navigation, route }: AdminRetailerDe
         onSettle={(payload) => settleAdminRetailerOutstanding(retailer.id, payload)}
         onSettled={async (result: RetailerBulkSettleRead) => {
           Alert.alert(
-            "Payment collected",
-            `Applied ${formatCurrency(result.total_paid)}. Outstanding now ${formatCurrency(result.outstanding_after)}.`,
+            t("retailers.paymentCollected"),
+            t("retailers.paymentCollectedHint", {
+              paid: formatCurrency(result.total_paid),
+              outstanding: formatCurrency(result.outstanding_after),
+            }),
           );
           await loadOverview();
           setRefreshNonce((value) => value + 1);
