@@ -1538,6 +1538,7 @@ function CategoryManager({
   onSelect: (category: ItemCategoryRead | null) => void;
   onManage: () => void;
 }) {
+  const { t } = useAdminTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selectedCategory = useMemo(
@@ -1547,7 +1548,7 @@ function CategoryManager({
   const fallbackCategoryName = selectedCategoryName.trim();
   const selectedLabel = selectedCategoryId
     ? selectedCategory?.name ?? (fallbackCategoryName || "Selected category")
-    : "No category";
+    : t("items.noCategory");
   const filteredCategories = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {

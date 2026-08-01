@@ -3,10 +3,11 @@ import { useAdminTranslation } from "@/hooks/use-admin-translation";
 
 import * as FileSystem from "expo-file-system/legacy";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -1403,6 +1404,42 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
 
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showTabChrome, setShowTabChrome] = useState(true);
+  const [historyHeaderHeight, setHistoryHeaderHeight] = useState(220);
+  const historyScrollY = useRef(new Animated.Value(0)).current;
+  const historyChromeVisibleRef = useRef(true);
+
+  const historyDiffClampY = Animated.diffClamp(historyScrollY, 0, historyHeaderHeight);
+  const historyHeaderTranslateY = historyDiffClampY.interpolate({
+    inputRange: [0, historyHeaderHeight],
+    outputRange: [0, -historyHeaderHeight],
+    extrapolate: "clamp",
+  });
+
+  const handleHistoryListScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: historyScrollY } } }], {
+        useNativeDriver: true,
+        listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+          const nextVisible = event.nativeEvent.contentOffset.y < 28;
+          if (nextVisible === historyChromeVisibleRef.current) return;
+          historyChromeVisibleRef.current = nextVisible;
+          setShowTabChrome(nextVisible);
+        },
+      }),
+    [historyScrollY],
+  );
+
+  const resetHistoryChrome = useCallback(() => {
+    historyScrollY.setValue(0);
+    historyChromeVisibleRef.current = true;
+    setShowTabChrome(true);
+  }, [historyScrollY]);
+
+  useEffect(() => {
+    resetHistoryChrome();
+  }, [activeTab, historyFilter, resetHistoryChrome, selectedShopId]);
+
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ExpenseItemRead | null>(null);
   const [nameDraft, setNameDraft] = useState("");
@@ -2132,25 +2169,66 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
       return <AdminLoadingState label="Loading expense history..." palette={palette} />;
     }
     return (
-      <FlatList
-        data={historyRows}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <HistoryRow
-            entry={item}
-            palette={palette}
-            onEdit={openHistoryEditor}
-            busy={historyBusyId === item.id}
-          />
-        )}
-        ListHeaderComponent={<>{renderHeader()}{historyHeader()}</>}
-        ListEmptyComponent={<AdminEmptyState title={t("expenses.noExpenseHistory")} description={t("expenses.noExpenseHistoryHint")} palette={palette} />}
-        ListFooterComponent={historyLoadingMore ? <ActivityIndicator color={palette.cash} style={styles.footerLoader} /> : null}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} tintColor={palette.cash} />}
-        onEndReached={loadMoreHistory}
-        onEndReachedThreshold={0.45}
-        contentContainerStyle={[styles.listContent, { paddingBottom: listPaddingBottom }]}
-      />
+      <View style={styles.historyListShell}>
+        <Animated.View
+          onLayout={(e) => setHistoryHeaderHeight(e.nativeEvent.layout.height)}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 10,
+            backgroundColor: palette.background,
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 12,
+            transform: [{ translateY: historyHeaderTranslateY }],
+          }}
+        >
+          {renderHeader()}
+          {historyHeader()}
+        </Animated.View>
+
+        <Animated.FlatList
+          style={styles.historyList}
+          data={historyRows}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <HistoryRow
+              entry={item}
+              palette={palette}
+              onEdit={openHistoryEditor}
+              busy={historyBusyId === item.id}
+            />
+          )}
+          ListEmptyComponent={
+            <AdminEmptyState
+              title={t("expenses.noExpenseHistory")}
+              description={t("expenses.noExpenseHistoryHint")}
+              palette={palette}
+            />
+          }
+          ListFooterComponent={
+            historyLoadingMore ? <ActivityIndicator color={palette.cash} style={styles.footerLoader} /> : null
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refreshCurrentTab}
+              tintColor={palette.cash}
+              progressViewOffset={historyHeaderHeight}
+            />
+          }
+          onScroll={handleHistoryListScroll}
+          scrollEventThrottle={16}
+          onEndReached={loadMoreHistory}
+          onEndReachedThreshold={0.45}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: listPaddingBottom, paddingTop: historyHeaderHeight },
+          ]}
+        />
+      </View>
     );
   })();
 
@@ -2168,32 +2246,37 @@ export function AdminExpensesScreen({ navigation, route }: AdminExpensesScreenPr
         <AdminHeaderActions refreshing={refreshing} onRefresh={refreshCurrentTab} />
       </View>
 
-      <View style={[styles.tabs, { borderBottomColor: palette.border }]}>
-        {TABS.map((tab) => {
-          const selected = tab.key === activeTab;
-          return (
-            <Pressable
-              key={tab.key}
-              accessibilityRole="tab"
-              accessibilityState={{ selected }}
-              onPress={() => {
-                triggerHaptic();
-                setActiveTab(tab.key);
-              }}
-              style={[
-                styles.tabButton,
-                {
-                  backgroundColor: selected ? palette.cashSoft : palette.card,
-                  borderColor: selected ? palette.cash : palette.border,
-                },
-              ]}
-            >
-              <MaterialCommunityIcons name={tab.icon} size={17} color={selected ? palette.cash : palette.textMuted} />
-              <Text style={[styles.tabLabel, { color: selected ? palette.cash : palette.textPrimary }]}>{t(tab.labelKey)}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {showTabChrome || activeTab !== "history" ? (
+        <View style={[styles.tabs, { borderBottomColor: palette.border }]}>
+          {TABS.map((tab) => {
+            const selected = tab.key === activeTab;
+            return (
+              <Pressable
+                key={tab.key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => {
+                  triggerHaptic();
+                  setActiveTab(tab.key);
+                  if (tab.key === "history") {
+                    resetHistoryChrome();
+                  }
+                }}
+                style={[
+                  styles.tabButton,
+                  {
+                    backgroundColor: selected ? palette.cashSoft : palette.card,
+                    borderColor: selected ? palette.cash : palette.border,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons name={tab.icon} size={17} color={selected ? palette.cash : palette.textMuted} />
+                <Text style={[styles.tabLabel, { color: selected ? palette.cash : palette.textPrimary }]}>{t(tab.labelKey)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       {content}
 
@@ -2473,6 +2556,12 @@ const styles = StyleSheet.create({
   listContent: {
     gap: 12,
     padding: 16,
+  },
+  historyListShell: {
+    flex: 1,
+  },
+  historyList: {
+    flex: 1,
   },
   listHeader: {
     gap: 12,

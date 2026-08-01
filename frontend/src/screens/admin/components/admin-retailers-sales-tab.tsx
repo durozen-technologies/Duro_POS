@@ -4,13 +4,13 @@ import { useAdminTranslation } from "@/hooks/use-admin-translation";
 
 import { useFocusEffect } from "@react-navigation/native";
 
-import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 
 import {
 
   Alert,
 
-  FlatList,
+  Animated,
 
   Modal,
 
@@ -119,6 +119,8 @@ type AdminRetailersSalesTabProps = {
   onRefreshComplete?: () => void;
 
   onOpenSale: (saleId: string) => void;
+
+  onChromeVisibilityChange?: (visible: boolean) => void;
 
 };
 
@@ -624,8 +626,64 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
   onOpenSale,
 
+  onChromeVisibilityChange,
+
 }: AdminRetailersSalesTabProps) {
   const { t } = useAdminTranslation();
+
+  const [headerHeight, setHeaderHeight] = useState(220);
+
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  const chromeVisibleRef = useRef(true);
+
+  const diffClampY = Animated.diffClamp(scrollY, 0, headerHeight);
+
+  const headerTranslateY = diffClampY.interpolate({
+
+    inputRange: [0, headerHeight],
+
+    outputRange: [0, -headerHeight],
+
+    extrapolate: "clamp",
+
+  });
+
+  const handleListScroll = useMemo(
+
+    () =>
+
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+
+        useNativeDriver: true,
+
+        listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+
+          const nextVisible = event.nativeEvent.contentOffset.y < 28;
+
+          if (nextVisible === chromeVisibleRef.current) return;
+
+          chromeVisibleRef.current = nextVisible;
+
+          onChromeVisibilityChange?.(nextVisible);
+
+        },
+
+      }),
+
+    [onChromeVisibilityChange, scrollY],
+
+  );
+
+  useEffect(() => {
+
+    return () => {
+
+      onChromeVisibilityChange?.(true);
+
+    };
+
+  }, [onChromeVisibilityChange]);
 
   const [sales, setSales] = useState<RetailerSaleRead[]>([]);
 
@@ -1039,105 +1097,141 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
     <View style={styles.container}>
 
-      <AdminSegmentedTabs
+      <Animated.View
 
-        items={filterTabs}
+        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
 
-        activeValue={filter}
+        style={{
 
-        palette={palette}
+          position: "absolute",
 
-        onChange={(value) => setFilter(value as SalesFilter)}
+          top: 0,
 
-      />
+          left: 0,
+
+          right: 0,
+
+          zIndex: 10,
+
+          backgroundColor: palette.background,
+
+          transform: [{ translateY: headerTranslateY }],
+
+        }}
+
+      >
+
+        <AdminSegmentedTabs
+
+          items={filterTabs}
+
+          activeValue={filter}
+
+          palette={palette}
+
+          onChange={(value) => {
+
+            setFilter(value as SalesFilter);
+
+            scrollY.setValue(0);
+
+            chromeVisibleRef.current = true;
+
+            onChromeVisibilityChange?.(true);
+
+          }}
+
+        />
 
 
 
-      <View style={styles.searchFilterRow}>
+        <View style={styles.searchFilterRow}>
 
-        <View style={styles.searchFieldWrap}>
+          <View style={styles.searchFieldWrap}>
 
-          <SearchField
+            <SearchField
 
-            value={searchQuery}
+              value={searchQuery}
 
-            onChangeText={setSearchQuery}
+              onChangeText={setSearchQuery}
 
-            placeholder="Search by retailer name"
+              placeholder="Search by retailer name"
+
+              palette={palette}
+
+              accessibilityLabel="Search retailer sales by retailer name"
+
+            />
+
+          </View>
+
+          <ActionButton
+
+            label={t("retailers.filter")}
+
+            icon="filter-variant"
 
             palette={palette}
 
-            accessibilityLabel="Search retailer sales by retailer name"
+            tone="info"
+
+            active={hasActiveRetailerSalesFilters(appliedFilter)}
+
+            onPress={openFilterModal}
 
           />
 
         </View>
 
-        <ActionButton
 
-          label={t("retailers.filter")}
 
-          icon="filter-variant"
+        {hasSearchOrFilters && activeFilterLabel ? (
 
-          palette={palette}
+          <Text style={[adminTypography.caption, styles.activeFilterHint, { color: palette.textMuted }]} numberOfLines={2}>
 
-          tone="info"
+            Filters: {activeFilterLabel}
 
-          active={hasActiveRetailerSalesFilters(appliedFilter)}
+          </Text>
 
-          onPress={openFilterModal}
-
-        />
-
-      </View>
+        ) : null}
 
 
 
-      {hasSearchOrFilters && activeFilterLabel ? (
+        <View style={[styles.summaryCard, { backgroundColor: palette.surfaceMuted }]}>
 
-        <Text style={[adminTypography.caption, styles.activeFilterHint, { color: palette.textMuted }]} numberOfLines={2}>
+          <Text style={[adminTypography.caption, { color: palette.textMuted, fontWeight: "700" }]}>
 
-          Filters: {activeFilterLabel}
+            {filter === "pending" ? "Total balance due" : "Total settled"}
 
-        </Text>
+          </Text>
 
-      ) : null}
+          <Text style={[styles.summaryValue, { color: palette.textPrimary }]} numberOfLines={1}>
 
+            {formatCurrency(visibleTotal)}
 
+          </Text>
 
-      <View style={[styles.summaryCard, { backgroundColor: palette.surfaceMuted }]}>
+          <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 4 }]}>
 
-        <Text style={[adminTypography.caption, { color: palette.textMuted, fontWeight: "700" }]}>
+            {hasSearchOrFilters
 
-          {filter === "pending" ? "Total balance due" : "Total settled"}
+              ? `${visibleSales.length} matching sale(s)`
 
-        </Text>
+              : filter === "pending"
 
-        <Text style={[styles.summaryValue, { color: palette.textPrimary }]} numberOfLines={1}>
+                ? `${pendingSales.length} open or partial sale(s)`
 
-          {formatCurrency(visibleTotal)}
+                : `${paidSales.length} fully paid sale(s)`}
 
-        </Text>
+          </Text>
 
-        <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 4 }]}>
+        </View>
 
-          {hasSearchOrFilters
-
-            ? `${visibleSales.length} matching sale(s)`
-
-            : filter === "pending"
-
-              ? `${pendingSales.length} open or partial sale(s)`
-
-              : `${paidSales.length} fully paid sale(s)`}
-
-        </Text>
-
-      </View>
+      </Animated.View>
 
 
 
-      <FlatList
+      <Animated.FlatList
 
         style={{ flex: 1 }}
 
@@ -1147,7 +1241,11 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
         extraData={`${filter}-${searchQuery}-${activeFilterLabel}`}
 
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingTop: headerHeight }]}
+
+        onScroll={handleListScroll}
+
+        scrollEventThrottle={16}
 
         refreshControl={
 
@@ -1158,6 +1256,8 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
             onRefresh={() => void load(true)}
 
             tintColor={palette.primary}
+
+            progressViewOffset={headerHeight}
 
           />
 
@@ -1222,8 +1322,11 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
             onPress={() => onOpenSale(item.id)}
 
             onEdit={() => {
+
               setEditSale(item);
+
               setEditModalOpen(true);
+
             }}
 
             onCancel={() => handleCancelSale(item)}

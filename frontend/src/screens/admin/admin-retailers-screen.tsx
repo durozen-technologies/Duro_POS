@@ -116,7 +116,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.content}>
-        {showTabChrome || activeTab !== "allocateItems" ? (
+        {showTabChrome || (activeTab !== "allocateItems" && activeTab !== "sales") ? (
           <AdminSegmentedTabs
             items={TAB_ITEMS}
             activeValue={activeTab}
@@ -164,6 +164,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
               refreshNonce={refreshNonce}
               onRefreshComplete={handleRefreshComplete}
               onOpenSale={handleOpenSale}
+              onChromeVisibilityChange={setShowTabChrome}
             />
           ) : null}
         </View>
