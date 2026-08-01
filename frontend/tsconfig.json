@@ -4,7 +4,6 @@
     "strict": true,
     "ignoreDeprecations": "5.0",
     "resolveJsonModule": true,
-    "baseUrl": ".",
     "paths": {
       "@haroldtran/react-native-thermal-printer": [
         "./src/types/haroldtran-react-native-thermal-printer"
