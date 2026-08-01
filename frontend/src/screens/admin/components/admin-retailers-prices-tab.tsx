@@ -495,6 +495,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
           selectedShopId,
           {
             q: debouncedSearch || undefined,
+            allocated: "allocated",
             limit: 200,
             effective_date: selectedDate || undefined,
           },
@@ -658,6 +659,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
     setLoadingPreview(true);
     try {
       const response = await fetchRetailerItemAllocations(selectedRetailerId, selectedShopId, {
+        allocated: "allocated",
         limit: 500,
       });
       const rows: SavePreviewRow[] = response.items.map((item) => {
@@ -672,7 +674,10 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
         };
       });
       if (rows.length === 0) {
-        Alert.alert("No items", "Allocate branch items before saving retailer prices.");
+        Alert.alert(
+          "No items",
+          "Assign items to this retailer (Allocate → Per retailer) before saving prices.",
+        );
         return;
       }
       setPreviewRows(rows);
@@ -972,7 +977,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
             onPress={() =>
               Alert.alert(
                 "Daily retailer prices",
-                "Set wholesale prices for each item, then tap Save to preview all branch items. Unset prices appear as 0 in the preview. Confirming saves today's prices for this retailer.",
+                "Shows only items assigned to this retailer. Set wholesale prices, then tap Save to preview. Unset prices appear as 0. Confirming saves today's prices for retailer billing.",
               )
             }
             style={{
@@ -1048,18 +1053,18 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
               <Text style={[adminTypography.caption, { color: palette.textMuted, zIndex: 1 }]}>
                 {priceUpdateSummary && priceUpdateSummary.pricedItems > 0
                   ? priceUpdateSummary.needsUpdateCount > 0
-                    ? `${priceUpdateSummary.needsUpdateCount} item${priceUpdateSummary.needsUpdateCount === 1 ? "" : "s"} need today's price. Tap Save to confirm all branch items.`
-                    : `All ${priceUpdateSummary.updatedTodayCount} priced item${priceUpdateSummary.updatedTodayCount === 1 ? "" : "s"} updated today.`
-                  : "Set wholesale prices for each item, then tap Save to confirm today's rates."}
+                    ? `${priceUpdateSummary.needsUpdateCount} assigned item${priceUpdateSummary.needsUpdateCount === 1 ? "" : "s"} need today's price. Tap Save to confirm.`
+                    : `All ${priceUpdateSummary.updatedTodayCount} assigned item${priceUpdateSummary.updatedTodayCount === 1 ? "" : "s"} updated today.`
+                  : "Set wholesale prices for assigned items, then tap Save to confirm today's rates."}
               </Text>
             ) : null}
             <View style={{ zIndex: 1 }}>
               <SearchField
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Search branch items"
+                placeholder="Search assigned items"
                 palette={palette}
-                accessibilityLabel="Search branch items"
+                accessibilityLabel="Search assigned items"
               />
             </View>
           </>
@@ -1106,8 +1111,8 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
               ItemSeparatorComponent={() => <View style={{ height: adminSpacing.sm }} />}
               ListEmptyComponent={
                 <EmptyStateCard
-                  title="No branch items allocated"
-                  subtitle="Allocate items to this branch first, then set retailer prices here."
+                  title="No items assigned to this retailer"
+                  subtitle="Assign items under Allocate → Per retailer, then set today's wholesale prices here for billing."
                   palette={palette}
                   icon="tag-off-outline"
                 />
@@ -1186,7 +1191,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
               {selectedRetailer?.name ?? "Retailer"} · {selectedBranch?.name ?? "Branch"}
             </Text>
             <Text style={[adminTypography.caption, { color: palette.textMuted, marginTop: 8 }]}>
-              Review all branch items below. Unset prices are shown as {formatCurrency("0")}.
+              Review assigned items below. Unset prices are shown as {formatCurrency("0")}.
             </Text>
 
             <FlatList
