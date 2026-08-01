@@ -19,6 +19,7 @@ from app.schemas.retailers import (
     RetailerItemAllocationBulkCreate,
     RetailerItemAllocationBulkRead,
     RetailerItemAllocationListRead,
+    RetailerItemAllocationSync,
     RetailerItemAllocationUpdate,
     RetailerItemPriceRead,
     RetailerItemPriceSync,
@@ -63,6 +64,7 @@ from app.services.retailers import (
     list_retailers,
     list_shop_retailer_item_catalog,
     sync_retailer_branch_allocations,
+    sync_retailer_item_allocations,
     sync_retailer_item_prices,
     sync_shop_retailer_item_catalog,
     update_admin_retailers_order,
@@ -224,6 +226,21 @@ async def admin_bulk_allocate_retailer_items(
     shop_id: Annotated[UUID, Query()],
 ) -> RetailerItemAllocationBulkRead:
     return await bulk_allocate_retailer_items(db, retailer_id, shop_id, payload.items)
+
+
+@router.put(
+    "/retailers/{retailer_id}/item-allocations",
+    response_model=RetailerItemAllocationListRead,
+    dependencies=[Depends(require_permission(RETAILERS_MANAGE))],
+    summary="Sync retailer item allocations without updating wholesale prices",
+)
+async def admin_sync_retailer_item_allocations(
+    retailer_id: UUID,
+    payload: RetailerItemAllocationSync,
+    db: DBSession,
+    shop_id: Annotated[UUID, Query()],
+) -> RetailerItemAllocationListRead:
+    return await sync_retailer_item_allocations(db, retailer_id, shop_id, payload.item_ids)
 
 
 @router.patch(

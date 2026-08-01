@@ -23,14 +23,13 @@ import {
   fetchRetailerItemAllocations,
   fetchRetailers,
   fetchShopRetailerCatalog,
-  syncRetailerItemPrices,
+  syncRetailerItemAllocations,
   syncShopRetailerCatalog,
 } from "@/api/retailers";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type {
   RetailerItemAllocationRead,
-  RetailerItemPriceInput,
   RetailerRead,
   ShopRead,
   UUID,
@@ -375,44 +374,18 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
     setSaving(true);
     try {
       if (workMode === "prices" && selectedRetailerId) {
-        const priceItems: RetailerItemPriceInput[] = [];
-        const missingPriceNames: string[] = [];
-        for (const draft of allocations.values()) {
-          const raw =
-            (draft.price_per_unit.trim() && Number(draft.price_per_unit) > 0
-              ? draft.price_per_unit.trim()
-              : null) ??
-            (draft.billing_price?.trim() && Number(draft.billing_price) > 0
-              ? draft.billing_price.trim()
-              : null);
-          if (!raw) {
-            missingPriceNames.push(draft.item_name);
-            continue;
-          }
-          priceItems.push({
-            item_id: draft.item_id,
-            price_per_unit: Number(raw).toFixed(2),
-            is_active: true,
-          });
-        }
-        if (missingPriceNames.length > 0) {
-          Alert.alert(
-            t("retailers.billingPriceMissing"),
-            t("retailers.billingPriceMissingHint", {
-              items: `${missingPriceNames.slice(0, 3).join(", ")}${missingPriceNames.length > 3 ? "…" : ""}`,
-            }),
-          );
-          setSaving(false);
-          return;
-        }
-        await syncRetailerItemPrices(selectedRetailerId, selectedShopId, priceItems);
+        await syncRetailerItemAllocations(
+          selectedRetailerId,
+          selectedShopId,
+          Array.from(allocations.keys()),
+        );
         triggerHaptic();
         setDirty(false);
         await loadItems();
         Alert.alert(
           t("common.success"),
           t("retailers.itemsAllocatedToRetailer", {
-            count: priceItems.length,
+            count: allocations.size,
             retailer: selectedRetailer?.name ?? t("retailers.retailer"),
           }),
         );

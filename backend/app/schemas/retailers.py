@@ -140,6 +140,12 @@ class RetailerItemAllocationBulkRead(BaseModel):
     already_allocated_count: int
 
 
+class RetailerItemAllocationSync(BaseModel):
+    """Allocate items to a retailer without requiring/updating wholesale prices."""
+
+    item_ids: list[UUID] = Field(default_factory=list)
+
+
 class RetailerItemAllocationUpdate(BaseModel):
     price_per_unit: Decimal | None = Field(default=None, gt=0)
     is_active: bool | None = None

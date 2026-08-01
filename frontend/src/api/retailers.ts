@@ -156,6 +156,19 @@ export async function fetchRetailerItemAllocations(
   return data;
 }
 
+export async function syncRetailerItemAllocations(
+  retailerId: UUID,
+  shopId: UUID,
+  itemIds: UUID[],
+) {
+  const { data } = await apiClient.put<RetailerItemAllocationListRead>(
+    `/api/v1/admin/retailers/${retailerId}/item-allocations`,
+    { item_ids: itemIds },
+    { params: { shop_id: shopId } },
+  );
+  return data;
+}
+
 export async function bulkAllocateRetailerItems(
   retailerId: UUID,
   shopId: UUID,

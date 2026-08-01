@@ -1105,6 +1105,86 @@ async def delete_retailer_item_allocation(
     await db.commit()
 
 
+async def sync_retailer_item_allocations(
+    db: AsyncSession,
+    retailer_id: UUID,
+    shop_id: UUID,
+    item_ids: list[UUID],
+) -> RetailerItemAllocationListRead:
+    """Sync which catalogue items are allocated to a retailer.
+
+    Existing wholesale prices are preserved. New allocations get today's billing
+    price when available, otherwise a stub price so Retailer prices can set it later.
+    """
+    await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
+    requested = list(dict.fromkeys(item_ids))
+    if requested:
+        valid_set = await _valid_shop_retailer_catalog_item_ids(db, shop_id, requested)
+        missing = [str(item_id) for item_id in requested if item_id not in valid_set]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Items not allocated to branch retailer catalog: {missing}",
+            )
+
+    existing_rows = (
+        await db.scalars(
+            select(RetailerItemPrice).where(
+                RetailerItemPrice.retailer_id == retailer_id,
+                RetailerItemPrice.shop_id == shop_id,
+            )
+        )
+    ).all()
+    by_item_id: dict[UUID, list[RetailerItemPrice]] = {}
+    for row in existing_rows:
+        by_item_id.setdefault(row.item_id, []).append(row)
+
+    billing_by_item: dict[UUID, Decimal] = {}
+    if requested:
+        latest_prices = _shop_latest_billing_prices_subquery(shop_id)
+        billing_rows = (
+            await db.execute(
+                select(latest_prices.c.item_id, latest_prices.c.price_per_unit).where(
+                    latest_prices.c.rn == 1,
+                    latest_prices.c.item_id.in_(requested),
+                )
+            )
+        ).all()
+        billing_by_item = {
+            item_id: price
+            for item_id, price in billing_rows
+            if price is not None and price > 0
+        }
+
+    requested_set = set(requested)
+    for item_id in requested:
+        if item_id in by_item_id:
+            continue
+        billing = billing_by_item.get(item_id)
+        db.add(
+            RetailerItemPrice(
+                retailer_id=retailer_id,
+                shop_id=shop_id,
+                item_id=item_id,
+                price_per_unit=(billing if billing is not None else Decimal("0.01")).quantize(
+                    Decimal("0.01")
+                ),
+                is_active=True,
+            )
+        )
+
+    for item_id, rows in by_item_id.items():
+        if item_id in requested_set:
+            continue
+        for row in rows:
+            await db.delete(row)
+
+    await db.commit()
+    return await list_retailer_item_allocations(
+        db, retailer_id, shop_id=shop_id, allocated="allocated"
+    )
+
+
 async def get_retailer_balance(db: AsyncSession, retailer_id: UUID) -> RetailerBalanceRead:
     retailer = await get_retailer_or_404(db, retailer_id)
     sales = (
