@@ -66,16 +66,16 @@ def _shop_billing_item_filter(shop_id: UUID):
 def _price_status_for(price_date: date | None) -> PriceStatus:
     if price_date is None:
         return PriceStatus.MISSING
-    return PriceStatus.CURRENT if price_date == date.today() else PriceStatus.STALE
+    return PriceStatus.CURRENT if price_date == today_ist() else PriceStatus.STALE
 
 
 def _shop_prices_published_today(shop: Shop, today: date | None = None) -> bool:
-    target_day = today or date.today()
+    target_day = today or today_ist()
     return shop.daily_prices_published_on == target_day
 
 
 async def _invalidate_daily_prices_publication(db: AsyncSession, shop: Shop) -> None:
-    if shop.daily_prices_published_on == date.today():
+    if shop.daily_prices_published_on == today_ist():
         shop.daily_prices_published_on = None
         await db.commit()
     await evict_shop_bootstrap_cache(shop.id)
@@ -491,7 +491,7 @@ async def get_today_prices(db: AsyncSession, shop: Shop) -> list[DailyPriceRead]
         )
         .where(
             DailyPrice.shop_id == shop.id,
-            DailyPrice.price_date == date.today(),
+            DailyPrice.price_date == today_ist(),
             Item.is_active.is_(True),
             _shop_billing_item_filter(shop.id),
         )
@@ -515,7 +515,7 @@ async def create_daily_prices(
     - ``db.flush()`` assigns PKs without expiring the session, so a
       per-object ``db.refresh()`` loop (N extra SELECTs) is not needed.
     """
-    target_date = date.today()
+    target_date = today_ist()
     entries = payload.entries
 
     items_by_id = await _load_billable_item_units(db, shop.id)
@@ -546,7 +546,7 @@ async def create_partial_daily_prices(
     shop: Shop,
     payload: DailyPriceCreate,
 ) -> list[DailyPriceRead]:
-    target_date = date.today()
+    target_date = today_ist()
     entries = payload.entries
     if not entries:
         return []
@@ -566,7 +566,7 @@ async def upsert_shop_daily_price(
     item_id: UUID,
     payload: DailyPriceUpdate,
 ) -> DailyPriceRead:
-    target_date = date.today()
+    target_date = today_ist()
     if payload.price_per_unit <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -617,7 +617,7 @@ async def get_global_bootstrap(db: AsyncSession) -> ShopBootstrapResponse:
     ``daily_prices`` history in Python, this uses a window-function subquery
     to pick the most recent price row per item across active shops.
     """
-    today = date.today()
+    today = today_ist()
     latest_prices = (
         select(
             DailyPrice.item_id.label("item_id"),
@@ -701,7 +701,7 @@ async def create_global_daily_prices(
     payload: DailyPriceCreate,
 ) -> list[DailyPriceRead]:
     """Create daily prices for all active shops at once (global pricing)."""
-    target_date = date.today()
+    target_date = today_ist()
 
     shops_result = await db.scalars(select(Shop).where(Shop.is_active.is_(True)))
     shops = shops_result.all()

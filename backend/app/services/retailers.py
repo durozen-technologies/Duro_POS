@@ -12,6 +12,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timezone import today_ist
 from app.models import (
     DailyPrice,
     Item,
@@ -754,7 +755,7 @@ async def list_retailer_item_prices(
     shop_id: UUID,
 ) -> list[RetailerItemPriceRead]:
     await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
-    price_as_of = retailer_item_prices_as_of_subquery(retailer_id, shop_id, func.current_date())
+    price_as_of = retailer_item_prices_as_of_subquery(retailer_id, shop_id, today_ist())
     rows = (
         await db.execute(
             select(
@@ -833,6 +834,7 @@ async def sync_retailer_item_prices(
                 retailer_id=retailer_id,
                 shop_id=shop_id,
                 item_id=line.item_id,
+                effective_date=today_ist(),
                 price_per_unit=line.price_per_unit.quantize(Decimal("0.01")),
                 is_active=line.is_active,
             )
@@ -862,7 +864,7 @@ async def list_retailer_item_allocations(
     await ensure_retailer_at_shop(db, retailer_id=retailer_id, shop_id=shop_id)
     limit = min(max(limit, 1), 500)
     latest_prices = _shop_latest_billing_prices_subquery(shop_id)
-    target_date = effective_date if effective_date is not None else func.current_date()
+    target_date = effective_date if effective_date is not None else today_ist()
     price_as_of = retailer_item_prices_as_of_subquery(retailer_id, shop_id, target_date)
     is_allocated_expr = price_as_of.c.id.is_not(None)
 
@@ -1016,6 +1018,7 @@ async def bulk_allocate_retailer_items(
                 retailer_id=retailer_id,
                 shop_id=shop_id,
                 item_id=line.item_id,
+                effective_date=today_ist(),
                 price_per_unit=line.price_per_unit.quantize(Decimal("0.01")),
                 is_active=line.is_active,
             )
@@ -1052,7 +1055,7 @@ async def update_retailer_item_allocation(
             RetailerItemPrice.retailer_id == retailer_id,
             RetailerItemPrice.shop_id == shop_id,
             RetailerItemPrice.item_id == item_id,
-            RetailerItemPrice.effective_date == func.current_date(),
+            RetailerItemPrice.effective_date == today_ist(),
         )
     )
     if row is None:
@@ -1068,6 +1071,7 @@ async def update_retailer_item_allocation(
             retailer_id=retailer_id,
             shop_id=shop_id,
             item_id=item_id,
+            effective_date=today_ist(),
             price_per_unit=payload.price_per_unit.quantize(Decimal("0.01")),
             is_active=payload.is_active if payload.is_active is not None else True,
         )
@@ -1166,6 +1170,7 @@ async def sync_retailer_item_allocations(
                 retailer_id=retailer_id,
                 shop_id=shop_id,
                 item_id=item_id,
+                effective_date=today_ist(),
                 price_per_unit=(billing if billing is not None else Decimal("0.01")).quantize(
                     Decimal("0.01")
                 ),

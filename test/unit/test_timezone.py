@@ -46,3 +46,14 @@ def test_to_ist_converts_naive_utc() -> None:
     assert local.tzinfo == IST
     assert local.hour == 17
     assert local.minute == 30
+
+
+def test_today_ist_matches_asia_kolkata_calendar() -> None:
+    assert today_ist() == datetime.now(ZoneInfo("Asia/Kolkata")).date()
+
+
+def test_retailer_sale_number_uses_ist_month() -> None:
+    from app.services.retailer_sale_number import retailer_sale_no_from_sequence
+
+    moment = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+    assert retailer_sale_no_from_sequence(moment, 1) == "RS-2026-07-000001"

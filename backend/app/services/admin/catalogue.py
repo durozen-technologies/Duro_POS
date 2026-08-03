@@ -73,7 +73,7 @@ async def list_shop_items(
     cursor_id: UUID | None = None,
     item_id: UUID | None = None,
 ) -> ShopItemPage:
-    today = date.today()
+    today = today_ist()
     if scope is not None:
         scope = ItemScope(scope)
     if price_status is not None:

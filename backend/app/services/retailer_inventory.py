@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.ids import uuid7
-from app.core.timezone import ist_midnight
+from app.core.timezone import ist_midnight, today_ist
 from app.models import (
     BaseUnit,
     Retailer,
@@ -131,8 +131,7 @@ async def list_retailer_inventory_usages(
     if range_start_date is not None or range_end_date is not None:
         if range_start_date is not None:
             query = query.where(
-                RetailerInventoryUsage.occurred_at
-                >= ist_midnight(range_start_date)
+                RetailerInventoryUsage.occurred_at >= ist_midnight(range_start_date)
             )
         if range_end_date is not None:
             query = query.where(
@@ -141,10 +140,8 @@ async def list_retailer_inventory_usages(
             )
     elif reference_date is not None:
         query = query.where(
-            RetailerInventoryUsage.occurred_at
-            >= ist_midnight(reference_date),
-            RetailerInventoryUsage.occurred_at
-            < ist_midnight(reference_date + timedelta(days=1)),
+            RetailerInventoryUsage.occurred_at >= ist_midnight(reference_date),
+            RetailerInventoryUsage.occurred_at < ist_midnight(reference_date + timedelta(days=1)),
         )
     rows = (
         await db.scalars(
@@ -302,7 +299,7 @@ async def admin_set_retailer_inventory_stock(
         category_retailer_used_today,
         retailer_used_today_bird,
         category_retailer_used_today_bird,
-    ) = await _retailer_usage_totals(db, shop.id, [item_id], used_since=date.today())
+    ) = await _retailer_usage_totals(db, shop.id, [item_id], used_since=today_ist())
 
     delta = ZERO
     if payload.retailer_used_quantity is not None:
@@ -319,18 +316,14 @@ async def admin_set_retailer_inventory_stock(
     birds_delta = 0
     if payload.retailer_used_bird_count is not None and item.base_unit == BaseUnit.KG:
         if payload.category_id:
-            current_bird = category_retailer_used_today_bird.get(
-                (item_id, payload.category_id), 0
-            )
+            current_bird = category_retailer_used_today_bird.get((item_id, payload.category_id), 0)
         else:
             current_bird = retailer_used_today_bird.get(item_id, 0)
         birds_delta = payload.retailer_used_bird_count - current_bird
 
     if delta != ZERO or birds_delta != 0:
         if payload.retailer_id is not None:
-            await ensure_retailer_at_shop(
-                db, retailer_id=payload.retailer_id, shop_id=shop.id
-            )
+            await ensure_retailer_at_shop(db, retailer_id=payload.retailer_id, shop_id=shop.id)
         retailer_name = await _retailer_snapshot_name(db, payload.retailer_id)
         shop_name = await _retailer_shop_snapshot_name_for_id(db, payload.retailer_id)
         adjustment_reason = payload.adjustment_reason
@@ -418,5 +411,5 @@ async def admin_set_retailer_inventory_stock(
         await db.commit()
 
     return await _stock_item_for_shop_inventory_item(
-        db, shop, item, allocation, used_since=date.today()
+        db, shop, item, allocation, used_since=today_ist()
     )

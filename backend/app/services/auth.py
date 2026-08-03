@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
+from app.core.timezone import today_ist
 from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import (
     is_postgres_session,
@@ -115,7 +116,7 @@ async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
     shop = await db.get(Shop, shop_id)
     if shop is None:
         return True
-    if shop.daily_prices_published_on != date.today():
+    if shop.daily_prices_published_on != today_ist():
         return True
     has_missing_today_price = await db.scalar(
         select(
@@ -139,7 +140,7 @@ async def _requires_price_setup(db: AsyncSession, shop_id: UUID) -> bool:
                 .where(
                     DailyPrice.shop_id == shop_id,
                     DailyPrice.item_id == Item.id,
-                    DailyPrice.price_date == date.today(),
+                    DailyPrice.price_date == today_ist(),
                 )
                 .exists(),
             )

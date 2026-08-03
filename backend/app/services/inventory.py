@@ -17,7 +17,7 @@ from app.core.redis_cache import (
     evict_shop_inventory_summary_cache,
     shop_inventory_summary_cache_key,
 )
-from app.core.timezone import ist_midnight
+from app.core.timezone import ist_midnight, today_ist
 from app.db.storage import (
     delete_inventory_item_image as delete_inventory_item_image_storage,
 )
@@ -1593,7 +1593,7 @@ async def _movement_totals_alltime_and_today(
     if not item_ids:
         return empty
 
-    today_dt = ist_midnight(today or date.today())
+    today_dt = ist_midnight(today or today_ist())
     is_add = InventoryMovement.movement_type == InventoryMovementType.ADD
     is_use = InventoryMovement.movement_type == InventoryMovementType.USE
     use_today = and_(is_use, InventoryMovement.occurred_at >= today_dt)
@@ -1838,7 +1838,7 @@ async def _retailer_usage_totals_alltime_and_today(
     if not item_ids:
         return {}, {}, {}, {}, {}, {}, {}, {}
 
-    today_dt = ist_midnight(today or date.today())
+    today_dt = ist_midnight(today or today_ist())
     rows = (
         await db.execute(
             select(
@@ -1926,7 +1926,7 @@ async def _shop_today_header_totals(
     """Cheap shop-level today used/transfer/retailer totals for stock-rows header."""
     if not item_ids:
         return ZERO, ZERO, ZERO, 0, 0, 0
-    today_dt = ist_midnight(today or date.today())
+    today_dt = ist_midnight(today or today_ist())
     used_qty, used_bird = (
         await db.execute(
             select(
@@ -3078,7 +3078,7 @@ async def add_shop_inventory_stock(
         stock_item = next(item for item in summary.items if item.id == item_id)
     else:
         stock_item = await _stock_item_for_shop_inventory_item(
-            db, shop, item, allocation, used_since=date.today()
+            db, shop, item, allocation, used_since=today_ist()
         )
     return InventoryMovementCreateResult(
         movement=_movement_to_read(movement),
@@ -3165,7 +3165,7 @@ async def use_shop_inventory_stock(
         stock_item = next(item for item in summary.items if item.id == item_id)
     else:
         stock_item = await _stock_item_for_shop_inventory_item(
-            db, shop, item, allocation, used_since=date.today()
+            db, shop, item, allocation, used_since=today_ist()
         )
     return InventoryMovementCreateResult(
         movement=_movement_to_read(movement),
@@ -3283,7 +3283,7 @@ async def use_shop_inventory_stock_split(
         stock_item = next(item for item in summary.items if item.id == item_id)
     else:
         stock_item = await _stock_item_for_shop_inventory_item(
-            db, shop, item, allocation, used_since=date.today()
+            db, shop, item, allocation, used_since=today_ist()
         )
     return InventoryMovementSplitCreateResult(
         movements=[_movement_to_read(movement) for movement in saved_movements],
@@ -3415,7 +3415,7 @@ async def _list_today_transfer_rows_for_item(
                 .where(
                     InventoryTransfer.source_shop_id == shop_id,
                     InventoryTransfer.inventory_item_id == item_id,
-                    InventoryTransfer.occurred_at >= ist_midnight(date.today()),
+                    InventoryTransfer.occurred_at >= ist_midnight(today_ist()),
                 )
                 .order_by(
                     InventoryTransfer.occurred_at.desc(),
@@ -3436,7 +3436,7 @@ async def _admin_adjust_transfer_quantity_today(
     occurred_at: datetime,
 ) -> bool:
     _, _, _, transferred_today, *_ = await _movement_totals(
-        db, shop.id, [item_id], used_since=date.today()
+        db, shop.id, [item_id], used_since=today_ist()
     )
     current = transferred_today.get(item_id, ZERO)
     target = _normalize_nonnegative_quantity(item.base_unit, target_quantity)
@@ -3498,7 +3498,7 @@ async def _admin_adjust_transfer_bird_count_today(
         return False
 
     _, _, _, _, _, _, _, transferred_today_bird = await _movement_totals(
-        db, shop.id, [item_id], used_since=date.today()
+        db, shop.id, [item_id], used_since=today_ist()
     )
     current = transferred_today_bird.get(item_id, 0)
     birds_delta = target_bird_count - current
@@ -3583,7 +3583,7 @@ async def admin_set_shop_inventory_stock(
     ) = await _movement_totals(db, shop.id, [item_id])
     retailer_used_alltime, _, *_retailer_bird = await _retailer_usage_totals(db, shop.id, [item_id])
     _, used_today, _, _, *_ = await _movement_totals(
-        db, shop.id, [item_id], used_since=date.today()
+        db, shop.id, [item_id], used_since=today_ist()
     )
 
     current_available = (
@@ -3601,7 +3601,7 @@ async def admin_set_shop_inventory_stock(
         target_used = _normalize_nonnegative_quantity(item.base_unit, payload.used_quantity)
         if payload.category_id:
             _, _, category_used_today_all, _, _, _, _, _ = await _movement_totals(
-                db, shop.id, [item_id], used_since=date.today()
+                db, shop.id, [item_id], used_since=today_ist()
             )
             current_used = category_used_today_all.get((item_id, payload.category_id), ZERO)
         else:
@@ -3658,12 +3658,12 @@ async def admin_set_shop_inventory_stock(
     if payload.used_bird_count is not None and item.base_unit == BaseUnit.KG:
         if payload.category_id:
             _, _, _, _, _, _, category_used_today_bird, _ = await _movement_totals(
-                db, shop.id, [item_id], used_since=date.today()
+                db, shop.id, [item_id], used_since=today_ist()
             )
             current_used_bird = category_used_today_bird.get((item_id, payload.category_id), 0)
         else:
             _, _, _, _, _, used_today_bird, _, _ = await _movement_totals(
-                db, shop.id, [item_id], used_since=date.today()
+                db, shop.id, [item_id], used_since=today_ist()
             )
             current_used_bird = used_today_bird.get(item_id, 0)
         delta_used_birds = payload.used_bird_count - current_used_bird
@@ -3709,5 +3709,5 @@ async def admin_set_shop_inventory_stock(
         await evict_shop_inventory_summary_cache(shop.id)
 
     return await _stock_item_for_shop_inventory_item(
-        db, shop, item, allocation, used_since=date.today()
+        db, shop, item, allocation, used_since=today_ist()
     )

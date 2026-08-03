@@ -6,11 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.global_image_templates import (
-    build_resolved_item_image_paths,
-    get_active_template,
-    resolve_item_image_keys,
-)
+from app.core.timezone import today_ist
 from app.models import (
     BaseUnit,
     GlobalImageTemplate,
@@ -27,6 +23,11 @@ from app.schemas.admin import (
     ItemRead,
     PriceStatus,
     ShopRead,
+)
+from app.services.global_image_templates import (
+    build_resolved_item_image_paths,
+    get_active_template,
+    resolve_item_image_keys,
 )
 from app.services.tenant_query import resolve_organization_id
 
@@ -180,7 +181,7 @@ def _coalesce_text(*values: str | None) -> str | None:
 def _price_status_for(price_date: date | None, *, is_required: bool) -> PriceStatus:
     if not is_required or price_date is None:
         return PriceStatus.MISSING
-    return PriceStatus.CURRENT if price_date == date.today() else PriceStatus.STALE
+    return PriceStatus.CURRENT if price_date == today_ist() else PriceStatus.STALE
 
 
 def _zero_if_null(value: object) -> int:

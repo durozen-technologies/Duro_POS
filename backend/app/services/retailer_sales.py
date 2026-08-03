@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.ids import uuid7
-from app.core.timezone import ist_month_key
+from app.core.timezone import ist_day_bounds, ist_month_key, ist_range_bounds, today_ist
 from app.models import (
     AuditLog,
     Item,
@@ -643,7 +643,7 @@ async def _prepare_retailer_checkout(
     item_ids = [line.item_id for line in payload.items]
 
     price_today = retailer_item_prices_on_date_subquery(
-        payload.retailer_id, shop.id, func.current_date()
+        payload.retailer_id, shop.id, today_ist()
     )
     price_rows = (
         await db.execute(
@@ -879,7 +879,7 @@ async def get_retailer_catalog(
         )
         .limit(1)
     )
-    price_today = retailer_item_prices_on_date_subquery(retailer_id, shop.id, func.current_date())
+    price_today = retailer_item_prices_on_date_subquery(retailer_id, shop.id, today_ist())
     rows = (
         await db.execute(
             select(
@@ -1307,10 +1307,16 @@ async def list_retailer_sales(
         filters.append(RetailerSale.retailer_id == retailer_id)
     if status_filter is not None:
         filters.append(RetailerSale.status == status_filter)
-    if start_date is not None:
-        filters.append(func.date(RetailerSale.created_at) >= start_date)
-    if end_date is not None:
-        filters.append(func.date(RetailerSale.created_at) <= end_date)
+    if start_date is not None and end_date is not None:
+        start_dt, end_dt = ist_range_bounds(start_date, end_date)
+        filters.append(RetailerSale.created_at >= start_dt)
+        filters.append(RetailerSale.created_at < end_dt)
+    elif start_date is not None:
+        start_dt, _ = ist_day_bounds(start_date)
+        filters.append(RetailerSale.created_at >= start_dt)
+    elif end_date is not None:
+        _, end_dt = ist_day_bounds(end_date)
+        filters.append(RetailerSale.created_at < end_dt)
 
     count_query = select(func.count()).select_from(RetailerSale)
     if filters:

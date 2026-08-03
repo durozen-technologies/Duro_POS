@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.ids import uuid7
 from app.core.redis_cache import evict_shop_bills_cache
-from app.core.timezone import ist_month_key
+from app.core.timezone import ist_month_key, today_ist
 from app.db.tenant_context_var import get_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import set_search_path, tenant_router
 from app.models import (
@@ -63,6 +63,7 @@ def _bill_to_read(*args: Any, **kwargs: Any):
     from app.services.admin.catalogue import _bill_to_read as bill_to_read
 
     return bill_to_read(*args, **kwargs)
+
 
 TWOPLACES = Decimal("0.01")
 THREEPLACES = Decimal("0.001")
@@ -347,8 +348,12 @@ def _prepared_from_snapshot(snapshot_json: dict[str, Any]) -> PreparedCheckout:
                 item_id=UUID(raw["item_id"]),
                 item_name=raw["item_name"],
                 item_tamil_name=raw.get("item_tamil_name"),
-                item_unit_type=UnitType(raw["item_unit_type"]) if raw.get("item_unit_type") else None,
-                item_base_unit=BaseUnit(raw["item_base_unit"]) if raw.get("item_base_unit") else None,
+                item_unit_type=UnitType(raw["item_unit_type"])
+                if raw.get("item_unit_type")
+                else None,
+                item_base_unit=BaseUnit(raw["item_base_unit"])
+                if raw.get("item_base_unit")
+                else None,
                 quantity=Decimal(raw["quantity"]),
                 unit=BaseUnit(raw["unit"]),
                 price_per_unit=Decimal(raw["price_per_unit"]),
@@ -461,9 +466,7 @@ async def _validate_assumption_stock(
         required[key] = required.get(key, Decimal("0")) + movement.quantity
 
     for (inventory_item_id, _), quantity in required.items():
-        available = await _available_quantity_at(
-            db, shop.id, inventory_item_id, as_of=occurred_at
-        )
+        available = await _available_quantity_at(db, shop.id, inventory_item_id, as_of=occurred_at)
         if quantity > available:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -546,7 +549,7 @@ async def _prepare_checkout(
     shop: Shop,
     payload: BillCheckoutRequest,
 ) -> PreparedCheckout:
-    today = date.today()
+    today = today_ist()
     price_rows = (
         await db.execute(
             select(
@@ -927,7 +930,9 @@ def _assert_bill_within_admin_modification_window(bill: Bill) -> None:
 
 def _assert_bill_admin_modifiable(bill: Bill) -> None:
     if bill.status == BillStatus.CANCELLED:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bill is already cancelled")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Bill is already cancelled"
+        )
     _assert_bill_within_admin_modification_window(bill)
 
 

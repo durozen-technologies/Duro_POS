@@ -22,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.ids import UUID_SQL_TYPE, uuid7
+from ..core.timezone import today_ist
 from ..db.database import Base
 from .base import BaseModelMixin
 from .enums import BaseUnit, RetailerReceiptType, RetailerSaleStatus, UnitType
@@ -169,7 +170,10 @@ class RetailerItemPrice(Base):
         UUID_SQL_TYPE, ForeignKey("items.id", ondelete="CASCADE"), index=True, nullable=False
     )
     effective_date: Mapped[date] = mapped_column(
-        Date, nullable=False, server_default=func.current_date()
+        Date,
+        nullable=False,
+        default=today_ist,
+        server_default=text("(now() AT TIME ZONE 'Asia/Kolkata')::date"),
     )
     price_per_unit: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     is_active: Mapped[bool] = mapped_column(
@@ -197,7 +201,9 @@ class RetailerSale(Base, BaseModelMixin):
     shop_id: Mapped[UUID] = mapped_column(
         UUID_SQL_TYPE, ForeignKey("shops.id"), index=True, nullable=False
     )
-    retailer_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
+    retailer_name: Mapped[str] = mapped_column(
+        String(120), nullable=False, server_default=text("''")
+    )
     shop_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default=text("''"))
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     amount_paid_total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
