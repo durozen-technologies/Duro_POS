@@ -2,8 +2,9 @@
 #
 # Dokploy setup:
 # 1. Compose path: ./docker-compose.dokploy.yml
-# 2. Domains tab → service `backend`, port 8000, HTTPS on
-# 3. Optional domain → service `rustfs`, port 9000 for public image URLs;
+# 2. Domains tab → service name exactly `backend`, port `8000`, HTTPS on
+#    (plain "404 page not found" = Traefik miss — wrong service/port/domain)
+# 3. Optional domain → service `rustfs`, port `9000` for public image URLs;
 #    set RUSTFS_SERVER_DOMAINS / RUSTFS_PUBLIC_BASE_URL to match
 # 4. Fill Environment tab with required vars below (written to .env)
 # 5. Do not publish Postgres host ports
@@ -13,8 +14,8 @@
 #
 # Optional:
 #   POSTGRES_DB (default brolier_360), POSTGRES_USER (default postgres)
-#   ALLOWED_HOSTS / CORS_ORIGINS — defaults allow first boot; set real domains for prod
-#   PRODUCTION — default False (True rejects ALLOWED_HOSTS/CORS=["*"])
+#   ALLOWED_HOSTS / CORS_ORIGINS — default * (ok while PRODUCTION=False)
+#   PRODUCTION — default False; True requires explicit non-wildcard hosts/CORS
 #   RUSTFS_SERVER_DOMAINS (default rustfs:9000)
 #   RUSTFS_PUBLIC_BASE_URL, RUSTFS_PUBLIC_READ_ENABLED
 #
@@ -35,8 +36,9 @@ x-backend-env: &backend-env
   # Always use in-compose Postgres hostname (local .env localhost URLs break here).
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-brolier_360}
   PRODUCTION: ${PRODUCTION:-False}
-  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-["localhost","127.0.0.1","backend"]}
-  CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8081"]}
+  # Include your API hostname in Dokploy env, or keep * while PRODUCTION=False.
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+  CORS_ORIGINS: ${CORS_ORIGINS:-*}
   RUSTFS_ENDPOINT_URL: ${RUSTFS_ENDPOINT_URL:-http://rustfs:9000}
   RUSTFS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY}
   RUSTFS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY}
@@ -176,6 +178,9 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *backend-env
+    # Publish container port so Dokploy/Traefik can target it (Domains → backend:8000).
+    ports:
+      - "8000"
     expose:
       - "8000"
     healthcheck:
