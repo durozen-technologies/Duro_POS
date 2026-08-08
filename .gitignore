@@ -72,9 +72,12 @@ node_modules/
 compose.override.yaml
 docker-compose.override.yml
 docker-compose.prod.override.yml
+docker-compose.dokploy.override.yml
 
-# Production deploy artifacts (CI / VM — never commit)
+# Production / Dokploy deploy artifacts (CI / VM / Dokploy — never commit)
 .env.deploy
+.env.dokploy
+!.env.dokploy.example
 
 # Python caches, virtualenvs, and reports
 __pycache__/
