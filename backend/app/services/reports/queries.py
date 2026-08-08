@@ -201,6 +201,10 @@ async def _build_overall_report_statement(
     shop_id: UUID,
     shop_name: str,
 ) -> OverallReportStatement:
+    from app.services.weight_loss import ensure_shop_weight_loss_applied
+
+    await ensure_shop_weight_loss_applied(db, shop_id)
+
     active_retailers_query = (
         select(Retailer.id, Retailer.name)
         .join(ShopRetailerAllocation)
@@ -1555,10 +1559,13 @@ async def _over_report_retailer_balance_amount(
 
 
 class OverallReportPDF(FPDF):
+    # Keep content clear of footer band (line ~h-34, label ~h-30).
+    FOOTER_RESERVED_PT = 72
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.set_margin(36)
-        self.page_break_trigger = self.h - 54
+        self.page_break_trigger = self.h - self.FOOTER_RESERVED_PT
         self.set_auto_page_break(False)
 
     def footer(self) -> None:
@@ -1782,9 +1789,9 @@ def _fpdf_draw_row(
     max_lines = max((len(lines) for lines in cell_lines), default=1)
     row_height = max_lines * line_height + padding * 2
 
-    if not is_header and pdf.get_y() + row_height > pdf.page_break_trigger:
+    if pdf.get_y() + row_height > pdf.page_break_trigger:
         pdf.add_page()
-        if header_drawer:
+        if header_drawer and not is_header:
             header_drawer()
 
     x_start = (pdf.w - sum(widths)) / 2

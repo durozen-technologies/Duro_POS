@@ -38,6 +38,7 @@ export function AdminPurchasersTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [draftName, setDraftName] = useState("");
+  const [draftTamilName, setDraftTamilName] = useState("");
   const [draftShopName, setDraftShopName] = useState("");
   const [draftPhone, setDraftPhone] = useState("");
   const [draftAddress, setDraftAddress] = useState("");
@@ -45,6 +46,7 @@ export function AdminPurchasersTab() {
 
   const [editingPurchaser, setEditingPurchaser] = useState<PurchaserRead | null>(null);
   const [editName, setEditName] = useState("");
+  const [editTamilName, setEditTamilName] = useState("");
   const [editShopName, setEditShopName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editAddress, setEditAddress] = useState("");
@@ -84,6 +86,7 @@ export function AdminPurchasersTab() {
     return purchasers.filter(
       (row) =>
         row.name.toLowerCase().includes(lower) ||
+        (row.tamil_name ?? "").toLowerCase().includes(lower) ||
         (row.shop_name ?? "").toLowerCase().includes(lower) ||
         (row.phone ?? "").toLowerCase().includes(lower),
     );
@@ -91,6 +94,7 @@ export function AdminPurchasersTab() {
 
   const resetCreateDraft = () => {
     setDraftName("");
+    setDraftTamilName("");
     setDraftShopName("");
     setDraftPhone("");
     setDraftAddress("");
@@ -98,13 +102,15 @@ export function AdminPurchasersTab() {
 
   const handleCreate = async () => {
     const name = draftName.trim();
-    if (!name) return;
+    const tamil_name = draftTamilName.trim();
+    if (!name || !tamil_name) return;
 
     setSaving(true);
     setErrorMessage(null);
     try {
       await createPurchaser({
         name,
+        tamil_name,
         shop_name: draftShopName.trim() || null,
         phone: draftPhone.trim() || null,
         address: draftAddress.trim() || null,
@@ -124,13 +130,15 @@ export function AdminPurchasersTab() {
   const handleUpdate = async () => {
     if (!editingPurchaser) return;
     const name = editName.trim();
-    if (!name) return;
+    const tamil_name = editTamilName.trim();
+    if (!name || !tamil_name) return;
 
     setSaving(true);
     setErrorMessage(null);
     try {
       await updatePurchaser(editingPurchaser.id, {
         name,
+        tamil_name,
         shop_name: editShopName.trim() || null,
         phone: editPhone.trim() || null,
         address: editAddress.trim() || null,
@@ -174,8 +182,9 @@ export function AdminPurchasersTab() {
             </Text>
           </View>
         </XStack>
+        <Text style={[styles.rowSubtitle, { color: palette.textSecondary }]}>{item.tamil_name}</Text>
         {item.shop_name ? (
-          <Text style={[styles.rowSubtitle, { color: palette.textSecondary }]}>{item.shop_name}</Text>
+          <Text style={[styles.rowMeta, { color: palette.textMuted }]}>{item.shop_name}</Text>
         ) : null}
         {item.phone ? (
           <Text style={[styles.rowMeta, { color: palette.textMuted }]}>{item.phone}</Text>
@@ -194,6 +203,7 @@ export function AdminPurchasersTab() {
           palette={palette}
           onPress={() => {
             setEditName(item.name);
+            setEditTamilName(item.tamil_name);
             setEditShopName(item.shop_name ?? "");
             setEditPhone(item.phone ?? "");
             setEditAddress(item.address ?? "");
@@ -296,6 +306,13 @@ export function AdminPurchasersTab() {
                 palette={palette}
               />
               <AdminTextField
+                label={t("forms.tamilName")}
+                placeholder={t("forms.tamilName")}
+                value={draftTamilName}
+                onChangeText={setDraftTamilName}
+                palette={palette}
+              />
+              <AdminTextField
                 label={t("forms.shopName")}
                 placeholder={t("forms.businessName")}
                 value={draftShopName}
@@ -324,7 +341,7 @@ export function AdminPurchasersTab() {
                   palette={palette}
                   tone="success"
                   active
-                  disabled={!draftName.trim() || saving}
+                  disabled={!draftName.trim() || !draftTamilName.trim() || saving}
                   loading={saving}
                   onPress={handleCreate}
                 />
@@ -351,6 +368,12 @@ export function AdminPurchasersTab() {
                 label={t("retailers.name")}
                 value={editName}
                 onChangeText={setEditName}
+                palette={palette}
+              />
+              <AdminTextField
+                label={t("forms.tamilName")}
+                value={editTamilName}
+                onChangeText={setEditTamilName}
                 palette={palette}
               />
               <AdminTextField
@@ -403,7 +426,7 @@ export function AdminPurchasersTab() {
                   palette={palette}
                   tone="success"
                   active
-                  disabled={!editName.trim() || saving}
+                  disabled={!editName.trim() || !editTamilName.trim() || saving}
                   loading={saving}
                   onPress={handleUpdate}
                 />

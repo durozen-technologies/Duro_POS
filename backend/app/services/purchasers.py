@@ -22,6 +22,7 @@ def _purchaser_to_read(purchaser: Purchaser) -> PurchaserRead:
     return PurchaserRead(
         id=purchaser.id,
         name=purchaser.name,
+        tamil_name=purchaser.tamil_name,
         shop_name=purchaser.shop_name,
         phone=purchaser.phone,
         address=purchaser.address,
@@ -52,6 +53,7 @@ async def list_purchasers(
         query = query.where(
             or_(
                 func.lower(Purchaser.name).like(search),
+                func.lower(Purchaser.tamil_name).like(search),
                 func.lower(func.coalesce(Purchaser.shop_name, "")).like(search),
                 func.lower(func.coalesce(Purchaser.phone, "")).like(search),
             )
@@ -71,6 +73,7 @@ async def create_purchaser(
     purchaser = Purchaser(
         organization_id=org_id,
         name=payload.name.strip(),
+        tamil_name=payload.tamil_name.strip(),
         shop_name=_normalize_optional_text(payload.shop_name, max_length=120),
         phone=_normalize_optional_text(payload.phone, max_length=30),
         address=_normalize_optional_text(payload.address, max_length=500),
@@ -87,6 +90,7 @@ async def create_purchaser(
             entity_id=purchaser.id,
             details={
                 "name": purchaser.name,
+                "tamil_name": purchaser.tamil_name,
                 "shop_name": purchaser.shop_name,
                 "is_active": purchaser.is_active,
             },
@@ -114,6 +118,10 @@ async def update_purchaser(
         changes["name_before"] = purchaser.name
         changes["name_after"] = payload.name.strip()
         purchaser.name = payload.name.strip()
+    if payload.tamil_name is not None and payload.tamil_name.strip() != purchaser.tamil_name:
+        changes["tamil_name_before"] = purchaser.tamil_name
+        changes["tamil_name_after"] = payload.tamil_name.strip()
+        purchaser.tamil_name = payload.tamil_name.strip()
     if "shop_name" in payload.model_fields_set:
         next_shop = _normalize_optional_text(payload.shop_name, max_length=120)
         if next_shop != purchaser.shop_name:
@@ -156,13 +164,15 @@ async def update_purchaser(
 async def resolve_active_purchaser(
     db: AsyncSession,
     purchaser_id: UUID | None,
-) -> tuple[UUID | None, str | None]:
-    """Validate optional purchaser for Add Stock; return (id, name snapshot)."""
+) -> tuple[UUID | None, str | None, str | None]:
+    """Validate optional purchaser for Add Stock; return (id, name, tamil_name)."""
     if purchaser_id is None:
-        return None, None
+        return None, None, None
     purchaser = await db.scalar(select(Purchaser).where(Purchaser.id == purchaser_id))
     if purchaser is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchaser not found")
     if not purchaser.is_active:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Purchaser is inactive")
-    return purchaser.id, purchaser.name
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Purchaser is inactive"
+        )
+    return purchaser.id, purchaser.name, purchaser.tamil_name

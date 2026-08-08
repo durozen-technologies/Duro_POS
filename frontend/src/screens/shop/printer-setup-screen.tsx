@@ -610,6 +610,8 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
   const setPreferredPrinter = usePrinterStore((s) => s.setPreferredPrinter);
   const clearPreferredPrinter = usePrinterStore((s) => s.clearPreferredPrinter);
+  const connectionStatus = usePrinterStore((s) => s.connectionStatus);
+  const setConnectionStatus = usePrinterStore((s) => s.setConnectionStatus);
   const receiptPaperMm = useReceiptPaperMm();
 
   const [bluetoothDevices, setBluetoothDevices] = useState<PrinterDevice[]>([]);
@@ -621,7 +623,9 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
   const [manualBluetoothName, setManualBluetoothName] = useState("Thermal Printer");
   const [manualBluetoothAddress, setManualBluetoothAddress] = useState("");
   const [manualFormOpen, setManualFormOpen] = useState(false);
-
+  const [autoVerifying, setAutoVerifying] = useState(false);
+  const [storeHydrated, setStoreHydrated] = useState(() => usePrinterStore.persist.hasHydrated());
+  const autoVerifyStartedRef = useRef(false);
   const printerSupport = getPrinterSupportState();
   const bluetoothLabel = t("common.bluetooth");
   const usbLabel = t("common.usb");
@@ -641,7 +645,84 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
     : null;
   const manualBluetoothConnectId = `bluetooth:${manualBluetoothAddress.trim().toUpperCase()}`;
 
-  const connectionModeValue = useMemo(() => {
+  const statusCard = useMemo(() => {
+    if (!preferredPrinter) {
+      return {
+        tone: "warning" as const,
+        icon: "alert-circle-outline" as const,
+        eyebrowTone: "soft" as const,
+        title: t("printer.noPrinterSavedYet"),
+        description: t("printer.noPrinterSavedDescription"),
+        badge: t("printer.noPrinterSavedYet"),
+        verifying: false,
+      };
+    }
+
+    const transportLabel = preferredPrinter.transport === "bluetooth" ? bluetoothLabel : usbLabel;
+    const detailPrefix = savedPrinterDetail ? `${savedPrinterDetail} · ` : "";
+
+    if (autoVerifying) {
+      return {
+        tone: "warning" as const,
+        icon: "sync-outline" as const,
+        eyebrowTone: "soft" as const,
+        title: preferredPrinterLabel ?? t("common.savedPrinter"),
+        description: `${detailPrefix}${t("printer.autoVerifyingMessage")}`,
+        badge: t("printer.autoVerifyingStatus"),
+        verifying: true,
+      };
+    }
+
+    if (connectionStatus === "ready") {
+      return {
+        tone: "success" as const,
+        icon: "checkmark-circle" as const,
+        eyebrowTone: "accent" as const,
+        title: preferredPrinterLabel ?? t("common.savedPrinter"),
+        description: `${detailPrefix}${t("printer.connectionReadyMessage", {
+          deviceName: preferredPrinter.name,
+          transport: transportLabel,
+        })}`,
+        badge: t("common.printerReady"),
+        verifying: false,
+      };
+    }
+
+    if (connectionStatus === "failed") {
+      return {
+        tone: "warning" as const,
+        icon: "alert-circle-outline" as const,
+        eyebrowTone: "soft" as const,
+        title: preferredPrinterLabel ?? t("common.savedPrinter"),
+        description: `${detailPrefix}${t("printer.connectionFailedMessage", {
+          deviceName: preferredPrinter.name,
+        })}`,
+        badge: t("printer.connectionFailedStatus"),
+        verifying: false,
+      };
+    }
+
+    return {
+      tone: "warning" as const,
+      icon: "alert-circle-outline" as const,
+      eyebrowTone: "soft" as const,
+      title: preferredPrinterLabel ?? t("common.savedPrinter"),
+      description: `${detailPrefix}${t("printer.savedNotConnectedMessage", {
+        deviceName: preferredPrinter.name,
+      })}`,
+      badge: t("printer.savedNotConnectedStatus"),
+      verifying: false,
+    };
+  }, [
+    autoVerifying,
+    bluetoothLabel,
+    connectionStatus,
+    preferredPrinter,
+    preferredPrinterLabel,
+    savedPrinterDetail,
+    t,
+    usbLabel,
+  ]);  const connectionModeValue = useMemo(() => {
     if (!printerSupport.supported) return t("common.fallbackOnly");
     return t("common.androidNativeBuild");
   }, [printerSupport.supported, t]);
@@ -662,6 +743,16 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
       description: t("printer.setupStepThreeDescription"),
     },
   ];
+
+  useEffect(() => {
+    if (usePrinterStore.persist.hasHydrated()) {
+      setStoreHydrated(true);
+      return;
+    }
+    return usePrinterStore.persist.onFinishHydration(() => {
+      setStoreHydrated(true);
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -703,6 +794,71 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
     };
   }, [printerSupport.bluetooth, printerSupport.supported, printerSupport.usb, t]);
 
+  useEffect(() => {
+    if (!storeHydrated) {
+      return;
+    }
+    if (!printerSupport.supported) {
+      return;
+    }
+    if (autoVerifyStartedRef.current) {
+      return;
+    }
+    // Only auto-verify printers already saved when this page opened — not after a fresh connect.
+    if (!preferredPrinter) {
+      autoVerifyStartedRef.current = true;
+      return;
+    }
+    autoVerifyStartedRef.current = true;
+
+    let cancelled = false;
+    const device = preferredPrinter;
+
+    async function verifySavedPrinter() {
+      try {
+        setAutoVerifying(true);
+        setConnectingId(device.id);
+        await connectPrinterDevice(device);
+        if (cancelled) {
+          return;
+        }
+        setConnectingId(null);
+        setPrintingTest(true);
+        await printTestReceipt(device, receiptPaperMm);
+        if (cancelled) {
+          return;
+        }
+        setConnectionStatus("ready");
+        Alert.alert(t("printer.testSentTitle"), t("printer.testSentMessage"));
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setConnectionStatus("failed");
+        Alert.alert(t("printer.connectionFailedTitle"), `${error}`);
+      } finally {
+        if (!cancelled) {
+          setConnectingId(null);
+          setPrintingTest(false);
+          setAutoVerifying(false);
+        }
+      }
+    }
+
+    void verifySavedPrinter();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    preferredPrinter,
+    printerSupport.supported,
+    receiptPaperMm,
+    setConnectionStatus,
+    storeHydrated,
+    t,
+  ]);
+
   async function refreshBluetoothPrinters() {
     if (!printerSupport.bluetooth) {
       Alert.alert(t("printer.bluetoothModuleUnavailableTitle"), printerSupport.reason ?? t("printer.bluetoothModuleUnavailableMessage"));
@@ -741,6 +897,7 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
       setConnectingId(device.id);
       await connectPrinterDevice(device);
       setPreferredPrinter(device);
+      setConnectionStatus("ready");
       Alert.alert(
         t("common.printerReady"),
         t("printer.connectionReadyMessage", {
@@ -748,8 +905,12 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
           transport: device.transport === "bluetooth" ? bluetoothLabel : usbLabel,
         }),
       );
-    } catch (e) { Alert.alert(t("printer.connectionFailedTitle"), `${e}`); }
-    finally { setConnectingId(null); }
+    } catch (e) {
+      setConnectionStatus("failed");
+      Alert.alert(t("printer.connectionFailedTitle"), `${e}`);
+    } finally {
+      setConnectingId(null);
+    }
   }
 
   async function handleTestPrint() {
@@ -760,9 +921,18 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
     try {
       setPrintingTest(true);
       await printTestReceipt(preferredPrinter, receiptPaperMm);
+      setConnectionStatus("ready");
       Alert.alert(t("printer.testSentTitle"), t("printer.testSentMessage"));
-    } catch (e) { Alert.alert(t("printer.testFailedTitle"), `${e}`); }
-    finally { setPrintingTest(false); }
+    } catch (e) {
+      setConnectionStatus("failed");
+      Alert.alert(t("printer.testFailedTitle"), `${e}`);
+    } finally {
+      setPrintingTest(false);
+    }
+  }
+
+  function handleForgetPrinter() {
+    clearPreferredPrinter();
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -777,8 +947,8 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
             borderWidth={1}
             padding={16}
             style={{
-              backgroundColor: preferredPrinter ? C.successBg : C.warningBg,
-              borderColor: preferredPrinter ? C.successBorder : C.warningBorder,
+              backgroundColor: statusCard.tone === "success" ? C.successBg : C.warningBg,
+              borderColor: statusCard.tone === "success" ? C.successBorder : C.warningBorder,
             }}
           >
             <XStack alignItems="flex-start" gap={12}>
@@ -788,34 +958,44 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
                 borderRadius={14}
                 alignItems="center"
                 justifyContent="center"
-                style={{ backgroundColor: preferredPrinter ? "#DCFCE7" : "#FEF3C7" }}
+                style={{ backgroundColor: statusCard.tone === "success" ? "#DCFCE7" : "#FEF3C7" }}
               >
-                <SafeIonicon
-                  name={preferredPrinter ? "checkmark-circle" : "alert-circle-outline"}
-                  size={22}
-                  color={preferredPrinter ? C.successIcon : C.warningIcon}
-                />
+                {statusCard.verifying ? (
+                  <ActivityIndicator size="small" color={C.warningIcon} />
+                ) : (
+                  <SafeIonicon
+                    name={statusCard.icon}
+                    size={22}
+                    color={statusCard.tone === "success" ? C.successIcon : C.warningIcon}
+                  />
+                )}
               </Stack>
               <YStack flex={1} minWidth={0} gap={7}>
                 <XStack alignItems="flex-start" justifyContent="space-between" gap={10}>
                   <YStack flex={1} minWidth={0} gap={2}>
-                    <EyebrowText tone={preferredPrinter ? "accent" : "soft"}>{t("common.savedPrinter")}</EyebrowText>
+                    <EyebrowText tone={statusCard.eyebrowTone}>{t("common.savedPrinter")}</EyebrowText>
                     <TitleText size="sm" numberOfLines={1}>
-                      {preferredPrinter ? (preferredPrinterLabel ?? t("common.savedPrinter")) : t("printer.noPrinterSavedYet")}
+                      {statusCard.title}
                     </TitleText>
                   </YStack>
                   {preferredPrinter ? <TransportChip transport={preferredPrinter.transport} size="md" /> : null}
                 </XStack>
-                <BodyText size="sm" numberOfLines={2}>
-                  {preferredPrinter
-                    ? `${savedPrinterDetail ?? ""}${savedPrinterDetail ? " · " : ""}${t("printer.connectionReadyMessage", { deviceName: preferredPrinter.name, transport: preferredPrinter.transport === "bluetooth" ? bluetoothLabel : usbLabel })}`
-                    : t("printer.noPrinterSavedDescription")}
+                <BodyText size="sm" numberOfLines={3}>
+                  {statusCard.description}
                 </BodyText>
                 <XStack alignItems="center" gap={6}>
-                  <StatusDot tone={preferredPrinter ? "success" : "warning"} />
+                  <StatusDot
+                    tone={
+                      statusCard.verifying
+                        ? "connecting"
+                        : statusCard.tone === "success"
+                          ? "success"
+                          : "warning"
+                    }
+                  />
                   <Text
                     style={{
-                      color: preferredPrinter ? C.successIcon : C.warningIcon,
+                      color: statusCard.tone === "success" ? C.successIcon : C.warningIcon,
                       fontSize: 11,
                       fontWeight: "800",
                       letterSpacing: 0.8,
@@ -823,7 +1003,7 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
                     }}
                     numberOfLines={1}
                   >
-                    {preferredPrinter ? t("common.printerReady") : t("printer.noPrinterSavedYet")}
+                    {statusCard.badge}
                   </Text>
                 </XStack>
               </YStack>
@@ -860,14 +1040,14 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
             <SetupActionButton
               label={t("action.printTestSlip")}
               onPress={() => void handleTestPrint()}
-              loading={printingTest}
-              disabled={!preferredPrinter}
+              loading={printingTest || autoVerifying}
+              disabled={!preferredPrinter || autoVerifying}
               flex={1}
             />
             <SetupActionButton
               label={t("action.forgetPrinter")}
-              onPress={clearPreferredPrinter}
-              disabled={!preferredPrinter}
+              onPress={handleForgetPrinter}
+              disabled={!preferredPrinter || autoVerifying}
               variant="secondary"
               flex={1}
             />
@@ -875,6 +1055,7 @@ export function PrinterSetupScreen({ navigation }: PrinterSetupScreenProps) {
           <SetupActionButton
             label={t("action.backToBilling")}
             onPress={() => navigation.goBack()}
+            disabled={autoVerifying}
             variant="secondary"
           />
         </YStack>

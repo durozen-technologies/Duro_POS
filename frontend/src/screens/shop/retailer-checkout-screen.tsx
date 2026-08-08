@@ -16,6 +16,11 @@ import { useReceiptImagePrintJob } from "@/hooks/use-receipt-image-print-job";
 import { useShopHeaderMenu } from "@/hooks/use-shop-header-menu";
 import { getLocalizedItemName, useShopTranslation } from "@/hooks/use-shop-translation";
 import type { RetailerCheckoutScreenProps } from "@/navigation/types";
+import { CheckoutPrinterCard } from "@/screens/shop/components/checkout-printer-card";
+import {
+  getPrinterDeviceDetail,
+  getSavedPrinterLabel,
+} from "@/services/printer-service";
 import { usePrinterStore } from "@/store/printer-store";
 import { getRetailerCartTotal, useRetailerCartStore } from "@/store/retailer-cart-store";
 import { BaseUnit } from "@/types/api";
@@ -33,6 +38,8 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
   const cartItems = useRetailerCartStore((s) => s.items);
   const resetRetailerCart = useRetailerCartStore((s) => s.resetCart);
   const preferredPrinter = usePrinterStore((s) => s.preferredPrinter);
+  const connectionStatus = usePrinterStore((s) => s.connectionStatus);
+  const setConnectionStatus = usePrinterStore((s) => s.setConnectionStatus);
   const printingEnabled = usePrintingEnabled();
   const receiptPaperMm = useReceiptPaperMm();
   const [submitting, setSubmitting] = useState(false);
@@ -46,6 +53,8 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
   const { receiptImagePrintBridge, startReceiptHtmlPrintJob } = useReceiptImagePrintJob();
   const headerMenu = useShopHeaderMenu(navigation);
   const hasWalletCredit = walletBalance !== null && money(walletBalance).greaterThan(0);
+  const printerLabel = preferredPrinter ? getSavedPrinterLabel(preferredPrinter) : null;
+  const printerDetail = preferredPrinter ? getPrinterDeviceDetail(preferredPrinter) : null;
 
   useEffect(() => {
     if (cartItems.length === 0 && !completedRef.current) {
@@ -131,12 +140,18 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
           if (!preferredPrinter) {
             throw new Error(t("printer.selectPrinterFirstMessage"));
           }
-          await startReceiptHtmlPrintJob(
-            [buildRetailerSaleInvoiceHtml(preview, invoiceReceipt, language, { paperMm: receiptPaperMm })],
-            preferredPrinter,
-            language,
-            receiptPaperMm,
-          );
+          try {
+            await startReceiptHtmlPrintJob(
+              [buildRetailerSaleInvoiceHtml(preview, invoiceReceipt, language, { paperMm: receiptPaperMm })],
+              preferredPrinter,
+              language,
+              receiptPaperMm,
+            );
+            setConnectionStatus("ready");
+          } catch (printError) {
+            setConnectionStatus("failed");
+            throw printError;
+          }
         }
         await commitRetailerSale({ ...payload, checkout_token: preview.checkout_token });
         completedRef.current = true;
@@ -159,6 +174,7 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
       receiptPaperMm,
       resetRetailerCart,
       retailerId,
+      setConnectionStatus,
       startReceiptHtmlPrintJob,
       t,
       totalAmount,
@@ -260,6 +276,15 @@ export function RetailerCheckoutScreen({ navigation, route }: RetailerCheckoutSc
               />
             )}
           />
+          {printingEnabled && connectionStatus !== "ready" ? (
+            <CheckoutPrinterCard
+              printerLabel={printerLabel}
+              printerDetail={printerDetail}
+              connectionStatus={connectionStatus}
+              t={t}
+              onManagePrinter={() => navigation.navigate("PrinterSetup")}
+            />
+          ) : null}
           <View className="gap-2 rounded-card border border-border bg-card p-4">
             <View className="flex-row justify-between">
               <Text className="text-sm text-muted">{t("common.paidAmount")}</Text>

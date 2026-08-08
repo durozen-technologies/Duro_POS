@@ -49,6 +49,20 @@ from app.services.global_image_templates import (
     load_templates_for_item_rows,
 )
 
+# Allocation rows require a non-null price; sync seeds this stub when no billing
+# price exists. API/UI treat it as unset until admin saves a real wholesale rate.
+UNSET_WHOLESALE_STUB = Decimal("0.01")
+
+
+def public_wholesale_price(price_per_unit: Decimal | None) -> Decimal | None:
+    """Hide allocation stub so clients show unset instead of 0.01."""
+    if price_per_unit is None:
+        return None
+    amount = Decimal(price_per_unit).quantize(Decimal("0.01"))
+    if amount == UNSET_WHOLESALE_STUB:
+        return None
+    return amount
+
 
 def _retailer_to_read(
     retailer: Retailer,
@@ -103,18 +117,16 @@ def _order_retailers_for_user(query, user_id: UUID | None):
     """LEFT JOIN per-user order; unordered retailers sort last (name, id)."""
     if user_id is None:
         return query.order_by(Retailer.name.asc(), Retailer.id.asc())
-    return (
-        query.outerjoin(
-            UserRetailerOrder,
-            and_(
-                UserRetailerOrder.retailer_id == Retailer.id,
-                UserRetailerOrder.user_id == user_id,
-            ),
-        ).order_by(
-            UserRetailerOrder.sort_order.asc().nulls_last(),
-            Retailer.name.asc(),
-            Retailer.id.asc(),
-        )
+    return query.outerjoin(
+        UserRetailerOrder,
+        and_(
+            UserRetailerOrder.retailer_id == Retailer.id,
+            UserRetailerOrder.user_id == user_id,
+        ),
+    ).order_by(
+        UserRetailerOrder.sort_order.asc().nulls_last(),
+        Retailer.name.asc(),
+        Retailer.id.asc(),
     )
 
 
@@ -142,9 +154,7 @@ async def replace_user_retailer_order(
 
     existing_rows = (
         await db.scalars(
-            select(UserRetailerOrder)
-            .where(UserRetailerOrder.user_id == user_id)
-            .with_for_update()
+            select(UserRetailerOrder).where(UserRetailerOrder.user_id == user_id).with_for_update()
         )
     ).all()
     rows_by_retailer_id = {row.retailer_id: row for row in existing_rows}
@@ -602,7 +612,7 @@ def _allocation_read_from_row(
         billing_price=billing_price,
         is_allocated=is_allocated,
         retailer_item_price_id=retailer_item_price_id,
-        price_per_unit=price_per_unit,
+        price_per_unit=public_wholesale_price(price_per_unit),
         allocation_is_active=allocation_is_active,
         price_history=price_history or [],
     )
@@ -937,11 +947,14 @@ async def list_retailer_item_allocations(
         )
         history_rows = (await db.execute(history_query)).scalars().all()
         for h in history_rows:
+            public_price = public_wholesale_price(h.price_per_unit)
+            if public_price is None:
+                continue
             if len(price_history_map[h.item_id]) < 5:
                 price_history_map[h.item_id].append(
                     PriceHistoryEntry(
                         effective_date=h.effective_date,
-                        price_per_unit=h.price_per_unit,
+                        price_per_unit=public_price,
                     )
                 )
 
@@ -1155,9 +1168,7 @@ async def sync_retailer_item_allocations(
             )
         ).all()
         billing_by_item = {
-            item_id: price
-            for item_id, price in billing_rows
-            if price is not None and price > 0
+            item_id: price for item_id, price in billing_rows if price is not None and price > 0
         }
 
     requested_set = set(requested)
@@ -1171,7 +1182,7 @@ async def sync_retailer_item_allocations(
                 shop_id=shop_id,
                 item_id=item_id,
                 effective_date=today_ist(),
-                price_per_unit=(billing if billing is not None else Decimal("0.01")).quantize(
+                price_per_unit=(billing if billing is not None else UNSET_WHOLESALE_STUB).quantize(
                     Decimal("0.01")
                 ),
                 is_active=True,

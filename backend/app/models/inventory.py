@@ -94,6 +94,9 @@ class InventoryItem(Base, BaseModelMixin):
     purchase_rate: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0.00"), server_default=text("0.00"), nullable=False
     )
+    weight_loss_grams_per_day: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -118,6 +121,11 @@ class InventoryItem(Base, BaseModelMixin):
         back_populates="inventory_item",
         cascade="all, delete-orphan",
     )
+    weight_loss_applications = relationship(
+        "InventoryWeightLossApplication",
+        back_populates="item",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         CheckConstraint("length(trim(name)) >= 2", name="ck_inventory_items_name_not_blank"),
@@ -128,6 +136,10 @@ class InventoryItem(Base, BaseModelMixin):
             "(unit_type = 'WEIGHT' AND base_unit = 'KG') OR "
             "(unit_type = 'COUNT' AND base_unit = 'UNIT')",
             name="ck_inventory_items_unit_pair",
+        ),
+        CheckConstraint(
+            "weight_loss_grams_per_day >= 0",
+            name="ck_inventory_items_weight_loss_grams_non_negative",
         ),
         Index("ix_inventory_items_sort_name", "sort_order", "name", "id"),
         Index("ix_inventory_items_sort_lower_name", "sort_order", func.lower(name), "id"),
@@ -371,6 +383,7 @@ class InventoryMovement(Base, BaseModelMixin):
         nullable=True,
     )
     purchaser_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    purchaser_tamil_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     shop = relationship("Shop", back_populates="inventory_movements")
     item = relationship("InventoryItem", back_populates="movements")
@@ -442,3 +455,59 @@ class InventoryItemPurchaseRateHistory(Base, BaseModelMixin):
     )
 
     item = relationship("InventoryItem")
+
+
+class InventoryWeightLossApplication(Base, BaseModelMixin):
+    """Idempotent overnight weight-loss USE application per shop/item/day."""
+
+    __tablename__ = "inventory_weight_loss_applications"
+    __table_args__ = (
+        UniqueConstraint(
+            "shop_id",
+            "inventory_item_id",
+            "loss_for_date",
+            name="uq_inventory_weight_loss_shop_item_date",
+        ),
+        Index(
+            "ix_inventory_weight_loss_applications_shop_date",
+            "shop_id",
+            "loss_for_date",
+        ),
+        CheckConstraint(
+            "grams_per_day >= 0",
+            name="ck_inventory_weight_loss_grams_non_negative",
+        ),
+        CheckConstraint(
+            "bird_count >= 0",
+            name="ck_inventory_weight_loss_bird_count_non_negative",
+        ),
+        CheckConstraint(
+            "quantity_kg >= 0",
+            name="ck_inventory_weight_loss_quantity_non_negative",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID_SQL_TYPE, primary_key=True, index=True, default=uuid7)
+    shop_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE, ForeignKey("shops.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    inventory_item_id: Mapped[UUID] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("inventory_items.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    loss_for_date: Mapped[date] = mapped_column(Date, nullable=False)
+    grams_per_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    bird_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    movement_id: Mapped[UUID | None] = mapped_column(
+        UUID_SQL_TYPE,
+        ForeignKey("inventory_movements.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+
+    shop = relationship("Shop")
+    item = relationship("InventoryItem", back_populates="weight_loss_applications")
+    movement = relationship("InventoryMovement")

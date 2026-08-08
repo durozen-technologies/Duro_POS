@@ -85,6 +85,7 @@ class InventoryItemRead(ORMModel):
     is_active: bool
     sort_order: int = 0
     purchase_rate: Decimal = Decimal("0")
+    weight_loss_grams_per_day: int = 0
     billing_item_id: UUID | None = None
     billing_item_ids: list[UUID] = Field(default_factory=list)
     billing_items: list[InventoryBillingItemMappingRead] = Field(default_factory=list)
@@ -216,6 +217,7 @@ class InventoryMovementRead(BaseModel):
     vehicle_number: str | None = None
     purchaser_id: UUID | None = None
     purchaser_name: str | None = None
+    purchaser_tamil_name: str | None = None
     occurred_at: datetime
     created_at: datetime
 
@@ -300,3 +302,16 @@ class InventoryQuantityMixin(BaseModel):
 def validate_inventory_quantity_for_unit(unit: BaseUnit, quantity: Decimal) -> None:
     if unit == BaseUnit.UNIT and not _is_whole_decimal(quantity):
         raise ValueError("Unit inventory quantities must be whole numbers")
+
+
+class InventoryWeightLossItemRead(ORMModel):
+    item_id: UUID
+    item_name: str
+    item_tamil_name: str
+    base_unit: BaseUnit
+    is_active: bool
+    weight_loss_grams_per_day: int = 0
+
+
+class InventoryWeightLossUpdate(BaseModel):
+    weight_loss_grams_per_day: int = Field(ge=0)

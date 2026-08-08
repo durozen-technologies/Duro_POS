@@ -66,6 +66,7 @@ from app.services.global_image_templates import (
 from app.services.retailer_receipt_number import balance_receipt_number, invoice_receipt_number
 from app.services.retailer_sale_number import retailer_sale_no_from_sequence
 from app.services.retailers import (
+    UNSET_WHOLESALE_STUB,
     is_retailer_allocated_to_shop,
     retailer_item_prices_on_date_subquery,
 )
@@ -642,9 +643,7 @@ async def _prepare_retailer_checkout(
     await _get_active_retailer(db, payload.retailer_id, shop=shop)
     item_ids = [line.item_id for line in payload.items]
 
-    price_today = retailer_item_prices_on_date_subquery(
-        payload.retailer_id, shop.id, today_ist()
-    )
+    price_today = retailer_item_prices_on_date_subquery(payload.retailer_id, shop.id, today_ist())
     price_rows = (
         await db.execute(
             select(
@@ -676,6 +675,7 @@ async def _prepare_retailer_checkout(
             .where(
                 price_today.c.item_id.in_(item_ids),
                 price_today.c.is_active.is_(True),
+                price_today.c.price_per_unit > UNSET_WHOLESALE_STUB,
                 Item.is_active.is_(True),
             )
         )
@@ -914,6 +914,7 @@ async def get_retailer_catalog(
             )
             .where(
                 price_today.c.is_active.is_(True),
+                price_today.c.price_per_unit > UNSET_WHOLESALE_STUB,
                 Item.is_active.is_(True),
             )
             .order_by(Item.sort_order.asc(), Item.name.asc())

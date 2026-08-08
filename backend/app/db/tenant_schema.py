@@ -27,7 +27,7 @@ _SCHEMA_PREFIX = "tenant_"
 _MAX_SCHEMA_LEN = 63
 _SAFE_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-TENANT_MIGRATION_HEAD = "0033_retailer_price_effective_date_ist"
+TENANT_MIGRATION_HEAD = "0035_purchaser_tamil_name"
 RETAILER_RBAC_PERMISSIONS = ("retailers.read", "retailers.manage")
 _tenant_drift_repair_lock = threading.Lock()
 _tenant_drift_repaired_head: dict[str, str] = {}

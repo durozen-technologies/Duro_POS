@@ -414,6 +414,81 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                         "ADD COLUMN global_image_template_id CHAR(32)"
                     )
                 )
+        if "weight_loss_grams_per_day" not in inventory_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_items "
+                        "ADD COLUMN IF NOT EXISTS weight_loss_grams_per_day INTEGER "
+                        "NOT NULL DEFAULT 0"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_items "
+                        "ADD COLUMN weight_loss_grams_per_day INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+
+    if "inventory_weight_loss_applications" not in table_names:
+        if dialect == "postgresql":
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS inventory_weight_loss_applications (
+                        id UUID PRIMARY KEY,
+                        shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+                        inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+                        loss_for_date DATE NOT NULL,
+                        grams_per_day INTEGER NOT NULL,
+                        bird_count INTEGER NOT NULL DEFAULT 0,
+                        quantity_kg NUMERIC(12, 3) NOT NULL,
+                        movement_id UUID REFERENCES inventory_movements(id) ON DELETE SET NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT uq_inventory_weight_loss_shop_item_date
+                            UNIQUE (shop_id, inventory_item_id, loss_for_date)
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_inventory_weight_loss_applications_shop_id "
+                    "ON inventory_weight_loss_applications (shop_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_inventory_weight_loss_applications_inventory_item_id "
+                    "ON inventory_weight_loss_applications (inventory_item_id)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_inventory_weight_loss_applications_shop_date "
+                    "ON inventory_weight_loss_applications (shop_id, loss_for_date)"
+                )
+            )
+        else:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS inventory_weight_loss_applications (
+                        id CHAR(32) PRIMARY KEY,
+                        shop_id CHAR(32) NOT NULL,
+                        inventory_item_id CHAR(32) NOT NULL,
+                        loss_for_date DATE NOT NULL,
+                        grams_per_day INTEGER NOT NULL,
+                        bird_count INTEGER NOT NULL DEFAULT 0,
+                        quantity_kg NUMERIC(12, 3) NOT NULL,
+                        movement_id CHAR(32),
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (shop_id, inventory_item_id, loss_for_date)
+                    )
+                    """
+                )
+            )
 
     if "expense_items" in table_names:
         expense_columns = {
@@ -828,6 +903,53 @@ def ensure_tenant_schema_drift_patches(connection: Connection, schema_name: str)
                     text(
                         "ALTER TABLE inventory_movements "
                         "ADD COLUMN purchaser_name VARCHAR(120)"
+                    )
+                )
+        if "purchaser_tamil_name" not in movement_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_movements "
+                        "ADD COLUMN IF NOT EXISTS purchaser_tamil_name VARCHAR(120)"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE inventory_movements "
+                        "ADD COLUMN purchaser_tamil_name VARCHAR(120)"
+                    )
+                )
+
+    if "purchasers" in table_names:
+        purchaser_columns = {
+            column["name"] for column in inspector.get_columns("purchasers", schema=safe)
+        }
+        if "tamil_name" not in purchaser_columns:
+            if dialect == "postgresql":
+                connection.execute(
+                    text(
+                        "ALTER TABLE purchasers "
+                        "ADD COLUMN IF NOT EXISTS tamil_name VARCHAR(120) NOT NULL DEFAULT ''"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "UPDATE purchasers SET tamil_name = name "
+                        "WHERE length(trim(tamil_name)) = 0"
+                    )
+                )
+            else:
+                connection.execute(
+                    text(
+                        "ALTER TABLE purchasers "
+                        "ADD COLUMN tamil_name VARCHAR(120) NOT NULL DEFAULT ''"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "UPDATE purchasers SET tamil_name = name "
+                        "WHERE length(trim(tamil_name)) = 0"
                     )
                 )
 

@@ -190,6 +190,7 @@ def _inventory_item_to_read_with_categories(
         sort_order=item.sort_order,
         is_active=item.is_active,
         purchase_rate=item.purchase_rate,
+        weight_loss_grams_per_day=int(getattr(item, "weight_loss_grams_per_day", 0) or 0),
         billing_item_id=(
             item_level_mapping.billing_item_id if item_level_mapping is not None else None
         ),
@@ -2098,6 +2099,9 @@ async def get_inventory_summary(
     include_unallocated: bool = False,
     active_allocations_only: bool = False,
 ) -> InventorySummaryRead:
+    from app.services.weight_loss import ensure_shop_weight_loss_applied
+
+    await ensure_shop_weight_loss_applied(db, shop.id)
     return await _get_inventory_summary_from_db(
         db,
         shop,
@@ -2875,6 +2879,7 @@ def _movement_to_read(movement: InventoryMovement) -> InventoryMovementRead:
         vehicle_number=movement.vehicle_number,
         purchaser_id=movement.purchaser_id,
         purchaser_name=movement.purchaser_name,
+        purchaser_tamil_name=movement.purchaser_tamil_name,
         occurred_at=movement.occurred_at,
         created_at=movement.created_at,
     )
@@ -3001,7 +3006,9 @@ async def add_shop_inventory_stock(
     occurred_at = await _prepare_occurred_at(db, actor=actor, shop=shop, raw=payload.occurred_at)
     from .purchasers import resolve_active_purchaser
 
-    purchaser_id, purchaser_name = await resolve_active_purchaser(db, payload.purchaser_id)
+    purchaser_id, purchaser_name, purchaser_tamil_name = await resolve_active_purchaser(
+        db, payload.purchaser_id
+    )
     movement = InventoryMovement(
         shop_id=shop.id,
         inventory_item_id=item.id,
@@ -3012,6 +3019,7 @@ async def add_shop_inventory_stock(
         vehicle_number=payload.vehicle_number.strip(),
         purchaser_id=purchaser_id,
         purchaser_name=purchaser_name,
+        purchaser_tamil_name=purchaser_tamil_name,
         occurred_at=occurred_at,
     )
     db.add(movement)

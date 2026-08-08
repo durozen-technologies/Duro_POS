@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useAdminTranslation } from "@/hooks/use-admin-translation";
+import type { AdminLanguage } from "@/store/admin-language-store";
 
 import { adminRadii, adminSpacing, adminTypography, type ThemePalette } from "../admin-dashboard-theme";
 import { triggerHaptic } from "../admin-dashboard-utils";
@@ -10,44 +11,47 @@ type AdminLanguageToggleProps = {
   compact?: boolean;
 };
 
+const LANGUAGE_OPTIONS: { value: AdminLanguage; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "ta", label: "Tamil" },
+];
+
 export function AdminLanguageToggle({ palette, compact = false }: AdminLanguageToggleProps) {
-  const { language, setLanguage, t } = useAdminTranslation();
+  const { language, setLanguage } = useAdminTranslation();
 
   return (
     <View
-      accessibilityRole="tablist"
+      accessibilityRole="radiogroup"
       style={[
         styles.control,
         compact && styles.controlCompact,
         {
-          backgroundColor: palette.shellControl,
-          borderColor: palette.shellBorder,
+          backgroundColor: palette.primarySoft,
+          borderColor: palette.primary,
         },
       ]}
     >
-      {(["en", "ta"] as const).map((nextLanguage) => {
-        const selected = language === nextLanguage;
-        const label =
-          nextLanguage === "en" ? t("action.translateToEnglish") : t("action.translateToTamil");
-        const accessibilityLabel =
-          nextLanguage === "en" ? t("a11y.languageEnglish") : t("a11y.languageTamil");
+      {LANGUAGE_OPTIONS.map((option) => {
+        const selected = language === option.value;
 
         return (
           <Pressable
-            key={nextLanguage}
-            accessibilityRole="tab"
-            accessibilityLabel={accessibilityLabel}
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityLabel={option.label}
             accessibilityState={{ selected }}
             onPress={() => {
+              if (selected) {
+                return;
+              }
               triggerHaptic();
-              setLanguage(nextLanguage);
+              setLanguage(option.value);
             }}
             style={[
               styles.button,
               compact && styles.buttonCompact,
               {
                 backgroundColor: selected ? palette.primary : "transparent",
-                borderColor: selected ? palette.primary : "transparent",
               },
             ]}
           >
@@ -55,11 +59,10 @@ export function AdminLanguageToggle({ palette, compact = false }: AdminLanguageT
               style={[
                 styles.label,
                 compact && styles.labelCompact,
-                nextLanguage === "ta" && styles.tamilLabel,
-                { color: selected ? palette.onPrimary : palette.onShellMuted },
+                { color: selected ? palette.onPrimary : palette.primaryStrong },
               ]}
             >
-              {label}
+              {option.label}
             </Text>
           </Pressable>
         );
@@ -71,6 +74,7 @@ export function AdminLanguageToggle({ palette, compact = false }: AdminLanguageT
 const styles = StyleSheet.create({
   control: {
     minHeight: 34,
+    marginRight: 10,
     borderRadius: adminRadii.control,
     borderWidth: 1,
     padding: 2,
@@ -83,7 +87,6 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 28,
     borderRadius: 6,
-    borderWidth: 1,
     paddingHorizontal: adminSpacing.sm,
     alignItems: "center",
     justifyContent: "center",
@@ -99,9 +102,5 @@ const styles = StyleSheet.create({
   labelCompact: {
     fontSize: 10,
     lineHeight: 14,
-  },
-  tamilLabel: {
-    fontFamily: "NotoSansTamil",
-    fontSize: 10,
   },
 });

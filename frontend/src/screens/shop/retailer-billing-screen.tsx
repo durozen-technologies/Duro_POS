@@ -261,7 +261,7 @@ export function RetailerBillingScreen({ navigation, route }: RetailerBillingScre
               quantity={quantities[item.item_id] ?? ""}
               itemName={getLocalizedItemName(language, item.item_name, item.item_tamil_name)}
               tamilName={language === "en" ? item.item_tamil_name : null}
-              priceText={formatCurrency(item.price_per_unit)}
+              priceText={`${formatCurrency(item.price_per_unit)} / ${formatUnit(item.item_base_unit)}`}
               buttonLabel={t("action.addToCart")}
               onChangeQuantity={(itemId, value) =>
                 setQuantities((current) => ({ ...current, [itemId]: value }))

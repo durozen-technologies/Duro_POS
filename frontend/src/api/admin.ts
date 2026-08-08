@@ -64,6 +64,8 @@ import {
   PurchaserCreate,
   PurchaserUpdate,
   PurchaserRead,
+  InventoryWeightLossItemRead,
+  InventoryWeightLossUpdate,
   InventoryTransferPage,
 } from "@/types/api";
 
@@ -92,7 +94,14 @@ export type AnalyticsDateRange = {
   startDate?: string | null;
   endDate?: string | null;
 };
-export type AdminReportSection = "sales" | "billing" | "expenses" | "transfers" | "retailers" | "over_report";
+export type AdminReportSection =
+  | "sales"
+  | "billing"
+  | "expenses"
+  | "transfers"
+  | "retailers"
+  | "purchase"
+  | "over_report";
 export type AdminReportDetailLevel = "summary" | "full";
 export type DownloadAdminReportPdfParams = {
   sections: AdminReportSection[];
@@ -102,6 +111,7 @@ export type DownloadAdminReportPdfParams = {
   range?: AnalyticsDateRange;
   shopIds?: UUID[];
   retailerIds?: UUID[];
+  purchaserIds?: UUID[];
   language?: "en" | "ta";
 };
 export type FetchOverallReportParams = Omit<DownloadAdminReportPdfParams, "sections">;
@@ -310,6 +320,7 @@ function appendAdminReportFilterQuery(query: URLSearchParams, params: FetchOvera
   }
   params.shopIds?.forEach((shopId) => query.append("shop_ids", shopId));
   params.retailerIds?.forEach((retailerId) => query.append("retailer_ids", retailerId));
+  params.purchaserIds?.forEach((purchaserId) => query.append("purchaser_ids", purchaserId));
 }
 
 function buildAdminReportQuery(params: DownloadAdminReportPdfParams) {
@@ -1254,6 +1265,22 @@ export async function createPurchaser(payload: PurchaserCreate) {
 
 export async function updatePurchaser(id: UUID, payload: PurchaserUpdate) {
   const { data } = await apiClient.patch<PurchaserRead>(`/api/v1/admin/purchasers/${id}`, payload);
+  return data;
+}
+
+export async function fetchInventoryWeightLoss(options: ApiRequestOptions = {}) {
+  const { data } = await apiClient.get<InventoryWeightLossItemRead[]>(
+    "/api/v1/admin/inventory/weight-loss",
+    { signal: options.signal },
+  );
+  return data;
+}
+
+export async function updateInventoryWeightLoss(itemId: UUID, gramsPerDay: number) {
+  const { data } = await apiClient.put<InventoryWeightLossItemRead>(
+    `/api/v1/admin/inventory/weight-loss/${itemId}`,
+    { weight_loss_grams_per_day: gramsPerDay } satisfies InventoryWeightLossUpdate,
+  );
   return data;
 }
 

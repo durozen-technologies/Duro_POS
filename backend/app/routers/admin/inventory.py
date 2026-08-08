@@ -14,6 +14,33 @@ async def get_inventory_categories(db: DBSession) -> list[InventoryCategoryRead]
     return await list_inventory_categories(db)
 
 
+@router.get(
+    "/inventory/weight-loss",
+    response_model=list[InventoryWeightLossItemRead],
+    response_model_exclude_unset=True,
+    summary="List Inventory Weight Loss Settings",
+)
+async def get_inventory_weight_loss(db: DBSession) -> list[InventoryWeightLossItemRead]:
+    shop_ids = list(await db.scalars(select(Shop.id)))
+    for shop_id in shop_ids:
+        await ensure_shop_weight_loss_applied(db, shop_id)
+    return await list_inventory_weight_loss_items(db)
+
+
+@router.put(
+    "/inventory/weight-loss/{item_id}",
+    response_model=InventoryWeightLossItemRead,
+    response_model_exclude_unset=True,
+    summary="Update Inventory Weight Loss Grams Per Day",
+)
+async def put_inventory_weight_loss(
+    item_id: UUID,
+    payload: InventoryWeightLossUpdate,
+    db: DBSession,
+) -> InventoryWeightLossItemRead:
+    return await update_inventory_weight_loss(db, item_id, payload.weight_loss_grams_per_day)
+
+
 @router.post(
     "/inventory/categories",
     response_model=InventoryCategoryRead,

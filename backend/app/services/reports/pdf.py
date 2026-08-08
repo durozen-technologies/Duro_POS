@@ -31,11 +31,13 @@ from app.models import (
     InventoryCategory,
     InventoryItem,
     InventoryItemCategory,
+    InventoryItemPurchaseRateHistory,
     InventoryMovement,
     InventoryMovementType,
     InventoryTransfer,
     Item,
     Payment,
+    Purchaser,
     Retailer,
     RetailerPayment,
     RetailerSale,
@@ -62,6 +64,7 @@ SECTION_ORDER: tuple[AdminReportSection, ...] = (
     "expenses",
     "transfers",
     "retailers",
+    "purchase",
     "over_report",
 )
 SECTION_LABELS: dict[AdminReportSection, str] = {
@@ -72,6 +75,7 @@ SECTION_LABELS: dict[AdminReportSection, str] = {
     "expenses": "Expenses",
     "transfers": "Transfer Stock",
     "retailers": "Retailers",
+    "purchase": "Purchase",
     "over_report": "Overall Report",
 }
 SUMMARY_BILL_ROWS = 25
@@ -379,6 +383,7 @@ class ReportContext:
     organization_id: UUID
     organization_name: str
     retailer_ids: tuple[UUID, ...] = ()
+    purchaser_ids: tuple[UUID, ...] = ()
 
     @property
     def scoped_shop_ids(self) -> tuple[UUID, ...]:
@@ -389,6 +394,10 @@ class ReportContext:
     @property
     def scoped_retailer_ids(self) -> tuple[UUID, ...]:
         return self.retailer_ids
+
+    @property
+    def scoped_purchaser_ids(self) -> tuple[UUID, ...]:
+        return self.purchaser_ids
 
     @property
     def branch_label(self) -> str:
@@ -442,6 +451,9 @@ SoldItemCategoryKey = tuple[UUID, str, object]
 
 
 class PdfReportWriter:
+    # Keep content clear of footer band (line at y=34, label at y=22).
+    FOOTER_RESERVED_PT = 72
+
     def __init__(self, output: BinaryIO) -> None:
         self._canvas = Canvas(output, pagesize=A4, pageCompression=0)
         self._font_regular = "Helvetica"
@@ -449,7 +461,7 @@ class PdfReportWriter:
         self._tamil_font_regular, self._tamil_font_bold = _resolve_tamil_fonts()
         self._width, self._height = A4
         self._margin = 36
-        self._bottom = 54
+        self._bottom = self.FOOTER_RESERVED_PT
         self._y = self._height - self._margin
         self._current_table: TableState | None = None
         self._current_table_is_sheet = False
@@ -644,7 +656,7 @@ class PdfReportWriter:
         self._canvas.setPageSize(landscape(A4))
         self._width, self._height = landscape(A4)
         self._margin = 18
-        self._bottom = 36
+        self._bottom = self.FOOTER_RESERVED_PT
         self._y = self._height - self._margin
         self._page_has_content = False
 
@@ -935,7 +947,7 @@ class PdfReportWriter:
         self._canvas.line(self._margin, 34, self._width - self._margin, 34)
         self._canvas.setFont(self._font_regular, 7)
         self._set_fill(self._muted)
-        self._canvas.drawString(self._margin, 22, " ")
+        self._canvas.drawString(self._margin, 22, "Billing System Admin Report")
         self._canvas.drawRightString(
             self._width - self._margin,
             22,
@@ -982,7 +994,12 @@ def _format_cell(value: object) -> str:
         return _quantity(value)
     if isinstance(value, datetime):
         return _datetime_text(value)
-    return "" if value is None else _normalize_report_text(str(value))
+    if value is None:
+        return ""
+    # Preserve intentional newlines (e.g. retailer name + shop name).
+    return "\n".join(
+        _normalize_report_text(segment) for segment in str(value).replace("\r", "").split("\n")
+    )
 
 
 def _resolve_font_file(*paths: Path) -> Path:
@@ -1078,7 +1095,12 @@ def _decimal(value: object) -> Decimal:
 
 
 def _money(value: object) -> str:
-    return f"Rs. {_decimal(value).quantize(Decimal('0.01'))}"
+    return f"Rs. {_money_amount(value)}"
+
+
+def _money_amount(value: object) -> str:
+    """Currency amount without Rs prefix (for tables that put Rs in the header)."""
+    return f"{_decimal(value).quantize(Decimal('0.01'))}"
 
 
 def _over_report_money(value: object | None) -> str:
@@ -1242,6 +1264,7 @@ async def generate_admin_report_pdf(
     range_end_date: date | None = None,
     shop_ids: list[UUID] | None = None,
     retailer_ids: list[UUID] | None = None,
+    purchaser_ids: list[UUID] | None = None,
     organization_id: UUID | None = None,
     language: str = "en",
 ) -> AdminReportFile:
@@ -1255,19 +1278,26 @@ async def generate_admin_report_pdf(
         range_end_date=range_end_date,
         shop_ids=shop_ids,
         retailer_ids=retailer_ids,
+        purchaser_ids=purchaser_ids,
         organization_id=organization_id,
     )
 
+    fpdf_only_sections = {"retailers", "transfers", "purchase"}
     non_over_sections = [s for s in context.sections if s != "over_report"]
     has_over_report = "over_report" in context.sections
+    has_retailers_report = "retailers" in context.sections
+    has_transfers_report = "transfers" in context.sections
+    has_purchase_report = "purchase" in context.sections
+    reportlab_sections = [s for s in non_over_sections if s not in fpdf_only_sections]
+    has_any_fpdf = has_over_report or has_retailers_report or has_transfers_report or has_purchase_report
 
-    # ── Step 1: Generate non-over-report sections with ReportLab (if any) ──
+    # ── Step 1: ReportLab sections (Latin-first; no Tamil-heavy tables) ──
     rl_bytes: bytes | None = None
-    if non_over_sections or not has_over_report:
+    if reportlab_sections or not has_any_fpdf:
         rl_output = io.BytesIO()
         writer = PdfReportWriter(rl_output)
         non_over_context = ReportContext(
-            sections=non_over_sections or context.sections,
+            sections=reportlab_sections or context.sections,
             detail_level=context.detail_level,
             period=context.period,
             start=context.start,
@@ -1277,9 +1307,10 @@ async def generate_admin_report_pdf(
             organization_id=context.organization_id,
             organization_name=context.organization_name,
             retailer_ids=context.retailer_ids,
+            purchaser_ids=context.purchaser_ids,
         )
-        if non_over_sections:
-            for section in non_over_sections:
+        if reportlab_sections:
+            for section in reportlab_sections:
                 if section == "sales":
                     await _write_sales_section(db, writer, non_over_context)
                 elif section == "billing":
@@ -1290,25 +1321,40 @@ async def generate_admin_report_pdf(
                     await _write_inventory_section(db, writer, non_over_context)
                 elif section == "expenses":
                     await _write_expenses_section(db, writer, non_over_context)
-                elif section == "transfers":
-                    await _write_transfers_section(db, writer, non_over_context)
-                elif section == "retailers":
-                    await _write_retailers_section(db, writer, non_over_context)
         writer.save()
         rl_bytes = rl_output.getvalue()
 
-    # ── Step 2: Generate overall-report pages with FPDF2 (Tamil-safe) ──
+    # ── Step 2: Tamil-safe FPDF2 sections ──
+    retailers_bytes: bytes | None = None
+    if has_retailers_report:
+        retailers_bytes = await _generate_retailers_fpdf_pdf(db, context, language=language)
+
+    transfers_bytes: bytes | None = None
+    if has_transfers_report:
+        transfers_bytes = await _generate_transfers_fpdf_pdf(db, context, language=language)
+
+    purchase_bytes: bytes | None = None
+    if has_purchase_report:
+        purchase_bytes = await _generate_purchase_fpdf_pdf(db, context, language=language)
+
+    # ── Step 3: Overall report with FPDF2 (Tamil-safe) ──
     fpdf_bytes: bytes | None = None
     if has_over_report:
         from app.services.reports.queries import _generate_over_report_fpdf_pdf
 
         fpdf_bytes = await _generate_over_report_fpdf_pdf(db, context, language=language)
 
-    # ── Step 3: Merge with pypdf ──
+    # ── Step 4: Merge with pypdf ──
     output = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     merger = PypdfWriter()
     if rl_bytes:
         merger.append(PypdfReader(io.BytesIO(rl_bytes)))
+    if transfers_bytes:
+        merger.append(PypdfReader(io.BytesIO(transfers_bytes)))
+    if purchase_bytes:
+        merger.append(PypdfReader(io.BytesIO(purchase_bytes)))
+    if retailers_bytes:
+        merger.append(PypdfReader(io.BytesIO(retailers_bytes)))
     if fpdf_bytes:
         merger.append(PypdfReader(io.BytesIO(fpdf_bytes)))
     merger.write(output)
@@ -1327,6 +1373,7 @@ async def _build_report_context(
     range_end_date: date | None,
     shop_ids: list[UUID] | None,
     retailer_ids: list[UUID] | None = None,
+    purchaser_ids: list[UUID] | None = None,
     organization_id: UUID | None = None,
 ) -> ReportContext:
     if organization_id is None:
@@ -1353,6 +1400,7 @@ async def _build_report_context(
     start, end = _get_period_bounds(period, reference_date, range_start_date, range_end_date)
     unique_shop_ids = tuple(dict.fromkeys(shop_ids or []))
     unique_retailer_ids = tuple(dict.fromkeys(retailer_ids or []))
+    unique_purchaser_ids = tuple(dict.fromkeys(purchaser_ids or []))
     shops = await list_organization_shops(
         db,
         organization_id,
@@ -1374,6 +1422,7 @@ async def _build_report_context(
         organization_id=organization_id,
         organization_name=organization_name,
         retailer_ids=unique_retailer_ids,
+        purchaser_ids=unique_purchaser_ids,
     )
 
 
@@ -1841,11 +1890,314 @@ async def _write_expenses_section(
     )
 
 
+async def _generate_purchase_fpdf_pdf(
+    db: AsyncSession,
+    context: ReportContext,
+    *,
+    language: str = "en",
+) -> bytes:
+    """Purchase ADD report via FPDF2 (Tamil-safe)."""
+    from app.services.reports.queries import (
+        OverallReportPDF,
+        _fpdf_draw_row,
+        _fpdf_ensure_space,
+        _fpdf_set_cell_font,
+    )
+
+    use_tamil = language == "ta"
+    period_start = context.start.date()
+    period_end = (context.end - timedelta(days=1)).date()
+    if period_start == period_end:
+        date_line = f"Date: {_date_text(period_start)}"
+    else:
+        date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
+
+    title = "கொள்முதல் அறிக்கை" if use_tamil else "Purchase Report"
+    headers = (
+        ["தேதி", "கொள்முதல் பெயர்", "எண்ணிக்கை", "சேர்த்த இருப்பு(kg)", "கொள்முதல் விலை", "மொத்த தொகை"]
+        if use_tamil
+        else [
+            "Date",
+            "Purchase Name",
+            "Total Count",
+            "Adding Stocks(kg)",
+            "Purchase Rate",
+            "Total Amount",
+        ]
+    )
+
+    filters: list[object] = [
+        InventoryMovement.occurred_at >= context.start,
+        InventoryMovement.occurred_at < context.end,
+        InventoryMovement.movement_type == InventoryMovementType.ADD,
+        InventoryItem.base_unit == BaseUnit.KG,
+    ]
+    scoped_shop_ids = context.scoped_shop_ids
+    if scoped_shop_ids:
+        filters.append(InventoryMovement.shop_id.in_(scoped_shop_ids))
+    else:
+        filters.append(InventoryMovement.id.is_(None))
+    scoped_purchaser_ids = context.scoped_purchaser_ids
+    if scoped_purchaser_ids:
+        filters.append(InventoryMovement.purchaser_id.in_(scoped_purchaser_ids))
+
+    page = (
+        await db.execute(
+            select(
+                InventoryMovement.occurred_at,
+                InventoryMovement.purchaser_name,
+                func.coalesce(
+                    InventoryMovement.purchaser_tamil_name,
+                    Purchaser.tamil_name,
+                ).label("purchaser_tamil_name"),
+                InventoryMovement.bird_count,
+                InventoryMovement.quantity,
+                InventoryMovement.inventory_item_id,
+            )
+            .join(InventoryItem, InventoryItem.id == InventoryMovement.inventory_item_id)
+            .outerjoin(Purchaser, Purchaser.id == InventoryMovement.purchaser_id)
+            .where(*filters)
+            .order_by(InventoryMovement.occurred_at.asc(), InventoryMovement.id.asc())
+        )
+    ).all()
+
+    item_ids = {row.inventory_item_id for row in page}
+    ist_dates = {to_ist(row.occurred_at).date() for row in page if row.occurred_at is not None}
+    history_map: dict[tuple[UUID, date], Decimal] = {}
+    current_rate_map: dict[UUID, Decimal] = {}
+    if item_ids:
+        if ist_dates:
+            history_rows = (
+                await db.execute(
+                    select(
+                        InventoryItemPurchaseRateHistory.inventory_item_id,
+                        InventoryItemPurchaseRateHistory.date,
+                        InventoryItemPurchaseRateHistory.purchase_rate,
+                    ).where(
+                        InventoryItemPurchaseRateHistory.inventory_item_id.in_(item_ids),
+                        InventoryItemPurchaseRateHistory.date.in_(ist_dates),
+                    )
+                )
+            ).all()
+            history_map = {
+                (row.inventory_item_id, row.date): _decimal(row.purchase_rate)
+                for row in history_rows
+            }
+        current_rows = (
+            await db.execute(
+                select(InventoryItem.id, InventoryItem.purchase_rate).where(
+                    InventoryItem.id.in_(item_ids)
+                )
+            )
+        ).all()
+        current_rate_map = {
+            row.id: _decimal(row.purchase_rate)
+            for row in current_rows
+            if row.purchase_rate is not None
+        }
+
+    widths = [70, 140, 70, 90, 85, 100]
+    alignments = ["center", "left", "center", "center", "right", "right"]
+    table_rows: list[list[object]] = []
+    total_kg = Decimal("0")
+    total_amount = Decimal("0")
+    for row in page:
+        qty = _decimal(row.quantity)
+        total_kg += qty
+        loss_date = to_ist(row.occurred_at).date() if row.occurred_at is not None else None
+        rate: Decimal | None = None
+        if loss_date is not None:
+            rate = history_map.get((row.inventory_item_id, loss_date))
+        if rate is None:
+            rate = current_rate_map.get(row.inventory_item_id)
+        if rate is None:
+            rate_text = "—"
+            amount_text = "—"
+        else:
+            amount = (qty * rate).quantize(Decimal("0.01"))
+            total_amount += amount
+            rate_text = _money(rate)
+            amount_text = _money(amount)
+        table_rows.append(
+            [
+                _ist_date_text(row.occurred_at),
+                # Tamil report: Tamil name only (fallback English if missing).
+                _retailer_item_name_cell(
+                    row.purchaser_name, row.purchaser_tamil_name, use_tamil=use_tamil
+                ),
+                int(row.bird_count or 0),
+                f"{qty.quantize(Decimal('0.01'))}",
+                rate_text,
+                amount_text,
+            ]
+        )
+
+    pdf = OverallReportPDF(orientation="landscape", unit="pt", format="A4")
+    pdf.compress = False
+    _register_fpdf_fonts(pdf)
+    pdf.set_text_shaping(True)
+    pdf.set_text_color(31, 39, 51)
+    pdf.add_page()
+
+    def _draw_centered(text: str, size: float, *, bold: bool = True) -> None:
+        style = "B" if bold else ""
+        if _has_tamil_text(text):
+            pdf.set_font("NotoSansTamil", style=style, size=size)
+        else:
+            pdf.set_font("NotoSans", style=style, size=size)
+        pdf.cell(0, size + 4, text=text, align="C", new_x="LMARGIN", new_y="NEXT")
+
+    _draw_centered(_report_org_header(context), 14)
+    _draw_centered(_report_branch_header(context), 11)
+    _draw_centered(title, 10)
+    pdf.set_text_color(97, 110, 128)
+    _draw_centered(date_line, 9, bold=False)
+    pdf.set_text_color(31, 39, 51)
+    pdf.ln(8)
+
+    available = pdf.w - pdf.l_margin - pdf.r_margin
+    total_w = sum(widths)
+    if total_w > 0 and total_w != available:
+        scale = available / total_w
+        widths = [max(36, int(w * scale)) for w in widths]
+        widths[-1] += available - sum(widths)
+
+    line_height = 11.0
+    padding = 3.0
+
+    def _draw_header() -> None:
+        pdf.set_text_color(255, 255, 255)
+        _fpdf_draw_row(
+            pdf,
+            widths,
+            alignments,
+            headers,
+            line_height=line_height,
+            padding=padding,
+            fill=True,
+            fill_color=(31, 39, 51),
+            is_header=True,
+            bold_borders=True,
+            header_font_size=7.5,
+        )
+        pdf.set_text_color(31, 39, 51)
+
+    _draw_header()
+    for index, row in enumerate(table_rows):
+        _fpdf_draw_row(
+            pdf,
+            widths,
+            alignments,
+            row,
+            line_height=line_height,
+            padding=padding,
+            fill=index % 2 == 1,
+            fill_color=(248, 250, 252),
+            is_header=False,
+            header_drawer=_draw_header,
+            bold_borders=True,
+            header_font_size=8.0,
+        )
+
+    summary = [
+        ("மொத்த Kg" if use_tamil else "Total Kg", f"{total_kg.quantize(Decimal('0.01'))}"),
+        ("மொத்த தொகை" if use_tamil else "Total Amount", _money(total_amount)),
+    ]
+    _fpdf_ensure_space(pdf, 20 + len(summary) * 16)
+    pdf.ln(12)
+    y = pdf.get_y()
+    for i, (label, value) in enumerate(summary):
+        row_y = y + i * 16
+        if row_y + 14 > pdf.page_break_trigger:
+            pdf.add_page()
+            y = pdf.get_y()
+            row_y = y
+        _fpdf_set_cell_font(pdf, label, is_header=True, font_size=9)
+        pdf.set_xy(pdf.w - 220, row_y)
+        pdf.cell(100, 14, text=label, align="L")
+        _fpdf_set_cell_font(pdf, value, is_header=True, font_size=9)
+        pdf.set_xy(pdf.w - pdf.r_margin - 90, row_y)
+        pdf.cell(90, 14, text=value, align="R")
+
+    return bytes(pdf.output())
+
+
 def _format_retailer_item_qty(quantity: Decimal, unit: str) -> str:
     qty = float(quantity)
     if unit == "kg":
         return f"{qty:g} Kg"
     return f"{qty:g} Units"
+
+
+def _bilingual_name_cell(
+    english: object,
+    tamil: object,
+    *,
+    use_tamil: bool,
+) -> str:
+    """Primary + secondary name lines for Tamil-safe PDF cells."""
+    en = _normalize_report_text(str(english or ""))
+    ta = _normalize_report_text(str(tamil or ""))
+    if use_tamil:
+        primary = ta or en
+        secondary = en if ta and en and ta != en else ""
+    else:
+        primary = en or ta
+        secondary = ta if en and ta and ta != en else ""
+    if secondary:
+        return f"{primary}\n{secondary}"
+    return primary or "—"
+
+
+def _retailer_party_cell(retailer_name: object, shop_name: object) -> str:
+    name = _normalize_report_text(str(retailer_name or "")) or "—"
+    shop = _normalize_report_text(str(shop_name or ""))
+    if shop:
+        return f"{name}\n{shop}"
+    return name
+
+
+def _retailer_item_name_cell(
+    item_name: object,
+    item_tamil_name: object,
+    *,
+    use_tamil: bool,
+) -> str:
+    english = _normalize_report_text(str(item_name or ""))
+    tamil = _normalize_report_text(str(item_tamil_name or ""))
+    if use_tamil:
+        return tamil or english or "-"
+    return english or "-"
+
+
+_RETAILER_REPORT_HEADERS_EN = [
+    "Bill No",
+    "Date",
+    "Retailer",
+    "Items",
+    "Kg/Units",
+    "Price (Rs.)",
+    "Amount (Rs.)",
+    "Wallet Credit (Rs.)",
+    "Paid (Rs.)",
+    "Cash (Rs.)",
+    "UPI (Rs.)",
+    "Balance (Rs.)",
+]
+_RETAILER_REPORT_HEADERS_TA = [
+    "பில் எண்",
+    "தேதி",
+    "சில்லறை விற்பனையாளர்",
+    "பொருட்கள்",
+    "Kg/அலகு",
+    "விலை (Rs.)",
+    "தொகை (Rs.)",
+    "வாலட் கடன் (Rs.)",
+    "செலுத்தியது (Rs.)",
+    "ரொக்கம் (Rs.)",
+    "UPI (Rs.)",
+    "நிலுவை (Rs.)",
+]
 
 
 async def _retailer_wallet_balances_for_report(
@@ -1908,36 +2260,45 @@ async def _retailer_opening_balances_for_report(
 
 def _retailer_opening_balance_meta_lines(
     opening_balances: list[tuple[str, Decimal]],
+    *,
+    use_tamil: bool = False,
 ) -> list[str]:
     if not opening_balances:
         return []
-    if len(opening_balances) == 1:
-        _, amount = opening_balances[0]
-        return [f"Opening Balance: {_money(amount)}"]
-    return [f"{name} Opening Balance: {_money(amount)}" for name, amount in opening_balances]
+    # Same layout as retailer cell (name + line under): name, then opening-balance label.
+    label = "தொடக்க இருப்பு" if use_tamil else "Opening Balance"
+    lines: list[str] = []
+    for name, amount in opening_balances:
+        amount_text = _money_amount(amount)
+        party = _normalize_report_text(str(name or ""))
+        if party:
+            lines.append(f"{party}\n{label}: {amount_text}")
+        else:
+            lines.append(f"{label}: {amount_text}")
+    return lines
 
 
-async def _write_retailers_section(
+async def _collect_retailers_report_table(
     db: AsyncSession,
-    writer: PdfReportWriter,
     context: ReportContext,
-) -> None:
-    period_start = context.start.date()
-    period_end = (context.end - timedelta(days=1)).date()
-    if period_start == period_end:
-        date_line = f"Date: {_date_text(period_start)}"
-    else:
-        date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
+    *,
+    use_tamil: bool,
+) -> tuple[
+    list[str],
+    list[list[object]],
+    list[int],
+    list[str],
+    list[tuple[str, str]],
+    list[tuple[str, str]],
+    list[str],
+]:
+    """Build retailer sales table rows + summary metrics for PDF renderers."""
+    from collections import defaultdict
 
-    writer.statement_header(
-        _report_org_header(context),
-        _report_branch_header(context),
-        "Retailer Sales Report",
-        date_line,
-    )
+    from app.models.retailer import RetailerSaleItem
 
     opening_balances = await _retailer_opening_balances_for_report(db, context)
-    writer.right_aligned_meta(_retailer_opening_balance_meta_lines(opening_balances))
+    opening_meta = _retailer_opening_balance_meta_lines(opening_balances, use_tamil=use_tamil)
     opening_balances_total = sum((amount for _, amount in opening_balances), Decimal("0.00"))
 
     filters: list[object] = [
@@ -1965,9 +2326,8 @@ async def _write_retailers_section(
         .subquery()
     )
 
-    widths = [40, 36, 48, 48, 64, 42, 32, 34, 34, 36, 32, 32, 34]
+    widths = [40, 36, 86, 64, 42, 32, 34, 34, 36, 32, 32, 34]
     alignments = [
-        "left",
         "left",
         "left",
         "left",
@@ -1981,21 +2341,7 @@ async def _write_retailers_section(
         "right",
         "right",
     ]
-    headers = [
-        "Bill No",
-        "Date",
-        "Retailer",
-        "Shop Name",
-        "Items",
-        "Kg/Units",
-        "Price",
-        "Amount",
-        "Wallet Credit",
-        "Paid",
-        "Cash",
-        "UPI",
-        "Balance",
-    ]
+    headers = list(_RETAILER_REPORT_HEADERS_TA if use_tamil else _RETAILER_REPORT_HEADERS_EN)
 
     rows = (
         await db.execute(
@@ -2027,11 +2373,7 @@ async def _write_retailers_section(
     ).all()
 
     sale_ids = [row.id for row in rows]
-    from collections import defaultdict
-
-    from app.models.retailer import RetailerSaleItem
-
-    items_by_sale = defaultdict(list)
+    items_by_sale: dict = defaultdict(list)
     if sale_ids:
         sale_items = (
             (
@@ -2068,20 +2410,19 @@ async def _write_retailers_section(
 
         bill_no = format_retailer_sale_bill_no(row.sale_no)
         bill_date = _ist_date_text(row.created_at)
-        bill_amount = _money(row.total_amount)
-        bill_wallet = _money(row.wallet_total)
-        bill_paid = _money(row.amount_paid_total)
-        bill_balance = _money(row.balance_due)
-        bill_cash = _money(row.cash_total)
-        bill_upi = _money(row.upi_total)
+        bill_amount = _money_amount(row.total_amount)
+        bill_wallet = _money_amount(row.wallet_total)
+        bill_paid = _money_amount(row.amount_paid_total)
+        bill_balance = _money_amount(row.balance_due)
+        bill_cash = _money_amount(row.cash_total)
+        bill_upi = _money_amount(row.upi_total)
 
         if not row_items:
             table_rows.append(
                 [
                     bill_no,
                     bill_date,
-                    row.retailer_name,
-                    row.shop_name,
+                    _retailer_party_cell(row.retailer_name, row.shop_name),
                     "-",
                     "-",
                     "-",
@@ -2102,11 +2443,12 @@ async def _write_retailers_section(
                 [
                     bill_no if is_first else "",
                     bill_date if is_first else "",
-                    row.retailer_name if is_first else "",
-                    row.shop_name if is_first else "",
-                    item.item_name or "-",
+                    _retailer_party_cell(row.retailer_name, row.shop_name) if is_first else "",
+                    _retailer_item_name_cell(
+                        item.item_name, item.item_tamil_name, use_tamil=use_tamil
+                    ),
                     _format_retailer_item_qty(item.quantity, item.unit.value),
-                    _money(item.price_per_unit),
+                    _money_amount(item.price_per_unit),
                     bill_amount if is_last else "",
                     bill_wallet if is_last else "",
                     bill_paid if is_last else "",
@@ -2125,39 +2467,56 @@ async def _write_retailers_section(
     ) = _filter_empty_report_columns(
         headers,
         table_rows,
-        always_keep={0, 1, 2, 3, 4},
+        always_keep={0, 1, 2, 3},
         widths=widths,
         aligns=alignments,
     )
     assert widths is not None and alignments is not None
-    writer.sheet_table(headers, table_rows, widths, alignments, bold_borders=True)
 
     wallet_balances = await _retailer_wallet_balances_for_report(db, context)
     total_outstanding = (total_balance + opening_balances_total).quantize(Decimal("0.01"))
     kept = set(kept_indices)
-    summary_rows: list[tuple[str, str]] = [
-        ("Total Kg", f"{float(total_kg):g} Kg"),
-        ("Total Unit", f"{float(total_unit):g} Units"),
-    ]
-    # Skip zero-only totals when their table columns were dropped.
-    if 8 in kept or total_wallet_credit != 0:
-        summary_rows.append(("Total Wallet Credit", _money(total_wallet_credit)))
-    if 9 in kept or total_paid != 0:
-        summary_rows.append(("Total Paid", _money(total_paid)))
-    if 12 in kept or total_outstanding != 0:
-        summary_rows.append(("Total Balance", _money(total_outstanding)))
-    writer.split_financial_summary(
-        "Current Wallet Credit",
-        wallet_balances,
-        summary_rows,
+    if use_tamil:
+        summary_rows: list[tuple[str, str]] = [
+            ("மொத்த Kg", f"{float(total_kg):g} Kg"),
+            ("மொத்த அலகு", f"{float(total_unit):g} Units"),
+        ]
+        if 7 in kept or total_wallet_credit != 0:
+            summary_rows.append(("மொத்த வாலட் கடன்", _money(total_wallet_credit)))
+        if 8 in kept or total_paid != 0:
+            summary_rows.append(("மொத்த செலுத்தியது", _money(total_paid)))
+        if 11 in kept or total_outstanding != 0:
+            summary_rows.append(("மொத்த நிலுவை", _money(total_outstanding)))
+    else:
+        summary_rows = [
+            ("Total Kg", f"{float(total_kg):g} Kg"),
+            ("Total Unit", f"{float(total_unit):g} Units"),
+        ]
+        if 7 in kept or total_wallet_credit != 0:
+            summary_rows.append(("Total Wallet Credit", _money(total_wallet_credit)))
+        if 8 in kept or total_paid != 0:
+            summary_rows.append(("Total Paid", _money(total_paid)))
+        if 11 in kept or total_outstanding != 0:
+            summary_rows.append(("Total Balance", _money(total_outstanding)))
+
+    return headers, table_rows, widths, alignments, wallet_balances, summary_rows, opening_meta
+
+
+async def _generate_retailers_fpdf_pdf(
+    db: AsyncSession,
+    context: ReportContext,
+    *,
+    language: str = "en",
+) -> bytes:
+    """Retailer sales PDF via FPDF2 — same Tamil font/shaping stack as Overall Report."""
+    from app.services.reports.queries import (
+        OverallReportPDF,
+        _fpdf_draw_row,
+        _fpdf_ensure_space,
+        _fpdf_set_cell_font,
     )
 
-
-async def _write_transfers_section(
-    db: AsyncSession,
-    writer: PdfReportWriter,
-    context: ReportContext,
-) -> None:
+    use_tamil = language == "ta"
     period_start = context.start.date()
     period_end = (context.end - timedelta(days=1)).date()
     if period_start == period_end:
@@ -2165,12 +2524,169 @@ async def _write_transfers_section(
     else:
         date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
 
-    branch_label = _report_branch_header(context)
-    writer.statement_header(
-        _report_org_header(context),
-        branch_label,
-        "Transfer Stock Report",
-        date_line,
+    title = "சில்லறை விற்பனை அறிக்கை" if use_tamil else "Retailer Sales Report"
+    wallet_title = "தற்போதைய வாலட் கடன்" if use_tamil else "Current Wallet Credit"
+
+    (
+        headers,
+        table_rows,
+        widths,
+        alignments,
+        wallet_balances,
+        summary_rows,
+        opening_meta,
+    ) = await _collect_retailers_report_table(db, context, use_tamil=use_tamil)
+
+    pdf = OverallReportPDF(orientation="landscape", unit="pt", format="A4")
+    pdf.compress = False
+    _register_fpdf_fonts(pdf)
+    pdf.set_text_shaping(True)
+    pdf.set_text_color(31, 39, 51)
+    pdf.add_page()
+
+    def _draw_centered(text: str, size: float, *, bold: bool = True) -> None:
+        style = "B" if bold else ""
+        if _has_tamil_text(text):
+            pdf.set_font("NotoSansTamil", style=style, size=size)
+        else:
+            pdf.set_font("NotoSans", style=style, size=size)
+        pdf.cell(0, size + 4, text=text, align="C", new_x="LMARGIN", new_y="NEXT")
+
+    _draw_centered(_report_org_header(context), 14)
+    _draw_centered(_report_branch_header(context), 11)
+    _draw_centered(title, 10)
+    pdf.set_text_color(97, 110, 128)
+    _draw_centered(date_line, 9, bold=False)
+    pdf.set_text_color(31, 39, 51)
+    pdf.ln(6)
+
+    if opening_meta:
+        for block in opening_meta:
+            for line in str(block).splitlines():
+                if not line.strip():
+                    continue
+                _fpdf_set_cell_font(pdf, line, is_header=True, font_size=9)
+                pdf.cell(0, 12, text=line, align="R", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(2)
+        pdf.ln(2)
+
+    available = pdf.w - pdf.l_margin - pdf.r_margin
+    total_w = sum(widths)
+    if total_w > 0 and total_w != available:
+        scale = available / total_w
+        widths = [max(28, int(w * scale)) for w in widths]
+        drift = available - sum(widths)
+        if widths:
+            widths[-1] += drift
+
+    line_height = 11.0
+    padding = 3.0
+    header_font_size = 7.5
+
+    def _draw_header() -> None:
+        pdf.set_text_color(255, 255, 255)
+        _fpdf_draw_row(
+            pdf,
+            widths,
+            alignments,
+            headers,
+            line_height=line_height,
+            padding=padding,
+            fill=True,
+            fill_color=(31, 39, 51),
+            is_header=True,
+            bold_borders=True,
+            header_font_size=header_font_size,
+        )
+        pdf.set_text_color(31, 39, 51)
+
+    _draw_header()
+
+    for index, row in enumerate(table_rows):
+        _fpdf_draw_row(
+            pdf,
+            widths,
+            alignments,
+            row,
+            line_height=line_height,
+            padding=padding,
+            fill=index % 2 == 1,
+            fill_color=(248, 250, 252),
+            is_header=False,
+            header_drawer=_draw_header,
+            bold_borders=True,
+            header_font_size=8.0,
+        )
+
+    summary_height = 20 + max(len(wallet_balances), len(summary_rows), 1) * 14 + 24
+    _fpdf_ensure_space(pdf, summary_height)
+    pdf.ln(10)
+    left_x = pdf.l_margin
+    right_label_x = pdf.w - 220
+    y = pdf.get_y()
+    # Clamp summary into content area (never into footer band).
+    max_summary_bottom = pdf.page_break_trigger - 8
+    row_count = max(len(wallet_balances), len(summary_rows), 1)
+    needed = y + 16 + row_count * 14
+    if needed > max_summary_bottom:
+        pdf.add_page()
+        y = pdf.get_y()
+
+    _fpdf_set_cell_font(pdf, wallet_title, is_header=True, font_size=9)
+    pdf.set_xy(left_x, y)
+    pdf.cell(180, 14, text=wallet_title, align="L")
+
+    for i in range(row_count):
+        row_y = y + 16 + i * 14
+        if row_y + 14 > pdf.page_break_trigger:
+            break
+        if i < len(wallet_balances):
+            name, value = wallet_balances[i]
+            _fpdf_set_cell_font(pdf, name, is_header=True, font_size=9)
+            pdf.set_xy(left_x, row_y)
+            pdf.cell(120, 14, text=name, align="L")
+            _fpdf_set_cell_font(pdf, value, is_header=True, font_size=9)
+            pdf.set_xy(left_x + 120, row_y)
+            pdf.cell(60, 14, text=value, align="R")
+        if i < len(summary_rows):
+            label, value = summary_rows[i]
+            _fpdf_set_cell_font(pdf, label, is_header=True, font_size=9)
+            pdf.set_xy(right_label_x, row_y)
+            pdf.cell(100, 14, text=label, align="L")
+            _fpdf_set_cell_font(pdf, value, is_header=True, font_size=9)
+            pdf.set_xy(pdf.w - pdf.r_margin - 80, row_y)
+            pdf.cell(80, 14, text=value, align="R")
+
+    return bytes(pdf.output())
+
+
+async def _generate_transfers_fpdf_pdf(
+    db: AsyncSession,
+    context: ReportContext,
+    *,
+    language: str = "en",
+) -> bytes:
+    """Transfer stock report via FPDF2 (Tamil-safe destination + item names)."""
+    from app.services.reports.queries import (
+        OverallReportPDF,
+        _fpdf_draw_row,
+        _fpdf_ensure_space,
+        _fpdf_set_cell_font,
+    )
+
+    use_tamil = language == "ta"
+    period_start = context.start.date()
+    period_end = (context.end - timedelta(days=1)).date()
+    if period_start == period_end:
+        date_line = f"Date: {_date_text(period_start)}"
+    else:
+        date_line = f"Date: {_date_text(period_start)} To {_date_text(period_end)}"
+
+    title = "இடமாற்ற இருப்பு அறிக்கை" if use_tamil else "Transfer Stock Report"
+    headers = (
+        ["தேதி", "மூல கிளை", "இலக்கு", "சரக்கு பொருள்", "அளவு", "அலகு"]
+        if use_tamil
+        else ["Date", "Source Branch", "Destination", "Inventory Item", "Qty", "Unit"]
     )
 
     filters: list[object] = [
@@ -2185,28 +2701,20 @@ async def _write_transfers_section(
 
     stats = (
         await db.execute(
-            select(
-                func.count(InventoryTransfer.id).label("transfer_count"),
-            )
+            select(func.count(InventoryTransfer.id).label("transfer_count"))
             .select_from(InventoryTransfer)
             .where(*filters)
         )
     ).one()
-
-    widths = [70, 95, 95, 130, 50, 40]
-    alignments = ["left", "left", "left", "left", "right", "center"]
-    writer.table_header(
-        ["Date", "Source Branch", "Destination", "Inventory Item", "Qty", "Unit"],
-        widths,
-        alignments,
-    )
 
     result = await db.execute(
         select(
             InventoryTransfer.occurred_at,
             Shop.name.label("source_shop_name"),
             TransferShop.name.label("transfer_shop_name"),
+            TransferShop.tamil_name.label("transfer_shop_tamil_name"),
             InventoryItem.name.label("item_name"),
+            InventoryItem.tamil_name.label("item_tamil_name"),
             InventoryTransfer.quantity,
             InventoryTransfer.unit,
         )
@@ -2217,22 +2725,109 @@ async def _write_transfers_section(
         .order_by(InventoryTransfer.occurred_at.asc(), InventoryTransfer.id.asc())
     )
     page = result.all()
-    for row in page:
-        writer.table_row(
-            [
-                _ist_date_text(row.occurred_at),
-                row.source_shop_name,
+
+    widths = [70, 110, 130, 150, 55, 45]
+    alignments = ["left", "left", "left", "left", "right", "center"]
+    table_rows: list[list[object]] = [
+        [
+            _ist_date_text(row.occurred_at),
+            row.source_shop_name,
+            # Tamil report: Tamil name only (no English second line).
+            _retailer_item_name_cell(
                 row.transfer_shop_name,
-                row.item_name,
-                _quantity(row.quantity),
-                _unit_value(row.unit),
-            ],
+                row.transfer_shop_tamil_name,
+                use_tamil=use_tamil,
+            ),
+            _retailer_item_name_cell(
+                row.item_name, row.item_tamil_name, use_tamil=use_tamil
+            ),
+            _quantity(row.quantity),
+            _unit_value(row.unit),
+        ]
+        for row in page
+    ]
+
+    pdf = OverallReportPDF(orientation="landscape", unit="pt", format="A4")
+    pdf.compress = False
+    _register_fpdf_fonts(pdf)
+    pdf.set_text_shaping(True)
+    pdf.set_text_color(31, 39, 51)
+    pdf.add_page()
+
+    def _draw_centered(text: str, size: float, *, bold: bool = True) -> None:
+        style = "B" if bold else ""
+        if _has_tamil_text(text):
+            pdf.set_font("NotoSansTamil", style=style, size=size)
+        else:
+            pdf.set_font("NotoSans", style=style, size=size)
+        pdf.cell(0, size + 4, text=text, align="C", new_x="LMARGIN", new_y="NEXT")
+
+    _draw_centered(_report_org_header(context), 14)
+    _draw_centered(_report_branch_header(context), 11)
+    _draw_centered(title, 10)
+    pdf.set_text_color(97, 110, 128)
+    _draw_centered(date_line, 9, bold=False)
+    pdf.set_text_color(31, 39, 51)
+    pdf.ln(8)
+
+    available = pdf.w - pdf.l_margin - pdf.r_margin
+    total_w = sum(widths)
+    if total_w > 0 and total_w != available:
+        scale = available / total_w
+        widths = [max(36, int(w * scale)) for w in widths]
+        widths[-1] += available - sum(widths)
+
+    line_height = 11.0
+    padding = 3.0
+
+    def _draw_header() -> None:
+        pdf.set_text_color(255, 255, 255)
+        _fpdf_draw_row(
+            pdf,
             widths,
             alignments,
+            headers,
+            line_height=line_height,
+            padding=padding,
+            fill=True,
+            fill_color=(31, 39, 51),
+            is_header=True,
+            bold_borders=True,
+            header_font_size=7.5,
+        )
+        pdf.set_text_color(31, 39, 51)
+
+    _draw_header()
+    for index, row in enumerate(table_rows):
+        _fpdf_draw_row(
+            pdf,
+            widths,
+            alignments,
+            row,
+            line_height=line_height,
+            padding=padding,
+            fill=index % 2 == 1,
+            fill_color=(248, 250, 252),
+            is_header=False,
+            header_drawer=_draw_header,
+            bold_borders=True,
+            header_font_size=8.0,
         )
 
-    writer.financial_summary(
-        [
-            ("Total Transfers", str(int(stats.transfer_count or 0))),
-        ]
-    )
+    total_label = "மொத்த இடமாற்றங்கள்" if use_tamil else "Total Transfers"
+    total_value = str(int(stats.transfer_count or 0))
+    _fpdf_ensure_space(pdf, 40)
+    pdf.ln(12)
+    y = pdf.get_y()
+    if y + 14 > pdf.page_break_trigger:
+        pdf.add_page()
+        y = pdf.get_y()
+    _fpdf_set_cell_font(pdf, total_label, is_header=True, font_size=9)
+    pdf.set_xy(pdf.w - 220, y)
+    pdf.cell(120, 14, text=total_label, align="L")
+    _fpdf_set_cell_font(pdf, total_value, is_header=True, font_size=9)
+    pdf.set_xy(pdf.w - pdf.r_margin - 80, y)
+    pdf.cell(80, 14, text=total_value, align="R")
+
+    return bytes(pdf.output())
+

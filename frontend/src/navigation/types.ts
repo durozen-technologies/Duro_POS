@@ -44,7 +44,7 @@ export type AppStackParamList = {
   | {
     shopId?: UUID;
     tab?:
-    "items" | "categories" | "purchaseRates" | "purchasers" | "shops" | "transferShops";
+    "items" | "categories" | "purchaseRates" | "purchasers" | "weightLoss" | "shops" | "transferShops";
   }
   | undefined;
   AdminReports: undefined;

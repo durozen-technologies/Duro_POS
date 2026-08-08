@@ -19,6 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import {
   downloadAdminReportPdf,
+  fetchPurchasers,
   fetchShops,
   type AdminReportDetailLevel,
   type AdminReportSection,
@@ -27,7 +28,7 @@ import { fetchAllRetailers } from "@/api/retailers";
 import { isApiRequestCanceled, toApiError, formatApiErrorMessage } from "@/api/client";
 import type { AdminReportsScreenProps } from "@/navigation/types";
 import { useAdminLanguageStore } from "@/store/admin-language-store";
-import { AnalyticsPeriod, type RetailerRead, type ShopRead, type UUID } from "@/types/api";
+import { AnalyticsPeriod, type PurchaserRead, type RetailerRead, type ShopRead, type UUID } from "@/types/api";
 
 import { adminElevation, adminRadii, type ThemePalette, adminSpacing, adminTypography } from "./admin-dashboard-theme";
 import { createDateTimeFormat, formatDateValueInTimeZone, parseCalendarDate, todayDateValue } from "@/utils/format";
@@ -69,6 +70,7 @@ const SECTION_OPTIONS: { key: AdminReportSection; label: string; icon: IconName 
   { key: "expenses", label: "Expenses", icon: "currency-inr" },
   { key: "transfers", label: "Transfer Stock", icon: "truck-delivery-outline" },
   { key: "retailers", label: "Retailers", icon: "store-outline" },
+  { key: "purchase", label: "Purchase", icon: "cart-outline" },
   { key: "over_report", label: "Overall Report", icon: "file-chart-outline" },
 ];
 
@@ -78,6 +80,7 @@ const SECTION_ORDER: AdminReportSection[] = [
   "expenses",
   "transfers",
   "retailers",
+  "purchase",
   "over_report",
 ];
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -146,6 +149,10 @@ function pluralizeRetailer(count: number) {
   return count === 1 ? "1 retailer" : `${count} retailers`;
 }
 
+function pluralizePurchaser(count: number) {
+  return count === 1 ? "1 purchaser" : `${count} purchasers`;
+}
+
 function formatSelectedRetailerNames(retailers: RetailerRead[], selectedIds: UUID[]) {
   if (selectedIds.length === 0) {
     return "Select retailers";
@@ -154,6 +161,23 @@ function formatSelectedRetailerNames(retailers: RetailerRead[], selectedIds: UUI
   const selectedNames = retailers.filter((retailer) => selectedIdSet.has(retailer.id)).map((retailer) => retailer.name);
   if (selectedNames.length === 0) {
     return pluralizeRetailer(selectedIds.length);
+  }
+  if (selectedNames.length <= 2) {
+    return selectedNames.join(", ");
+  }
+  return `${selectedNames.slice(0, 2).join(", ")} +${selectedNames.length - 2}`;
+}
+
+function formatSelectedPurchaserNames(purchasers: PurchaserRead[], selectedIds: UUID[]) {
+  if (selectedIds.length === 0) {
+    return "Select purchasers";
+  }
+  const selectedIdSet = new Set(selectedIds);
+  const selectedNames = purchasers
+    .filter((purchaser) => selectedIdSet.has(purchaser.id))
+    .map((purchaser) => purchaser.name);
+  if (selectedNames.length === 0) {
+    return pluralizePurchaser(selectedIds.length);
   }
   if (selectedNames.length <= 2) {
     return selectedNames.join(", ");
@@ -292,7 +316,63 @@ const RetailerOption = memo(function RetailerOption({
           {retailer.name}
         </Text>
         <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
-          {retailer.is_active ? "Active" : "Paused"}
+          {retailer.shop_name?.trim()
+            ? retailer.shop_name.trim()
+            : retailer.is_active
+              ? "Active"
+              : "Paused"}
+        </Text>
+      </View>
+      <MaterialCommunityIcons
+        name={selected ? "check-circle" : "checkbox-blank-circle-outline"}
+        size={20}
+        color={selected ? palette.primary : palette.textMuted}
+      />
+    </Pressable>
+  );
+});
+
+const PurchaserOption = memo(function PurchaserOption({
+  purchaser,
+  selected,
+  onToggle,
+  palette,
+}: {
+  purchaser: PurchaserRead;
+  selected: boolean;
+  onToggle: (id: string) => void;
+  palette: ThemePalette;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      onPress={() => onToggle(purchaser.id)}
+      style={[
+        styles.branchDropdownOption,
+        {
+          backgroundColor: selected ? palette.primarySoft : palette.card,
+          borderColor: selected ? palette.primary : palette.border,
+        },
+      ]}
+    >
+      <View style={[styles.branchIcon, { backgroundColor: selected ? palette.primary : palette.surfaceMuted }]}>
+        <MaterialCommunityIcons
+          name="account-tie-outline"
+          size={18}
+          color={selected ? palette.onPrimary : palette.textMuted}
+        />
+      </View>
+      <View style={styles.branchTextWrap}>
+        <Text numberOfLines={1} style={[styles.branchName, { color: palette.textPrimary }]}>
+          {purchaser.name}
+        </Text>
+        <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
+          {purchaser.tamil_name?.trim()
+            ? purchaser.tamil_name
+            : purchaser.is_active
+              ? "Active"
+              : "Paused"}
         </Text>
       </View>
       <MaterialCommunityIcons
@@ -427,6 +507,11 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const [allRetailers, setAllRetailers] = useState(true);
   const [selectedRetailerIds, setSelectedRetailerIds] = useState<UUID[]>([]);
   const [retailerDropdownOpen, setRetailerDropdownOpen] = useState(false);
+  const [purchasers, setPurchasers] = useState<PurchaserRead[]>([]);
+  const [loadingPurchasers, setLoadingPurchasers] = useState(false);
+  const [allPurchasers, setAllPurchasers] = useState(true);
+  const [selectedPurchaserIds, setSelectedPurchaserIds] = useState<UUID[]>([]);
+  const [purchaserDropdownOpen, setPurchaserDropdownOpen] = useState(false);
   const [selectedSections, setSelectedSections] = useState<AdminReportSection[]>(["sales"]);
   const [language, setLanguage] = useState(() => useAdminLanguageStore.getState().language ?? uiLanguage);
   const [todayIso] = useState(todayValue);
@@ -449,17 +534,29 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   const selectedSectionSet = useMemo(() => new Set(selectedSections), [selectedSections]);
   const hasOverallReport = selectedSectionSet.has("over_report");
   const hasRetailersReport = selectedSectionSet.has("retailers");
+  const hasPurchaseReport = selectedSectionSet.has("purchase");
+  const hasTransfersReport = selectedSectionSet.has("transfers");
+  const showReportLanguage =
+    hasOverallReport || hasRetailersReport || hasPurchaseReport || hasTransfersReport;
   const selectedRetailerIdSet = useMemo(() => new Set(selectedRetailerIds), [selectedRetailerIds]);
+  const selectedPurchaserIdSet = useMemo(() => new Set(selectedPurchaserIds), [selectedPurchaserIds]);
   const retailerSelectionLabel = allRetailers
     ? t("reports.allRetailers")
     : t("reports.retailerCount", { count: selectedRetailerIds.length });
   const retailerSelectionDetail = allRetailers
     ? pluralizeRetailer(retailers.length)
     : formatSelectedRetailerNames(retailers, selectedRetailerIds);
+  const purchaserSelectionLabel = allPurchasers
+    ? t("reports.allPurchasers")
+    : t("reports.purchaserCount", { count: selectedPurchaserIds.length });
+  const purchaserSelectionDetail = allPurchasers
+    ? pluralizePurchaser(purchasers.length)
+    : formatSelectedPurchaserNames(purchasers, selectedPurchaserIds);
   const canGenerate =
     selectedSections.length > 0 &&
     (allBranches || selectedShopIds.length > 0) &&
     (!hasRetailersReport || allRetailers || selectedRetailerIds.length > 0) &&
+    (!hasPurchaseReport || allPurchasers || selectedPurchaserIds.length > 0) &&
     !generating;
   const periodAccent = getPeriodAccent(period, palette);
   const referenceOptions = useMemo(() => {
@@ -537,6 +634,45 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
   useEffect(() => {
     setSelectedRetailerIds((current) => current.filter((id) => retailers.some((retailer) => retailer.id === id)));
   }, [retailers]);
+
+  useEffect(() => {
+    if (!hasPurchaseReport) {
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingPurchasers(true);
+    fetchPurchasers({ active: true }, { signal: controller.signal })
+      .then((items) => {
+        if (!controller.signal.aborted) {
+          setPurchasers(items);
+        }
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted && !isApiRequestCanceled(error)) {
+          setErrorMessage(formatApiErrorMessage(error, "Purchasers could not be loaded."));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoadingPurchasers(false);
+        }
+      });
+    return () => controller.abort();
+  }, [hasPurchaseReport]);
+
+  useEffect(() => {
+    if (!hasPurchaseReport) {
+      setAllPurchasers(true);
+      setSelectedPurchaserIds([]);
+      setPurchaserDropdownOpen(false);
+    }
+  }, [hasPurchaseReport]);
+
+  useEffect(() => {
+    setSelectedPurchaserIds((current) =>
+      current.filter((id) => purchasers.some((purchaser) => purchaser.id === id)),
+    );
+  }, [purchasers]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -665,6 +801,33 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     setRetailerDropdownOpen((open) => !open);
   }, []);
 
+  const handleSelectAllPurchasers = useCallback(() => {
+    triggerHaptic();
+    setAllPurchasers(true);
+    setSelectedPurchaserIds([]);
+    setPurchaserDropdownOpen(false);
+  }, []);
+
+  const handleTogglePurchaser = useCallback((purchaserId: UUID) => {
+    triggerHaptic();
+    setAllPurchasers(false);
+    setSelectedPurchaserIds((current) => {
+      if (current.includes(purchaserId)) {
+        const next = current.filter((value) => value !== purchaserId);
+        if (next.length === 0) {
+          setAllPurchasers(true);
+        }
+        return next;
+      }
+      return [...current, purchaserId];
+    });
+  }, []);
+
+  const handleTogglePurchaserDropdown = useCallback(() => {
+    triggerHaptic();
+    setPurchaserDropdownOpen((open) => !open);
+  }, []);
+
   const handleGenerate = useCallback(async () => {
     if (!canGenerate) {
       return;
@@ -693,6 +856,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
             : undefined,
         shopIds: allBranches ? undefined : selectedShopIds,
         retailerIds: hasRetailersReport && !allRetailers ? selectedRetailerIds : undefined,
+        purchaserIds: hasPurchaseReport && !allPurchasers ? selectedPurchaserIds : undefined,
         language,
       });
       const sharingModule = requireOptionalNativeModule<ExpoSharingNativeModule>("ExpoSharing");
@@ -729,6 +893,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     canGenerate,
     detailLevel,
     hasRetailersReport,
+    hasPurchaseReport,
     language,
     period,
     rangeEndDate,
@@ -738,6 +903,8 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
     selectedShopIds,
     allRetailers,
     selectedRetailerIds,
+    allPurchasers,
+    selectedPurchaserIds,
     t,
   ]);
 
@@ -1092,7 +1259,7 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
         ) : null}
       </View>
 
-      {hasOverallReport ? (
+      {showReportLanguage ? (
         <View style={styles.sectionBlock}>
           <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.language")}</Text>
           <View style={[styles.segmentedControl, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
@@ -1215,6 +1382,124 @@ export function AdminReportsScreen({ navigation }: AdminReportsScreenProps) {
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => setRetailerDropdownOpen(false)}
+                  style={[styles.branchDoneButton, { backgroundColor: palette.primary, borderColor: palette.primary }]}
+                >
+                  <Text style={[styles.branchDoneText, { color: palette.onPrimary }]}>{t("action.done")}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {hasPurchaseReport ? (
+        <View style={styles.sectionBlock}>
+          <View style={styles.branchHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>{t("reports.purchasers")}</Text>
+            <Text style={[styles.branchCount, { color: palette.textMuted }]}>{purchaserSelectionLabel}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: purchaserDropdownOpen }}
+            onPress={handleTogglePurchaserDropdown}
+            style={[
+              styles.branchSelectButton,
+              {
+                backgroundColor: palette.card,
+                borderColor: purchaserDropdownOpen ? palette.primary : palette.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.branchIcon,
+                { backgroundColor: allPurchasers ? palette.settingsSoft : palette.primarySoft },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="account-tie-outline"
+                size={18}
+                color={allPurchasers ? palette.settings : palette.primary}
+              />
+            </View>
+            <View style={styles.branchTextWrap}>
+              <Text style={[styles.branchName, { color: palette.textPrimary }]}>{purchaserSelectionLabel}</Text>
+              <Text numberOfLines={1} style={[styles.branchMeta, { color: palette.textMuted }]}>
+                {purchaserSelectionDetail}
+              </Text>
+            </View>
+            <MaterialCommunityIcons
+              name={purchaserDropdownOpen ? "chevron-up" : "chevron-down"}
+              size={22}
+              color={palette.textMuted}
+            />
+          </Pressable>
+          {purchaserDropdownOpen ? (
+            <View style={[styles.branchDropdown, { backgroundColor: palette.surfaceMuted, borderColor: palette.border }]}>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: allPurchasers }}
+                onPress={handleSelectAllPurchasers}
+                style={[
+                  styles.branchDropdownOption,
+                  {
+                    backgroundColor: allPurchasers ? palette.settingsSoft : palette.card,
+                    borderColor: allPurchasers ? palette.settings : palette.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.branchIcon,
+                    { backgroundColor: allPurchasers ? palette.settings : palette.surfaceMuted },
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="account-tie-outline"
+                    size={18}
+                    color={allPurchasers ? palette.background : palette.textMuted}
+                  />
+                </View>
+                <View style={styles.branchTextWrap}>
+                  <Text style={[styles.branchName, { color: palette.textPrimary }]}>
+                    {t("reports.allPurchasers")}
+                  </Text>
+                  <Text style={[styles.branchMeta, { color: palette.textMuted }]}>
+                    {pluralizePurchaser(purchasers.length)}
+                  </Text>
+                </View>
+                <MaterialCommunityIcons
+                  name={allPurchasers ? "check-circle" : "checkbox-blank-circle-outline"}
+                  size={20}
+                  color={allPurchasers ? palette.settings : palette.textMuted}
+                />
+              </Pressable>
+              {loadingPurchasers ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator size="small" color={palette.primary} />
+                </View>
+              ) : (
+                <ScrollView
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={purchasers.length > 4}
+                  style={styles.branchDropdownScroll}
+                  contentContainerStyle={styles.branchDropdownContent}
+                >
+                  {purchasers.map((purchaser) => (
+                    <PurchaserOption
+                      key={purchaser.id}
+                      purchaser={purchaser}
+                      selected={!allPurchasers && selectedPurchaserIdSet.has(purchaser.id)}
+                      onToggle={handleTogglePurchaser}
+                      palette={palette}
+                    />
+                  ))}
+                </ScrollView>
+              )}
+              {!allPurchasers ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setPurchaserDropdownOpen(false)}
                   style={[styles.branchDoneButton, { backgroundColor: palette.primary, borderColor: palette.primary }]}
                 >
                   <Text style={[styles.branchDoneText, { color: palette.onPrimary }]}>{t("action.done")}</Text>

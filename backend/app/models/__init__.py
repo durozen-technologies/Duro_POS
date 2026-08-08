@@ -25,6 +25,7 @@ from .inventory import (
     InventoryItemCategory,
     InventoryItemPurchaseRateHistory,
     InventoryMovement,
+    InventoryWeightLossApplication,
     ShopInventoryAllocation,
 )
 from .item import Item
@@ -80,6 +81,7 @@ __all__ = [
     "InventoryItemPurchaseRateHistory",
     "InventoryMovement",
     "InventoryMovementType",
+    "InventoryWeightLossApplication",
     "Item",
     "ItemAssumptionStatus",
     "ItemCategory",

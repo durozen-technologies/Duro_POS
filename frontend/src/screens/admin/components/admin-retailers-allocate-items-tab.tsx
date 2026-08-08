@@ -76,7 +76,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   initialRetailerId = null,
   onChromeVisibilityChange,
 }: AdminRetailersAllocateItemsTabProps) {
-  const { t } = useAdminTranslation();
+  const { t, translateItemName } = useAdminTranslation();
   const insets = useSafeAreaInsets();
 
   const [branches, setBranches] = useState<ShopRead[]>([]);
@@ -102,20 +102,25 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
   const debouncedSearch = useDebouncedValue(search, 250);
   const scrollY = useRef(new Animated.Value(0)).current;
   const chromeVisibleRef = useRef(true);
+  const headerHeightRef = useRef(headerHeight);
+  headerHeightRef.current = headerHeight;
 
-  const diffClampY = Animated.diffClamp(scrollY, 0, headerHeight);
-  const headerTranslateY = diffClampY.interpolate({
-    inputRange: [0, headerHeight],
-    outputRange: [0, -headerHeight],
-    extrapolate: "clamp",
-  });
+  const headerTranslateY = useMemo(() => {
+    return Animated.diffClamp(scrollY, 0, headerHeight).interpolate({
+      inputRange: [0, headerHeight],
+      outputRange: [0, -headerHeight],
+      extrapolate: "clamp",
+    });
+  }, [headerHeight, scrollY]);
 
   const handleListScroll = useMemo(
     () =>
       Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
         useNativeDriver: true,
         listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
-          const nextVisible = event.nativeEvent.contentOffset.y < 28;
+          const y = event.nativeEvent.contentOffset.y;
+          // Hysteresis stops show/hide oscillation on tiny scrolls.
+          const nextVisible = chromeVisibleRef.current ? y < 40 : y < 12;
           if (nextVisible === chromeVisibleRef.current) return;
           chromeVisibleRef.current = nextVisible;
           onChromeVisibilityChange?.(nextVisible);
@@ -123,6 +128,13 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       }),
     [onChromeVisibilityChange, scrollY],
   );
+
+  const handleHeaderLayout = useCallback((height: number) => {
+    const next = Math.round(height);
+    if (next <= 0 || next === headerHeightRef.current) return;
+    headerHeightRef.current = next;
+    setHeaderHeight(next);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -558,7 +570,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
       {renderRetailerPicker()}
 
       <Animated.View
-        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+        onLayout={(e) => handleHeaderLayout(e.nativeEvent.layout.height)}
         style={{
           position: "absolute",
           top: 0,
@@ -739,6 +751,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
               }}
               onScroll={handleListScroll}
               scrollEventThrottle={16}
+              overScrollMode="never"
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
@@ -775,6 +788,7 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
               renderItem={({ item }) => {
                 const allocated = allocations.has(item.item_id);
                 const pending = pendingIds.has(item.item_id);
+                const displayName = translateItemName(item.item_name, item.item_tamil_name);
                 const thumbUri = getItemThumbnailUri({
                   image_thumb_path: item.image_thumb_path,
                   image_path: item.image_path,
@@ -828,20 +842,15 @@ export const AdminRetailersAllocateItemsTab = memo(function AdminRetailersAlloca
                           </View>
                         )}
                         <View style={styles.itemText}>
-                          <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={1}>
-                            {item.item_name}
+                          <Text style={[adminTypography.section, { color: palette.textPrimary }]} numberOfLines={2}>
+                            {displayName}
                           </Text>
-                          {item.billing_price ? (
-                            <Text style={[adminTypography.body, { color: palette.textMuted, marginTop: 2 }]}>
-                              Billing {item.billing_price}
-                            </Text>
-                          ) : null}
                         </View>
                       </Pressable>
                       {allocated ? (
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel={`Remove ${item.item_name}`}
+                          accessibilityLabel={`Remove ${displayName}`}
                           onPress={() => toggleAllocated(item)}
                           hitSlop={8}
                         >

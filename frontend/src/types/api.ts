@@ -156,6 +156,7 @@ export interface InventoryItemRead {
   is_active: boolean;
   sort_order: number;
   purchase_rate: string;
+  weight_loss_grams_per_day?: number;
   billing_item_id?: UUID | null;
   billing_item_ids: UUID[];
   billing_items: InventoryBillingItemMappingRead[];
@@ -1161,6 +1162,7 @@ export interface TransferShopRead {
 export interface PurchaserRead {
   id: UUID;
   name: string;
+  tamil_name: string;
   shop_name?: string | null;
   phone?: string | null;
   address?: string | null;
@@ -1171,6 +1173,7 @@ export interface PurchaserRead {
 
 export interface PurchaserCreate {
   name: string;
+  tamil_name: string;
   shop_name?: string | null;
   phone?: string | null;
   address?: string | null;
@@ -1179,10 +1182,24 @@ export interface PurchaserCreate {
 
 export interface PurchaserUpdate {
   name?: string | null;
+  tamil_name?: string | null;
   shop_name?: string | null;
   phone?: string | null;
   address?: string | null;
   is_active?: boolean | null;
+}
+
+export interface InventoryWeightLossItemRead {
+  item_id: UUID;
+  item_name: string;
+  item_tamil_name: string;
+  base_unit: BaseUnit;
+  is_active: boolean;
+  weight_loss_grams_per_day: number;
+}
+
+export interface InventoryWeightLossUpdate {
+  weight_loss_grams_per_day: number;
 }
 
 export interface InventoryTransferCreate {

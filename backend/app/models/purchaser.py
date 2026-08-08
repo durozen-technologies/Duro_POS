@@ -29,6 +29,7 @@ class Purchaser(Base, BaseModelMixin):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    tamil_name: Mapped[str] = mapped_column(String(120), nullable=False)
     shop_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -45,5 +46,8 @@ class Purchaser(Base, BaseModelMixin):
 
     __table_args__ = (
         CheckConstraint("length(trim(name)) >= 2", name="ck_purchasers_name_not_blank"),
+        CheckConstraint(
+            "length(trim(tamil_name)) >= 1", name="ck_purchasers_tamil_name_not_blank"
+        ),
         Index("ix_purchasers_org_active_name", "organization_id", "is_active", "name"),
     )

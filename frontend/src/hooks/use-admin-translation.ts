@@ -31,6 +31,20 @@ export function translateAdminText(language: AdminLanguage, key: AdminTranslatio
   return interpolate(template, params);
 }
 
+export function getAdminLocalizedItemName(
+  language: AdminLanguage,
+  itemName: string,
+  itemTamilName?: string | null,
+) {
+  if (language === "ta") {
+    const tamilName = itemTamilName?.trim();
+    if (tamilName) {
+      return tamilName;
+    }
+  }
+  return itemName;
+}
+
 export function useAdminTranslation() {
   const language = useAdminLanguageStore((state) => state.language);
   const setLanguage = useAdminLanguageStore((state) => state.setLanguage);
@@ -40,6 +54,11 @@ export function useAdminTranslation() {
     (key: AdminTranslationKey, params?: TranslationParams) => translateAdminText(language, key, params),
     [language],
   );
+  const translateItemName = useCallback(
+    (itemName: string, itemTamilName?: string | null) =>
+      getAdminLocalizedItemName(language, itemName, itemTamilName),
+    [language],
+  );
 
   return {
     language,
@@ -47,5 +66,6 @@ export function useAdminTranslation() {
     setLanguage,
     toggleLanguage,
     t,
+    translateItemName,
   };
 }

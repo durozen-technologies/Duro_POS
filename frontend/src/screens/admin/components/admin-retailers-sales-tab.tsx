@@ -659,7 +659,10 @@ export const AdminRetailersSalesTab = memo(function AdminRetailersSalesTab({
 
         listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
 
-          const nextVisible = event.nativeEvent.contentOffset.y < 28;
+          const y = event.nativeEvent.contentOffset.y;
+
+          // Hysteresis stops show/hide oscillation on tiny scrolls.
+          const nextVisible = chromeVisibleRef.current ? y < 40 : y < 12;
 
           if (nextVisible === chromeVisibleRef.current) return;
 

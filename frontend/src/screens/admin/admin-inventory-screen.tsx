@@ -70,10 +70,18 @@ import { ActionButton, IconButton, EmptyStateCard, SearchField, ToastBanner } fr
 import { AdminHeaderActions } from "./components/admin-header-actions";
 import { AdminTransferShopsTab } from "./components/admin-transfer-shops-tab";
 import { AdminPurchasersTab } from "./components/admin-purchasers-tab";
+import { AdminWeightLossTab } from "./components/admin-weight-loss-tab";
 import { useAdminTheme } from "./use-admin-theme";
 import type { AdminInventoryScreenProps } from "@/navigation/types";
 
-type InventoryTab = "items" | "categories" | "purchaseRates" | "purchasers" | "shops" | "transferShops";
+type InventoryTab =
+  | "items"
+  | "categories"
+  | "purchaseRates"
+  | "purchasers"
+  | "weightLoss"
+  | "shops"
+  | "transferShops";
 type MovementHistoryMode = "date" | "range";
 type MovementHistoryCalendarTarget = "date" | "start" | "end";
 const INVENTORY_ITEM_PAGE_SIZE = 50;
@@ -1231,6 +1239,7 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
             { key: "categories", label: t("items.categories"), icon: "shape-outline" },
             { key: "purchaseRates", label: t("inventory.purchaseRate"), icon: "currency-inr" },
             { key: "purchasers", label: t("purchasers.title"), icon: "account-tie-outline" },
+            { key: "weightLoss", label: t("weightLoss.title"), icon: "scale-bathroom" },
             { key: "transferShops", label: t("transfer.title"), icon: "swap-horizontal" },
           ] as const
         ).map((tab) => {
@@ -2196,11 +2205,14 @@ export function AdminInventoryScreen({ navigation, route }: AdminInventoryScreen
             </ScrollView>
           )}
 
-          {activeTab === "transferShops" && (
-            <AdminTransferShopsTab />
-          )}
           {activeTab === "purchasers" && (
             <AdminPurchasersTab />
+          )}
+          {activeTab === "weightLoss" && (
+            <AdminWeightLossTab />
+          )}
+          {activeTab === "transferShops" && (
+            <AdminTransferShopsTab />
           )}
         </View>
       </KeyboardAvoidingView>

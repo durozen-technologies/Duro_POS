@@ -32,6 +32,7 @@ class PurchaserTests(BackendTestCase):
                     db,
                     PurchaserCreate(
                         name="Fresh Farms",
+                        tamil_name="ஃப்ரெஷ் ஃபார்ம்ஸ்",
                         shop_name="Main Yard",
                         phone="9876543210",
                         address="Market Road",

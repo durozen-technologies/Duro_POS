@@ -26,6 +26,8 @@ const TAB_ITEMS: { value: AdminRetailersTab; label: string; icon: "account-group
   { value: "sales", label: "Open sales", icon: "receipt-text-outline" },
 ];
 
+const SCROLL_HIDES_CHROME: ReadonlySet<AdminRetailersTab> = new Set(["allocateItems", "sales"]);
+
 export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreenProps) {
   const { t } = useAdminTranslation();
   const { palette } = useAdminTheme();
@@ -37,6 +39,7 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [showTabChrome, setShowTabChrome] = useState(true);
+  const [tabChromeHeight, setTabChromeHeight] = useState(48);
 
   const handleHeaderRefresh = useCallback(() => {
     setRefreshing(true);
@@ -96,6 +99,10 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
     [navigation],
   );
 
+  // Overlay chrome (don't mount/unmount) so list height stays stable while scrolling.
+  const chromeCollapses = SCROLL_HIDES_CHROME.has(activeTab);
+  const chromeVisible = showTabChrome || !chromeCollapses;
+
   return (
     <SafeAreaView style={dynamicStyles.screen} edges={["left", "right"]}>
       <StatusBar style="light" />
@@ -116,57 +123,75 @@ export function AdminRetailersScreen({ navigation, route }: AdminRetailersScreen
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.content}>
-        {showTabChrome || (activeTab !== "allocateItems" && activeTab !== "sales") ? (
-          <AdminSegmentedTabs
-            items={TAB_ITEMS}
-            activeValue={activeTab}
-            palette={palette}
-            onChange={(value) => setActiveTab(value as AdminRetailersTab)}
-            scrollable
-          />
-        ) : null}
-
-        <View style={styles.tabBody}>
-          {activeTab === "retailers" ? (
-            <AdminRetailersDirectoryTab
+        <View style={styles.tabsStage}>
+          <View
+            onLayout={(event) => {
+              const next = Math.round(event.nativeEvent.layout.height);
+              if (next > 0) {
+                setTabChromeHeight((current) => (current === next ? current : next));
+              }
+            }}
+            pointerEvents={chromeVisible ? "auto" : "none"}
+            style={[
+              styles.tabsOverlay,
+              {
+                backgroundColor: palette.background,
+                opacity: chromeVisible ? 1 : 0,
+                transform: [{ translateY: chromeVisible ? 0 : -tabChromeHeight }],
+              },
+            ]}
+          >
+            <AdminSegmentedTabs
+              items={TAB_ITEMS}
+              activeValue={activeTab}
               palette={palette}
-              refreshNonce={refreshNonce}
-              onRefreshComplete={handleRefreshComplete}
-              onOpenRetailer={handleOpenRetailer}
-              onCreateRetailer={handleCreateRetailer}
-              onRearrangeRetailers={handleRearrangeRetailers}
+              onChange={(value) => setActiveTab(value as AdminRetailersTab)}
+              scrollable
             />
-          ) : null}
+          </View>
 
-          {activeTab === "allocateItems" ? (
-            <AdminRetailersAllocateItemsTab
-              palette={palette}
-              refreshNonce={refreshNonce}
-              onRefreshComplete={handleRefreshComplete}
-              initialRetailerId={initialRetailerId}
-              onChromeVisibilityChange={setShowTabChrome}
-            />
-          ) : null}
+          <View style={[styles.tabBody, { paddingTop: tabChromeHeight }]}>
+            {activeTab === "retailers" ? (
+              <AdminRetailersDirectoryTab
+                palette={palette}
+                refreshNonce={refreshNonce}
+                onRefreshComplete={handleRefreshComplete}
+                onOpenRetailer={handleOpenRetailer}
+                onCreateRetailer={handleCreateRetailer}
+                onRearrangeRetailers={handleRearrangeRetailers}
+              />
+            ) : null}
 
-          {activeTab === "retailerPrices" ? (
-            <AdminRetailersPricesTab
-              palette={palette}
-              refreshNonce={refreshNonce}
-              onRefreshComplete={handleRefreshComplete}
-              initialRetailerId={initialRetailerId}
-              initialShopId={initialShopId}
-            />
-          ) : null}
+            {activeTab === "allocateItems" ? (
+              <AdminRetailersAllocateItemsTab
+                palette={palette}
+                refreshNonce={refreshNonce}
+                onRefreshComplete={handleRefreshComplete}
+                initialRetailerId={initialRetailerId}
+                onChromeVisibilityChange={setShowTabChrome}
+              />
+            ) : null}
 
-          {activeTab === "sales" ? (
-            <AdminRetailersSalesTab
-              palette={palette}
-              refreshNonce={refreshNonce}
-              onRefreshComplete={handleRefreshComplete}
-              onOpenSale={handleOpenSale}
-              onChromeVisibilityChange={setShowTabChrome}
-            />
-          ) : null}
+            {activeTab === "retailerPrices" ? (
+              <AdminRetailersPricesTab
+                palette={palette}
+                refreshNonce={refreshNonce}
+                onRefreshComplete={handleRefreshComplete}
+                initialRetailerId={initialRetailerId}
+                initialShopId={initialShopId}
+              />
+            ) : null}
+
+            {activeTab === "sales" ? (
+              <AdminRetailersSalesTab
+                palette={palette}
+                refreshNonce={refreshNonce}
+                onRefreshComplete={handleRefreshComplete}
+                onOpenSale={handleOpenSale}
+                onChromeVisibilityChange={setShowTabChrome}
+              />
+            ) : null}
+          </View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -182,7 +207,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: adminSpacing.md,
     paddingTop: adminSpacing.sm,
-    gap: adminSpacing.sm,
+  },
+  tabsStage: {
+    flex: 1,
+  },
+  tabsOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
   },
   tabBody: {
     flex: 1,

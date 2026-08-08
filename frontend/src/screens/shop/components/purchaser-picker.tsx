@@ -85,10 +85,12 @@ const styles = StyleSheet.create({
 });
 
 function purchaserLabel(purchaser: PurchaserRead) {
+  const tamil = purchaser.tamil_name?.trim();
+  const primary = tamil ? `${purchaser.name} (${tamil})` : purchaser.name;
   if (purchaser.shop_name?.trim()) {
-    return `${purchaser.name} — ${purchaser.shop_name.trim()}`;
+    return `${primary} — ${purchaser.shop_name.trim()}`;
   }
-  return purchaser.name;
+  return primary;
 }
 
 export function PurchaserPicker({
@@ -124,6 +126,7 @@ export function PurchaserPicker({
     return purchasers.filter(
       (row) =>
         row.name.toLowerCase().includes(normalized) ||
+        (row.tamil_name ?? "").toLowerCase().includes(normalized) ||
         (row.shop_name ?? "").toLowerCase().includes(normalized) ||
         (row.phone ?? "").toLowerCase().includes(normalized),
     );

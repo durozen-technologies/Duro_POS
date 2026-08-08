@@ -5,9 +5,14 @@ import { PRINTER_STORAGE_KEY } from "@/constants/config";
 import { PrinterDevice } from "@/types/printer";
 import { secureStorage } from "@/utils/secure-storage";
 
+export type PrinterConnectionStatus = "idle" | "ready" | "failed";
+
 type PrinterState = {
   preferredPrinter: PrinterDevice | null;
+  /** Session-only: saved printer must not imply Ready across app restarts. */
+  connectionStatus: PrinterConnectionStatus;
   setPreferredPrinter: (printer: PrinterDevice) => void;
+  setConnectionStatus: (status: PrinterConnectionStatus) => void;
   clearPreferredPrinter: () => void;
 };
 
@@ -15,8 +20,10 @@ export const usePrinterStore = create<PrinterState>()(
   persist(
     (set) => ({
       preferredPrinter: null,
+      connectionStatus: "idle",
       setPreferredPrinter: (preferredPrinter) => set({ preferredPrinter }),
-      clearPreferredPrinter: () => set({ preferredPrinter: null }),
+      setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
+      clearPreferredPrinter: () => set({ preferredPrinter: null, connectionStatus: "idle" }),
     }),
     {
       name: PRINTER_STORAGE_KEY,

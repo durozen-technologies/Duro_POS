@@ -17,6 +17,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user, require_roles
@@ -58,7 +59,6 @@ from app.schemas.admin import (
     ShopStatusUpdate,
     ShopUpdate,
 )
-from app.services.admin._credentials import verify_tenant_admin_credentials
 from app.schemas.billing import BillEditRequest, BillRead
 from app.schemas.expenses import (
     ExpenseEntryPage,
@@ -101,21 +101,23 @@ from app.schemas.inventory import (
     InventorySummaryRead,
     InventoryUseRequest,
     InventoryUseSplitRequest,
+    InventoryWeightLossItemRead,
+    InventoryWeightLossUpdate,
     ShopInventoryAllocationBulkCreate,
     ShopInventoryAllocationBulkRead,
     ShopInventoryAllocationUpdate,
 )
 from app.schemas.inventory_policy import InventoryBackdatePolicyRead, InventoryBackdatePolicyUpdate
-from app.schemas.retailer_inventory import (
-    RetailerInventoryUsagePage,
-    RetailerStockAdjustRequest,
-)
 from app.schemas.pricing import (
     DailyPriceCreate,
     DailyPriceRead,
     DailyPriceUpdate,
     ItemImageRead,
     ShopBootstrapResponse,
+)
+from app.schemas.retailer_inventory import (
+    RetailerInventoryUsagePage,
+    RetailerStockAdjustRequest,
 )
 from app.schemas.transfer import (
     InventoryTransferCreate,
@@ -165,6 +167,8 @@ from app.services.admin import (
     update_selected_shop_items_order,
     update_shop_account,
 )
+from app.services.admin._credentials import verify_tenant_admin_credentials
+from app.services.billing import cancel_shop_bill, edit_shop_bill
 from app.services.expenses import (
     allocate_shop_expense_item,
     allocate_shop_expense_items,
@@ -224,10 +228,6 @@ from app.services.inventory_policy import (
     get_inventory_backdate_policy,
     update_inventory_backdate_policy,
 )
-from app.services.retailer_inventory import (
-    admin_set_retailer_inventory_stock,
-    list_retailer_inventory_usages,
-)
 from app.services.pricing import (
     create_daily_prices,
     create_global_daily_prices,
@@ -237,11 +237,14 @@ from app.services.pricing import (
     get_shop_price_history,
     upsert_shop_daily_price,
 )
-from app.services.billing import cancel_shop_bill, edit_shop_bill
 from app.services.reports import (
     build_overall_report,
     generate_admin_report_pdf,
     iter_admin_report_file,
+)
+from app.services.retailer_inventory import (
+    admin_set_retailer_inventory_stock,
+    list_retailer_inventory_usages,
 )
 from app.services.storage import delete_item_image
 from app.services.transfer import (
@@ -251,6 +254,11 @@ from app.services.transfer import (
     list_inventory_transfers,
     list_transfer_shops,
     update_transfer_shop,
+)
+from app.services.weight_loss import (
+    ensure_shop_weight_loss_applied,
+    list_inventory_weight_loss_items,
+    update_inventory_weight_loss,
 )
 
 

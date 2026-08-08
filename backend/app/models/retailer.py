@@ -173,7 +173,9 @@ class RetailerItemPrice(Base):
         Date,
         nullable=False,
         default=today_ist,
-        server_default=text("(now() AT TIME ZONE 'Asia/Kolkata')::date"),
+        # CURRENT_DATE keeps SQLite unit tests working; Postgres tenants get IST via
+        # tenant migration 0033_retailer_price_effective_date_ist. App inserts use today_ist.
+        server_default=text("CURRENT_DATE"),
     )
     price_per_unit: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     is_active: Mapped[bool] = mapped_column(

@@ -76,7 +76,8 @@ function normalizePrice(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
   const amount = Number(trimmed);
-  if (!Number.isFinite(amount) || amount <= 0) return "";
+  // Backend seeds 0.01 as an allocation stub; treat as unset in the prices UI.
+  if (!Number.isFinite(amount) || amount <= 0.01) return "";
   return amount.toFixed(2);
 }
 
@@ -161,18 +162,19 @@ const PriceItemRow = memo(function PriceItemRow({
         </View>
       )}
 
-      <View style={[styles.priceText, { flex: 1, paddingVertical: 4 }]}>
-        <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary, fontWeight: '800' }]} numberOfLines={1}>
+      <View style={[styles.priceText, { flex: 1, minWidth: 0, paddingVertical: 4 }]}>
+        <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary, fontWeight: "800" }]} numberOfLines={2}>
           {item.item_name}
         </Text>
-        {item.item_tamil_name ? (
-          <Text style={[adminTypography.bodyStrong, { color: palette.primary, fontWeight: '800', marginTop: 2 }]} numberOfLines={1}>
-            {item.item_tamil_name}
-          </Text>
-        ) : null}
+        <Text
+          style={[adminTypography.body, { color: palette.textSecondary, marginTop: 2, fontWeight: "600" }]}
+          numberOfLines={2}
+        >
+          {item.item_tamil_name?.trim() || "Tamil missing"}
+        </Text>
 
-        <Text style={[adminTypography.body, { color: palette.textPrimary, marginTop: 4, fontWeight: '600', opacity: 0.8 }]}>
-          {draft.base_unit ? draft.base_unit.toUpperCase() : ''}
+        <Text style={[adminTypography.body, { color: palette.textPrimary, marginTop: 4, fontWeight: "600", opacity: 0.8 }]}>
+          {draft.base_unit ? draft.base_unit.toUpperCase() : ""}
         </Text>
 
         {showPriceStatus ? (
@@ -238,7 +240,7 @@ const PriceItemRow = memo(function PriceItemRow({
             onSubmitEditing={() => saveRow(draft)}
             returnKeyType="done"
             keyboardType="decimal-pad"
-            placeholder={isHistoricalDate ? "-" : "0"}
+            placeholder={isHistoricalDate ? "-" : "not set"}
             placeholderTextColor={palette.textMuted}
             editable={!isHistoricalDate}
             style={[
@@ -310,7 +312,7 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
   initialShopId = null,
   initialRetailerId = null,
 }: AdminRetailersPricesTabProps) {
-  const { t } = useAdminTranslation();
+  const { t, translateItemName } = useAdminTranslation();
   const insets = useSafeAreaInsets();
   const [branches, setBranches] = useState<ShopRead[]>([]);
   const [selectedShopId, setSelectedShopId] = useState<UUID | null>(initialShopId);
@@ -1207,14 +1209,9 @@ export const AdminRetailersPricesTab = memo(function AdminRetailersPricesTab({
                   ]}
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]} numberOfLines={1}>
-                      {item.item_name}
+                    <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]} numberOfLines={2}>
+                      {translateItemName(item.item_name, item.item_tamil_name)}
                     </Text>
-                    {item.item_tamil_name ? (
-                      <Text style={[adminTypography.caption, { color: palette.primary, marginTop: 2 }]} numberOfLines={1}>
-                        {item.item_tamil_name}
-                      </Text>
-                    ) : null}
                   </View>
                   <Text style={[adminTypography.bodyStrong, { color: palette.textPrimary }]}>
                     {formatCurrency(item.price_per_unit)}

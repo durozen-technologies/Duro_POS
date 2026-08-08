@@ -180,7 +180,39 @@ class RetailerSalesIntegrationTests(BackendTestCase):
                 duck_row = next(row for row in synced.items if row.item_id == duck.id)
                 self.assertEqual(chicken_row.price_per_unit, Decimal("155.00"))
                 self.assertTrue(duck_row.is_allocated)
-                self.assertIsNotNone(duck_row.price_per_unit)
+                # New allocation without a real wholesale price uses a DB stub (0.01)
+                # but API must expose it as unset so Admin → Retailer prices shows empty.
+                self.assertIsNone(duck_row.price_per_unit)
+
+        self.run_async(scenario())
+
+    def test_new_item_allocation_without_billing_exposes_unset_price(self) -> None:
+        self.run_async(self.harness.create_shop_user())
+        self.run_async(self.harness.create_catalogue_items(("Chicken",)))
+
+        async def scenario() -> None:
+            with self.harness.session_factory() as session:
+                db, _shop_user, current_shop, retailer, chicken, _duck = (
+                    await self._prepare_shop_retailer(session)
+                )
+                await sync_shop_retailer_item_catalog(db, current_shop.id, [chicken.id])
+                synced = await sync_retailer_item_allocations(
+                    db, retailer.id, current_shop.id, [chicken.id]
+                )
+                self.assertEqual(synced.allocated_count, 1)
+                row = synced.items[0]
+                self.assertTrue(row.is_allocated)
+                self.assertIsNone(row.price_per_unit)
+                # Stub still stored so allocation row exists for later pricing.
+                stored = session.scalar(
+                    select(RetailerItemPrice).where(
+                        RetailerItemPrice.retailer_id == retailer.id,
+                        RetailerItemPrice.shop_id == current_shop.id,
+                        RetailerItemPrice.item_id == chicken.id,
+                    )
+                )
+                self.assertIsNotNone(stored)
+                self.assertEqual(stored.price_per_unit, Decimal("0.01"))
 
         self.run_async(scenario())
 

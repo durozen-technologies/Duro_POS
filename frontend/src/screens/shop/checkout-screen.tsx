@@ -19,6 +19,7 @@ import {
   getPrinterDeviceDetail,
   getSavedPrinterLabel,
 } from "@/services/printer-service";
+import { CheckoutPrinterCard } from "@/screens/shop/components/checkout-printer-card";
 import { getCartTotal, useCartStore } from "@/store/cart-store";
 import { usePrinterStore } from "@/store/printer-store";
 import { BaseUnit } from "@/types/api";
@@ -39,49 +40,6 @@ type CheckoutPaymentStatusProps = {
   t: ReturnType<typeof useShopTranslation>["t"];
   onSubmit: () => void;
 };
-
-type CheckoutPrinterCardProps = {
-  printerLabel: string | null;
-  printerDetail: string | null;
-  t: ReturnType<typeof useShopTranslation>["t"];
-  onManagePrinter: () => void;
-};
-
-const CheckoutPrinterCard = memo(function CheckoutPrinterCard({
-  printerLabel,
-  printerDetail,
-  t,
-  onManagePrinter,
-}: CheckoutPrinterCardProps) {
-  const printerConfigured = Boolean(printerLabel);
-
-  return (
-    <View className="rounded-card border border-border bg-card p-4">
-      <View className="mb-3 flex-row flex-wrap items-center justify-between gap-2">
-        <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-          {t("common.savedPrinter")}
-        </Text>
-        <StatusPill
-          label={printerConfigured ? t("common.ready") : t("common.notConfigured")}
-          tone={printerConfigured ? "success" : "warning"}
-        />
-      </View>
-      <Text className="text-base font-semibold text-ink">
-        {printerLabel ?? t("printer.noPrinterSavedYet")}
-      </Text>
-      <Text className="mt-2 text-sm leading-5 text-muted">
-        {printerConfigured ? printerDetail : t("printer.savedPrinterHint")}
-      </Text>
-      <Button
-        label={printerConfigured ? t("action.managePrinter") : t("action.setUpPrinter")}
-        onPress={onManagePrinter}
-        variant="secondary"
-        className="mt-4 self-start min-w-[170px]"
-      />
-    </View>
-  );
-});
-
 const CheckoutPaymentStatus = memo(function CheckoutPaymentStatus({
   control,
   totalAmount,
@@ -158,6 +116,8 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
   const cartItems = useCartStore((state) => state.items);
   const resetCart = useCartStore((state) => state.resetCart);
   const preferredPrinter = usePrinterStore((state) => state.preferredPrinter);
+  const connectionStatus = usePrinterStore((state) => state.connectionStatus);
+  const setConnectionStatus = usePrinterStore((state) => state.setConnectionStatus);
   const printingEnabled = usePrintingEnabled();
   const receiptPaperMm = useReceiptPaperMm();
   const [submitting, setSubmitting] = useState(false);
@@ -245,9 +205,11 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
       try {
         await startReceiptImagePrintJob([savedBill], preferredPrinter, language, receiptPaperMm);
         await patchBillReceiptStatus(savedBill.id, { status: "printed" });
+        setConnectionStatus("ready");
       } catch (error) {
         const printError =
           error instanceof Error ? error.message : t("checkout.unableToOpenPrinterMessage");
+        setConnectionStatus("failed");
         try {
           await patchBillReceiptStatus(savedBill.id, {
             status: "failed",
@@ -302,10 +264,11 @@ export function CheckoutScreen({ navigation }: CheckoutScreenProps) {
             />
           )}
         />
-        {!printerLabel && printingEnabled ? (
+        {printingEnabled && connectionStatus !== "ready" ? (
           <CheckoutPrinterCard
             printerLabel={printerLabel}
             printerDetail={printerDetail}
+            connectionStatus={connectionStatus}
             t={t}
             onManagePrinter={() => navigation.navigate("PrinterSetup")}
           />
