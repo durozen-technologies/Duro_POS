@@ -2,8 +2,9 @@
 #
 # Dokploy setup:
 # 1. Compose path: ./docker-compose.dokploy.yml
-# 2. Domains tab → service name exactly `backend`, port `8000`, HTTPS on
-#    (plain "404 page not found" = Traefik miss — wrong service/port/domain)
+# 2. Domains tab → service `backend`, port 8000 (optional if labels below applied)
+#    Compose also sets Traefik labels for Host(duropos.durozen.in) on dokploy-network.
+#    Override host with env DOKPLOY_HOST if needed.
 # 3. Optional domain → service `rustfs`, port `9000` for public image URLs;
 #    set RUSTFS_SERVER_DOMAINS / RUSTFS_PUBLIC_BASE_URL to match
 # 4. Fill Environment tab with required vars below (written to .env)
@@ -36,8 +37,8 @@ x-backend-env: &backend-env
   # Always use in-compose Postgres hostname (local .env localhost URLs break here).
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-brolier_360}
   PRODUCTION: ${PRODUCTION:-False}
-  # Include your API hostname in Dokploy env, or keep * while PRODUCTION=False.
-  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+  # Include API hostname (duropos.durozen.in) or * while PRODUCTION=False.
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-duropos.durozen.in,localhost,127.0.0.1}
   CORS_ORIGINS: ${CORS_ORIGINS:-*}
   RUSTFS_ENDPOINT_URL: ${RUSTFS_ENDPOINT_URL:-http://rustfs:9000}
   RUSTFS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY}
@@ -178,11 +179,21 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *backend-env
-    # Publish container port so Dokploy/Traefik can target it (Domains → backend:8000).
+    # Publish container port so Dokploy/Traefik can target it.
     ports:
       - "8000"
     expose:
       - "8000"
+    # Multi-network: force Traefik onto dokploy-network (fixes Host 404 when
+    # Domains UI labels are missing or Traefik picks the internal network).
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.brolier360-backend.rule=Host(`${DOKPLOY_HOST:-duropos.durozen.in}`)
+      - traefik.http.routers.brolier360-backend.entrypoints=web,websecure
+      - traefik.http.routers.brolier360-backend.tls=true
+      - traefik.http.routers.brolier360-backend.tls.certresolver=letsencrypt
+      - traefik.http.services.brolier360-backend.loadbalancer.server.port=8000
     healthcheck:
       test:
         [
