@@ -511,34 +511,11 @@ def run_all_tenant_migrations(
 
 class TenantSchemaRouter:
     async def resolve_schema(self, db: AsyncSession, organization_id: UUID) -> str | None:
-        from app.core.config import get_settings
-        from app.core.redis_cache import (
-            cache_delete,
-            cache_get_json,
-            cache_set_json,
-            org_schema_cache_key,
-        )
         from app.models import Organization
 
-        cache_key = org_schema_cache_key(organization_id)
-        cached = await cache_get_json(cache_key)
-        if isinstance(cached, str) and cached:
-            return cached
-        if cached == "":
-            # Legacy negative cache poisoned auth for REDIS_ORG_SCHEMA_CACHE_TTL.
-            await cache_delete(cache_key)
-
-        schema_name = await db.scalar(
+        return await db.scalar(
             select(Organization.schema_name).where(Organization.id == organization_id)
         )
-        # Never negative-cache misses — empty Redis values caused ~5 min 401 logout loops.
-        if schema_name:
-            await cache_set_json(
-                cache_key,
-                schema_name,
-                ttl_seconds=get_settings().redis_org_schema_cache_ttl,
-            )
-        return schema_name
 
 
 tenant_router = TenantSchemaRouter()

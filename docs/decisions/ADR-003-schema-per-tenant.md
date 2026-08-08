@@ -63,7 +63,7 @@ Legacy orgs are migrated with `migrate-tenant-data` before deploying `0034`. Ver
 - Super-admin drilling into tenant data: tenant session for target org
 - **Pool safety:** `RESET search_path` at transaction begin (`after_begin`); set explicitly per request. Never assume pooled connections retain path.
 
-Org → schema mapping cached in Redis: `org:{id}:schema`, TTL ~5 minutes.
+Org → schema mapping is resolved from Postgres (`organizations.schema_name`) on each request.
 
 ### Login routing (Phase 4)
 
@@ -92,7 +92,7 @@ JWT unchanged; schema resolved server-side from `org_id`.
 ### Performance guardrails
 
 - No cross-schema scans on tenant hot paths.
-- Super-admin org list counts: Redis / platform cache — no N-schema fan-out per page load (extend `super_org_counts_cache_key` pattern).
+- Super-admin org list counts: avoid N-schema fan-out per page load (platform aggregates / denormalized counts).
 - Cursor pagination unchanged.
 
 ## Implementation phases

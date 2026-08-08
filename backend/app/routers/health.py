@@ -5,7 +5,6 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.logging import log_event
-from app.core.redis_cache import redis_health_status
 from app.db.database import ping_database
 from app.db.storage.paths import settings as storage_settings
 
@@ -71,7 +70,6 @@ async def health_check(request: Request) -> JSONResponse:
             database_error=database_error,
         )
 
-    redis_status = await redis_health_status()
     rustfs_status = await _rustfs_health_status()
 
     health_status = "ok" if database_ready else "degraded"
@@ -84,7 +82,6 @@ async def health_check(request: Request) -> JSONResponse:
     content: dict[str, str | None] = {
         "status": health_status,
         "database": "connected" if database_ready else "unavailable",
-        "redis": redis_status,
         "rustfs": rustfs_status,
     }
     if not settings.production:

@@ -10,7 +10,6 @@ The backend is a FastAPI application in `backend/`. It owns auth, multi-tenant d
 - Alembic (platform + per-tenant chains)
 - `uv` for dependencies
 - RustFS (S3-compatible) for item images
-- Redis for org/schema caching
 
 ## Layout
 
@@ -41,7 +40,7 @@ PostgreSQL uses **schema-per-tenant** (see [ADR-003](decisions/ADR-003-schema-pe
 
 ### Request routing
 
-- Tenant APIs resolve `organizations.schema_name` from JWT `org_id` (cached in Redis).
+- Tenant APIs resolve `organizations.schema_name` from JWT `org_id` via Postgres.
 - `tenant_schema_scope()` sets `search_path` and a context var for the active schema.
 - Super-admin routes use `public` only unless drilling into a tenant.
 

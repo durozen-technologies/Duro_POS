@@ -9,14 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import get_settings
 from app.core.ids import uuid7
-from app.core.redis_cache import (
-    cache_get_json,
-    cache_set_json,
-    evict_shop_inventory_summary_cache,
-    shop_inventory_summary_cache_key,
-)
 from app.core.timezone import ist_midnight, today_ist
 from app.db.storage import (
     delete_inventory_item_image as delete_inventory_item_image_storage,
@@ -719,11 +712,11 @@ def _inventory_item_cursor_filter(
     if cursor_name is None or cursor_id is None:
         return None
     sort_name_expr = func.lower(InventoryItem.name)
-    
+
     if cursor_is_active is not None:
         if cursor_sort_order is None:
             cursor_sort_order = 0
-            
+
         return or_(
             and_(InventoryItem.is_active.is_(False), cursor_is_active is True),
             and_(
@@ -1499,9 +1492,7 @@ async def _movement_totals(
         row.inventory_item_id: row.added_qty or ZERO for row in item_rows if row.added_qty
     }
     added_bird: dict[UUID, int] = {
-        row.inventory_item_id: int(row.added_bird or 0)
-        for row in item_rows
-        if row.added_bird
+        row.inventory_item_id: int(row.added_bird or 0) for row in item_rows if row.added_bird
     }
     used: dict[UUID, Decimal] = {
         row.inventory_item_id: row.used_qty or ZERO for row in item_rows if row.used_qty
@@ -1640,14 +1631,10 @@ async def _movement_totals_alltime_and_today(
         row.inventory_item_id: row.used_all_qty or ZERO for row in item_rows if row.used_all_qty
     }
     used_alltime_bird = {
-        row.inventory_item_id: int(row.used_all_bird or 0)
-        for row in item_rows
-        if row.used_all_bird
+        row.inventory_item_id: int(row.used_all_bird or 0) for row in item_rows if row.used_all_bird
     }
     used_today = {
-        row.inventory_item_id: row.used_today_qty or ZERO
-        for row in item_rows
-        if row.used_today_qty
+        row.inventory_item_id: row.used_today_qty or ZERO for row in item_rows if row.used_today_qty
     }
     used_today_bird = {
         row.inventory_item_id: int(row.used_today_bird or 0)
@@ -1812,7 +1799,9 @@ async def _retailer_usage_totals(
         qty = row.quantity or ZERO
         birds = int(row.bird_count or 0)
         item_totals[row.inventory_item_id] = item_totals.get(row.inventory_item_id, ZERO) + qty
-        item_bird_totals[row.inventory_item_id] = item_bird_totals.get(row.inventory_item_id, 0) + birds
+        item_bird_totals[row.inventory_item_id] = (
+            item_bird_totals.get(row.inventory_item_id, 0) + birds
+        )
         if row.category_id is not None:
             category_totals[(row.inventory_item_id, row.category_id)] = qty
             category_bird_totals[(row.inventory_item_id, row.category_id)] = birds
@@ -1893,7 +1882,9 @@ async def _retailer_usage_totals_alltime_and_today(
         today_qty = row.today_qty or ZERO
         today_bird = int(row.today_bird or 0)
         all_item[row.inventory_item_id] = all_item.get(row.inventory_item_id, ZERO) + all_qty
-        all_item_bird[row.inventory_item_id] = all_item_bird.get(row.inventory_item_id, 0) + all_bird
+        all_item_bird[row.inventory_item_id] = (
+            all_item_bird.get(row.inventory_item_id, 0) + all_bird
+        )
         today_item[row.inventory_item_id] = today_item.get(row.inventory_item_id, ZERO) + today_qty
         today_item_bird[row.inventory_item_id] = (
             today_item_bird.get(row.inventory_item_id, 0) + today_bird
@@ -1985,32 +1976,26 @@ async def _stock_last_updated_at_by_item_id(
 
     last_updated: dict[UUID, datetime | None] = dict.fromkeys(unique_item_ids)
 
-    movement_sub = (
-        select(
-            InventoryMovement.inventory_item_id.label("inventory_item_id"),
-            InventoryMovement.occurred_at.label("occurred_at"),
-        ).where(
-            InventoryMovement.shop_id == shop_id,
-            InventoryMovement.inventory_item_id.in_(unique_item_ids),
-        )
+    movement_sub = select(
+        InventoryMovement.inventory_item_id.label("inventory_item_id"),
+        InventoryMovement.occurred_at.label("occurred_at"),
+    ).where(
+        InventoryMovement.shop_id == shop_id,
+        InventoryMovement.inventory_item_id.in_(unique_item_ids),
     )
-    usage_sub = (
-        select(
-            RetailerInventoryUsage.inventory_item_id.label("inventory_item_id"),
-            RetailerInventoryUsage.occurred_at.label("occurred_at"),
-        ).where(
-            RetailerInventoryUsage.shop_id == shop_id,
-            RetailerInventoryUsage.inventory_item_id.in_(unique_item_ids),
-        )
+    usage_sub = select(
+        RetailerInventoryUsage.inventory_item_id.label("inventory_item_id"),
+        RetailerInventoryUsage.occurred_at.label("occurred_at"),
+    ).where(
+        RetailerInventoryUsage.shop_id == shop_id,
+        RetailerInventoryUsage.inventory_item_id.in_(unique_item_ids),
     )
-    transfer_sub = (
-        select(
-            InventoryTransfer.inventory_item_id.label("inventory_item_id"),
-            InventoryTransfer.occurred_at.label("occurred_at"),
-        ).where(
-            InventoryTransfer.source_shop_id == shop_id,
-            InventoryTransfer.inventory_item_id.in_(unique_item_ids),
-        )
+    transfer_sub = select(
+        InventoryTransfer.inventory_item_id.label("inventory_item_id"),
+        InventoryTransfer.occurred_at.label("occurred_at"),
+    ).where(
+        InventoryTransfer.source_shop_id == shop_id,
+        InventoryTransfer.inventory_item_id.in_(unique_item_ids),
     )
     events = movement_sub.union_all(usage_sub, transfer_sub).subquery()
     rows = (
@@ -2113,30 +2098,12 @@ async def get_inventory_summary(
     include_unallocated: bool = False,
     active_allocations_only: bool = False,
 ) -> InventorySummaryRead:
-    cache_key = await shop_inventory_summary_cache_key(
-        shop.id,
-        include_unallocated=include_unallocated,
-        active_allocations_only=active_allocations_only,
-    )
-    cached = await cache_get_json(cache_key)
-    if isinstance(cached, dict):
-        try:
-            return InventorySummaryRead.model_validate(cached)
-        except Exception:
-            pass
-
-    summary = await _get_inventory_summary_from_db(
+    return await _get_inventory_summary_from_db(
         db,
         shop,
         include_unallocated=include_unallocated,
         active_allocations_only=active_allocations_only,
     )
-    await cache_set_json(
-        cache_key,
-        summary.model_dump(mode="json"),
-        ttl_seconds=get_settings().redis_inventory_summary_cache_ttl,
-    )
-    return summary
 
 
 async def _get_inventory_summary_from_db(
@@ -2937,20 +2904,15 @@ async def list_inventory_movements(
         query = query.where(InventoryMovement.category_id == category_id)
     if range_start_date is not None or range_end_date is not None:
         if range_start_date is not None:
-            query = query.where(
-                InventoryMovement.occurred_at
-                >= ist_midnight(range_start_date)
-            )
+            query = query.where(InventoryMovement.occurred_at >= ist_midnight(range_start_date))
         if range_end_date is not None:
             query = query.where(
-                InventoryMovement.occurred_at
-                < ist_midnight(range_end_date + timedelta(days=1))
+                InventoryMovement.occurred_at < ist_midnight(range_end_date + timedelta(days=1))
             )
     elif reference_date is not None:
         query = query.where(
             InventoryMovement.occurred_at >= ist_midnight(reference_date),
-            InventoryMovement.occurred_at
-            < ist_midnight(reference_date + timedelta(days=1)),
+            InventoryMovement.occurred_at < ist_midnight(reference_date + timedelta(days=1)),
         )
     rows = (
         await db.scalars(
@@ -2988,20 +2950,15 @@ async def list_inventory_transfers(
         query = query.where(InventoryTransfer.inventory_item_id == item_id)
     if range_start_date is not None or range_end_date is not None:
         if range_start_date is not None:
-            query = query.where(
-                InventoryTransfer.occurred_at
-                >= ist_midnight(range_start_date)
-            )
+            query = query.where(InventoryTransfer.occurred_at >= ist_midnight(range_start_date))
         if range_end_date is not None:
             query = query.where(
-                InventoryTransfer.occurred_at
-                < ist_midnight(range_end_date + timedelta(days=1))
+                InventoryTransfer.occurred_at < ist_midnight(range_end_date + timedelta(days=1))
             )
     elif reference_date is not None:
         query = query.where(
             InventoryTransfer.occurred_at >= ist_midnight(reference_date),
-            InventoryTransfer.occurred_at
-            < ist_midnight(reference_date + timedelta(days=1)),
+            InventoryTransfer.occurred_at < ist_midnight(reference_date + timedelta(days=1)),
         )
     rows = (
         await db.scalars(
@@ -3059,7 +3016,6 @@ async def add_shop_inventory_stock(
     )
     db.add(movement)
     await db.commit()
-    await evict_shop_inventory_summary_cache(shop.id)
     await db.refresh(movement)
     movement = await db.scalar(
         select(InventoryMovement)
@@ -3146,7 +3102,6 @@ async def use_shop_inventory_stock(
     )
     db.add(movement)
     await db.commit()
-    await evict_shop_inventory_summary_cache(shop.id)
     await db.refresh(movement)
     movement = await db.scalar(
         select(InventoryMovement)
@@ -3262,7 +3217,6 @@ async def use_shop_inventory_stock_split(
     await db.flush()
     movement_ids = [movement.id for movement in movements]
     await db.commit()
-    await evict_shop_inventory_summary_cache(shop.id)
     saved_movements = (
         await db.scalars(
             select(InventoryMovement)
@@ -3582,9 +3536,7 @@ async def admin_set_shop_inventory_stock(
         *_bird,
     ) = await _movement_totals(db, shop.id, [item_id])
     retailer_used_alltime, _, *_retailer_bird = await _retailer_usage_totals(db, shop.id, [item_id])
-    _, used_today, _, _, *_ = await _movement_totals(
-        db, shop.id, [item_id], used_since=today_ist()
-    )
+    _, used_today, _, _, *_ = await _movement_totals(db, shop.id, [item_id], used_since=today_ist())
 
     current_available = (
         added.get(item_id, ZERO)
@@ -3706,8 +3658,6 @@ async def admin_set_shop_inventory_stock(
         db.add(movement)
     if movements_added or transfer_changed:
         await db.commit()
-        await evict_shop_inventory_summary_cache(shop.id)
-
     return await _stock_item_for_shop_inventory_item(
         db, shop, item, allocation, used_since=today_ist()
     )

@@ -188,7 +188,7 @@ class BackendApiIntegrationTests(BackendTestCase):
         mock_request.app.state.database_error = None
         import json
 
-        with patch("app.routers.health.redis_health_status", return_value="disabled"), patch(
+        with patch(
             "app.routers.health._rustfs_health_status", return_value="disabled"
         ):
             response = self.run_async(health_check(mock_request))
@@ -197,7 +197,6 @@ class BackendApiIntegrationTests(BackendTestCase):
             {
                 "status": "ok",
                 "database": "connected",
-                "redis": "disabled",
                 "rustfs": "disabled",
                 "error": None,
             },

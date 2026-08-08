@@ -17,7 +17,6 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.ids import uuid7
-from app.core.redis_cache import evict_shop_bills_cache
 from app.core.timezone import ist_month_key, today_ist
 from app.db.tenant_context_var import get_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import set_search_path, tenant_router
@@ -873,7 +872,6 @@ async def create_bill(
         bill.id,
         created_by_name=actor.username if actor is not None else None,
     )
-    await evict_shop_bills_cache(shop.id)
     return BillCreateResult(bill=bill_read, created=True)
 
 
@@ -900,7 +898,6 @@ async def update_bill_receipt_status(
         receipt.receipt_status = ReceiptStatus.PENDING
 
     await db.commit()
-    await evict_shop_bills_cache(shop.id)
     return await _bill_read_for_shop(db, shop, bill_id)
 
 
@@ -1101,7 +1098,6 @@ async def edit_shop_bill(
         )
     )
     await db.commit()
-    await evict_shop_bills_cache(bill.shop_id)
     return _bill_to_read(
         bill,
         organization_name=await _organization_name_for_bill(db, bill),

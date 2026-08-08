@@ -8,13 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_active_user
-from app.core.config import get_settings
 from app.core.errors import ORGANIZATION_DISABLED_BY_SUPER_ADMIN
-from app.core.redis_cache import (
-    cache_get_json,
-    cache_set_json,
-    permission_cache_key,
-)
 from app.db.session import get_platform_db
 from app.db.tenant_context_var import reset_active_tenant_schema, set_active_tenant_schema
 from app.db.tenant_schema import set_search_path, tenant_router
@@ -46,23 +40,12 @@ async def load_user_permissions(db: AsyncSession, user: User) -> frozenset[str]:
     if not is_tenant_admin(user.role):
         return frozenset()
 
-    cache_key = permission_cache_key(str(user.id), user.permissions_version)
-    cached = await cache_get_json(cache_key)
-    if isinstance(cached, list):
-        return frozenset(str(code) for code in cached)
-
     result = await db.scalars(
         select(AdminRolePermission.permission_code)
         .join(AdminUserRole, AdminUserRole.role_id == AdminRolePermission.role_id)
         .where(AdminUserRole.user_id == user.id)
     )
-    permissions = frozenset(result.all())
-    await cache_set_json(
-        cache_key,
-        sorted(permissions),
-        ttl_seconds=get_settings().redis_permission_cache_ttl,
-    )
-    return permissions
+    return frozenset(result.all())
 
 
 async def get_tenant_context(

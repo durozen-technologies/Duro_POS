@@ -237,89 +237,25 @@ class EnsureTenantRetailerPermissionsTests(unittest.TestCase):
         self.assertEqual(len(update_calls), 1)
 
 
-class ResolveSchemaCacheTests(unittest.IsolatedAsyncioTestCase):
-    async def test_positive_schema_is_cached(self) -> None:
+class ResolveSchemaTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_schema_name_from_db(self) -> None:
         org_id = MagicMock()
         db = MagicMock()
         db.scalar = AsyncMock(return_value="tenant_acme")
 
-        with (
-            patch(
-                "app.core.redis_cache.cache_get_json",
-                new=AsyncMock(return_value=None),
-            ),
-            patch(
-                "app.core.redis_cache.cache_set_json",
-                new=AsyncMock(),
-            ) as set_mock,
-            patch(
-                "app.core.redis_cache.cache_delete",
-                new=AsyncMock(),
-            ) as delete_mock,
-            patch(
-                "app.core.config.get_settings",
-                return_value=MagicMock(redis_org_schema_cache_ttl=300),
-            ),
-        ):
-            resolved = await tenant_router.resolve_schema(db, org_id)
+        resolved = await tenant_router.resolve_schema(db, org_id)
 
         self.assertEqual(resolved, "tenant_acme")
-        set_mock.assert_awaited_once()
-        self.assertEqual(set_mock.await_args.args[1], "tenant_acme")
-        delete_mock.assert_not_awaited()
+        db.scalar.assert_awaited_once()
 
-    async def test_missing_schema_is_not_negative_cached(self) -> None:
+    async def test_returns_none_when_org_missing(self) -> None:
         org_id = MagicMock()
         db = MagicMock()
         db.scalar = AsyncMock(return_value=None)
 
-        with (
-            patch(
-                "app.core.redis_cache.cache_get_json",
-                new=AsyncMock(return_value=None),
-            ),
-            patch(
-                "app.core.redis_cache.cache_set_json",
-                new=AsyncMock(),
-            ) as set_mock,
-            patch(
-                "app.core.redis_cache.cache_delete",
-                new=AsyncMock(),
-            ),
-        ):
-            resolved = await tenant_router.resolve_schema(db, org_id)
+        resolved = await tenant_router.resolve_schema(db, org_id)
 
         self.assertIsNone(resolved)
-        set_mock.assert_not_awaited()
-
-    async def test_stale_empty_cache_is_deleted_and_requeries(self) -> None:
-        org_id = MagicMock()
-        db = MagicMock()
-        db.scalar = AsyncMock(return_value="tenant_recovered")
-
-        with (
-            patch(
-                "app.core.redis_cache.cache_get_json",
-                new=AsyncMock(return_value=""),
-            ),
-            patch(
-                "app.core.redis_cache.cache_set_json",
-                new=AsyncMock(),
-            ) as set_mock,
-            patch(
-                "app.core.redis_cache.cache_delete",
-                new=AsyncMock(),
-            ) as delete_mock,
-            patch(
-                "app.core.config.get_settings",
-                return_value=MagicMock(redis_org_schema_cache_ttl=300),
-            ),
-        ):
-            resolved = await tenant_router.resolve_schema(db, org_id)
-
-        self.assertEqual(resolved, "tenant_recovered")
-        delete_mock.assert_awaited_once()
-        set_mock.assert_awaited_once()
         db.scalar.assert_awaited_once()
 
 

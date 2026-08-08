@@ -65,24 +65,6 @@ class Settings(BaseSettings):
     rustfs_public_read_enabled: bool = False
     rustfs_connect_timeout_seconds: int = 5
     rustfs_read_timeout_seconds: int = 15
-    redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
-    redis_password: str | None = Field(default=None, validation_alias="REDIS_PASSWORD")
-    redis_prefix: str = Field(default="brolier360", validation_alias="REDIS_PREFIX")
-    redis_permission_cache_ttl: int = Field(
-        default=30, validation_alias="REDIS_PERMISSION_CACHE_TTL"
-    )
-    redis_shop_bills_cache_ttl: int = Field(
-        default=10, validation_alias="REDIS_SHOP_BILLS_CACHE_TTL"
-    )
-    redis_shop_bootstrap_cache_ttl: int = Field(
-        default=45, validation_alias="REDIS_SHOP_BOOTSTRAP_CACHE_TTL"
-    )
-    redis_inventory_summary_cache_ttl: int = Field(
-        default=8, validation_alias="REDIS_INVENTORY_SUMMARY_CACHE_TTL"
-    )
-    redis_org_schema_cache_ttl: int = Field(
-        default=300, validation_alias="REDIS_ORG_SCHEMA_CACHE_TTL"
-    )
     item_image_max_bytes: int = 5 * 1024 * 1024
     item_image_thumbnail_size: int = 192
     item_image_full_max_size: int = 1024

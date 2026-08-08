@@ -7,13 +7,6 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.redis_cache import (
-    cache_get_json,
-    cache_set_json,
-    evict_shop_bootstrap_cache,
-    shop_bootstrap_cache_key,
-)
 from app.core.timezone import today_ist
 from app.models import DailyPrice, Item, Organization, Shop, ShopItemAllocation
 from app.schemas.admin import PriceStatus
@@ -78,13 +71,11 @@ async def _invalidate_daily_prices_publication(db: AsyncSession, shop: Shop) -> 
     if shop.daily_prices_published_on == today_ist():
         shop.daily_prices_published_on = None
         await db.commit()
-    await evict_shop_bootstrap_cache(shop.id)
 
 
 async def _publish_daily_prices(db: AsyncSession, shop: Shop, target_date: date) -> None:
     shop.daily_prices_published_on = target_date
     await db.commit()
-    await evict_shop_bootstrap_cache(shop.id)
 
 
 def _validate_daily_price_entries(
@@ -264,24 +255,9 @@ async def get_shop_bootstrap(db: AsyncSession, shop: Shop) -> ShopBootstrapRespo
     correlated latest-price lookups per item.
     """
     today = today_ist()
-    cache_key = await shop_bootstrap_cache_key(shop.id, today.isoformat())
-    cached = await cache_get_json(cache_key)
     billing_entry_mode = await _billing_entry_mode_for_shop(db, shop)
-    if isinstance(cached, dict):
-        try:
-            result = ShopBootstrapResponse.model_validate(cached)
-            return result.model_copy(update={"billing_entry_mode": billing_entry_mode})
-        except Exception:
-            pass
-
     result = await _get_shop_bootstrap_from_db(db, shop, today=today)
-    result = result.model_copy(update={"billing_entry_mode": billing_entry_mode})
-    await cache_set_json(
-        cache_key,
-        result.model_dump(mode="json"),
-        ttl_seconds=get_settings().redis_shop_bootstrap_cache_ttl,
-    )
-    return result
+    return result.model_copy(update={"billing_entry_mode": billing_entry_mode})
 
 
 async def _get_shop_bootstrap_from_db(
@@ -525,8 +501,6 @@ async def create_daily_prices(
     saved = await _upsert_daily_price_entries(db, shop.id, target_date, entries, items_by_id)
     if publish:
         await _publish_daily_prices(db, shop, target_date)
-    else:
-        await evict_shop_bootstrap_cache(shop.id)
     return saved
 
 

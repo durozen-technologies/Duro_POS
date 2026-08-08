@@ -251,7 +251,6 @@ jobs:
           RUSTFS_SERVER_DOMAINS: ${{ secrets.RUSTFS_SERVER_DOMAINS }}
           BACKEND_SECRET_KEY: ${{ secrets.BACKEND_SECRET_KEY }}
           CADDY_ACME_EMAIL: ${{ secrets.CADDY_ACME_EMAIL }}
-          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
           BACKEND_RUSTFS_BUCKET_NAME: ${{ secrets.BACKEND_RUSTFS_BUCKET_NAME }}
           BACKEND_CORS_ORIGINS: ${{ secrets.BACKEND_CORS_ORIGINS }}
           BACKEND_TRUSTED_PROXIES: '["172.16.0.0/12","10.0.0.0/8","192.168.0.0/16"]'
@@ -259,7 +258,7 @@ jobs:
           missing=()
           for key in CADDY_PUBLIC_HOST DOCKERHUB_USERNAME POSTGRES_PASSWORD \
             RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY RUSTFS_SERVER_DOMAINS \
-            BACKEND_SECRET_KEY CADDY_ACME_EMAIL REDIS_PASSWORD BACKEND_CORS_ORIGINS; do
+            BACKEND_SECRET_KEY CADDY_ACME_EMAIL BACKEND_CORS_ORIGINS; do
             if [ -z "${!key}" ]; then
               missing+=("${key}")
             fi
@@ -299,7 +298,6 @@ jobs:
           pg_user = quote_plus(non_empty("POSTGRES_USER", "postgres"))
           pg_password = quote_plus(os.environ["POSTGRES_PASSWORD"])
           pg_db = non_empty("POSTGRES_DB", "brolier_360")
-          redis_password = quote_plus(os.environ["REDIS_PASSWORD"])
 
           backend_database_url = (
               f"postgresql+psycopg://{pg_user}:{pg_password}@pgbouncer:6432/{pg_db}"
@@ -307,7 +305,6 @@ jobs:
           backend_migrate_database_url = (
               f"postgresql+asyncpg://{pg_user}:{pg_password}@postgres:5432/{pg_db}"
           )
-          backend_redis_url = f"redis://:{redis_password}@redis:6379/0"
 
           pairs = {
               "DOCKERHUB_USERNAME": os.environ["DOCKERHUB_USERNAME"],
@@ -325,12 +322,10 @@ jobs:
               "POSTGRES_PASSWORD": os.environ["POSTGRES_PASSWORD"],
               "BACKEND_DATABASE_URL": backend_database_url,
               "BACKEND_MIGRATE_DATABASE_URL": backend_migrate_database_url,
-              "BACKEND_REDIS_URL": backend_redis_url,
               "RUSTFS_ACCESS_KEY": os.environ["RUSTFS_ACCESS_KEY"],
               "RUSTFS_SECRET_KEY": os.environ["RUSTFS_SECRET_KEY"],
               "RUSTFS_SERVER_DOMAINS": os.environ["RUSTFS_SERVER_DOMAINS"],
               "BACKEND_SECRET_KEY": os.environ["BACKEND_SECRET_KEY"],
-              "REDIS_PASSWORD": os.environ["REDIS_PASSWORD"],
               "BACKEND_PRODUCTION": "True",
               "BACKEND_ALLOWED_HOSTS": json.dumps(allowed_hosts),
               "BACKEND_CORS_ORIGINS": os.environ["BACKEND_CORS_ORIGINS"],

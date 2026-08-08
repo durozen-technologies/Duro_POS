@@ -17,7 +17,7 @@ Brolier 360 operated as a single-organization deployment: one global `ADMIN` man
 1. **Tenancy:** *(superseded by ADR-003)* Shared PostgreSQL schema with `organization_id` row-level isolation. Organization = tenant; Shop = branch/outlet. Migrating to schema-per-tenant per ADR-003.
 2. **Roles:** `SUPER_ADMIN` (platform, `organization_id = NULL`), `TENANT_ADMIN` (org-scoped; `ADMIN` is a deprecated alias), `SHOP_ACCOUNT` (unchanged).
 3. **RBAC:** Static permission catalog (~15 codes) via `admin_roles` / `admin_user_roles`. Super admin has implicit `*`.
-4. **Auth:** JWT carries `sub`, `role`, `org_id`, `perm_version`; permissions loaded server-side each request (Redis cache in Phase 3).
+4. **Auth:** JWT carries `sub`, `role`, `org_id`, `perm_version`; permissions loaded server-side each request from Postgres.
 5. **RustFS:** Object keys prefixed `orgs/{organization_id}/...`.
 6. **Bootstrap:** Super admin via `uv run python -m app.cli bootstrap-super-admin` (local) or `docker compose ... run --rm migrate python -m app.cli bootstrap-super-admin` on the production VM (direct Postgres, not pgBouncer). Public `POST /register` disabled in production.
 7. **Database default name:** `brolier_360` for new installs; existing deployments may keep `meat_billing` until ops migrates.

@@ -47,7 +47,6 @@ Production backup for **PostgreSQL 17** (schema-per-tenant) + **RustFS** object 
 
 ### Out of scope (v1)
 
-- Redis (no persistence configured — cache rebuilds on restart)
 - Point-in-time recovery / WAL archiving
 - Cross-region replica
 - Mobile device local upload drafts
@@ -84,7 +83,6 @@ Postgres stores **object key metadata** (`image_object_key`, etc.). RustFS store
 
 ### Tier 3 — Skip
 
-- Redis (`--save ""`, `--appendonly no`)
 - SQLite (tests/dev only)
 - Docker images (pulled from registry)
 

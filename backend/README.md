@@ -85,16 +85,7 @@ RUSTFS_READ_TIMEOUT_SECONDS=15
 ITEM_IMAGE_MAX_BYTES=5242880
 ITEM_IMAGE_THUMBNAIL_SIZE=192
 ITEM_IMAGE_FULL_MAX_SIZE=1024
-REDIS_URL=redis://127.0.0.1:6379/0
-REDIS_PREFIX=brolier360
-REDIS_PERMISSION_CACHE_TTL=30
 ```
-
-Optional Redis (permission cache only; app degrades when unset):
-
-- `REDIS_URL` — e.g. `redis://127.0.0.1:6379/0` locally, `redis://redis:6379/0` in production compose
-- `REDIS_PREFIX` — key namespace (default `brolier360`)
-- `REDIS_PERMISSION_CACHE_TTL` — tenant admin permission cache TTL in seconds (default `30`)
 
 Important backend defaults from [`app/core/config.py`](app/core/config.py):
 

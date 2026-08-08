@@ -9,7 +9,6 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import log_event
-from app.core.redis_cache import evict_user_permission_cache
 from app.core.security import get_password_hash
 from app.db.tenant_schema import tenant_schema_scope
 from app.models import AdminRole, AdminUserRole, Organization, Shop, User, UserAuthIndex, UserRole
@@ -434,7 +433,6 @@ async def hard_delete_tenant_admin(
 
             resource_name = user.username
             organization_id = user.organization_id
-            await evict_user_permission_cache(user.id, user.permissions_version)
             await platform_db.delete(user)
             # Flush tenant-side relationship work before search_path resets to public.
             await platform_db.flush()

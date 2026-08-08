@@ -1,6 +1,5 @@
 import logging
 import socket
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,44 +16,21 @@ from app.core.middleware import (
     SecurityHeadersMiddleware,
     SelectiveGZipMiddleware,
 )
-from app.core.redis_cache import configure_redis_environment
 from app.routers import api_router
 from app.routers.health import readiness_router
-
-configure_redis_environment()
 
 settings = get_settings()
 configure_logging(production=settings.production)
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    from app.core.redis_cache import bind_app
-
-    bind_app(app)
-    yield
-
-
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    lifespan=lifespan,
     docs_url=None if settings.production else "/docs",
     redoc_url=None if settings.production else "/redoc",
     openapi_url=None if settings.production else f"{settings.api_v1_prefix}/openapi.json",
 )
-
-try:
-    from redis_fastapi import FastAPIRedis
-
-    FastAPIRedis(app).lifespan()
-except ImportError as exc:
-    logger.warning(
-        "fastapi-redis-sdk not available (%s); Redis caching disabled. "
-        "Run: cd backend && uv sync && uv run uvicorn main:app --reload",
-        exc,
-    )
 
 
 @app.exception_handler(HTTPException)
@@ -103,6 +79,7 @@ def root():
         "version": "1.0.0",
         "description": "DuroPOS(Broiler360) is a fast and scalable application for managing your business.",
     }
+
 
 app.add_middleware(
     CORSMiddleware,

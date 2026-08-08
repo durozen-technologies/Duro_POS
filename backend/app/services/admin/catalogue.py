@@ -6,7 +6,6 @@ from sqlalchemy import and_, case, cast, func, null, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.redis_cache import evict_shop_bootstrap_cache
 from app.core.timezone import (
     ist_day_bounds,
     ist_month_bounds,
@@ -1513,41 +1512,41 @@ async def list_catalogue_items(
         )
         items.append(
             ShopItemRead(
-            id=row.id,
-            shop_id=None,
-            name=row.name,
-            tamil_name=row.tamil_name,
-            unit_type=row.unit_type,
-            base_unit=row.base_unit,
-            sort_order=row.sort_order,
-            category_id=row.category_id,
-            category=row.category,
-            is_active=row.is_active,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            custom_attributes=row.custom_attributes or {},
-            **_item_assumption_read_kwargs(row),
-            image_path=image_path,
-            image_thumb_path=image_thumb_path,
-            image_content_type=image_content_type,
-            global_image_template_id=row.global_image_template_id,
-            current_price=None,
-            price_date=None,
-            latest_price_date=None,
-            price_status=PriceStatus.MISSING,
-            scope=ItemScope.GLOBAL,
-            allocated=int(row.allocated_shop_count or 0) > 0,
-            available_for_billing=False,
-            can_delete=(
-                int(row.bill_count or 0) == 0
-                and int(row.price_count or 0) == 0
-                and int(row.allocated_shop_count or 0) == 0
-            ),
-            can_deallocate=False,
-            bill_count=int(row.bill_count or 0),
-            price_count=int(row.price_count or 0),
-            allocated_shop_count=int(row.allocated_shop_count or 0),
-        )
+                id=row.id,
+                shop_id=None,
+                name=row.name,
+                tamil_name=row.tamil_name,
+                unit_type=row.unit_type,
+                base_unit=row.base_unit,
+                sort_order=row.sort_order,
+                category_id=row.category_id,
+                category=row.category,
+                is_active=row.is_active,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                custom_attributes=row.custom_attributes or {},
+                **_item_assumption_read_kwargs(row),
+                image_path=image_path,
+                image_thumb_path=image_thumb_path,
+                image_content_type=image_content_type,
+                global_image_template_id=row.global_image_template_id,
+                current_price=None,
+                price_date=None,
+                latest_price_date=None,
+                price_status=PriceStatus.MISSING,
+                scope=ItemScope.GLOBAL,
+                allocated=int(row.allocated_shop_count or 0) > 0,
+                available_for_billing=False,
+                can_delete=(
+                    int(row.bill_count or 0) == 0
+                    and int(row.price_count or 0) == 0
+                    and int(row.allocated_shop_count or 0) == 0
+                ),
+                can_deallocate=False,
+                bill_count=int(row.bill_count or 0),
+                price_count=int(row.price_count or 0),
+                allocated_shop_count=int(row.allocated_shop_count or 0),
+            )
         )
     next_cursor_sort_order = next_cursor_name = next_cursor_id = None
     if has_more and page_rows:
@@ -1705,7 +1704,6 @@ async def allocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID) -
             after={"shop_id": str(shop.id), "item_id": str(item_id)},
         )
         await db.commit()
-    await evict_shop_bootstrap_cache(shop.id)
     return await get_shop_item(db, shop, item_id)
 
 
@@ -1796,8 +1794,6 @@ async def allocate_catalogue_items(
                         raise
                     allocated_count = 0
 
-    if allocated_count:
-        await evict_shop_bootstrap_cache(shop.id)
     return ShopItemAllocationBulkRead(
         item_ids=unique_item_ids,
         allocated_count=allocated_count,
@@ -1833,18 +1829,14 @@ async def remove_catalogue_item_from_all_shop_billing(
 
     retailer_catalog_rows = (
         await db.scalars(
-            select(ShopRetailerItemAllocation).where(
-                ShopRetailerItemAllocation.item_id == item_id
-            )
+            select(ShopRetailerItemAllocation).where(ShopRetailerItemAllocation.item_id == item_id)
         )
     ).all()
     for row in retailer_catalog_rows:
         await db.delete(row)
 
     allocation_rows = (
-        await db.scalars(
-            select(ShopItemAllocation).where(ShopItemAllocation.item_id == item_id)
-        )
+        await db.scalars(select(ShopItemAllocation).where(ShopItemAllocation.item_id == item_id))
     ).all()
     for row in allocation_rows:
         _record_item_event(
@@ -1901,7 +1893,6 @@ async def deallocate_catalogue_item(db: AsyncSession, shop: Shop, item_id: UUID)
         )
         await db.delete(allocation)
         await db.commit()
-        await evict_shop_bootstrap_cache(shop.id)
     return await get_shop_item(db, shop, item_id)
 
 

@@ -27,7 +27,6 @@ Mobile-first meat billing and POS platform with multi-tenant PostgreSQL isolatio
 - **Frontend:** Expo 54, React Native, TypeScript, Zustand, React Navigation, NativeWind
 - **Proxy:** Caddy 2 with `caddy-ratelimit`
 - **Images:** RustFS / S3-compatible storage (not Postgres blobs)
-- **Cache:** Redis (optional; app degrades gracefully without it)
 
 ## Architecture
 
@@ -48,13 +47,11 @@ flowchart TB
   subgraph data [Data]
     PG[(PostgreSQL)]
     RF[RustFS]
-    RD[(Redis optional)]
   end
 
   Mobile --> Caddy --> BE
   BE --> PG
   BE --> RF
-  BE --> RD
 ```
 
 ### Schema-per-tenant (PostgreSQL)
@@ -185,7 +182,6 @@ flowchart TB
     BE2[backend-2 :8000]
     PGB[pgBouncer :6432]
     Postgres[(Postgres :5432)]
-    Redis[(Redis :6379)]
     RustFS[RustFS :9000]
     PGData["/home/ubuntu/pos-postgress/data"]
     RFData["/home/ubuntu/rustfs/data"]
@@ -200,8 +196,6 @@ flowchart TB
   PGB --> Postgres
   BE1 --> RustFS
   BE2 --> RustFS
-  BE1 --> Redis
-  BE2 --> Redis
   Postgres --- PGData
   RustFS --- RFData
 ```
@@ -222,9 +216,7 @@ Production runs **two backend replicas** behind Caddy (`round_robin` + active `/
 
 **Connection capacity** is governed by PgBouncer (`PGBOUNCER_*` in deploy `.env`), not `DB_POOL_*` — the latter only apply when connecting to Postgres directly (local dev). Defaults: `default_pool_size=40`, `max_db_connections=80`, `max_client_conn=400`, Postgres `max_connections=120`. Tune via GitHub/env overrides before load tests; keep `max_db_connections` below Postgres `max_connections` minus headroom for migrate/admin.
 
-**Redis is required** for correct login rate limiting across replicas. If Redis is down, each backend falls back to in-memory counters (limits are effectively doubled). Keep `REDIS_PASSWORD` set and Redis healthy before enabling dual-backend mode.
-
-Redis also caches short-TTL shop hot reads (`/shop/bills`, `/shop/bootstrap`, inventory summary) and org→schema lookups. Without Redis those paths hit Postgres every time (safe but slower under load).
+**Login rate limiting** is in-memory per backend process. With two replicas, effective limits can be up to 2× the configured IP/username caps. Caddy edge `rate_limit` still applies. Shop reads and org→schema lookups always hit Postgres.
 
 For cashier thumbnail load, prefer `RUSTFS_PUBLIC_READ_ENABLED=True` with `RUSTFS_PUBLIC_BASE_URL` so images skip the API/DB proxy — see `docs/rustfs.md`.
 
@@ -235,7 +227,7 @@ Database migrations run **once** via the `migrate` compose service (`scripts/dep
 1. CI builds and pushes images when `backend/**` or `caddy/**` changes on `prod`.
 2. CI SCPs compose, pgBouncer config, scripts, and a generated `.env` to the VM.
 3. [`scripts/deploy-prod.sh`](scripts/deploy-prod.sh) on the VM:
-   - Ensures infra (Postgres, pgBouncer, Redis, RustFS) is healthy
+   - Ensures infra (Postgres, pgBouncer, RustFS) is healthy
    - Pulls new backend image tags
    - Runs **`migrate`** once on the new image
    - Rolling recreate: **backend-1** → wait healthy → **backend-2** → wait healthy
@@ -247,7 +239,6 @@ Database migrations run **once** via the `migrate` compose service (`scripts/dep
 |---------|-------|------------|----------|
 | `postgres` | `postgres:17-alpine` | `5432` (localhost) | `postgres:5432` |
 | `pgbouncer` | built from `pgbouncer/` | — | `pgbouncer:6432` |
-| `redis` | `redis:7.4-alpine` | — | `redis:6379` |
 | `rustfs` | `rustfs/rustfs` | — | `rustfs:9000` |
 | `backend-1`, `backend-2` | `brolier360-pos-backend:latest` | — | `:8000` |
 | `caddy` | `brolier360-pos-caddy:latest` | `80`, `443` | — |

@@ -1,4 +1,4 @@
-"""Login brute-force throttling (in-memory; Redis when available)."""
+"""Login brute-force throttling (in-memory per process)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from threading import Lock
 from fastapi import HTTPException, status
 
 from app.core.logging import log_event
-from app.core.redis_cache import cache_get_json, cache_set_json, get_cache_backend_optional, redis_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -33,32 +32,11 @@ def _memory_allow(key: str, limit: int) -> bool:
         return True
 
 
-async def _redis_allow(key: str, limit: int) -> bool:
-    cache_key = f"login_rate:{key}"
-    current = await cache_get_json(cache_key)
-    count = int(current) if isinstance(current, int) else 0
-    if count >= limit:
-        return False
-    await cache_set_json(cache_key, count + 1, _WINDOW_SECONDS)
-    return True
-
-
-async def _allow(key: str, limit: int) -> bool:
-    if redis_enabled():
-        backend = await get_cache_backend_optional()
-        if backend is not None:
-            try:
-                return await _redis_allow(key, limit)
-            except Exception:
-                logger.debug("redis login rate limit failed for %s", key, exc_info=True)
-    return _memory_allow(key, limit)
-
-
 async def enforce_login_rate_limit(*, client_ip: str, username: str) -> None:
     ip_key = f"ip:{client_ip or 'unknown'}"
     user_key = f"user:{username.lower()}"
 
-    if not await _allow(ip_key, _IP_LIMIT):
+    if not _memory_allow(ip_key, _IP_LIMIT):
         log_event(
             logger,
             logging.WARNING,
@@ -72,7 +50,7 @@ async def enforce_login_rate_limit(*, client_ip: str, username: str) -> None:
             detail="Too many login attempts. Please wait a moment before retrying.",
         )
 
-    if not await _allow(user_key, _USERNAME_LIMIT):
+    if not _memory_allow(user_key, _USERNAME_LIMIT):
         log_event(
             logger,
             logging.WARNING,

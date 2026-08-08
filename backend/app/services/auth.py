@@ -19,7 +19,6 @@ from app.core.errors import (
 )
 from app.core.logging import log_event
 from app.core.login_rate_limit import enforce_login_rate_limit
-from app.core.redis_cache import evict_user_permission_cache
 from app.core.security import (
     create_access_token_for_user,
     get_password_hash,
@@ -291,7 +290,6 @@ async def logout_user(db: AsyncSession, user: User) -> None:
     async def _persist_logout() -> None:
         bound_user = await db.scalar(select(User).where(User.id == user.id).with_for_update())
         if bound_user is None:
-            await evict_user_permission_cache(user.id, user.permissions_version)
             return
         await invalidate_user_sessions(bound_user)
         await db.flush()
@@ -303,7 +301,6 @@ async def logout_user(db: AsyncSession, user: User) -> None:
 
     schema_name = await tenant_router.resolve_schema(db, user.organization_id)
     if schema_name is None:
-        await evict_user_permission_cache(user.id, user.permissions_version)
         return
 
     async with tenant_schema_scope(db, schema_name):

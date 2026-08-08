@@ -301,7 +301,7 @@ log_infra_diagnostics() {
   log "Compose service status:"
   run_compose ps -a || true
   local svc
-  for svc in postgres pgbouncer rustfs redis; do
+  for svc in postgres pgbouncer rustfs; do
     log "${svc}=$(service_health "${svc}")"
     log "Recent ${svc} logs:"
     run_compose logs --tail 50 "${svc}" || true
@@ -386,8 +386,7 @@ ensure_rustfs_data_dir() {
 infra_healthy() {
   [[ "$(service_health postgres)" == "healthy" ]] \
     && [[ "$(service_health pgbouncer)" == "healthy" ]] \
-    && [[ "$(service_health rustfs)" == "healthy" ]] \
-    && [[ "$(service_health redis)" == "healthy" ]]
+    && [[ "$(service_health rustfs)" == "healthy" ]]
 }
 
 read_state() {
@@ -552,7 +551,7 @@ bootstrap_infra() {
   fi
 
   if infra_healthy; then
-    log "Postgres, pgBouncer, RustFS, and Redis healthy — skipping remaining infra restart"
+    log "Postgres, pgBouncer, and RustFS healthy — skipping remaining infra restart"
     return 0
   fi
 
@@ -563,17 +562,12 @@ bootstrap_infra() {
     exit 1
   fi
 
-  if ! bootstrap_infra_service redis false; then
-    log_infra_diagnostics
-    exit 1
-  fi
-
   if infra_healthy; then
     log "Infra healthy"
     return 0
   fi
 
-  log "Infra failed final health check (postgres=$(service_health postgres), pgbouncer=$(service_health pgbouncer), rustfs=$(service_health rustfs), redis=$(service_health redis))"
+  log "Infra failed final health check (postgres=$(service_health postgres), pgbouncer=$(service_health pgbouncer), rustfs=$(service_health rustfs))"
   log_infra_diagnostics
   exit 1
 }
@@ -582,9 +576,9 @@ sync_compose_project() {
   log "Applying compose/network changes (infra only, no image pull)"
   apply_pgbouncer_config
   if [[ "${COMPOSE_V2}" == "true" ]]; then
-    run_compose up -d --no-recreate --pull never postgres redis rustfs
+    run_compose up -d --no-recreate --pull never postgres rustfs
   else
-    run_compose up -d --no-recreate postgres redis rustfs
+    run_compose up -d --no-recreate postgres rustfs
   fi
 }
 
