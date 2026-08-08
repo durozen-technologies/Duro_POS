@@ -3,14 +3,17 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from app.db.tenant_schema import (  # noqa: E402
+    RETAILER_RBAC_PERMISSIONS,
     TENANT_MIGRATION_HEAD,
+    _ensure_tenant_retailer_permissions,
     ensure_tenant_schema_drift_repaired,
     repair_tenant_schema_ddl,
+    tenant_router,
 )
 
 
@@ -175,6 +178,149 @@ class TenantSchemaRepairTests(unittest.TestCase):
         ensure_tenant_schema_drift_repaired("tenant_new_org")
 
         repair_mock.assert_not_called()
+
+
+class EnsureTenantRetailerPermissionsTests(unittest.TestCase):
+    def _connection_with_tables(self, *, rowcounts: list[int]) -> MagicMock:
+        connection = MagicMock()
+        results = [MagicMock(rowcount=count) for count in rowcounts]
+        connection.execute.side_effect = [
+            MagicMock(),  # SET search_path
+            *results,
+        ]
+        return connection
+
+    @patch("sqlalchemy.inspect")
+    def test_skips_perm_version_bump_when_grants_already_present(
+        self, inspect_mock: MagicMock
+    ) -> None:
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        inspect_mock.return_value = inspector
+        connection = self._connection_with_tables(
+            rowcounts=[0] * len(RETAILER_RBAC_PERMISSIONS)
+        )
+
+        _ensure_tenant_retailer_permissions(connection, "tenant_demo")
+
+        update_calls = [
+            call
+            for call in connection.execute.call_args_list
+            if "permissions_version" in str(call.args[0])
+        ]
+        self.assertEqual(update_calls, [])
+
+    @patch("sqlalchemy.inspect")
+    def test_bumps_perm_version_when_grant_newly_inserted(
+        self, inspect_mock: MagicMock
+    ) -> None:
+        inspector = MagicMock()
+        inspector.has_table.return_value = True
+        inspect_mock.return_value = inspector
+        rowcounts = [0] * len(RETAILER_RBAC_PERMISSIONS)
+        rowcounts[0] = 1
+        connection = self._connection_with_tables(rowcounts=rowcounts)
+        # Extra execute for the permissions_version UPDATE.
+        connection.execute.side_effect = [
+            MagicMock(),  # SET search_path
+            *[MagicMock(rowcount=count) for count in rowcounts],
+            MagicMock(),  # UPDATE permissions_version
+        ]
+
+        _ensure_tenant_retailer_permissions(connection, "tenant_demo")
+
+        update_calls = [
+            call
+            for call in connection.execute.call_args_list
+            if "permissions_version" in str(call.args[0])
+        ]
+        self.assertEqual(len(update_calls), 1)
+
+
+class ResolveSchemaCacheTests(unittest.IsolatedAsyncioTestCase):
+    async def test_positive_schema_is_cached(self) -> None:
+        org_id = MagicMock()
+        db = MagicMock()
+        db.scalar = AsyncMock(return_value="tenant_acme")
+
+        with (
+            patch(
+                "app.core.redis_cache.cache_get_json",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.core.redis_cache.cache_set_json",
+                new=AsyncMock(),
+            ) as set_mock,
+            patch(
+                "app.core.redis_cache.cache_delete",
+                new=AsyncMock(),
+            ) as delete_mock,
+            patch(
+                "app.core.config.get_settings",
+                return_value=MagicMock(redis_org_schema_cache_ttl=300),
+            ),
+        ):
+            resolved = await tenant_router.resolve_schema(db, org_id)
+
+        self.assertEqual(resolved, "tenant_acme")
+        set_mock.assert_awaited_once()
+        self.assertEqual(set_mock.await_args.args[1], "tenant_acme")
+        delete_mock.assert_not_awaited()
+
+    async def test_missing_schema_is_not_negative_cached(self) -> None:
+        org_id = MagicMock()
+        db = MagicMock()
+        db.scalar = AsyncMock(return_value=None)
+
+        with (
+            patch(
+                "app.core.redis_cache.cache_get_json",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.core.redis_cache.cache_set_json",
+                new=AsyncMock(),
+            ) as set_mock,
+            patch(
+                "app.core.redis_cache.cache_delete",
+                new=AsyncMock(),
+            ),
+        ):
+            resolved = await tenant_router.resolve_schema(db, org_id)
+
+        self.assertIsNone(resolved)
+        set_mock.assert_not_awaited()
+
+    async def test_stale_empty_cache_is_deleted_and_requeries(self) -> None:
+        org_id = MagicMock()
+        db = MagicMock()
+        db.scalar = AsyncMock(return_value="tenant_recovered")
+
+        with (
+            patch(
+                "app.core.redis_cache.cache_get_json",
+                new=AsyncMock(return_value=""),
+            ),
+            patch(
+                "app.core.redis_cache.cache_set_json",
+                new=AsyncMock(),
+            ) as set_mock,
+            patch(
+                "app.core.redis_cache.cache_delete",
+                new=AsyncMock(),
+            ) as delete_mock,
+            patch(
+                "app.core.config.get_settings",
+                return_value=MagicMock(redis_org_schema_cache_ttl=300),
+            ),
+        ):
+            resolved = await tenant_router.resolve_schema(db, org_id)
+
+        self.assertEqual(resolved, "tenant_recovered")
+        delete_mock.assert_awaited_once()
+        set_mock.assert_awaited_once()
+        db.scalar.assert_awaited_once()
 
 
 if __name__ == "__main__":

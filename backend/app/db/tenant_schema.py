@@ -176,7 +176,11 @@ async def create_tenant_schema(session: AsyncSession, schema_name: str) -> None:
 
 
 def _ensure_tenant_retailer_permissions(connection, schema_name: str) -> None:
-    """Idempotent grant of retailer RBAC codes (mirrors tenant migration 0004)."""
+    """Idempotent grant of retailer RBAC codes (mirrors tenant migration 0004).
+
+    Only bumps TENANT_ADMIN permissions_version when at least one grant row is
+    newly inserted — avoids invalidating live JWTs on every cold drift finalize.
+    """
     from sqlalchemy import inspect as sa_inspect
 
     safe = assert_safe_schema_name(schema_name)
@@ -184,8 +188,9 @@ def _ensure_tenant_retailer_permissions(connection, schema_name: str) -> None:
     inspector = sa_inspect(connection)
     if not inspector.has_table("admin_role_permissions"):
         return
+    granted_new = False
     for code in RETAILER_RBAC_PERMISSIONS:
-        connection.execute(
+        result = connection.execute(
             text(
                 """
                 INSERT INTO admin_role_permissions (role_id, permission_code)
@@ -197,7 +202,9 @@ def _ensure_tenant_retailer_permissions(connection, schema_name: str) -> None:
             ),
             {"code": code},
         )
-    if inspector.has_table("users"):
+        if getattr(result, "rowcount", 0) and result.rowcount > 0:
+            granted_new = True
+    if granted_new and inspector.has_table("users"):
         connection.execute(
             text(
                 "UPDATE users SET permissions_version = permissions_version + 1 "
@@ -505,26 +512,32 @@ def run_all_tenant_migrations(
 class TenantSchemaRouter:
     async def resolve_schema(self, db: AsyncSession, organization_id: UUID) -> str | None:
         from app.core.config import get_settings
-        from app.core.redis_cache import cache_get_json, cache_set_json, org_schema_cache_key
+        from app.core.redis_cache import (
+            cache_delete,
+            cache_get_json,
+            cache_set_json,
+            org_schema_cache_key,
+        )
         from app.models import Organization
 
         cache_key = org_schema_cache_key(organization_id)
         cached = await cache_get_json(cache_key)
         if isinstance(cached, str) and cached:
             return cached
-        if cached is None:
-            pass
-        elif cached == "":
-            return None
+        if cached == "":
+            # Legacy negative cache poisoned auth for REDIS_ORG_SCHEMA_CACHE_TTL.
+            await cache_delete(cache_key)
 
         schema_name = await db.scalar(
             select(Organization.schema_name).where(Organization.id == organization_id)
         )
-        await cache_set_json(
-            cache_key,
-            schema_name or "",
-            ttl_seconds=get_settings().redis_org_schema_cache_ttl,
-        )
+        # Never negative-cache misses — empty Redis values caused ~5 min 401 logout loops.
+        if schema_name:
+            await cache_set_json(
+                cache_key,
+                schema_name,
+                ttl_seconds=get_settings().redis_org_schema_cache_ttl,
+            )
         return schema_name
 
 
