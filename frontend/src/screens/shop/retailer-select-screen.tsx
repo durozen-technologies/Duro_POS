@@ -233,7 +233,7 @@ export function RetailerSelectScreen({ navigation }: RetailerSelectScreenProps) 
             onPress={openRearrange}
             className="min-h-[36px] flex-row items-center gap-1.5 rounded-control border border-border bg-card px-2.5 active:opacity-90"
           >
-            <MaterialCommunityIcons name="swap-vertical" size={16} color={appTheme.ink} />
+            <MaterialCommunityIcons name="swap-vertical" size={16} color={appTheme.text} />
             <Text className="text-xs font-bold text-ink">{t("retailers.rearrange")}</Text>
           </Pressable>
         </View>

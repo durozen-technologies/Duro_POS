@@ -1351,6 +1351,8 @@ const ItemEditorPanel = memo(function ItemEditorPanel({
   onChangeForm: (values: ShopItemFormState) => void;
   onSubmit: () => void;
 }) {
+  const { t } = useAdminTranslation();
+
   if (!formIsOpen) {
     return null;
   }
@@ -1428,7 +1430,7 @@ const ItemEditorPanel = memo(function ItemEditorPanel({
                   {unitTypeOptions.map((option) => (
                     <ToggleButton
                       key={option.value}
-                      label={option.label}
+                      label={t(option.labelKey)}
                       icon={option.icon}
                       active={form.unitType === option.value}
                       onPress={() =>
